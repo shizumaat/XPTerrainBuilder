@@ -1989,7 +1989,7 @@ def _arclength_distance_to_mask(s, mask):
 
 def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
                cap_ceiling, budget_m, rate=None, lead=None, tail=None,
-               pin_ceiling=None):
+               pin_ceiling=None, window=False):
     """ONE RUN (or one DEM-wrong window: a run with no band), solved alone:
     ``(profile, pin report or None, run record)``.
 
@@ -2008,7 +2008,11 @@ def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
 
     ``rate`` -- THE VERTICAL CURVE (11-18e), :func:`O4_Road_Grade.
     hold_curve`; ``curve`` = ``"held"``, or ``"infeasible"`` where no
-    curved profile exists and the capped one stands.
+    curved profile exists and the capped one stands.  The curve is laid
+    ONLY where the grading changed the road: in a DEM-wrong ``window`` and
+    on a run the steep cap YIELDED; every other run keeps the class-cap
+    profile it had before the curve (lane lroads2: a curve on an ordinary
+    run moved certified KEGE's roads up to 2.94 m).
     """
     n_r = len(s_r)
     pinned_mask = numpy.zeros(n_r, dtype=bool)
@@ -2073,7 +2077,8 @@ def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
             cap_eff = _gentlest(lo, cap_ceiling, budget_m)
     prof, rep = _solve(cap_eff)
     curve = None
-    if rate is not None and n_r >= 2 and not (rep or {}).get("refused"):
+    if rate is not None and n_r >= 2 and (window or yielded) \
+            and not (rep or {}).get("refused"):
         allow = max(_max_offset(prof, z_r, judged),
                     (need if need is not None else 0.0) + budget_m)
         prof, cap_eff, curve = ROADGRADE.hold_curve(
@@ -2130,7 +2135,7 @@ def _solve_window(i0, i1, s, z, out, ours, trig, cap_class, cap_inside,
     prof, rep, record = _solve_run(
         s[sl] - s[j0], z[sl], numpy.zeros(j1 - j0 + 1, dtype=bool),
         [k for k, _v in pins], [v for _k, v in pins], cap_class, cap_inside,
-        cap_ceiling, budget_m, rate, lead, tail)
+        cap_ceiling, budget_m, rate, lead, tail, window=True)
     return sl, prof, rep, record
 
 
@@ -2183,9 +2188,10 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
       (:func:`O4_Road_Grade.steep_windows`), solved alone like a run with
       no band and recorded in ``runs`` with ``kind`` ``"dem_wrong"``.  A
       window the steep cap cannot pin keeps the DEM (``dem_kept``).
-    * ``grade_change_per_m`` — THE VERTICAL CURVE (11-18e) in every run
-      and window.  ``pin_ceiling`` — the steepest cap a run takes to reach
-      a deck or join pin the steep cap cannot (the law's ``cap_ceiling``).
+    * ``grade_change_per_m`` — THE VERTICAL CURVE (11-18e) in every
+      DEM-wrong window and on every YIELDED run, never an ordinary one.
+      ``pin_ceiling`` — the steepest cap a run takes to reach a deck or
+      join pin the steep cap cannot (the law's ``cap_ceiling``).
     * Stations outside every run and window take ``dem`` identically.
 
     Returns ``(altitudes, report)`` with ``report`` =

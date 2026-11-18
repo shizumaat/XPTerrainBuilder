@@ -135,3 +135,19 @@ def test_a_pin_past_the_steep_cap_is_still_reached():
     assert run.get("pins_over_steep_cap") is True
     assert abs(z[2] - 25.0) <= 0.0101       # the pin quantum (_PIN_FEASIBILITY_TOL_M)
     assert 0.20 < run["cap_eff"] <= 0.30
+
+
+def test_the_curve_never_touches_an_ordinary_run():
+    """Lane lroads2: a run the steep cap did not yield keeps the profile it
+    had before the curve, bit for bit (a curve on an ordinary run moved
+    certified KEGE's roads up to 2.94 m)."""
+    s = numpy.arange(30) * 20.0
+    dem = 10.0 + numpy.where(s < 300.0, 0.0, 0.08 * (s - 300.0))  # 0 -> 8 %
+    band = numpy.zeros(len(s), bool)
+    band[10:20] = True
+    z, rep = _profile(s, dem, band=band)
+    z0, rep0 = _profile(s, dem, band=band, grade_change_per_m=None)
+    run = rep["runs"][0]
+    assert not run["yielded"] and "curve" not in run
+    assert numpy.array_equal(z, z0)
+    assert RG._grade_change_excess(s, z, KW["grade_change_per_m"]) > 0

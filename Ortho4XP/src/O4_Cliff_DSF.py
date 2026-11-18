@@ -273,15 +273,28 @@ def _over_shadow(tile, layout, xyz, nodes, tri_idx, land, params,
             PHOTOS.photo_lookup(dico_customzl, tile.mesh_zl),
             PHOTOS.photo_reader(tile),
             PHOTOS.photo_reader(tile, fetch=False))
-        if extra is not None:
-            layout = FACES.find_cliff_layout(xyz, tri_idx, land, params,
-                                             extra_alpha=extra)
+        if extra is not None or stats.rock_regions:
+            layout = FACES.find_cliff_layout(
+                xyz, tri_idx, _without_rock(land, layout, stats), params,
+                extra_alpha=extra)
     except Exception as error:
         UI.vprint(1, "-> Cliff faces over shadow: not read (%s); the "
                      "overlay ends at the slope ramp." % (error,))
         return layout, None
     UI.vprint(1, "-> Cliff faces over shadow: " + stats.line())
     return layout, extra
+
+
+def _without_rock(land, layout, stats):
+    """``land`` less the triangles of the regions ``O4_Cliff_Shade`` found
+    to be dark rock in sunlight: the photo shows their material, so no
+    overlay is drawn there (owner 2026-11-18, LPPD)."""
+    if not stats.rock_regions:
+        return land
+    out = numpy.array(land, bool)
+    for r in stats.rock_regions:
+        out[layout.region_tris[r]] = False
+    return out
 
 
 def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,

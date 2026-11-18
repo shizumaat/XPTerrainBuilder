@@ -40,6 +40,7 @@ from auto_patch.build_support import is_user_edited_patch as _is_user_edited_pat
 # engine.
 from O4_Cfg_Vars import _road_grade_cap_from_law as _road_cap_from_law
 from O4_Cfg_Vars import road_neighbourhood_law as _road_neighbourhood_law
+from O4_Road_Yield import ROAD_BENCH_MAX_M, yield_steep_spans
 
 ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
@@ -2715,6 +2716,25 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                                       tile.lane_width + 2, 0, 0)
                  if _band_seed else geometry.Polygon())
         _law = _road_neighbourhood_law()
+        # THE STEEP-GROUND YIELD (owner sim read LPPD 2026-11-18): a span
+        # whose bench would stand more than ROAD_BENCH_MAX_M off its own
+        # ground within one lane is a wall, not a road -- it leaves the
+        # banked network and the mesh follows the DEM there.  Never in
+        # the band the clamp owns.
+        (road_network_banked, banked_classes, banked_ids,
+         _yield) = yield_steep_spans(
+            road_network_banked, tile.dem.alt_vec, tile.lane_width,
+            way_classes=banked_classes, way_ids=banked_ids, exempt=_band)
+        if _yield["ways"]:
+            _wx, _wy = _yield["worst"]
+            UI.vprint(
+                1,
+                "      Steep ground: %d span(s) on %d way(s), %.0f m, "
+                "yield to the DEM (bench over %.1f m; worst %.2f m at "
+                "%.6f,%.6f)." % (
+                    _yield["spans"], _yield["ways"], _yield["yielded_m"],
+                    ROAD_BENCH_MAX_M, _yield["worst_relief_m"],
+                    tile.lat + _wy, tile.lon + _wx))
         # 27a (10) THE RIBBON YIELDS at the joins auto_patch released
         _join_pins = road_join_yield_pins(tile)
         levelled["roads"] = VECT.clamp_road_network(

@@ -448,8 +448,6 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
                     continue
                 if _only_agp_ground(pm, law, v):
                     continue                    # #2090 C3b: never a road contact
-                if _only_band_ground(pm, law, v):
-                    continue                    # #2152: a zone band is no contact
                 z = _airside_level(pm, v)
                 if z is not None:
                     out[v] = z
@@ -965,10 +963,14 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
+    # #2152: a zone band's kerb is no mouth (:func:`_only_band_ground`); it
+    # stays a node of the road's walk, so a ramp passes through it
+    kerb = frozenset(v for v in mouths if _only_band_ground(pm, law, v))
+    mouths = {v: z for v, z in mouths.items() if v not in kerb}
     # #2128 R2 spec R4: INSIDE THE SURVEYED CUT beside a kept hard deck no
     # road-ramp seed, ramp or cut ceiling applies -- the target is the
     # road's own profile there, and no level walks through it
-    in_cut = _in_cuts(pm, set(owned) | set(mouths))
+    in_cut = _in_cuts(pm, set(owned) | set(mouths) | kerb)
     mouths = {v: z for v, z in mouths.items() if v not in in_cut}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
     # predicted level, never its DEM — the road reaches the high side, and
@@ -1045,7 +1047,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     other, x_vs = other_side(crossings), crossing_vertices(crossings)
     rep["grade_separated_crossings"] = len(crossings)
     rep["grade_separated_vertices"] = len(x_vs)
-    adj = _graph(pm, (set(owned) | set(mouths)) - in_cut, x_vs)
+    adj = _graph(pm, (set(owned) | set(mouths) | kerb) - in_cut, x_vs)
     junctions: list = []
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
@@ -1080,7 +1082,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
     by_route: dict[int, list[tuple[float, int]]] = {}
-    for v in set(owned) | set(mouths):
+    for v in set(owned) | set(mouths) | kerb:
         f_ = frame.get(v)
         if f_ is not None:
             by_route.setdefault(f_[0], []).append((f_[1], v))

@@ -81,23 +81,27 @@ def main(argv: list[str]) -> int:
         % (FETCH_ASYNC.fetcher_choice(), wall, complete, digest or "-")
     )
     if convert > 0:
-        tile = _convert_tile(outdir, lat, lon)
+        tile = _convert_tile(outdir, lat, lon, provider_code)
         textures = _texture_block(til_x, til_y, convert)
         whole = _convert_textures(tile, textures, zoom, provider_code, imagery_dir)
         complete = complete and whole == len(textures)
     return 0 if complete else 1
 
 
-def _convert_tile(outdir: str, lat: float, lon: float):
+def _convert_tile(outdir: str, lat: float, lon: float, provider_code: str):
     """The stand-in tile ``convert_texture`` reads: its own build folder under OUTDIR,
-    no masks, no colour harmonization; the imagery and temp folders point under OUTDIR."""
+    no masks, no colour harmonization; the imagery and temp folders point under OUTDIR.
+    Its capture seams (#2108) are settled as none: the selfcheck checks the textures'
+    fetch and convert, not the tile's one-off seam survey, which fetches every square
+    of the tile and writes the data folder's seam book."""
     import O4_File_Names as FNAMES
 
     FNAMES.Imagery_dir = os.path.join(outdir, "selfcheck", "Orthophotos")
     FNAMES.Tmp_dir = os.path.join(outdir, "selfcheck", "tmp")
     tile = types.SimpleNamespace(
         lat=math.floor(lat), lon=math.floor(lon), imprint_masks_to_dds=False,
-        build_dir=os.path.join(outdir, "selfcheck", "build"))
+        build_dir=os.path.join(outdir, "selfcheck", "build"),
+        capture_seams=None, capture_seams_of=provider_code)
     os.makedirs(os.path.join(tile.build_dir, "textures"), exist_ok=True)
     return tile
 

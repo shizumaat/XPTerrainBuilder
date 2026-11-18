@@ -193,3 +193,51 @@ def test_a_buffer_returned_in_parts_is_still_witnessed():
     gone, dropped = VET.vet_coastline(coast, LAT, LON,
                                       _witness(_highland()))
     assert gone.is_empty and len(dropped) == 1
+
+
+# --- rule 4: a seed stands clear of its polygon's edge (lflood, +53+009) ---
+#: metres per tile-relative degree of longitude at the test latitude
+_M_LON = VET._LAT_TO_M * numpy.cos(numpy.radians(LAT + 0.5))
+
+
+def _elbe_sliver(width_m=0.001):
+    """The +53+009 shape: an estuary whose tidal polygon follows the
+    coastline but stops ``width_m`` short of it, leaving a sliver."""
+    sea = geometry.box(0.0, 0.0, 0.5, 1.0)
+    tidal = geometry.box(0.1, 0.0, 0.5 - width_m / _M_LON, 1.0)
+    return VMAP.sea_seed_areas(geometry.MultiPolygon([sea]), tidal)
+
+
+def test_a_sliver_seed_stands_under_a_millimetre_from_the_coast():
+    """The defect: the sliver's representative point sits on the coast,
+    so a 1.3 mm node move puts it on the land side."""
+    sliver = max(_elbe_sliver().geoms, key=lambda g: g.bounds[0])
+    seed = sliver.representative_point()
+    coast = geometry.LineString([(0.5, 0.0), (0.5, 1.0)])
+    assert coast.distance(seed) * _M_LON < 0.001
+    moved = geometry.LineString([(0.5 - 0.0013 / _M_LON, 0.0),
+                                 (0.5 - 0.0013 / _M_LON, 1.0)])
+    land = geometry.box(0.5 - 0.0013 / _M_LON, 0.0, 1.0, 1.0)
+    assert land.contains(seed) and not moved.contains(seed)
+
+
+def test_a_sliver_gets_no_seed_and_the_open_sea_keeps_its_own():
+    areas = _elbe_sliver()
+    points, slivers = VET.sea_seed_points(areas, LAT, LON)
+    assert slivers == 1 and len(points) == 1
+    wide = min(areas.geoms, key=lambda g: g.bounds[0])
+    assert tuple(points[0]) == wide.representative_point().coords[0]
+
+
+def test_every_seed_stands_at_least_the_clearance_inside():
+    """A polygon whose own representative point hugs its edge (a wide
+    basin behind a narrow mouth) is seeded in its clear core instead."""
+    basin = geometry.Polygon([(0.2, 0.2), (0.6, 0.2), (0.6, 0.6),
+                              (0.2, 0.6)]).union(
+        geometry.box(0.6, 0.39, 0.9, 0.39 + 1.0 / VET._LAT_TO_M))
+    points, slivers = VET.sea_seed_points(
+        geometry.MultiPolygon([basin]), LAT, LON)
+    assert slivers == 0 and points
+    clear = VET.SEED_CLEARANCE_M / _M_LON
+    for point in points:
+        assert basin.boundary.distance(geometry.Point(point)) >= clear * 0.999

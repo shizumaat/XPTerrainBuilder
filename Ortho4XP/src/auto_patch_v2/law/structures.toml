@@ -1614,6 +1614,7 @@ edge_m              = 6.0          # a parapet stands on the deck's EDGE: within
 shear               = true         # §49 (5): read by the #2144 deck warp (airport/deck_profile); off disarms it
 shear_max_grade     = 0.10         # §49 (5): steeper decks are not sheared
 pier_foot_stretch_max_m = 3.0      # #2144 P2 (owner 2026-11-17T20:43Z): a warped deck's floating ground-contact foot (> [placement] split_tol_m) is lowered to the ground by at most this; beyond it the foot is reported.  0 disarms
+track_vertical_radius_m = 1000.0  # #2144 (owner 2026-11-18T00:32Z, RULINGS 2026-11-17t (3)): a warped deck's track bends to follow the ground between its nodes under [tunnel] rail_ramp_max_grade, its grade changing SMOOTHLY: by at most 1/R per metre along it (a parabolic vertical curve of radius R; 1000 m: a ~50 km/h people mover at a vertical acceleration V^2/R of 0.2 m/s^2 needs 965 m). 0 = the straight grade between nodes (no bend)
 elevated_over_ends_m = 3.0        # #2127 item 4 (RULINGS 2026-11-16u): a pack deck over the pack's cut whose top, at the zero its frame/group gave it, stands more than this (one storey) over the solved surface at BOTH end lines carries nothing at grade: no 26d cut-deck seat (airport/cut_deck_seat; LGAV Train4 +12.6 m)
 
 # ─────────────────────────────────────────────────────────────────────────

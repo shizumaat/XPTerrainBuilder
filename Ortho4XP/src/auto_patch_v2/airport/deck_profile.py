@@ -59,6 +59,16 @@ nearest station (``obj8_warp.Track``).  So the deck is flat inside every
 building it enters, takes the straight grade between two along its own
 curve, and a pier under it stands near its authored height.
 
+BEND (owner 2026-11-18T00:32Z, RULINGS 2026-11-17t (3): "As long it's
+under rail cap, yes").  Between two nodes the track follows the drawn
+ground under it, offset by the authored pier height -- the L1 fit to its
+feet's ``T = ground - (deck zero + authored y)`` -- each segment under the
+rail cap and its grade changing by at most ``1/[deck]
+track_vertical_radius_m`` per metre (a vertical curve; a node reads
+grade 0), the nodes untouched (``airport/deck_track_bend``).  Where the
+ground falls faster than the cap the track keeps the capped grade; the
+ground GRADING under it (an embankment or cut) is not built yet.
+
 GRADE CAP.  The track's steepest grade, along it vertex to vertex, may
 not exceed ``grade_max`` (the rail ramp
 cap, ``[tunnel] rail_ramp_max_grade``, and never above ``[deck]
@@ -122,6 +132,9 @@ class _WarpLaw:
     #: the most a floating pier foot is lowered (``[deck]
     #: pier_foot_stretch_max_m``); 0 lists it only
     stretch_max_m: float = 0.0
+    #: the track's vertical-curve radius (``[deck]
+    #: track_vertical_radius_m``); 0 keeps the straight grade between nodes
+    radius_m: float = 0.0
 
 
 def law_of(structures: _t.Any) -> "_WarpLaw | None":
@@ -135,7 +148,8 @@ def law_of(structures: _t.Any) -> "_WarpLaw | None":
         return _WarpLaw(min(float(tunnel.rail_ramp_max_grade), float(deck.shear_max_grade)),
                        float(TOUCH_M), float(pl.chain_min_height_m),
                        float(pl.authored_keep_tol_m), float(pl.split_tol_m),
-                       float(getattr(deck, "pier_foot_stretch_max_m", 0.0)))
+                       float(getattr(deck, "pier_foot_stretch_max_m", 0.0)),
+                       float(getattr(deck, "track_vertical_radius_m", 0.0)))
     except AttributeError:
         return None
 
@@ -531,10 +545,14 @@ def _knots(spans: _t.Sequence[tuple], tol_m: float) -> list:
 
 
 def _track(nodes: _t.Sequence[tuple], pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],
-           xy: _t.Callable, law: _WarpLaw) -> "np.ndarray | None":
+           xy: _t.Callable, law: _WarpLaw, feet: _t.Sequence[tuple] = (),
+           report: "dict | None" = None) -> "np.ndarray | None":
     """The deck's TRACK in local metres, ``[[x, y, D], ...]``: its
     centreline, each node flat over the stretch it covers and ``D`` linear
-    in distance along the line between two (FIELD in the module doc)."""
+    in distance along the line between two (FIELD in the module doc) --
+    bent between two to the ``feet`` ``[(x, y, T)]`` under the rail cap
+    where ``law.radius_m`` arms it (BEND; ``deck_track_bend``), its
+    report into ``report``."""
     from shapely.ops import unary_union
     plan = unary_union([g for k in ks for g, _p in _polys_of(pieces[k], xy)]).buffer(
         law.reach_m + GRID_M)
@@ -547,7 +565,19 @@ def _track(nodes: _t.Sequence[tuple], pieces: _t.Sequence[_Piece], ks: _t.Sequen
     vs = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(v, axis=0).T))])
     st = np.unique(np.concatenate([vs, np.clip(ks_, 0.0, line.length)]))
     pts = np.asarray([line.interpolate(float(q)).coords[0] for q in st])
-    return np.column_stack([pts, np.interp(st, ks_, kd)])
+    d = np.interp(st, ks_, kd)
+    if feet and law.radius_m > 0.0:
+        import shapely
+
+        from .deck_track_bend import bend
+        fa = np.asarray(feet, float)
+        fs = shapely.line_locate_point(line, shapely.points(fa[:, :2]))
+        d, rep = bend(st, d, kn, list(zip(fs.tolist(), fa[:, 2].tolist(), strict=True)),
+                      grade_max=law.grade_max - 1e-6, radius_m=law.radius_m,
+                      stretch_m=law.stretch_max_m)
+        if report is not None:
+            report.update(rep)
+    return np.column_stack([pts, d])
 
 
 def _field(track: "np.ndarray | None") -> _t.Any:
@@ -638,7 +668,14 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
                           round(max(d for d, _g, _c in feet), 3)] if feet else []}
         table.append(row)
         why = _refusal(pieces, ks)
-        track = _track(nodes, pieces, ks, xy, law) if not why else None
+        allk = list(ks) + riders
+        out_of = {k: _left_out(pieces[k]) for k in allk} if not why else {}
+        warped = [k for k in allk if not out_of.get(k)]
+        bent: dict = {}
+        track = (_track(nodes, pieces, ks, xy, law,
+                        _targets(pieces, warped, xy, surface, z0)
+                        if surface is not None else (), bent)
+                 if not why else None)
         if not why and track is None:
             why = "no_track"
         if not why:
@@ -650,10 +687,16 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
             row["refused"] = why
             counts[f"warp_refused_{why}"] = counts.get(f"warp_refused_{why}", 0) + 1
             continue
-        ks = list(ks) + riders
+        if bent.get("bent"):
+            row["bend"] = bent
+            counts["warp_track_bent"] = counts.get("warp_track_bent", 0) + bent["bent"]
+        if bent.get("tight"):
+            counts["warp_bend_tight"] = counts.get("warp_bend_tight", 0) + bent["tight"]
+        if bent.get("infeasible"):
+            counts["warp_bend_infeasible"] = (counts.get("warp_bend_infeasible", 0)
+                                              + bent["infeasible"])
+        ks = allk
         row["riders"] = len(riders)
-        out_of = {k: _left_out(pieces[k]) for k in ks}
-        warped = [k for k in ks if not out_of[k]]
         stretch = (_stretches(pieces, warped, track, xy, surface, law, z0)
                    if surface is not None else {})
         for k in ks:
@@ -714,6 +757,15 @@ def _foot_floats(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],
                 continue
             yield (k, float(la), float(lo), float(y),
                    pc.zero + float(y) + d - float(s))
+
+
+def _targets(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
+             surface: _t.Callable, z0: float) -> list:
+    """``[(x, y, T)]``: each ground-contact foot of the members in local
+    metres with the ``D`` that stands it on the ground at its authored
+    height, ``T = ground - (z0 + y)`` (BEND in the module doc)."""
+    return [(*xy(la, lo), -fl) for _k, la, lo, _y, fl
+            in _foot_floats(pieces, ks, None, xy, surface, z0)]
 
 
 def _stretches(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], track: np.ndarray,

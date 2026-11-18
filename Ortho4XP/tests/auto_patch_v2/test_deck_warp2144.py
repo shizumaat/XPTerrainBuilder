@@ -187,3 +187,70 @@ def test_the_knots_hold_each_node_flat_in_order_along_the_track():
     assert k[0] == (0.0, 0.0) and k[1] == (10.0, 0.0)
     assert k[2] == (100.0, -1.0) and k[-1] == (140.0, -2.0)
     assert k[3][0] < k[4][0] and k[3][1] == -1.0 and k[4][1] == -2.0
+
+
+def _bent(ground, *, length=400.0, d_a=0.0, d_b=0.0, radius=1000.0):
+    """``deck_track_bend.bend`` over a straight track: node A flat over
+    [0, 20] at ``d_a``, node B flat over [length - 20, length] at ``d_b``,
+    a foot every 8 m between asking for ``ground(s)``."""
+    from auto_patch_v2.airport import deck_track_bend as DB
+    st = np.arange(0.0, length + 1e-9, 4.0)
+    kn = [(0.0, d_a), (20.0, d_a), (length - 20.0, d_b), (length, d_b)]
+    d = np.interp(st, [q[0] for q in kn], [q[1] for q in kn])
+    feet = [(float(s), float(ground(s))) for s in np.arange(24.0, length - 20.0, 8.0)]
+    out, rep = DB.bend(st, d, kn, feet, grade_max=0.035, radius_m=radius, stretch_m=3.0)
+    return st, d, out, rep, feet
+
+
+def _grades(st, d):
+    return np.diff(d) / np.diff(st)
+
+
+def test_the_track_bends_to_follow_gentle_ground_and_keeps_its_nodes():
+    """Owner 2026-11-18T00:32Z (RULINGS 2026-11-17t (3)): between nodes the
+    track follows the ground under it (a 1.5 m hump, 1 % flanks) and the
+    nodes stay exactly where they were."""
+    hump = lambda s: max(0.0, 1.5 - abs(s - 200.0) * 0.01)      # noqa: E731
+    st, d, out, rep, feet = _bent(hump)
+    assert rep["bent"] == 1 and rep["infeasible"] == 0
+    at = np.interp([f[0] for f in feet], st, out)
+    assert np.abs(at - np.asarray([f[1] for f in feet])).max() < 0.25
+    node = (st <= 20.0) | (st >= 380.0)
+    assert np.array_equal(out[node], d[node])
+
+
+def test_the_bent_track_never_passes_the_rail_cap_and_curves_smoothly():
+    """A 9 m fall over 60 m (15 %): the track keeps the capped grade, and
+    its grade changes by at most 1/R per metre (a node reads grade 0)."""
+    cliff = lambda s: 8.0 if s < 100.0 else (-1.0 if s > 160.0 else 8.0 - 0.15 * (s - 100.0))  # noqa: E731
+    st, _d, out, rep, _feet = _bent(cliff, d_a=8.0, d_b=-1.0)
+    assert rep["bent"] == 1
+    g = _grades(st, out)
+    assert np.abs(g).max() <= 0.035 + 1e-6
+    dg = np.abs(np.diff(np.concatenate([[0.0], g, [0.0]])))
+    run = np.concatenate([[2.0], np.full(len(g) - 1, 4.0), [2.0]])
+    assert (dg <= run / 1000.0 + 1e-6).all()
+    # past the cliff's foot the track still comes down the capped grade
+    assert out[np.searchsorted(st, 160.0)] > -1.0 + 0.5
+
+
+def test_no_feet_or_no_radius_keeps_the_straight_grade():
+    from auto_patch_v2.airport import deck_track_bend as DB
+    st = np.arange(0.0, 100.0 + 1e-9, 4.0)
+    kn = [(0.0, 0.0), (10.0, 0.0), (90.0, -1.0), (100.0, -1.0)]
+    d = np.interp(st, [q[0] for q in kn], [q[1] for q in kn])
+    out, rep = DB.bend(st, d, kn, [], grade_max=0.035, radius_m=1000.0, stretch_m=3.0)
+    assert np.array_equal(out, d) and rep["bent"] == 0
+    # a stretch too short to curve at R takes a tighter radius (counted) ...
+    kn2 = [(0.0, 0.0), (32.0, 0.0), (68.0, 0.35), (100.0, 0.35)]
+    d2 = np.interp(st, [q[0] for q in kn2], [q[1] for q in kn2])
+    out2, rep2 = DB.bend(st, d2, kn2, [(50.0, 3.0)], grade_max=0.035, radius_m=1000.0,
+                         stretch_m=3.0)
+    assert rep2["tight"] == 1 and rep2["bent"] == 1
+    assert np.abs(np.diff(np.diff(out2) / 4.0)).max() <= 4.0 / 500.0 + 1e-6
+    # ... and one too short for R/8 keeps its straight grade, counted
+    kn3 = [(0.0, 0.0), (46.0, 0.0), (54.0, 0.25), (100.0, 0.25)]
+    d3 = np.interp(st, [q[0] for q in kn3], [q[1] for q in kn3])
+    out3, rep3 = DB.bend(st, d3, kn3, [(50.0, 3.0)], grade_max=0.035, radius_m=1000.0,
+                         stretch_m=3.0)
+    assert rep3["infeasible"] == 1 and np.array_equal(out3, d3)

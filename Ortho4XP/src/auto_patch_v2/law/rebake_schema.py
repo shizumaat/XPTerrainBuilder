@@ -622,6 +622,12 @@ class Deck:
     #: ``[placement] split_tol_m`` has its foot vertices lowered to the
     #: ground by at most this; the rest is reported.  0 disarms.
     pier_foot_stretch_max_m: float = 3.0
+    #: #2144 (owner 2026-11-18T00:32Z, RULINGS 2026-11-17t (3)): between
+    #: its nodes a warped deck's track BENDS to follow the ground under
+    #: the rail cap, its grade changing by at most 1/R per metre along it
+    #: (a vertical curve of this radius).  0 = the straight grade between
+    #: nodes.
+    track_vertical_radius_m: float = 1000.0
     #: AN ELEVATED DECK CARRIES NOTHING AT GRADE (#2127 item 4; owner
     #: RULINGS 2026-11-16u): a pack hard deck over the pack's cut whose
     #: authored top, at the zero its frame or touching group already gave

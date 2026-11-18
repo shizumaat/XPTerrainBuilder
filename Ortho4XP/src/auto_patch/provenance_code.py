@@ -444,6 +444,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.deck_structure",
     "auto_patch_v2.airport.deck_surface",
     "auto_patch_v2.airport.deck_texture",
+    "auto_patch_v2.airport.deck_track_bend",
     "auto_patch_v2.airport.dem",
     "auto_patch_v2.airport.dem_production",
     "auto_patch_v2.airport.dem_record",

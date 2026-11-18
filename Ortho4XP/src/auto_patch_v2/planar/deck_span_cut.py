@@ -62,9 +62,16 @@ def span_split(piece: _t.Any, airport: _t.Any, law: _t.Any
 def _mapped_airside(airport: _t.Any, law: _t.Any, piece: _t.Any) -> _t.Any:
     """The airport's mapped airside near ``piece`` (module doc), prepared;
     ``None`` for none."""
+    from shapely.prepared import prep
+    near = _airside_near(airport, law, piece)
+    return None if near is None else prep(near)
+
+
+def _airside_near(airport: _t.Any, law: _t.Any, piece: _t.Any) -> _t.Any:
+    """The airport's mapped airside near ``piece`` (module doc) as one
+    geometry; ``None`` for none."""
     from shapely.geometry import LineString, Polygon
     from shapely.ops import unary_union
-    from shapely.prepared import prep
 
     from ..law.tables import taxi_half_width_m
     box = piece.envelope.buffer(50.0)
@@ -80,7 +87,7 @@ def _mapped_airside(airport: _t.Any, law: _t.Any, piece: _t.Any) -> _t.Any:
         if half > 0.0 and e.a in nodes and e.b in nodes and nodes[e.a].xy != nodes[e.b].xy:
             geoms.append(LineString([nodes[e.a].xy, nodes[e.b].xy]).buffer(half))
     near = [g for g in geoms if g.intersects(box)]
-    return prep(unary_union(near)) if near else None
+    return unary_union(near) if near else None
 
 
 def _on(cut: SpanCut, s0: float, s1: float, mapped: _t.Any) -> bool:
@@ -106,7 +113,15 @@ def at_grade_cells(classification: _t.Any, airport: _t.Any, law: _t.Any,
     once the deck is dropped the airport's own graded taxiway draws there.
     Each at-grade part not already under a runway, taxiway or apron cell
     becomes a cell of the role (and letter, kind) of the nearest taxi cell;
-    the cells it covers are cut away.  Unchanged where no deck is cut."""
+    the cells it covers are cut away.  Unchanged where no deck is cut.
+
+    #2157 R1/R4 (the pavement is the taxiway, not the object's plan): only
+    the at-grade plan on the MAPPED airside (``_airside_near``) widened by
+    the zone-1 lip (``zones.adjacent_ground.lip_width_m``) is made pavement;
+    the rest of the plan is left to the ground beside the taxiway -- its
+    graded strip and the bank to the survey (MEASURED KRDU obj140 #2: an
+    89 m plan over a 50 m crest, graded flat as taxiway 1.3-2.2 m under the
+    crest)."""
     import dataclasses as dc
 
     from shapely.geometry import Polygon
@@ -120,6 +135,7 @@ def at_grade_cells(classification: _t.Any, airport: _t.Any, law: _t.Any,
     if not objects or classification is None or not classification.cells:
         return classification, []
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
     at: list[tuple[str, _t.Any]] = []
     for decks, _frame in _frames(objects, tol):
         u = unary_union([q.hard_deck for q in decks])
@@ -127,8 +143,12 @@ def at_grade_cells(classification: _t.Any, airport: _t.Any, law: _t.Any,
             if piece.geom_type != "Polygon" or piece.area < 1.0:
                 continue
             got = span_split(piece, airport, law)
-            if got is not None:
-                at.append((str(decks[0].id), piece.difference(unary_union(got[1]))))
+            if got is None:
+                continue
+            g = piece.difference(unary_union(got[1]))
+            near = _airside_near(airport, law, piece)
+            at.append((str(decks[0].id), g if near is None else g.intersection(
+                near.buffer(lip, join_style="mitre"))))
     if not at:
         return classification, []
 

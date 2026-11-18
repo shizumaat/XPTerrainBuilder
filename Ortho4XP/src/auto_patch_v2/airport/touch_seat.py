@@ -358,7 +358,12 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     stack = _sd.stacked_on(nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
                            walled_m=law.walled_m, tol_m=law.contact_tol_m or law.tol_m,
                            kind_building=_tg.BUILDING)
+    rehost = _sd.rehosted(nodes, pairs, walled_m=law.walled_m,
+                          tol_m=law.contact_tol_m or law.tol_m, kind_building=_tg.BUILDING)
     units = {d: _sd.unit_of(nodes, d, set(stack.values()), law.tol_m) for d in stack}
+    # a rehosted piece moves alone: its unit mates are its carrier's
+    units.update({p: [p] for p in rehost if p not in stack})
+    stack.update({p: d for p, d in rehost.items() if p not in stack})
     rows = [_seat(nodes, g, pairs, law, {i for u in units.values() for i in u})
             for g in groups]
     moves = {nodes[i].key: z for r in rows for i, z in r["moves"].items()}

@@ -29,13 +29,23 @@ never torn (the deck's ramps stay at its ends).  A support is never one of
 them.  The caller (``touch_seat``) moves deck and unit to the support's
 final zero.
 
+A PIECE CARRIED FAR OVER ITS CARRIER RIDES THE DECK IT CONTINUES
+(:func:`rehosted`; master 2026-11-18, extending rule (2)): a carried piece
+whose lowest part stands more than a storey (``walled_m``) over its
+carrier's top is not resting on it; where it touches, in plan, a building
+holding an ELEVATED part at its own authored height (bottoms within
+``tol_m``: it continues that deck), it rides that building, not the
+carrier.  EDDH ``park_03__b4`` (a 3 x 2 m slab at authored y 8.70, carried
+on ``park_04__b9`` whose top is 5.65 m under it) continues ``park_03__b0``'s
+deck (slabs at 8.65-8.76): it stepped 1.21 m over it once b0 was levelled.
+
 Nothing here names an airport, a pack or a resource.
 """
 from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["stacked_on", "unit_of"]
+__all__ = ["stacked_on", "unit_of", "rehosted"]
 
 
 def _bears(n: _t.Any, s: _t.Any, xy: _t.Callable, walled_m: float, tol_m: float) -> bool:
@@ -96,3 +106,31 @@ def unit_of(nodes: _t.Sequence[_t.Any], d: int, supports: _t.AbstractSet[int],
                   if k != d and k not in supports and not m.fixed and m.frame == n.frame
                   and abs(m.zero - n.zero) <= tol_m
                   and keys & ({m.unit, m.family, m.grouped} - {""})]
+
+
+def _coplanar(n: _t.Any, d: _t.Any, walled_m: float, tol_m: float) -> bool:
+    """Has ``d`` an elevated part whose bottom is within ``tol_m`` of one
+    of ``n``'s part bottoms (authored, one frame)?"""
+    mine = [n.span(p)[0] for p in n.parts]
+    return any(abs(lo - m) <= tol_m for q in d.parts
+               for lo in (d.span(q)[0],) if lo >= walled_m for m in mine)
+
+
+def rehosted(nodes: _t.Sequence[_t.Any], pairs: _t.Iterable[tuple[int, int]], *,
+             walled_m: float, tol_m: float, kind_building: str) -> dict[int, int]:
+    """``{carried piece: the building whose deck it continues}`` (module
+    doc); a piece touching several such takes the lowest."""
+    by_name = {(n.frame, n.name): k for k, n in enumerate(nodes)}
+    out: dict[int, int] = {}
+    for i, j in pairs:
+        for p, d in ((i, j), (j, i)):
+            P, D = nodes[p], nodes[d]
+            c = by_name.get((P.frame, P.carrier)) if P.carrier else None
+            if (c is None or c == d or D.kind != kind_building or P.fixed or D.fixed
+                    or abs(P.zero - D.zero) <= tol_m):
+                continue
+            top = max(nodes[c].span(q)[1] for q in nodes[c].parts)
+            if (P.bottom() - top > walled_m and _coplanar(P, D, walled_m, tol_m)
+                    and (p not in out or nodes[out[p]].zero > D.zero)):
+                out[p] = d
+    return out

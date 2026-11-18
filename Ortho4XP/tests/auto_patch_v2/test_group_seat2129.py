@@ -148,3 +148,16 @@ def test_a_frame_whose_level_seat_floats_past_a_metre_is_listed_and_kept():
     moved, rows, counts = _untilt(splits, members, sink_max_m=1.0)
     assert not moved and rows[0][3] is None and counts["seat_tilt_float_unreached"] == 1
     assert splits[0].bodies[0] is before
+
+
+def test_a_piece_carried_far_over_its_carrier_rides_the_deck_it_continues():
+    """EDDH g2: a slab at the deck's authored height, carried by a low
+    building 5.65 m under it, rides the deck it touches (b0~b4 1.21 -> 0)."""
+    w = _World()
+    deck = w.body("b0", (0, 0, 40, 20), 14.34, base=8.65, h=3.0)
+    low = w.body("b9", (40.05, 0, 60, 20), 15.556, h=3.05)
+    slab = w.body("b4", (40.05, 0, 43, 2), 15.556, base=8.70, h=0.09, feet=False,
+                  merged_into="objects/b9__b0.obj", reason="carried by objects/b9__b0.obj")
+    out, _table, _c = w.run(law=LAW)
+    assert _zero(out[slab]) == _zero(out[deck]) == 14.34
+    assert _zero(out[low]) == 15.556

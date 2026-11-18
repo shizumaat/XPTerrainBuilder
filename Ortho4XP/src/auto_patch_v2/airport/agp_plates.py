@@ -13,6 +13,12 @@ a part under ``floor_min_area_m2`` or whose median ``|L - DEM|`` exceeds
 ``plate_max_off_m`` is listed, not built — the DEM gate reads only an inset
 that is credible lidar (#2116 R2 G2, ``law/inset_class``); on a coarse DEM
 the plate is built on the pack's evidence and listed ``agp_plate_unchecked``.
+The gate yields to a SEATED plate (owner RULINGS 2026-11-18j): where the
+member's own contact FEET (``agp_ground.member_feet``, within the ground band
+of the datum the group's lawful lift set, 14m (3)) stand on the part, its
+level is the seated group's, not a lidar-free guess — it is built at that
+seat however far it stands off the lidar and listed ``agp_plate_seated``;
+the ground meets the objects and the planar banks carry it back to the DEM.
 ``AgpGroup.plates`` carries them;
 the planar stage grades them (``planar/agp_ground``) and the rows hold the
 ground at the floor (``constraints/agp_level``).
@@ -56,8 +62,23 @@ def _parts(tris: np.ndarray):
             if p.geom_type == "Polygon"]
 
 
+#: a contact foot stands on a plate part within this of its edge (m): the
+#: feet's 1 m cells (``agp_floors.FOOT_CELL_M``)
+_FOOT_REACH_M = 1.0
+
+
+def _seated(part, feet: "np.ndarray | None") -> bool:
+    """Whether any of the member's contact feet ``(k, 1, 3)`` (frame) stand
+    on ``part`` (RULINGS 2026-11-18j: the seated group's feet set its level)."""
+    import shapely
+    if feet is None or not feet.shape[0]:
+        return False
+    return bool(shapely.contains_xy(part.buffer(_FOOT_REACH_M), feet[:, 0, 0],
+                                    feet[:, 0, 1]).any())
+
+
 def _member_plates(g: AgpGroup, row: str, tris: np.ndarray, dem, agp, flush: float,
-                   lidar: bool = True) -> list[AgpPlate]:
+                   lidar: bool = True, feet: "np.ndarray | None" = None) -> list[AgpPlate]:
     import shapely
 
     from .dem import dem_z_many
@@ -82,6 +103,8 @@ def _member_plates(g: AgpGroup, row: str, tris: np.ndarray, dem, agp, flush: flo
         why, built = "", True
         if part.area < float(agp.floor_min_area_m2):
             why, built = f"agp_plate_small: {part.area:.0f} m² < floor_min_area_m2", False
+        elif off > float(agp.plate_max_off_m) and lidar and _seated(part, feet):
+            why = f"agp_plate_seated: |L - DEM| {off:.2f} (the group's contact feet set it)"
         elif off > float(agp.plate_max_off_m) and lidar:
             why, built = (f"agp_plate_off_dem: median |L - DEM| {off:.2f} > plate_max_off_m",
                           False)
@@ -143,11 +166,12 @@ def _read_plates(airport, law, groups: _t.Sequence[AgpGroup]
             if not loc.shape[0]:
                 continue
             tris = _frame_tris(loc, lat0, lon0, airport.frame.crs)
+            feet = _frame_tris(member_feet(m, lat0, lon0, memo, float(agp.ground_band_m)),
+                               lat0, lon0, airport.frame.crs)
             mine = _member_plates(g, fm.row, tris, getattr(airport, "dem", None), agp, flush,
-                                  lidar)
+                                  lidar, feet)
             # #2116 R2 C1b: the open strips between two ground-floor parts
-            feet = member_feet(m, lat0, lon0, memo, float(agp.ground_band_m))
-            plates += with_gap_plates(mine, _frame_tris(feet, lat0, lon0, airport.frame.crs),
+            plates += with_gap_plates(mine, feet,
                                       _floor_plan(m, lat0, lon0, memo, agp, airport),
                                       g.zero_pred(fm.row), agp, flush,
                                       getattr(airport, "dem", None), notes)

@@ -630,7 +630,8 @@ def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFil
     # (``rebake_screen.patch_body_sha256`` of the files once written)
     bodies = [hashlib.sha256(f.body.encode("utf-8")).hexdigest()
               for f in [patch, *(f for _k, f in pieces or ())]]
-    rscreen = _rscreen.take(airport, objects_out[0], law, patch_bodies=bodies, **_plan_args)
+    rscreen = _rscreen.take(airport, objects_out[0], law, patch_bodies=bodies,
+                            cache=objects_out[1], **_plan_args)
     if rscreen is not None:
         name = f"{icao}.rebake.screen.json"
         s = wall["rebake_screen"] = time.perf_counter() - t

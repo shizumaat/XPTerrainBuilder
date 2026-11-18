@@ -114,7 +114,7 @@ def test_the_later_build_of_the_guests_tile_reseats_them(tmp_path, monkeypatch):
     origin = patches / "+40+010" / "+47+012"
     origin.mkdir(parents=True)
     (origin / "o4_v2_placement_LOWS.json").write_text(json.dumps(
-        {"icao": "LOWS", "pack_root": str(pack)}), encoding="utf-8")
+        {"icao": "LOWS", "pack_root": str(pack)}), encoding="utf-8", newline="\n")
     mesh = tmp_path / "Data+47+013.mesh"
     mesh.write_bytes(b"mesh")
     marks = {"LOWS@+47+012": TR.DEM_MARK}
@@ -141,9 +141,9 @@ def test_the_piece_for_a_tile_that_builds_no_patch_is_laid_there(tmp_path, monke
     pieces = {}
     for t in ((53, 9), (53, 10), (54, 9)):
         p = tmp_path / f"{t[0]}_{t[1]}.osm"
-        p.write_text(f"piece {t}", encoding="utf-8")
+        p.write_text(f"piece {t}", encoding="utf-8", newline="\n")
         s = tmp_path / f"{t[0]}_{t[1]}.axes.json"
-        s.write_text("{}", encoding="utf-8")
+        s.write_text("{}", encoding="utf-8", newline="\n")
         pieces[t] = types.SimpleNamespace(patch=p, sidecar=s)
     task = {"threshold_tiles": [(53, 9), (54, 9)]}
     assert EV._install_neighbour_pieces(task, "EDDH", pieces, (53, 9)) == ["+53+010"]

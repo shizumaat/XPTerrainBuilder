@@ -83,6 +83,8 @@ KEEP = frozenset({
     "auto_patch.gateway_stage",
     # #2145: the offer to hide large structures two packs both draw
     "auto_patch.overlap_stage",
+    # ... and to disable the lower of two packs defining one airport (17s)
+    "auto_patch.duplicate_stage",
     "auto_patch.forest_stage",
     # ... the ground a guest body stands on, and its re-seat (#2129)
     "auto_patch.guest_stage",

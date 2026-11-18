@@ -167,18 +167,18 @@ def _install(tmp_path, override=False):
         "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/a_ALB.png\n"
         "TEXTURE_NORMAL 1.0 ../textures/a_NML.png\nWEATHER ../textures/a_wm.png\n"
         "NORMAL_METALNESS\nDECAL_LIB lib/g10/decals/a.dcl\nSURFACE asphalt\nSCALE 18 36\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     (so / "apt_pavement/pavement/c.pol").write_text(
-        "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\nSCALE 22 44\n", encoding="utf-8")
+        "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\nSCALE 22 44\n", encoding="utf-8", newline="\n")
     (so / "apt_pavement/pavement/r.pol").write_text(
         "A\n850\nDRAPED_POLYGON\nTEXTURE r.png\nSCALE 30 30\nWEATHER_TRANSPARENT\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     for name, off in (("1_single_taxi.lin", "S_OFFSET 0 46 54 62\n"),
                       ("51_single_taxi_b.lin", "S_OFFSET 0 328 342 356\nS_OFFSET 1 46 54 62\n")):
         (so / "apt_lines" / name).write_text(
             "A\n850\nLINE_PAINT\nTEXTURE taxilines.png\nTEXTURE_NORMAL 3.0 taxilines_NML.png\n"
             f"TEX_WIDTH 1024\nSCALE 12 3\n{off}DECAL_LIB lib/g10/decals/m.dcl\n"
-            "WEATHER_TRANSPARENT\n", encoding="utf-8")
+            "WEATHER_TRANSPARENT\n", encoding="utf-8", newline="\n")
     for f in ("apt_pavement/textures/a_ALB.dds", "apt_pavement/textures/a_NML.png",
               "apt_pavement/textures/a_wm.png", "apt_pavement/textures/c_ALB.dds",
               "apt_pavement/pavement/r.dds", "apt_lines/taxilines.dds",
@@ -191,9 +191,9 @@ def _install(tmp_path, override=False):
         "EXPORT lib/airport/default_runways/rubber.pol apt_pavement/pavement/r.pol\n"
         "EXPORT lib/airport/lines/1_single_taxi.lin apt_lines/1_single_taxi.lin\n"
         "EXPORT lib/airport/lines/51_single_taxi_b.lin apt_lines/51_single_taxi_b.lin\n"
-        "EXPORT lib/g10/decals/a.dcl apt_pavement/pavement/c.pol\n", encoding="utf-8")
+        "EXPORT lib/g10/decals/a.dcl apt_pavement/pavement/c.pol\n", encoding="utf-8", newline="\n")
     other = tmp_path / "other.lin"
-    other.write_text("A\n850\nLINE_PAINT\nTEXTURE x.png\n", encoding="utf-8")
+    other.write_text("A\n850\nLINE_PAINT\nTEXTURE x.png\n", encoding="utf-8", newline="\n")
     index = {"lib/airport/lines/1_single_taxi.lin": str(other)} if override else {}
     return str(root), (lambda p, _r: index.get(p))
 

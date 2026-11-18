@@ -109,9 +109,9 @@ def _fake_install(tmp_path):
     (pav / "textures").mkdir(parents=True)
     (pav / "pavement" / "c.pol").write_text(
         "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\n"
-        "TEXTURE_NORMAL 1.0 ../textures/c_NML.png\nSCALE 22 44\n", encoding="utf-8")
+        "TEXTURE_NORMAL 1.0 ../textures/c_NML.png\nSCALE 22 44\n", encoding="utf-8", newline="\n")
     (pav / "pavement" / "r.pol").write_text(
-        "A\n850\nDRAPED_POLYGON\nTEXTURE r.png\nSCALE 30 30\n", encoding="utf-8")
+        "A\n850\nDRAPED_POLYGON\nTEXTURE r.png\nSCALE 30 30\n", encoding="utf-8", newline="\n")
     for f in ("textures/c_ALB.dds", "textures/c_NML.png", "pavement/r.dds"):
         (pav / f).write_bytes(b"DDS ")
     return str(root), {"lib/airport/pavement/concrete_4D.pol": str(pav / "pavement" / "c.pol"),

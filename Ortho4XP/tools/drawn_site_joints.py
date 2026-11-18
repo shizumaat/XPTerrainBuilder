@@ -73,6 +73,9 @@ def steps_of(placed: list, base: list, ground) -> list[dict]:
 
 
 def main(argv=None) -> int:
+    # the console is UTF-8 before anything prints (#171, #125)
+    import O4_Console_Encoding as _o4console
+    _o4console.configure_console_streams()
     import drawn_site as DS
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--joints", action="store_true")

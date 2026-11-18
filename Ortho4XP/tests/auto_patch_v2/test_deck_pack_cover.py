@@ -88,7 +88,7 @@ def test_the_parser_marks_triangles_drawn_under_the_terrain(tmp_path):
                  "VT 0 0 0 0 1 0 0 0\nVT 1 0 0 0 1 0 0 0\nVT 0 0 1 0 1 0 0 0\n"
                  "IDX 0\nIDX 1\nIDX 2\nIDX 0\nIDX 1\nIDX 2\n"
                  "TRIS 0 3\nATTR_layer_group terrain -1\nTRIS 3 3\n"
-                 "ATTR_layer_group_draped runways 1\nATTR_layer_group objects 1\n")
+                 "ATTR_layer_group_draped runways 1\nATTR_layer_group objects 1\n", encoding="utf-8", newline="\n")
     g = parse_obj8(str(p))
     assert g.under_terrain.tolist() == [False, True]
 

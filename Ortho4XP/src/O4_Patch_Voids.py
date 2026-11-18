@@ -92,7 +92,7 @@ def write(poly_file: str, void_area) -> None:
             os.remove(path)
         return
     from shapely.geometry import mapping
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump({"version": SIDECAR_VERSION,
                    "voids": mapping(void_area)}, handle)
 
@@ -105,7 +105,7 @@ def read(poly_file: str):
     if not os.path.exists(path):
         return None
     from shapely.geometry import shape
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
     if payload.get("version") != SIDECAR_VERSION:
         raise ValueError(f"{path}: unknown version {payload.get('version')}")

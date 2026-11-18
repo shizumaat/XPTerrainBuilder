@@ -71,7 +71,7 @@ def _ortho4xp_reads(tmp_path, doc):
     text = PF.render([("generator", "'", "test")], wire["nodes"], wire["ways"],
                      identity_dp=11, z_dp=2)
     path = tmp_path / "TEST.patch.osm"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     layer = OSM.OSM_layer()
     layer.update_dicosm(str(path), input_tags=None, target_tags=None)
     return layer.dicosmtags["w"], PF.read_patch(str(path))

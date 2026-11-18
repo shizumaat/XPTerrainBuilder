@@ -23,7 +23,7 @@ def _drape(pack, tile, nbytes=1000, when=0.0):
                 f.write(b"X" * nbytes)
         elif path.endswith(".json"):
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write("{}")
         else:
             os.makedirs(path, exist_ok=True)

@@ -1967,7 +1967,7 @@ def test_the_apps_logged_cleanup_is_external_not_a_side_effect(
         f"a.osm.pbf (osm_extracts, automatic cleanup)\n"
         f"{stamp(now)} moved 4096 bytes {repo}/Elevation_data/footprints/"
         f"f.json to /Volumes/Tier/Elevation_data/footprints/f.json "
-        f"(elevation, automatic cleanup)\n", encoding="utf-8")
+        f"(elevation, automatic cleanup)\n", encoding="utf-8", newline="\n")
     changes = {"added": [], "modified": [],
                "removed": ["OSM_data/_regional_extracts/a.osm.pbf",
                            "Elevation_data/footprints/f.json",

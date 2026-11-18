@@ -73,7 +73,7 @@ def test_read_atlas_recasts_the_red_mask_as_tinted_alpha(tmp_path):
     a[..., 0] = (np.arange(W, dtype=np.uint32)[None, :] % 256).astype(np.uint8)
     Image.fromarray(a, "RGBA").save(tmp_path / "RWY_markings_9.png")
     pol = tmp_path / "rwy.pol"
-    pol.write_text("A\n850\nDRAPED_POLYGON\nRUNWAY_MARKINGS 0.8 0.8 0.8 1 RWY_markings_9.png\n")
+    pol.write_text("A\n850\nDRAPED_POLYGON\nRUNWAY_MARKINGS 0.8 0.8 0.8 1 RWY_markings_9.png\n", encoding="utf-8", newline="\n")
     atlas = rm.read_atlas(str(pol))
     assert atlas.name == "o4_RWY_markings_9_cccccc.png"
     px = np.asarray(Image.open(io.BytesIO(atlas.png)))

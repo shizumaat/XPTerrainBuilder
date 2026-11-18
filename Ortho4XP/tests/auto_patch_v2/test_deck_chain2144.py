@@ -25,7 +25,7 @@ def _span(path, rise: float = 0.0, soffit: float = 8.0, length: float = 32.6,
     out = ["I", "800", "OBJ", "", "TEXTURE\tt.dds", f"POINT_COUNTS\t{len(v)} 0 0 {len(idx)}", ""]
     out += [f"VT\t{x:.3f} {y:.3f} {z:.3f}\t0 1 0\t0 0" for x, y, z in v]
     out += [f"IDX\t{q}" for q in idx] + ["", f"TRIS\t0 {len(idx)}"]
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
     return str(path)
 
 

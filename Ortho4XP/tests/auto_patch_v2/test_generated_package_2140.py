@@ -111,7 +111,7 @@ def machines(tmp_path, monkeypatch):
         fh.write(b"airports")
     path = graded_surface_path(a.patch_dir, ICAO)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"provenance": {"generated": _essa_pub()}}, fh)
     return a, b
 

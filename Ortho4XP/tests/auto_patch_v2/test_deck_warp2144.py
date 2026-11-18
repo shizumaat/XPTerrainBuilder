@@ -25,7 +25,7 @@ def _write(path, verts, tris, anim: bool = False) -> str:
     out += [f"VT\t{x:.3f} {y:.3f} {z:.3f}\t0.0 1.0 0.0\t0.5 0.5" for x, y, z in verts]
     out += [f"IDX\t{q}" for q in idx]
     out += [""] + cmds
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
     return str(path)
 
 
@@ -144,7 +144,7 @@ def test_a_pier_foot_stretches_down_and_its_top_stays_with_the_deck(tmp_path):
                         allow_single=True)
     got = [tuple(float(q) for q in ln.split()[1:4]) for ln in res.files[0].text.splitlines()
            if ln.startswith("VT")]
-    src = [tuple(float(q) for q in ln.split()[1:4]) for ln in open(path).read().splitlines()
+    src = [tuple(float(q) for q in ln.split()[1:4]) for ln in open(path, encoding="utf-8").read().splitlines()
            if ln.startswith("VT")]
     field = OW.Field(NODES)
     assert len(got) == len(src) == 8

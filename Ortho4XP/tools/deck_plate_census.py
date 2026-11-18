@@ -88,6 +88,9 @@ def census(scenery: str, packs: "list[str] | None", reach_m: float) -> dict:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # the console is UTF-8 before anything prints (#171, #125)
+    import O4_Console_Encoding as _o4console
+    _o4console.configure_console_streams()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("scenery")
     ap.add_argument("--pack", nargs="*", default=None)

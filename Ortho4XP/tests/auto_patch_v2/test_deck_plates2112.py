@@ -40,7 +40,7 @@ def _write(path, verts, groups) -> str:
     out += [f"VT\t{x:.3f} {y:.3f} {z:.3f}\t0.0 1.0 0.0\t0.5 0.5" for x, y, z in verts]
     out += [f"IDX\t{q}" for q in idx]
     out += [""] + cmds
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
     return str(path)
 
 
@@ -80,7 +80,7 @@ def test_a_wall_past_both_plates_is_clipped_at_the_band_line(tmp_path):
     assert not res.kept_whole and len(res.files) == 2
     for f, (lo, hi), off in zip(res.files, ((-60.0, 0.0), (0.0, 60.0)), (-30.0, 30.0), strict=True):
         q = tmp_path / f"b{f.body_id}.obj"
-        q.write_text(f.text, encoding="utf-8")
+        q.write_text(f.text, encoding="utf-8", newline="\n")
         g = obj8.parse_obj8(str(q))
         x = g.vertices[np.unique(g.solid.reshape(-1)), 0] + off
         assert x.min() >= lo - 1e-3 and x.max() <= hi + 1e-3
@@ -138,12 +138,12 @@ def test_census_reads_every_airport_pack_deck_once(tmp_path):
     import deck_plate_census as C
     pack = tmp_path / "Pack A"
     (pack / "Earth nav data").mkdir(parents=True)
-    (pack / "Earth nav data" / "apt.dat").write_text("I\n", encoding="utf-8")
+    (pack / "Earth nav data" / "apt.dat").write_text("I\n", encoding="utf-8", newline="\n")
     (pack / "objects").mkdir()
     src = _deck(pack / "objects")
     os.rename(src, str(pack / "objects" / "bridge.obj"))
     (pack / "objects" / "bridge__b0_0011aabb.obj").write_text(
-        (pack / "objects" / "bridge.obj").read_text(encoding="utf-8"), encoding="utf-8")
+        (pack / "objects" / "bridge.obj").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
     (tmp_path / "Not an airport").mkdir()
     out = C.census(str(tmp_path), None, 2.0)
     assert out["totals"] == {"packs": 1, "deck_files": 1, "multi_plate": 1, "banded": 1}

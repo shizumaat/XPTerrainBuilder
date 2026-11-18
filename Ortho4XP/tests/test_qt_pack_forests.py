@@ -179,3 +179,20 @@ def test_the_pack_row_offers_undo_only_with_an_upgrade(window, monkeypatch):
     assert len(trees) == 1
     trees[0].click()
     assert sent == [{"pack_root": "/X/CS/Some Pack", "action": "undo"}]
+
+
+def test_a_run_on_other_tiles_never_holds_the_pack_row(window, monkeypatch):
+    """#2168: the row waits only while the run builds a tile that writes
+    the pack (the mac row's ``packRowBusy``), never for a run elsewhere."""
+    monkeypatch.setattr(window.map, "active_tile", lambda: (39, -107))
+    pack = {"pack_name": "KASE", "pack_path": "/X/CS/KASE", "objects": 3,
+            "forests": 2, "tiles": ["+39-107"]}
+    window._building = True
+    window._run_tiles = {(48, 2)}
+    window._progress_states = {(48, 2): ("active", "auto-patch", 40)}
+    assert not window._pack_row_busy(pack)
+    window._run_tiles.add((39, -107))
+    window._progress_states[(39, -107)] = ("active", "mesh", 10)
+    assert window._pack_row_busy(pack)
+    window._progress_states[(39, -107)] = ("done", "done", 100)
+    assert not window._pack_row_busy(pack)

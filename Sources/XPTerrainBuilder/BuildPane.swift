@@ -371,67 +371,11 @@ struct BuildPane: View {
                                     .truncationMode(.middle)
                                     .help(row.help)
                                 Spacer(minLength: 8)
-                                // #1360: the pack's 3D trees, undone on
-                                // their own (the Qt row's twin button)
-                                if row.forestCount > 0 {
-                                    Button {
-                                        buildModel.undoPackForests(packPath: row.packPath)
-                                    } label: {
-                                        Image(systemName: "leaf")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .disabled(buildModel.isBuilding)
-                                    .help(buildModel.isBuilding
-                                          ? "Wait for the current run — the engine may be rewriting these files"
-                                          : O4PackOldForestsCopy.undoHelp)
-                                }
-                                // #1707: Optimise pack, or its Undo (the
-                                // Qt row's twin button)
-                                Button {
-                                    buildModel.packOptimiseFromRow(
-                                        packPath: row.packPath,
-                                        undo: row.optimisedCount > 0, tile: active)
-                                } label: {
-                                    Image(systemName: row.optimisedCount > 0
-                                          ? "gauge.with.dots.needle.33percent"
-                                          : "gauge.with.dots.needle.67percent")
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .disabled(buildModel.isBuilding)
-                                .help(buildModel.isBuilding
-                                      ? "Wait for the current run — the engine may be rewriting these files"
-                                      : (row.optimisedCount > 0
-                                         ? O4PackOptimiseCopy.undoHelp
-                                         : O4PackOptimiseCopy.optimiseHelp))
-                                // owner 2026-11-15T13:12Z: Adjust… — change
-                                // what is hidden or optimised, beside Revert
-                                // (the Qt row's twin button)
-                                if buildModel.engineCapabilities.supports(O4EngineCapabilities.packAdjustEdit) {
-                                    Button {
-                                        buildModel.adjustPackFromRow(packPath: row.packPath, tile: active)
-                                    } label: {
-                                        Image(systemName: "slider.horizontal.3")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .disabled(buildModel.isBuilding)
-                                    .help(buildModel.isBuilding
-                                          ? "Wait for the current run — the engine may be rewriting these files"
-                                          : O4PackAdjustCopy.adjustHelp)
-                                }
-                                Button {
+                                PackRowButtons(buildModel: buildModel,
+                                               activity: buildModel.activity,
+                                               row: row, tile: active) {
                                     revertModifiedAirports(row)
-                                } label: {
-                                    Image(systemName: "arrow.uturn.backward.circle")
                                 }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .disabled(buildModel.isBuilding)
-                                .help(buildModel.isBuilding
-                                      ? "Wait for the current run — the engine may be rewriting these files"
-                                      : "Revert to default: restores \(row.packName)'s original object files from the backups the reseater kept")
                             }
                         }
                     }
@@ -919,6 +863,9 @@ struct BuildPane: View {
         var optimisedCount: Int = 0
         /// Vendor defects the pack health check repaired (#1978).
         var repairedCount: Int = 0
+        /// Tiles whose builds wrote the pack: a run building one of them
+        /// holds the row's buttons (#2168).
+        var tiles: [String] = []
 
         /// The row's tooltip (the Qt row's twin text).
         var help: String {
@@ -963,7 +910,7 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount)]
+                    repairedCount: pack.repairedCount, tiles: pack.tiles)]
             }
             return names.map { name in
                 ModifiedAirportRow(
@@ -972,7 +919,7 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount)
+                    repairedCount: pack.repairedCount, tiles: pack.tiles)
             }
         }
         .sorted { $0.label < $1.label }

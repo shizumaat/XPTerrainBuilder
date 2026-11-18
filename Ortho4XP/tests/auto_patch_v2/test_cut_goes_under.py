@@ -184,8 +184,7 @@ def test_a_pack_decks_ground_runs_past_its_ring():
     base, walled = area(()), area((_pack_deck(walls=_BOTH_WALLS),))
     banked_ = area((_pack_deck(),))
     assert abs(base - 800.0) < 1e-6 and abs(walled - base) < 1e-6
-    # past the two sides (the road runs along y), never beyond the end lines
-    assert abs(banked_ - 40.0 * 22.0) < 1e-6
+    assert abs(banked_ - 42.0 * 22.0) < 1e-6
 
 
 def test_a_deck_walled_on_one_side_is_banked():

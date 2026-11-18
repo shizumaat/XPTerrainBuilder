@@ -206,8 +206,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     floor beside it followed and the stations moved.  ``bank`` (a BANKED
     deck, :func:`_bank_slope`): the pair holds the vertex on the
     BANK instead of flush -- :func:`_bank_drop` under its seat -- and runs
-    on ``past`` metres past the deck's sides on the bridge's own ground
-    (``planar/deck_bank.past_sides``)
+    on ``past`` metres beyond the ring's edges on the bridge's own ground
     (owner sim read 2026-11-17T19:42Z: "that embankment needs to extend
     about 1m past the bridge edges")."""
     from shapely.geometry import MultiPoint, Point, Polygon
@@ -220,10 +219,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
-    from ..planar.deck_bank import past_sides
-    ring_in = prep(unary_union([past_sides(d, past) if bank is not None
-                                else Polygon(d.ring).buffer(-0.5, join_style="mitre")
-                                for d in decks]))
+    ring_in = prep(unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
+                                                       join_style="mitre") for d in decks]))
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can

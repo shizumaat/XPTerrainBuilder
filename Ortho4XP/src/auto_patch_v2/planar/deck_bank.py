@@ -29,7 +29,7 @@ Nothing here names an airport.
 """
 from __future__ import annotations
 
-__all__ = ["deck_bank_slope", "bank_past_m", "banked", "past_sides"]
+__all__ = ["deck_bank_slope", "bank_past_m", "banked"]
 
 
 def deck_bank_slope(law) -> float:
@@ -62,23 +62,3 @@ def banked(db) -> bool:
         return True
     from .deck_bridge import _walled_trench
     return _walled_trench(db, 0.0) is None
-
-
-def past_sides(db, past: float):
-    """``db``'s ring run on ``past`` metres along the road under it -- past
-    its two SIDES, where the road passes under, never beyond an end line,
-    where its pavement drives on (MEASURED LFPG H19, obj13017 over
-    09L/27R: the ring grown ``past`` every way minted deck ground beside
-    the runway's corner on the end line, which then stood 0.19 m under its
-    neighbours).  The ring itself without end lines or ``past``."""
-    from shapely import affinity
-    from shapely.geometry import MultiPolygon, Polygon
-    p = Polygon(db.ring)
-    p = p if p.is_valid else p.buffer(0.0)
-    if past <= 0.0 or not db.seats_a or not db.seats_b:
-        return p
-    from .deck_bridge import _road_dir
-    rx, ry = _road_dir(db)
-    parts = [p, affinity.translate(p, rx * past, ry * past),
-             affinity.translate(p, -rx * past, -ry * past)]
-    return MultiPolygon([q for q in parts if q.geom_type == "Polygon"]).convex_hull

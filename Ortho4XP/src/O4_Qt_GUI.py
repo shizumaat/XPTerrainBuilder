@@ -1487,6 +1487,9 @@ class MainWindow(QMainWindow):
         self._info_layout.setRowVisible(self.other_scenery_row, False)
         self._info_layout.setRowVisible(self.custom_settings_row, False)
         self._info_layout.setRowVisible(self.custom_patch_row, False)
+        # Shown only for a tile whose records name airports
+        # (_show_build_airports); the window starts with no tile (aad0a7764)
+        self._show_build_airports(None)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)

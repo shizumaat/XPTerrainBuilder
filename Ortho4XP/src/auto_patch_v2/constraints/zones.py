@@ -603,6 +603,11 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # stand
     seam = frozenset(v for y in (getattr(planar, "road_yield", ()) or ())
                      for v in getattr(y, "beside", ()))
+    # owner RULINGS 2026-11-18b (#2152): the band beside a road that has
+    # left its band run comes down to the road -- its floor yields, the bank
+    # rows below hold it between the road and the road plus the 1:3 bank
+    # (``airport/band_run.ramp_banks``, published with the road terrace)
+    banks = (getattr(planar, "road_terrace", None) or {}).get("bank") or {}
     for v, classes in _with_road_yield(planar, member).items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
@@ -688,6 +693,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if hi is None:
                     continue         # a farther taxi band's floor: yielded
                 lo = None            # the taxi band's lift yields (Q53 (1))
+            elif v in banks:
+                if hi is None:
+                    continue         # 18b: beside the leaving road, no floor
+                lo = None
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:
@@ -701,7 +710,20 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         beyond = _beyond_graded_ceiling(ctx, law, v, found, src)
         if beyond is not None:
             rows.append(beyond)
+    rows.extend(_bank_rows(banks, float(law.tables.emit.design.bank_slope)))
     return rows
+
+
+#: 2026-11-18b: the band beside a road off its band run, down to the road
+BANK_RULING = "zones.adjacent_ground band bank to a road leaving its band run (2026-11-18b)"
+
+
+def _bank_rows(banks: _t.Mapping[int, tuple[int, float]], slope: float) -> list[Row]:
+    """ONE-WAY: band vertex ``v`` stands between its road vertex ``u`` and
+    ``u`` plus the bank over their distance -- the road leads."""
+    return [Linear(((v, 1.0), (u, -1.0)), 0.0, slope * d,
+                   Source(GEN, BANK_RULING, (f"vertex:{v}",)), follows=v)
+            for v, (u, d) in sorted(banks.items())]
 
 
 def _with_road_yield(planar: PlanarMap, member: dict[int, set[tuple]]

@@ -1562,6 +1562,11 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:
         return out
+    # owner RULINGS 2026-11-18b (#2152): a road running ALONG inside a taxi
+    # band grades with the band -- it takes the band's pavement level with
+    # no shared node; where it leaves the run it is bare and descends
+    from .band_run import band_runs, ramp_banks
+    out["band_run"] = band_runs(pm, law, vs, kerb, frame, feet)
     # THE MEET: a road vertex within one lane width of a GROUNDSIDE VALUE
     # face that is not a road — a lot, a groundside pavement page — which is
     # outside this rule and grades on its own target, so the road must
@@ -1656,6 +1661,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             out["below_wall"][v] = True
             continue
         shared = touch.get(v, frozenset())
+        if v in out["band_run"]:
+            shared = shared | {out["band_run"][v]}
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1 and ref in shared),
                      key=lambda t: (t[0], t[1]))
@@ -1676,6 +1683,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    # 18b: the band beside the road where it leaves its run comes down to it
+    out["bank"] = ramp_banks(pm, law, out["band_run"], out["station"])
     out["shared"] = _shared_stations(pm, _shared_refs(pm, stage1), ribbon_v,
                                      frame, set(vs))
     return out

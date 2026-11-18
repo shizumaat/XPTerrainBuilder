@@ -236,6 +236,15 @@ def _touch_law(law):
         return None
 
 
+def _deck_warp_law(law):
+    """#2144 P2: the deck warp's law, ``None`` under a src that predates it."""
+    try:
+        from auto_patch_v2.airport import deck_profile as _dpf
+        return _dpf.law_of(law.tables.structures)
+    except (ImportError, AttributeError):
+        return None
+
+
 def _ground_rider_law(law):
     """#1837: ``[placement] ground_rider_*`` as the rule's law, ``None``
     under a law that predates the keys (the rule then stays disarmed)."""
@@ -628,7 +637,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
                                           "isolated_sheet_max_aspect", None),
         ground_rider_law=_ground_rider_law(law),
-        touch_seat=_touch_law(law))
+        touch_seat=_touch_law(law),
+        deck_warp=_deck_warp_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``

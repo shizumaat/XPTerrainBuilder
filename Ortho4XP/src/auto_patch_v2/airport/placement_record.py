@@ -114,6 +114,9 @@ class Body:
     #: #2112: the deck-plate band this body keeps (``deck_plates``;
     #: ``obj8_split.BodyCut.band``), None for a whole body
     band: "tuple[float, float, float, float] | None" = None
+    #: #2144: the deck warp this body bakes -- its track and pier feet
+    #: (``deck_profile``; ``obj8_split.BodyCut.warp``), () for none
+    warp: tuple = ()
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
@@ -123,6 +126,12 @@ class Body:
             d["msl_z"] = self.msl_z
         if self.band is not None:
             d["band"] = list(self.band)
+        if self.warp:
+            # #2144: the track's displacement range and the feet stretched
+            # (the plan geometry stays in the file)
+            ds = [float(q[2]) for t in self.warp if t[0] == "track" for q in t[1]]
+            d["warp"] = {"d": [round(min(ds), 3), round(max(ds), 3)] if ds else [],
+                         "feet": sum(1 for t in self.warp if t[0] == "foot")}
         if self.anchor.isolated:
             d["isolated_of"] = self.anchor.isolated      # §9a
         return d

@@ -509,6 +509,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import placement_write as _pw
     from auto_patch_v2.airport import free_column as _fcol
     from auto_patch_v2.airport import touch_seat as _tseat
+    from auto_patch_v2.airport import deck_profile as _dprof
     from . import dsf_reader as _DSFR
 
     from . import pack_copy as _copy
@@ -729,7 +730,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             # #1837: a stock MSL row on an OBJECT / AGL frame rides it
             ground_rider_law=_gfr.law_of(law.tables.structures.placement),
             # #2110 R3 (RULINGS 2026-11-16k/u/v): touching buildings, one seat
-            touch_seat=_tseat.law_of(law.tables.structures.placement))
+            touch_seat=_tseat.law_of(law.tables.structures.placement),
+            # #2144 P2: a deck touching buildings at two levels is warped
+            deck_warp=_dprof.law_of(law.tables.structures))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
@@ -743,6 +746,13 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                 if plan_key in ("", plan_.icao) and _copy.copy_dir() is None
                 else [])
     c["sibling_packs"] = len(siblings)
+    # #2144 P1: the overlay packs' deck chains near this airport
+    from . import chain_stage as _chain
+    chains = (_chain.plans(plan, lambda box: _widened(mesh_sample, box, _surface), tile,
+                           plan_.pack_root)
+              if plan_key in ("", plan_.icao) else [])
+    c["overlay_chain_packs"] = len(chains)
+    c["overlay_chain_rows"] = sum(len(s.msl_seats) for s in chains)
     c["sibling_deck_riders"] = sum(len(s.msl_seats) for s in siblings)
     if not write_enabled or measure_only:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
@@ -839,6 +849,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             siblings, patch_dir, _DSFR._dsftool_path() or "DSFTool",
             engine_version=_engine_version(), law_digest=digest)
         out["sibling_deck_riders"] = c["sibling_deck_riders"]
+    if chains:
+        out["overlay_chain_packs_written"] = _chain.write(
+            chains, patch_dir, _DSFR._dsftool_path() or "DSFTool",
+            engine_version=_engine_version(), law_digest=digest)
+        out["overlay_chain_rows"] = c["overlay_chain_rows"]
     return out
 
 

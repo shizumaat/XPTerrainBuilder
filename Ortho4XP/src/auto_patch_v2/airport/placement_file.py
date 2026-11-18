@@ -53,7 +53,8 @@ def baked_name(m: Member, body: Body, seat: _t.Any = None) -> str:
             else _split.NO_TILT)
     return _split.body_resource_name(
         m.resource, body.body_id,
-        _pristine_offset(body.anchor.offset, getattr(m, "zero_y", 0.0)), tilt)
+        _pristine_offset(body.anchor.offset, getattr(m, "zero_y", 0.0)), tilt,
+        () if tilt != _split.NO_TILT else tuple(getattr(body, "warp", ()) or ()))
 
 
 def named_body(m: Member, body: Body, **changes: _t.Any) -> Body:
@@ -563,7 +564,9 @@ def _cut_files(record: Split, m: Member, *, always_write: bool,
                            (b.seat.grad if b.seat is not None
                             else _split.NO_TILT),
                            # #2112: the deck-plate band it keeps
-                           getattr(b, "band", None))
+                           getattr(b, "band", None),
+                           # #2144: the deck warp it bakes
+                           tuple(getattr(b, "warp", ()) or ()))
             for b in record.bodies]
     try:
         res = _split.split_obj8(pristine_path(m), cuts, m.resource,

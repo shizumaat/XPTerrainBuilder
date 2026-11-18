@@ -303,7 +303,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # #2110 R3 (RULINGS 2026-11-16k/u/v): ``touch_seat.law_of(
                  # [placement])`` -- touching buildings seat as one group at
                  # the lower; ``None`` disarms
-                 touch_seat: _t.Any = None
+                 touch_seat: _t.Any = None,
+                 # #2144 P2: ``deck_profile.law_of(structures)`` -- a deck
+                 # touching buildings at two levels is warped; ``None`` disarms
+                 deck_warp: _t.Any = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -1600,6 +1603,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             splits, plan, _pw or {}, counts, law=touch_seat,
             fixed=_ts.Fixed(_gated, frozenset(_afloat), frozenset(_gz_led)),
             cut_log=_cut_log, write=write, unit_seats=_unit_seats)
+    if deck_warp is not None and splits:
+        # #2144 P2: ONE pass over the final bodies, after the touch pass
+        from . import deck_profile as _dpf
+        splits, _touch["deck_warp"] = _dpf.warp_decks(
+            splits, plan, counts, law=deck_warp, surface=surface,
+            cut_log=_cut_log, write=write)
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts,

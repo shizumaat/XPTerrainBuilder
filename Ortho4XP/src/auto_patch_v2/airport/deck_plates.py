@@ -140,6 +140,10 @@ class _FramePlates:
     #: its two end lines (the taxiway longitudinal cap, ``Member.
     #: deck_spans``); ``None`` keeps every band flat
     grade_cap: "float | None" = None
+    #: per seat station, its deck top off the stations' mean (``Member.
+    #: deck_spans``): a station's ground less it is the frame zero's reading
+    #: there (``()``: one top everywhere, #2112)
+    station_tops: tuple[float, ...] = ()
 
     def kept(self, k: int) -> bool:
         return not self.keep or bool(self.keep[k])
@@ -220,7 +224,9 @@ def _span_plates(m: _t.Any, origin: tuple[float, float],
     2026-11-18i, ``Member.deck_spans``): a band line across the axis at
     each abutment, the span bands kept, the at-grade bands between and
     beyond dropped; ``None`` where a span band holds no seat station."""
-    a, b, spans, *cap = m.deck_spans
+    a, b, spans, *rest = m.deck_spans
+    cap = rest[:1]
+    tops = tuple(rest[1]) if len(rest) > 1 and len(rest[1]) == len(st) else ()
     fp0 = _FramePlates(str(getattr(m, "id", "")), _Plates((1.0, 0.0), ((0.0, 0.0),), (), ()),
                        origin, float(getattr(m, "heading_deg", 0.0) or 0.0), st)
     ax, az = fp0.to_frame(*a)
@@ -238,7 +244,8 @@ def _span_plates(m: _t.Any, origin: tuple[float, float],
     p = _Plates((ux, uz), tuple(zip(edges[:-1], edges[1:], strict=True)), cuts, ())
     keep = tuple(k % 2 == 1 for k in range(len(cuts) + 1))
     fp = _dc.replace(fp0, plates=p, keep=keep,
-                     grade_cap=float(cap[0]) if cap and cap[0] is not None else None)
+                     grade_cap=float(cap[0]) if cap and cap[0] is not None else None,
+                     station_tops=tops)
     if any(keep[k] and not any(fp.band_of_ll(*q) == k for q in st) for k in range(len(keep))):
         counts["deck_spans_unseated"] = counts.get("deck_spans_unseated", 0) + 1
         return None
@@ -252,8 +259,11 @@ def _band_seats(fp: _FramePlates, surface: _t.Any, counts: "dict | None" = None
     ground less the frame's, its station nearest its stations' middle and
     its grade (:func:`_span_grade`); None where a band's stations read no
     surface."""
-    read = [(la, lo, surface(la, lo)) for la, lo in fp.stations]
-    read = [(la, lo, float(z)) for la, lo, z in read if z is not None]
+    # each station's ground less its deck top off the mean (18i (b)): the
+    # frame zero's reading there, so a band's zero and grade are its deck's
+    off = fp.station_tops or (0.0,) * len(fp.stations)
+    read = [(la, lo, surface(la, lo), t) for (la, lo), t in zip(fp.stations, off, strict=True)]
+    read = [(la, lo, float(z) - float(t), float(z)) for la, lo, z, t in read if z is not None]
     if not read:
         return None
     mean_all = sum(r[2] for r in read) / len(read)
@@ -269,7 +279,8 @@ def _band_seats(fp: _FramePlates, surface: _t.Any, counts: "dict | None" = None
             return None
         cla = sum(r[0] for r in mine) / len(mine)
         clo = sum(r[1] for r in mine) / len(mine)
-        seat = min(mine, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
+        la, lo, _zr, z = min(mine, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
+        seat = (la, lo, z)
         mean_k = sum(r[2] for r in mine) / len(mine)
         out.append((mean_k - mean_all, seat, _span_grade(fp, k, mine, mean_k, counts)))
     return out
@@ -291,7 +302,7 @@ def _span_grade(fp: _FramePlates, k: int, mine: list, mean_k: float,
     ux, uz = fp.plates.axis
     lo, hi = fp.plates.band(k)[2:]
     mid = 0.5 * (lo + hi)
-    pts = [(*fp.to_frame(la, lo_), z) for la, lo_, z in mine]
+    pts = [(*fp.to_frame(r[0], r[1]), r[2]) for r in mine]
     ends = [[q for q in pts if (ux * q[0] + uz * q[1] < mid) == first] for first in (True, False)]
     if not all(ends):
         return ()

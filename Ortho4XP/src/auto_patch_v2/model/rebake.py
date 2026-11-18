@@ -152,10 +152,12 @@ def _spans_of(raw: _t.Any) -> tuple:
     """A plan's ``deck_spans`` read back (``Member.deck_spans``)."""
     if not raw:
         return ()
-    a, b, spans, *cap = raw
+    a, b, spans, *rest = raw
+    cap = None if not rest or rest[0] is None else float(rest[0])
+    tops = tuple(float(t) for t in rest[1]) if len(rest) > 1 and rest[1] else ()
     return ((float(a[0]), float(a[1])), (float(b[0]), float(b[1])),
             tuple((float(x), float(y)) for x, y in spans),
-            *(() if not cap or cap[0] is None else (float(cap[0]),)))
+            *(() if cap is None and not tops else (cap,)), *((tops,) if tops else ()))
 
 
 @_dc.dataclass(frozen=True)
@@ -230,9 +232,10 @@ class Member:
     #: where every end was graded, ``bridge_approach.approach_seat``).
     #: ``None`` for every other member and in every older plan.
     #: owner RULINGS 2026-11-18i: a pack deck cut to its SPANS
-    #: (``planar/deck_span_cut``): ``(a, b, ((s_a, s_b), ...)[, cap])`` --
-    #: the source piece's axis ends ``(lat, lon)``, each span in metres from
-    #: ``a`` and the grade a span may take between its end lines (18i (b));
+    #: (``planar/deck_span_cut``): ``(a, b, ((s_a, s_b), ...)[, cap[,
+    #: tops]])`` -- the source piece's axis ends ``(lat, lon)``, each span in
+    #: metres from ``a``, the grade a span may take between its end lines
+    #: (18i (b)) and each plate station's deck top off their mean;
     #: the frame keeps those bands, each graded, and drops the at-grade rest
     #: (``airport/deck_plates``).  Empty for every other member
     deck_spans: tuple = ()
@@ -502,7 +505,8 @@ class RebakePlan:
                     "anchor_zero": m.anchor_zero,
                     **({"deck_spans": [list(m.deck_spans[0]), list(m.deck_spans[1]),
                                        [list(q) for q in m.deck_spans[2]],
-                                       *m.deck_spans[3:4]]}
+                                       *[list(q) if isinstance(q, tuple) else q
+                                         for q in m.deck_spans[3:5]]]}
                        if m.deck_spans else {}),
                     "free_bridge": m.free_bridge,
                     "deck_end_tops": list(m.deck_end_tops),

@@ -105,3 +105,17 @@ def test_a_kept_span_takes_its_own_grade_up_to_the_cap():
     assert counts["deck_span_over_cap"] == 2
     flat = dp._band_seats(dp.frame_plates([m], 2.0, {}), lambda la, lo: 120.0, {})
     assert all(not w for _d, _s, w in flat)
+
+
+def test_a_span_reads_its_ground_less_each_station_top():
+    """A deck whose authored top differs between its end lines: the band's
+    grade is the ground less each station's top (``Member.deck_spans``'
+    station tops), so level pavement under a deck top 0.4 m lower at its
+    far end grades the body 0.4 m up there, and the seat keeps the ground."""
+    m, _g = _span_member(0.015)
+    tops = (0.2, 0.2, -0.2, -0.2, 0.0, 0.0)
+    m.deck_spans = (*m.deck_spans, tops)
+    seats = dp._band_seats(dp.frame_plates([m], 2.0, {}), lambda la, lo: 120.0, {})
+    (_xa, _za, da), (_xb, _zb, db) = seats[1][2][0][1]
+    assert abs((db - da) - 0.40) < 0.01
+    assert seats[1][1][2] == 120.0

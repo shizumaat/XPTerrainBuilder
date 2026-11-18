@@ -221,7 +221,14 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
         # the reference ``constraints/edge_deck._station_rows`` holds every
         # station flush from (RULINGS 2026-10-30a (1))
         y, st, *rest = out[oid]
-        out[oid] = (sum(by_pt.values()) / len(by_pt), st, *rest)
+        y = sum(by_pt.values()) / len(by_pt)
+        if len(rest) > 3 and rest[3]:
+            # RULINGS 2026-11-18i (b): a span cut carries each station's top
+            # off the mean -- a graded band reads its ground less it
+            # (``airport/deck_plates._span_grade``)
+            rest = [*rest[:3], (*tuple(rest[3])[:4],
+                                tuple(round(by_pt.get(tuple(p), y) - y, 4) for p in st))]
+        out[oid] = (y, st, *rest)
     _unit_members(out, pm, kept)
     return out
 

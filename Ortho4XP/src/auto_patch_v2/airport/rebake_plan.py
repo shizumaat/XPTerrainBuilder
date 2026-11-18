@@ -445,7 +445,7 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 else None
     # owner RULINGS 2026-11-18i: a deck cut to its spans (``deck_span_cut``)
     cut = rest[3] if o.id in plates and len(rest) > 3 else ()
-    deck_spans = (to_ll(*cut[0]), to_ll(*cut[1]), tuple(cut[2]), *cut[3:4]) if cut else ()
+    deck_spans = (to_ll(*cut[0]), to_ll(*cut[1]), tuple(cut[2]), *cut[3:5]) if cut else ()
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END

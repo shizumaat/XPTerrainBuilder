@@ -1260,7 +1260,18 @@ class EngineSession:
                                      custom_build_dir)
         self._seed_work_queue(tiles, provider, zoomlevel, custom_build_dir,
                               plan)
-        threading.Thread(target=self._build_worker, daemon=True).start()
+
+        def _make_room_then_build():
+            # Room before the first tile (owner 2026-11-18T13:32Z,
+            # ``storage_room``); a worker child's step makes none.
+            if steps is None:
+                from . import storage_room
+                storage_room.before_run(tiles, provider, zoomlevel,
+                                        custom_build_dir,
+                                        (do_vector, do_imagery, do_overlays))
+            self._build_worker()
+
+        threading.Thread(target=_make_room_then_build, daemon=True).start()
         return True
 
     def _run_step(self, function, key, tile, plan):

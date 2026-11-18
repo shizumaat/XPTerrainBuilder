@@ -707,8 +707,9 @@ def test_the_map_labels_large_airports_first_and_paints_tile_labels(
 def test_the_map_hint_shows_until_the_first_selection_and_stays_gone(
         make_window):
     window = make_window()
-    # The launch selection (the window's default tile) is not the user's.
-    assert window.map.selection()
+    # The window starts with nothing selected (aad0a7764, owner
+    # 2026-11-17T15:55Z) and the hint shows.
+    assert not window.map.selection()
     assert not window.map_hint.isHidden()
     assert window.map_hint.label.text().endswith(GUI.GUIDE.HINT_TEXT)
     window.map.set_active(10, 10)

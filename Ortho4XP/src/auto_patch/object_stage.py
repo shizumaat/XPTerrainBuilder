@@ -1187,8 +1187,10 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                 # boundary skip means the mesh was built WITHOUT the
                 # airport's patch, and placing (splitting, rewriting the
                 # pack DSF) against it seats objects on ground that is not
-                # there.  ONE admission test, the patch ingest's own.  An
-                # EDITED (manual) patch IS the airport's patch in this mesh
+                # there.  ONE admission test, the patch ingest's own.  A
+                # CUSTOM patch's airport is never placed: its pack is used
+                # unmodified (owner RULINGS 2026-11-18k).  An
+                # EDITED (``_edited``) patch IS the airport's patch in this mesh
                 # (owner RULINGS 2026-11-03e, #1637, superseding 2026-10-15d
                 # (5)): the pack is re-placed against the mesh just built —
                 # the sampler below reads the user's terrain — and the
@@ -1201,6 +1203,13 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
+                    continue
+                if icao in _custom_patch_airports(patch_dir):
+                    # RULINGS 2026-11-18k: restored and named in
+                    # restore_unpatched_packs; nothing of it is placed
+                    UI.vprint(1, f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
+                    counts["airports_custom_patch"] = \
+                        counts.get("airports_custom_patch", 0) + 1
                     continue
                 edited = _SELECTION.manual_patch_files_for(patch_dir, icao)
                 if edited:
@@ -1471,6 +1480,31 @@ def _outlines_key(outlines: _t.Sequence) -> str:
     return hashlib.sha256(repr(tuple(outlines)).encode()).hexdigest()[:16]
 
 
+#: The one line a custom-patched airport's object stage says (owner
+#: RULINGS 2026-11-18k), after its ICAO.
+_CUSTOM_PATCH_LINE = ("custom patch in use — the airport's pack is used "
+                     "unmodified (as the patch's author designed it)")
+
+
+def _custom_patch_airports(patch_dir: str) -> dict:
+    """``{ICAO: [files]}`` of the airports a CUSTOM patch covers in
+    *patch_dir*: a manual patch that is not the patch editor's own
+    ``<ICAO>_edited.patch.osm`` (owner RULINGS 2026-11-18k).  Such an
+    airport's pack is used unmodified — the patch was likely designed for
+    it; an edited patch keeps 2026-11-03e (13), its objects re-placed.
+    Here, not in ``selection``: that module is in the patch code key."""
+    import O4_File_Names as FNAMES
+
+    out: dict = {}
+    if not os.path.isdir(patch_dir):
+        return out
+    for f in sorted(os.listdir(patch_dir)):
+        icao = FNAMES.patch_file_icao(f) if FNAMES.is_manual_patch_name(f) else None
+        if icao and f != FNAMES.edited_patch_name(icao):
+            out.setdefault(icao, []).append(f)
+    return out
+
+
 def _pack_stand_down(tile) -> str:
     """Why no pack file may be written by this build, or ``""`` — the
     object stage's three switches, in one place for the unpatched-airport
@@ -1490,8 +1524,10 @@ def _pack_stand_down(tile) -> str:
 
 def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     """AN AIRPORT LEFT WITHOUT A PATCH GETS ITS ORIGINAL PACK BACK (owner
-    RULINGS 2026-10-12d).  For every airport this tile is built without
-    (``O4_Unpatched_Airports.read``), every pack DSF of this tile an
+    RULINGS 2026-10-12d), AND SO DOES ONE A CUSTOM PATCH COVERS (2026-11-18k,
+    ``_custom_patch_airports``).  For every airport this tile is
+    built without (``O4_Unpatched_Airports.read``) or with a custom patch,
+    every pack DSF of this tile an
     earlier build re-seated for it is restored
     (``unpatched_pack.restore_airport``); a restore that cannot be done
     or proven is NAMED on that airport's record and in the log.
@@ -1511,11 +1547,18 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
 
     from . import object_rebake as _OR
     from . import pack_copy as _copy
-    from .post_mesh import _is_protected_scenery_root
+    from .post_mesh import _is_protected_scenery_root, object_anchor_worklist_path
 
     counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
     try:
-        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)]
+        # RULINGS 2026-11-18k: a custom patch's airport gets its pack back
+        # unmodified too — the patch was likely designed for it
+        custom = set(_custom_patch_airports(
+            os.path.dirname(object_anchor_worklist_path(tile))))
+        for icao in sorted(custom):     # silent when the box is off (#42)
+            UI.vprint(0 if getattr(tile, "modify_custom_airports", True) else 2,
+                      f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
+        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)] + sorted(custom)
         if not unpatched:
             return counts
         if scenery_dir is None:
@@ -1562,8 +1605,10 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                     elif out.state != _up.NONE:
                         kept = (f"; {', '.join(out.kept)} keep their placements"
                                 if out.kept else "")
-                        UI.vprint(0, f"  [v2 rebake] {icao}: left without a "
-                                     f"patch — pack {pack['pack_name']} "
+                        why = ("custom patch in use" if icao in custom
+                               else "left without a patch")
+                        UI.vprint(0, f"  [v2 rebake] {icao}: {why} — "
+                                     f"pack {pack['pack_name']} "
                                      f"{tile_name}.dsf is back to its original "
                                      f"for this airport ("
                                      f"{len(out.bodies_removed)} split "

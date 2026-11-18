@@ -318,3 +318,34 @@ def test_an_omission_recorded_for_another_pristine_file_is_not_applied():
     assert PA.recorded(entry, "aa") == _omission()
     assert PA.recorded(entry, "bb") == ()
     assert PA.recorded({}, "aa") == () and PA.recorded(None, "aa") == ()
+
+
+def test_a_custom_patch_airport_gets_its_original_pack_back(seated, tile,
+                                                             monkeypatch):
+    """Owner RULINGS 2026-11-18k (#2171): an airport a custom patch covers
+    is restored from our own backup like one left without a patch, and
+    the log names the custom patch; the editor's ``_edited`` patch is not
+    a custom patch here (2026-11-03e (13) re-places its objects)."""
+    from auto_patch import post_mesh
+    seated.write(_tncm, "w1")
+    UNPATCHED.record(tile, [])
+    del tile.auto_patch_unpatched
+    patches = seated.tmp / "Patches"
+    patches.mkdir()
+    monkeypatch.setattr(post_mesh, "object_anchor_worklist_path",
+                        lambda _t: str(patches / "worklist.json"))
+    (patches / "TNCM_edited.patch.osm").write_text("<osm/>")
+    before = _snapshot(seated.pack)
+    assert ENGINE.restore_unpatched_packs(tile, str(seated.tmp)) == {
+        "restored": 0, "recomposed": 0, "unproven": 0}
+    assert _snapshot(seated.pack) == before
+    said = []
+    monkeypatch.setattr(UI, "vprint", lambda _v, *w: said.append(" ".join(w)))
+    (patches / "TNCM.patch.osm").write_text("<osm/>")
+
+    counts = ENGINE.restore_unpatched_packs(tile, str(seated.tmp))
+
+    assert counts == {"restored": 1, "recomposed": 0, "unproven": 0}
+    assert seated.dsf.read_text(encoding="utf-8") == DUMP4
+    assert any(("TNCM: " + ENGINE._CUSTOM_PATCH_LINE) in s for s in said)
+    assert any("TNCM: custom patch in use — pack" in s for s in said)

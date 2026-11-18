@@ -143,3 +143,25 @@ def test_rebake_skips_a_plan_the_mode_filter_left_out(rebake_stage, capsys):
     assert counts["airports_failed"] == 0
     assert counts["airports_skipped_unapplied"] == 1
     assert "placement SKIPPED" in capsys.readouterr().out
+
+
+def test_rebake_leaves_a_custom_patch_airport_unmodified(rebake_stage, capsys):
+    """Owner RULINGS 2026-11-18k (#2171): a custom patch was likely
+    designed for the unmodified airport — its plan is not placed and the
+    log says so in one line; an ``_edited`` patch still is (11-03e)."""
+    tile, patch_dir = rebake_stage
+    _touch(patch_dir / "OTHH.patch.osm")
+    counts = object_stage.rebake_after_mesh(tile)
+    assert counts["airports"] == 0 and counts["airports_failed"] == 0
+    assert counts["airports_custom_patch"] == 1
+    out = capsys.readouterr().out
+    assert ("OTHH: " + object_stage._CUSTOM_PATCH_LINE) in out
+    assert "your edited patch" not in out
+
+
+def test_custom_patch_airports_leaves_out_the_editors_own(tmp_path):
+    for name in ("OTHH.patch.osm", "OTHH_x.patch.osm", "OMDB_edited.patch.osm",
+                 "OMDB_auto.patch.osm", "OTBD.patch.osm.disabled"):
+        _touch(tmp_path / name)
+    assert object_stage._custom_patch_airports(str(tmp_path)) == {
+        "OTHH": ["OTHH.patch.osm", "OTHH_x.patch.osm"]}

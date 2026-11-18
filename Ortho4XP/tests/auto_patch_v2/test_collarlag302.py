@@ -152,3 +152,37 @@ def test_the_datum_never_moves_the_rim_off_its_ground(problem, bank_law, monkeyp
     print(f"collarlag302 twin: max |z - DEM| on the coverage rim: "
           f"without the datum {off:.3f} m, with it {on:.3f} m")
     assert on <= off + 1e-6
+
+
+def _stub_planar(faces: dict[int, tuple[str, list[int]]], dem: float = 8.0):
+    """A minimal planar map: ``faces`` = {fid: (ref, ring)}; an edge used by
+    one face only is on the coverage edge (no face beyond)."""
+    import types
+    use: dict[tuple[int, int], list[int]] = {}
+    inc: dict[int, set[int]] = {}
+    for fid, (_ref, ring) in faces.items():
+        for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
+            use.setdefault((min(a, b), max(a, b)), []).append(fid)
+        for v in ring:
+            inc.setdefault(v, set()).add(fid)
+    edges = {i: types.SimpleNamespace(a=a, b=b, left_face=fs[0],
+                                      right_face=fs[1] if len(fs) > 1 else None)
+             for i, ((a, b), fs) in enumerate(use.items())}
+    return types.SimpleNamespace(
+        faces={fid: types.SimpleNamespace(id=fid, ref=ref, ring=ring, holes=())
+               for fid, (ref, ring) in faces.items()},
+        edges=edges, ring_vertices=lambda ring: list(ring),
+        vertices={v: types.SimpleNamespace(dem_z=dem, incident_faces=fs)
+                  for v, fs in inc.items()})
+
+
+def test_a_storey_risers_coverage_edge_is_ground():
+    """A strip is the collar's bank (``is_bank_ref``): RJTT 1.0.557
+    ``building56/p1#strip``'s outer vertex v24607, its only face the riser,
+    stood at 107.45 m over a DEM of 8.15 m with no datum.  The riser's own
+    coverage-edge vertices take it; one shared with another pad does not."""
+    lone = _stub_planar({1: ("u/p1", [0, 1, 4, 5]), 2: ("u/p1#strip", [1, 2, 3, 4])})
+    assert {2, 3} <= coverage_edge_collar_vertices(lone)
+    beside = _stub_planar({1: ("u/p1", [0, 1, 4, 5]), 2: ("u/p1#strip", [1, 2, 3, 4]),
+                           3: ("u", [2, 6, 7, 3])})
+    assert not {2, 3} & coverage_edge_collar_vertices(beside)

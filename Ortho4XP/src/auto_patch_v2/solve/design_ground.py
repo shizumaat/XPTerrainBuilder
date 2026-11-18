@@ -206,16 +206,23 @@ def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:
     left out, as is any vertex of a pavement face (an airside contact
     leads): every incident face must be this pad's own collar or platform.
     (``building`` is a pavement role, so the §23 (b) pavement test cannot be
-    applied to a collar vertex as written — it would exclude them all.)"""
-    from ..model.planar import is_collar_ref, platform_ref_of
-    if not any(is_collar_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
+    applied to a collar vertex as written — it would exclude them all.)
+
+    A STRIP is the same bank (``model.planar.is_bank_ref``): a storey
+    shell's riser ``<unit>/p<k>#strip`` (#2062) standing on the coverage
+    edge has only its level's one-way rows, and with no datum RJTT
+    ``building56/p1#strip``'s outer vertex v24607 solved to 107.45 m over a
+    DEM of 8.15 m (owner's 1.0.557 solve).  Its vertices whose every face
+    is this strip or its own level take the datum the collar's do."""
+    from ..model.planar import is_bank_ref, platform_ref_of
+    if not any(is_bank_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
         return set()
     edge_v = {v for e in planar.edges.values()
               if e.left_face is None or e.right_face is None
               for v in (e.a, e.b)}
     out: set[int] = set()
     for f in planar.faces.values():
-        if not is_collar_ref(f.ref):
+        if not is_bank_ref(f.ref):
             continue
         own = platform_ref_of(f.ref)
         for ring in (f.ring, *f.holes):

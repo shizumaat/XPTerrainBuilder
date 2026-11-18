@@ -53,6 +53,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from . import connector_warp as _cw
 from . import stacked_deck as _sd
 from . import tilt_float as _tf
 from . import touch_graph as _tg
@@ -386,6 +387,10 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     table["fixed_steps"] = made
     table["inside_steps"] = _inside_steps(nodes, pairs, groups, rows, node_t, law.tol_m)
     table["tilt_levelled"] = level_rows
+    table["connectors"] = _cw.bridges(
+        nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
+        lambda k: node_t.get(k, nodes[k].zero), stacked=set(stack), tol_m=law.tol_m,
+        building=_tg.BUILDING, connector=_tg.CONNECTOR)
     table["stacked"] = [(nodes[d].name, nodes[s].name, round(nodes[d].zero, 3),
                          round(stacked.get(nodes[d].key, nodes[d].zero), 3))
                         for d, s in sorted(stack.items())]

@@ -1609,7 +1609,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         from . import deck_profile as _dpf
         splits, _touch["deck_warp"] = _dpf.warp_decks(
             splits, plan, counts, law=deck_warp, surface=surface,
-            cut_log=_cut_log, write=write)
+            cut_log=_cut_log, write=write, connectors=_touch.get("connectors", ()))
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts,

@@ -325,20 +325,14 @@ def _bank_drop(es, p, slope: float) -> float:
 
 
 def _beyond(e, p) -> bool:
-    """Whether ``p`` stands in front of end line ``e`` -- abeam the line
-    itself, on the far side from its deck's ring (the pavement's side).
-    A point past the line's ends (beside a deck corner, past its side) is
-    not: the bank runs on there (MEASURED ESSA, a generated deck's corner:
-    read off the line's infinite extension it stood 5.4 m up, flush)."""
+    """Whether ``p`` stands on the far side of end line ``e`` from its
+    deck's ring (the side its pavement drives on from)."""
     from shapely.geometry import Polygon
     (x0, y0), (x1, y1) = e.line[0], e.line[-1]
-    ux, uy = x1 - x0, y1 - y0
-    t = (p.x - x0) * ux + (p.y - y0) * uy
-    if t < 0.0 or t > ux * ux + uy * uy:
-        return False
+    nx, ny = y0 - y1, x1 - x0
     c = Polygon(e.deck.ring).centroid
-    side = (c.x - x0) * -uy + (c.y - y0) * ux
-    return side * ((p.x - x0) * -uy + (p.y - y0) * ux) < 0.0
+    side = (c.x - x0) * nx + (c.y - y0) * ny
+    return side * ((p.x - x0) * nx + (p.y - y0) * ny) < 0.0
 
 
 def _in_cut(planar: PlanarMap, tunnels) -> "_t.Callable[[_t.Any], bool]":

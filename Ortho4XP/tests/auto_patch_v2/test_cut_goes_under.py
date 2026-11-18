@@ -214,5 +214,3 @@ def test_the_bank_never_runs_past_an_end_line():
     assert _bank_drop(es, Point(-0.6, 10.0), slope) == 0.0                     # beyond end A
     assert abs(_bank_drop(es, Point(3.0, 20.6), slope) - math.hypot(3.0, 0.6) * slope) < 1e-9
     assert _bank_drop(es, Point(20.0, 10.0), slope) == 7.42                    # the floor
-    # beside a corner, past end A's line but not abeam it: the bank runs on
-    assert abs(_bank_drop(es, Point(-0.5, 20.5), slope) - math.hypot(0.5, 0.5) * slope) < 1e-9

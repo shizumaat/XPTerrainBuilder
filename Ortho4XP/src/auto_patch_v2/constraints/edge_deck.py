@@ -381,8 +381,9 @@ def _blend_drop(es, p, ring_past, slope: float, kerb=None, rim=None) -> float:
     face up to 1.41x the bank's grade beside the side, and round the
     corner a cone from one point meeting the side's face in a crease.
     MEASURED ESSA (``tools/deck_probe.py --bank-perimeter``, capture on
-    test-558 fa425778c): o4gen_44525b99's walk round its ring 2.60 grade,
-    35 jags over 1V:1H.
+    test-558 fa425778c): o4gen_44525b99's walk round its ring 2.51 grade,
+    23 jags over 1V:1H -> 1.02, 2 with this, the corridor's floor
+    (:func:`_rim`) and the ground round the deck (``planar/deck_skirt``).
 
     ``kerb`` (:func:`_kerb`): the airside pavement beside the deck -- the
     cut never undercuts it (airside is king): the drop is at most ``slope``

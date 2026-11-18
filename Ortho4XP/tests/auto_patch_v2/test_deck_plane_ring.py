@@ -28,7 +28,7 @@ def _obj(tmp_path, quads, name="t.obj"):
     lines += [f"IDX {i}" for i in idx]
     lines += ["ATTR_hard_deck concrete", f"TRIS 0 {len(idx)}"]
     p = tmp_path / name
-    p.write_text("\n".join(lines) + "\n")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return str(p)
 
 
@@ -66,7 +66,7 @@ PATCH = """<?xml version='1.0' encoding='UTF-8'?>
 def test_pack_patch_pads_and_ramps(tmp_path):
     d = tmp_path / "pack" / "Ortho4XP" / "Patches" / "+00+000" / "+00+000"
     d.mkdir(parents=True)
-    (d / "X.patch.osm").write_text(PATCH)
+    (d / "X.patch.osm").write_text(PATCH, encoding="utf-8", newline="\n")
     pads = W.pack_pads(str(tmp_path / "pack"), 0, 0)
     assert len(pads) == 2
     assert W.level_at(pads, 0.0005, 0.0005) == 114.0

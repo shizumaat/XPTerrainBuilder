@@ -45,7 +45,7 @@ function (docstrings excluded).
 | O4_Mesh_Utils.py | bank_annulus_blend_values | 2 | uncoded | | bank annulus keeps the graph-harmonic treatment |
 | O4_Mesh_Utils.py | patch_coverage_polygon | 1 | uncoded | | free-interior interpolation disabled for the tile |
 | O4_Mesh_Utils.py | audit_interp_alt_extent | 1 | uncoded | | warn mode of an audit whose strict mode raises `InterpAltLeak` |
-| O4_Mesh_Utils.py | post_process_nodes_altitudes | 4 | uncoded | | degenerate triangles left, a blend or interpolation pass skipped |
+| O4_Mesh_Utils.py | post_process_nodes_altitudes | 5 | uncoded | | degenerate triangles left, a blend or interpolation pass skipped |
 | O4_Mesh_Utils.py | build_mesh | 1 | uncoded | | the mesh is retried with a lower minimum angle |
 | O4_Mask_Utils.py | build_masks | 1 | degraded | mask_extent_missing | the regular masks are built instead of the custom extent |
 | O4_Mask_Utils.py | delete_old_masks_in_tile | 1 | uncoded | | an old mask the build could not delete stays on disk |

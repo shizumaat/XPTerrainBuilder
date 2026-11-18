@@ -288,7 +288,7 @@ def road_bank_values(tile, vertices, fixed):
     path = FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon)
     if not os.path.exists(path):
         return {}
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
     v = numpy.asarray(vertices).reshape(-1, 6)
     free = numpy.ones(len(v), dtype=bool)

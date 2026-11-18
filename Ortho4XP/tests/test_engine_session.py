@@ -38,6 +38,8 @@ class _StubTile:
     worker takes the provider/zoomlevel default branch.
     """
 
+    iterate = 0
+
     def __init__(self, lat, lon, build_dir):
         self.lat = lat
         self.lon = lon

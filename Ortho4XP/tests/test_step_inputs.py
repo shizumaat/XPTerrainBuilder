@@ -49,7 +49,7 @@ def tile(tmp_path, monkeypatch):
 
 def _write(*paths):
     for path in paths:
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("x")
 
 
@@ -74,7 +74,7 @@ class _Steps:
             if self.vanish:
                 self.vanish -= 1
                 os.remove(node)
-            with open(node) as handle:          # FileNotFoundError
+            with open(node, encoding="utf-8") as handle:          # FileNotFoundError
                 handle.read()
             _write(FNAMES.mesh_file(t.build_dir, t.lat, t.lon))
         return 1
@@ -174,7 +174,7 @@ def test_a_session_run_survives_the_node_vanishing_mid_mesh(
         if state["vanish"]:
             state["vanish"] = 0
             os.remove(node)
-        with open(node) as handle:
+        with open(node, encoding="utf-8") as handle:
             handle.read()
         return 1
     install_stub_pipeline(monkeypatch, results={"vector": vector,

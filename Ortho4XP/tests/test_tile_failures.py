@@ -589,15 +589,20 @@ def test_the_restore_remedy_names_the_control_both_apps_have():
     remedy = FAIL.REMEDIES["restore_pack"]
     assert "Revert to default" in remedy and "Modified airports" in remedy
     root = os.path.join(SRC, "..", "..")
-    for path in (os.path.join(SRC, "O4_Qt_GUI.py"),
-                 os.path.join(root, "Sources", "XPTerrainBuilder",
-                              "BuildPane.swift")):
-        if not os.path.exists(path):
+    swift = os.path.join(root, "Sources", "XPTerrainBuilder")
+    apps = {"qt": [os.path.join(SRC, "O4_Qt_GUI.py")],
+            "mac": [os.path.join(swift, "BuildPane.swift"),
+                    os.path.join(swift, "PackRowButtons.swift")]}
+    for app, paths in apps.items():
+        source = ""
+        for path in paths:
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as handle:
+                    source += handle.read()
+        if not source:
             continue
-        with open(path, encoding="utf-8") as handle:
-            source = handle.read()
-        assert "Revert to default" in source, path
-        assert "Modified airports" in source, path
+        assert "Revert to default" in source, app
+        assert "Modified airports" in source, app
 
 
 def test_stand_in_elevation_is_a_note_from_the_sidecar(monkeypatch,

@@ -357,7 +357,7 @@ def test_a_built_tile_runs_the_check_off_the_build_thread(monkeypatch):
 def _graded(patch_dir, icao: str, generated: dict) -> None:
     from auto_patch_v2.model.rebake import graded_surface_path
     os.makedirs(patch_dir, exist_ok=True)
-    with open(graded_surface_path(str(patch_dir), icao), "w", encoding="utf-8") as fh:
+    with open(graded_surface_path(str(patch_dir), icao), "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"provenance": {"generated": generated}}, fh)
 
 

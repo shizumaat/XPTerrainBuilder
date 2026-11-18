@@ -110,14 +110,20 @@ def test_a_walled_deck_mints_no_skirt():
     assert deck_skirt_pieces([walled], [], [], 0.6, 0.2, 5.0, LAW) == []
 
 
-def test_a_bank_blend_ceiling_releases_no_datum():
-    """A blend row caps the ground beside a deck; it is no level, so the
-    vertex keeps its own DEM row (MEASURED KIAH: a wall rim capped and
-    released fell to 0.00, 28.3 m under its DEM)."""
-    from auto_patch_v2.constraints.edge_deck import BLEND, GEN, RULING, release_governed
-    from auto_patch_v2.model.constraints import Linear, Pin, Source
-    dem = Pin(7, 28.3, Source("structures", "rim", ("tunnel_wall",)))
-    cap = Linear(((7, 1.0), (1, -1.0)), None, -2.0, Source(GEN, RULING, ("o", "o", BLEND)))
-    assert dem in release_governed([dem, cap])
-    pair = Linear(((7, 1.0), (1, -1.0)), None, -2.0, Source(GEN, RULING, ("o", "o", "deck span")))
-    assert dem not in release_governed([dem, pair])
+def test_only_a_rim_the_ground_shares_takes_the_blend():
+    """A corridor's wall rim the ground shares takes the bank's cap; a rim on
+    the wall's face alone keeps its pin (MEASURED KIAH: released, a rim
+    beside obj24551 fell to 0.00, 28.3 m under its DEM)."""
+    from auto_patch_v2.constraints.edge_deck import _open_ground
+    faces = {1: types.SimpleNamespace(role="retaining_wall", ref="tunnel_wall"),
+             2: types.SimpleNamespace(role="graded_strip", ref="deck_skirt:o#0"),
+             3: types.SimpleNamespace(role="retaining_wall", ref="pad_wall")}
+    pm = types.SimpleNamespace(faces=faces)
+
+    def vx(*fs):
+        return types.SimpleNamespace(incident_faces=fs)
+    assert _open_ground(pm, vx(1, 2), walls=True)
+    assert not _open_ground(pm, vx(1, 2))
+    assert not _open_ground(pm, vx(1), walls=True)
+    assert not _open_ground(pm, vx(3, 2), walls=True)
+    assert _open_ground(pm, vx(2))

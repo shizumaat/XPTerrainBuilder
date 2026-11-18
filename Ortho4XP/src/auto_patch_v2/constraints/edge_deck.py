@@ -70,8 +70,7 @@ RULING = "roads.edge bridge deck level with the airside abeam"
 #: a corridor's wall face's ref (``constraints/structures.WALL_REF``; not
 #: imported: its closure is not this generator's stage key)
 _WALL_REF = "tunnel_wall"
-#: the inputs label of a bank-blend CEILING (:func:`_blend_rows`): a cap,
-#: never a level -- :func:`release_governed` keeps the vertex's own datum
+#: the inputs label of a bank-blend CEILING (:func:`_blend_rows`)
 BLEND = "bank blend"
 RIGID = ("structures.hard-deck bridge: one zero, flush at both end lines "
          "(RULINGS 2026-10-30a (1))")
@@ -476,16 +475,19 @@ def _open_ground(planar: PlanarMap, vx, walls: bool = False) -> bool:
     zone band, the bridge's own ground, the ground round it --
     ``planar/deck_skirt``) -- never a pavement's or a building pad's, which
     keep their own law.  ``walls``: a corridor's wall rim too (a
-    ``retaining_wall`` face of ref ``tunnel_wall``) -- the bank blending
-    out takes the corridor's walls down beside the deck (#2141: MEASURED
-    ESSA o4gen_44525b99, the rim 2.9 m past the ring stood at the DEM,
-    3.8 m over the floor 2 m away, a notch round the deck's corner)."""
+    ``retaining_wall`` face of ref ``tunnel_wall``) that the ground shares --
+    the bank blending out takes the corridor's walls down beside the deck
+    (#2141: MEASURED ESSA o4gen_44525b99, the rim 2.9 m past the ring stood
+    at the DEM, 3.8 m over the floor 2 m away, a notch round the deck's
+    corner).  A rim no ground face shares keeps its pin: released, it had
+    no datum at all (MEASURED KIAH, a rim beside obj24551 fell to 0.00,
+    28.3 m under its DEM)."""
     faces = [planar.faces.get(f) for f in vx.incident_faces]
-    return bool(faces) and all(
-        f is not None and (f.role == "graded_strip"
-                           or (walls and f.role == "retaining_wall"
-                               and str(f.ref) == _WALL_REF))
-        for f in faces)
+    if not faces or any(f is None for f in faces):
+        return False
+    ground = [f.role == "graded_strip" for f in faces]
+    wall = [walls and f.role == "retaining_wall" and str(f.ref) == _WALL_REF for f in faces]
+    return any(ground) and all(g or w for g, w in zip(ground, wall, strict=True))
 
 
 def _blend_rows(planar: PlanarMap, v: int, p, es, ring_past, slope: float, near_vs,
@@ -673,13 +675,13 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
     sheds the one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or
     a one-term ``Linear`` — that held it at the DEM or at a road's ramp.
     Pair rows (grades, steps) are kept: they bind it to its neighbours.  A
-    bank-blend CEILING (:data:`BLEND`) governs nothing: it caps the ground
-    beside a deck and the vertex keeps its own datum (#2141: MEASURED KIAH,
-    a corridor's wall rim beside obj24551 capped and released fell to 0.00,
-    28.3 m under its DEM)."""
+    bank-blend CEILING (:data:`BLEND`) governs its vertex too: held at its
+    DEM by a pin, the cap pushed the deck's seat up instead (MEASURED ESSA,
+    #2141: taxiway 0.08 m) -- so a capped vertex is always open ground,
+    whose own datum is the ground's (:func:`_open_ground`)."""
     gov = {r.terms[0][0] for r in rows
            if isinstance(r, Linear) and r.source.generator == gen and r.terms[0][1] > 0.0
-           and r.source.ruling != RIGID and r.source.inputs[-1:] != (BLEND,)}
+           and r.source.ruling != RIGID}
     if not gov:
         return rows
     out: list[Row] = []

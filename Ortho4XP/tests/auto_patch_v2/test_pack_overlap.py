@@ -110,6 +110,69 @@ def test_half_of_the_smaller_is_the_bar(pack):
     assert not PO.overlaps({"Big": big, "Far": _structures(pack, "Far", far)})
 
 
+def _box_obj(x0, x1, y0, y1, z0, z1) -> str:
+    """A closed box ``x0..x1`` by ``y0..y1`` (up) by ``z0..z1``."""
+    vt = [(x, y, z) for y in (y0, y1) for x, z in ((x0, z0), (x1, z0), (x1, z1), (x0, z1))]
+    return ("I\n800\nOBJ\n\nPOINT_COUNTS 8 0 0 36\n"
+            + "".join(f"VT {x} {y} {z} 0 1 0 0 0\n" for x, y, z in vt)
+            + "".join(f"IDX {i}\n" for i in _IDX) + "TRIS 0 36\n")
+
+
+@pytest.fixture
+def rail(tmp_path):
+    """A pack drawing an elevated rail as 30 m spans (8-10 m up, piers
+    apart), a long station, a footbridge off it, a building beside the
+    line and a row of long houses at grade."""
+    root = tmp_path / "rail"
+    (root / "objects").mkdir(parents=True)
+    for name, box in (("span", (-2, 2, 8, 10, -15, 15)),
+                      ("pier", (-1, 1, 0, 8, -1, 1)),
+                      ("station", (-10, 10, 0, 14, -40, 40)),
+                      ("bridge", (-4, 4, 6, 8, -1.5, 1.5)),
+                      ("house", (-3, 3, 0, 6, -10, 10))):
+        (root / "objects" / f"{name}.obj").write_text(_box_obj(*box), encoding="utf-8",
+                                                      newline="")
+    return str(root)
+
+
+def _rail_rows():
+    north = [("objects/span.obj", *_deg(0, 55 + 30 * i)) for i in range(5)]   # 40..190
+    south = [("objects/span.obj", *_deg(0, -55 - 30 * i)) for i in range(5)]
+    piers = [("objects/pier.obj", *_deg(0, y)) for y in (70, 130, -70, -130)]  # at joints
+    station = [("objects/station.obj", *_deg(0, 0))]                     # -40..40
+    bridge = [("objects/bridge.obj", *_deg(14, 0)), ("objects/bridge.obj", *_deg(22, 0))]
+    beside = [("objects/box.obj", *_deg(60, 100))]                       # 40 x 40, 40 m off
+    houses = [("objects/house.obj", *_deg(-200, 20 * i)) for i in range(3)]
+    return north + south + piers + station + bridge + beside + houses
+
+
+def test_a_hidden_span_takes_its_route_assembly_and_nothing_off_it(rail, pack):
+    """#2163: hiding one span of a placed rail hides every span chained to
+    it, through the station it lands on, their piers and the footbridge off
+    the station; the building beside the line and a row of houses at grade
+    (one of them hidden) stay."""
+    import shutil
+
+    from auto_patch_v2.airport import pack_overlap_assembly as PA
+    shutil.copy(os.path.join(pack, "objects", "box.obj"), os.path.join(rail, "objects"))
+    rows = _rail_rows()
+    lines = _dump(objects=rows)
+    structs = _structures(rail, "Rail", lines)
+    fr = PO.Frame(LON0, LAT0)
+    region = Polygon([(-600, -600), (600, -600), (600, 600), (-600, 600)])
+
+    def resolve(r):
+        p = os.path.join(rail, r)
+        return p if os.path.isfile(p) else None
+    read = [PO.HideRow(r, lo, la) for r, lo, la, _h in
+            PO._rows(lines, fr.lonlat_box(region))[0]]
+    hidden = [read[0], read[-1]]                     # one span, one house
+    got = PA.assembly(lines, fr, region, hidden, structs, resolve, _obj8.ResourceCache(0.05))
+    kinds = sorted(r.resource.split("/")[1][:-4] for r in got)
+    assert kinds == sorted(["span"] * 9 + ["pier"] * 4 + ["station"] + ["bridge"] * 2)
+    assert PA.assembly(lines, fr, region, [], structs, resolve) == []
+
+
 def test_hide_rows_drops_objects_and_facades_by_anchor():
     ring = _square(0, 0, 20)
     other = _square(100, 0, 20)
@@ -155,6 +218,27 @@ def test_no_answer_hides_nothing_and_the_answer_hides_the_loser(stores):
         "+25+055", "+25+054")) == []                       # another tile
     OVC.STORE.remember(key, OVC.BOTH)
     assert OVC.overlap_hides(auto, _dsf(scenery, "Autogen")) == []
+
+
+def test_an_answered_pair_whose_rows_grow_rewrites_its_loser(stores, monkeypatch):
+    """#2163: the detection after a build stores the grown rows; an answered
+    pair whose hiding they change rewrites the losing pack at once (the
+    build wrote it with the rows stored before), an unchanged one never."""
+    from auto_patch import overlap_stage as OS
+    scenery, key = stores
+    wrote = []
+    monkeypatch.setattr(OS, "_rewrite", lambda d, n, la, lo: wrote.append(n))
+    pair = PO.OverlapPair(("Airport", "Autogen"), ((PO.HideRow("a.obj", 55.1, 25.1),),
+                          (PO.HideRow("b.fac", 55.2, 25.2), PO.HideRow("pier.obj", 55.3, 25.3))),
+                          1, 1.0)
+    OS._remember(scenery, key, 25, 55, "Airport", pair)
+    assert wrote == []                                   # unanswered: nothing hidden
+    OVC.STORE.remember(key, "Airport")
+    OS._remember(scenery, key, 25, 55, "Airport", pair)
+    assert wrote == []                                   # the same rows again
+    grown = pair._replace(rows=(pair.rows[0], pair.rows[1] + (PO.HideRow("s.obj", 55.4, 25.4),)))
+    OS._remember(scenery, key, 25, 55, "Airport", grown)
+    assert wrote == ["Autogen"]
 
 
 def test_the_pack_write_reads_the_answer(stores):

@@ -1323,6 +1323,11 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                     written_packs.add(plan_.pack_root)
                     if reuse is None or reuse.reused == served:
                         ran_packs.add(plan_.pack_root)
+            except FileNotFoundError:
+                # a ground file (the .mesh) vanished mid-step (storage
+                # offload, #2129): fail the step so step_inputs reruns it,
+                # never a silently unplaced airport
+                raise
             except Exception as exc:
                 counts["airports_failed"] += 1
                 UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); "

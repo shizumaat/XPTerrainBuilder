@@ -26,6 +26,7 @@ Headless (offscreen platform); the prefs file is monkeypatched BEFORE
 MainWindow construction (see qt_tests_prefs_file_clobber).
 """
 
+import types
 import os
 import sys
 
@@ -201,6 +202,9 @@ class TestPanelFitsItsViewport:
         window.info_mesh.setText("12 Sep 2026 14:30")
         window.info_imagery.setText("12 Sep 2026 14:30")
         window.info_size.setText("48.0 GB (12 folders)")
+        # The build's airport rows, shown (their label is the widest)
+        window._show_build_airports(types.SimpleNamespace(
+            airport_elevation=LONG_TEXT, airports=LONG_TEXT))
         qapp.processEvents()
         panel = window.info_group.parentWidget()
         scroll = panel.parentWidget()

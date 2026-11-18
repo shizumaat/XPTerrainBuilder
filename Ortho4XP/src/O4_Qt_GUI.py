@@ -1290,6 +1290,10 @@ class MainWindow(QMainWindow):
         # gives the Ignored-policy elided labels ZERO width (their size
         # hint is meaningless by design) — the values simply vanish.
         ig.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        # A label too wide for the fixed panel ("Airport elevation:" is
+        # 216 px in the Windows font against a 266 px panel) puts its value
+        # on the line below instead of widening the panel past the viewport.
+        ig.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.info_title = QLabel("—")
         # Rich text (no elision support), so it clips rather than ever
         # widening the fixed-width panel; the tooltip keeps the whole

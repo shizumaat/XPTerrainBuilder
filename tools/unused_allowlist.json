@@ -445,11 +445,6 @@
   "reason": "return type of road_witness (planar/road_shadow reads it, never names it); listed in __all__ (lshadow, test-555)"
  },
  {
-  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap.py",
-  "name": "Frame",
-  "reason": "#2145: the metres frame airport_regions returns with each region (its public return type); the stage passes it through without naming it"
- },
- {
   "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap_choice.py",
   "name": "kept_rows",
   "reason": "#2145/#2144: the winning pack's overlapping rows, the input the overlay re-seat (#2144, lane l2144) reads to fit the kept structures to the terrain; that caller lands on its own branch"
@@ -508,5 +503,50 @@
   "path": "Ortho4XP/src/o4_engine/world_yield.py",
   "name": "reason",
   "reason": "integration test-558: why the World job's spawn window waits (RULINGS 2026-11-17v); wait()'s default why=, the twins read it directly"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Cliff_Sun.py",
+  "name": "region_aspects",
+  "reason": "the per-region facing step of dark_rock_regions, read by it and listed in __all__ as the unit the LPPD bluff twin pins (2026-11-18d, test-559)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Slots.py",
+  "name": "memory_admits",
+  "reason": "the slot memory gate as a public check; parallel.py runs its locked twin, tests/test_machine_slots.py pins the verdict (test-559)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Road_Bank.py",
+  "name": "bank_field",
+  "reason": "the bank surface as a pure function of the payload, called by the module stage and pinned by tests/test_road_bank.py (test-559, 2026-11-18e)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_plane_ring.py",
+  "name": "DeckPlane",
+  "reason": "#2157 lkrdu partial: return type of deck_plane; the stage caller lands in the next #2157 round"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_plane_ring.py",
+  "name": "deck_plane",
+  "reason": "#2157 lkrdu partial (kept by the master): the deck plane fit, wired into the stage in the next #2157 round; twin-tested now"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_patch_witness.py",
+  "name": "Pad",
+  "reason": "#2157 lkrdu partial: return type of read_pads; the caller lands in the next #2157 round"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_patch_witness.py",
+  "name": "read_pads",
+  "reason": "#2157 lkrdu partial (2026-11-18f): the pack patch witness reader, wired in the next #2157 round"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_patch_witness.py",
+  "name": "level_at",
+  "reason": "#2157 lkrdu partial (2026-11-18f): the witness level query, wired in the next #2157 round; twin-tested now"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_patch_witness.py",
+  "name": "patch_files",
+  "reason": "#2157 lkrdu partial: finds the pack patch files read_pads reads; wired in the next #2157 round"
  }
 ]

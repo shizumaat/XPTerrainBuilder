@@ -211,6 +211,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Held_File",
     "O4_Http_Pushback",
     "O4_Land_Witness",
+    "O4_Machine_Memory",
     "O4_Machine_Slots",
     "O4_OSM_Extract_Filter",
     "O4_OSM_Extracts",

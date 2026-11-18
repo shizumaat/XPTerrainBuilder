@@ -70,6 +70,8 @@ def wait_message(needed_gb: float, free_gb: float, reason: str,
                 % (behind, _gb(needed_gb), _gb(free_gb)))
     head = ("Waiting for memory: needs about %s GB, %s GB free."
             % (_gb(needed_gb), _gb(free_gb)))
+    if reason == REASON_MACHINE and behind:
+        return head + " Memory is held by: %s." % behind
     if reason == REASON_MACHINE:
         return head + (" Quitting X-Plane or another large application"
                        " frees memory.")

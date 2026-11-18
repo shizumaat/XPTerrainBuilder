@@ -63,6 +63,22 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_MACHINE_SLOTS":
         "how many heavy processes the session's budget runs at once — "
         "scheduling only",
+    "O4_MACHINE_LEDGER_DIR":
+        "where the machine memory ledger's records are (O4_Machine_Memory, "
+        "incident 2026-11-17) — scheduling only",
+    "O4_MEMORY_SESSION":
+        "which engine session a process belongs to on the machine memory "
+        "ledger — scheduling only",
+    "O4_MEMORY_ROLE":
+        "app / lane / command-line: who yields memory to whom — scheduling "
+        "only",
+    "O4_MEMORY_LABEL":
+        "the words the memory-wait logs name a session by — logs only",
+    "O4_MEMORY_STEP_RESERVED":
+        "a parallel run's worker: its parent reserved the step's memory — "
+        "scheduling only",
+    "O4_MEMORY_LEDGER_ANNOUNCED":
+        "the ledger's log line was printed in this process tree — logs only",
     "O4_MACHINE_SLOTS_UNGATED":
         "a slot session that proves mechanics (the pool self-check) skips "
         "the live memory gate — scheduling only",

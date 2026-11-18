@@ -26,9 +26,9 @@ Headless (offscreen platform); the prefs file is monkeypatched BEFORE
 MainWindow construction (see qt_tests_prefs_file_clobber).
 """
 
-import types
 import os
 import sys
+import types
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -395,6 +395,7 @@ class TestStartupCallsAreOwnedByTheWindow:
 
     def _pump(self, qapp, seconds):
         import time
+
         from PySide6.QtCore import QCoreApplication, QEvent
 
         deadline = time.monotonic() + seconds

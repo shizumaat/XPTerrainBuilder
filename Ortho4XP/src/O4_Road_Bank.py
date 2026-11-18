@@ -48,7 +48,6 @@ import os
 from math import cos, pi
 
 import numpy
-
 import O4_File_Names as FNAMES
 import O4_Vector_Utils as VECT
 

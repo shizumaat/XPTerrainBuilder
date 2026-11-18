@@ -170,6 +170,7 @@ def test_the_command_loop_answers_during_a_scan(root, monkeypatch):
     worker; the read loop gets "started" at once and answers the next
     command while the scan is still walking."""
     import threading
+
     from o4_engine import storage_shared as SHARED
     walking, release, events = threading.Event(), threading.Event(), []
 

@@ -91,8 +91,8 @@ def read_pads(path: str) -> list[Pad]:
         hi, lo = _float(tags.get("altitude_high")), _float(tags.get("altitude_low"))
         if hi is None or lo is None or len(refs) != 5:
             continue
-        low_mid = tuple((a + b) / 2.0 for a, b in zip(ring[1], ring[2]))
-        high_mid = tuple((a + b) / 2.0 for a, b in zip(ring[3], ring[0]))
+        low_mid = tuple((a + b) / 2.0 for a, b in zip(ring[1], ring[2], strict=True))
+        high_mid = tuple((a + b) / 2.0 for a, b in zip(ring[3], ring[0], strict=True))
         out.append(Pad(str(w.get("id")), ring, lo, hi, (low_mid, high_mid)))
     return out
 

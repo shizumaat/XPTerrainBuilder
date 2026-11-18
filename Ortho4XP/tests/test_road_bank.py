@@ -2,11 +2,10 @@
 import math
 
 import numpy
-import pytest
-
 import O4_Geo_Utils as GEO
 import O4_Road_Bank as RB
 import O4_Vector_Utils as VECT
+import pytest
 
 LANE = 4.0
 M = GEO.lat_to_m
@@ -107,7 +106,7 @@ def test_field_cuts_and_fills_to_the_bank_and_keeps_the_dem_past_the_foot():
                                       0.5 - (LANE + d) / M]])
     zv = numpy.r_[47.0, 47.0, 47.0, 10.0, 10.0, 10.0]
     (sel, z) = RB.bank_field(_payload(w), 0, 0, xy, zv)
-    got = dict(zip(sel.tolist(), z.tolist()))
+    got = dict(zip(sel.tolist(), z.tolist(), strict=True))
     assert got[0] == pytest.approx(50.0 - 2.0 / RB.BANK_RUN, abs=0.05)
     assert got[1] == pytest.approx(50.0 - 4.0 / RB.BANK_RUN, abs=0.05)
     assert 2 not in got                          # past the foot: the DEM

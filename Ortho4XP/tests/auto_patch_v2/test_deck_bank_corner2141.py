@@ -12,15 +12,14 @@ import itertools
 import types
 
 import pytest
-from shapely.geometry import LineString, Point, box
-
 from auto_patch_v2.constraints.edge_deck import _blend_drop, _rim
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.deck_bank import deck_bank_slope
 from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.planar.deck_generated import GENERATED_WITNESS
-from auto_patch_v2.planar.deck_skirt import SKIRT_PREFIX, deck_skirt_pieces, _skirt_region
+from auto_patch_v2.planar.deck_skirt import SKIRT_PREFIX, _skirt_region, deck_skirt_pieces
 from auto_patch_v2.planar.overlay import Region
+from shapely.geometry import LineString, Point, box
 
 LAW = load_default()
 SLOPE = 2.0 / 3.0

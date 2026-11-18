@@ -306,16 +306,33 @@ def _bank_drop(es, p, slope: float) -> float:
     deck's bank: ``slope`` x its distance from the nearest end line, at
     most that line's depth (its top over the frame's bottom, the floor) --
     the bank's head on the end line, its toe on the floor and the floor
-    beyond."""
+    beyond.  A vertex BEYOND an end line (on the far side from its deck)
+    is the pavement's ground, never the bank: 0 -- the bank runs on past
+    the deck's SIDES only.  MEASURED LFPG H19 (obj13017, 09L/27R): banked
+    1 m past the end line, the runway's corner vertices there stood
+    0.19-0.33 m under their neighbours."""
     from shapely.geometry import LineString
     best = None
     for e in es:
         if len(e.line) < 2:
             continue
+        if _beyond(e, p):
+            return 0.0
         d = LineString(e.line).distance(p)
         if best is None or d < best[0]:
             best = (d, float(e.depth))
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
+
+
+def _beyond(e, p) -> bool:
+    """Whether ``p`` stands on the far side of end line ``e`` from its
+    deck's ring (the side its pavement drives on from)."""
+    from shapely.geometry import Polygon
+    (x0, y0), (x1, y1) = e.line[0], e.line[-1]
+    nx, ny = y0 - y1, x1 - x0
+    c = Polygon(e.deck.ring).centroid
+    side = (c.x - x0) * nx + (c.y - y0) * ny
+    return side * ((p.x - x0) * nx + (p.y - y0) * ny) < 0.0
 
 
 def _in_cut(planar: PlanarMap, tunnels) -> "_t.Callable[[_t.Any], bool]":

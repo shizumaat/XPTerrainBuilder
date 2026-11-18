@@ -203,6 +203,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.facade_seat",
     "auto_patch_v2.airport.file_hash",
     "auto_patch_v2.airport.file_witness",
+    "auto_patch_v2.airport.floor_deck_ends",
     "auto_patch_v2.airport.floor_rim",
     "auto_patch_v2.airport.footprint_carry",
     "auto_patch_v2.airport.footprint_connector",

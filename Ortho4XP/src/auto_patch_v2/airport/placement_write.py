@@ -199,6 +199,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                touch_seat: _t.Any = None,
                # #2144 P2: ``deck_profile.law_of(structures)``; ``None`` disarms
                deck_warp: _t.Any = None,
+               # RULINGS 2026-11-18c: ``floor_deck_ends.law_of(structures)``;
+               # ``None`` disarms
+               floor_deck_ends: _t.Any = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -265,7 +268,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         elevated_m=elevated_base_m, runway_ends=runway_ends,
         approach_reach_m=approach_reach_m,
         approach_heading_deg=approach_heading_deg,
-        ground_rider_law=ground_rider_law)
+        ground_rider_law=ground_rider_law, floor_deck_ends=floor_deck_ends)
     # #2042: a graded facade's plane comes down onto its drawn ground
     fseats, ffiles, fcounts = _fs.plan_seats(
         dump, pack_root, surface if facade_surface is None else facade_surface)
@@ -306,6 +309,19 @@ def _exclusions(rebake_plan: _t.Any, tile: "tuple[int, int] | None",
     return boxes_above(root, int(box[1]), int(box[0]))
 
 
+def _deck_ends_seated(dump: _t.Any, records: tuple, surface: _t.Callable,
+                      pack_root: str, law: _t.Any) -> tuple[tuple, tuple]:
+    """``(records, lifts)``: the object-floor frame decks RULINGS 2026-11-18c
+    seats by their own end lines (``floor_deck_ends``), each logged."""
+    if law is None:
+        return records, ()
+    from . import floor_deck_ends as _fde
+    lifts = _fde.end_lifts(dump, records, surface, pack_root, law)
+    for d in lifts:
+        print("  " + _fde.log_line(d))
+    return _fde.lifted(records, lifts), lifts
+
+
 def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,
               surface: _t.Callable, pack_root: str, *, tol_m: float,
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
@@ -316,7 +332,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               runway_ends: _t.Sequence = (),
               approach_reach_m: float = 0.0,
               approach_heading_deg: float = 0.0,
-              ground_rider_law: _t.Any = None) -> tuple[tuple, tuple, tuple, dict]:
+              ground_rider_law: _t.Any = None,
+              floor_deck_ends: _t.Any = None) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -351,6 +368,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     # #1949: a walled pit's frame raised to the airside rail group meeting it
     _records = _pit_shifted(_records, getattr(ss, "pit_shifts", None) or {})
+    # RULINGS 2026-11-18c: a floor frame's deck between two higher roads
+    # is seated by its own end lines
+    _records, _deck_lifts = _deck_ends_seated(dump, _records, surface, pack_root,
+                                              floor_deck_ends)
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)
@@ -435,6 +456,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
                               "agl_rows_kept_unchanged": agl_kept,
                               "terrain_feature_rows_kept": len(features),
                               "terrain_shaped_rows_seated": len(terrain)}
+    if _deck_lifts:
+        counts["floor_decks_seated_by_end_lines"] = len(_deck_lifts)
     counts.update(msl_counts)
     counts.update(_riders.rider_census(riders))
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,

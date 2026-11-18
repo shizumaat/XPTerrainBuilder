@@ -25,7 +25,8 @@ import stat
 import struct
 import sys
 
-__all__ = ["private_bytes", "freeable_bytes", "counted_once_bytes"]
+__all__ = ["private_bytes", "freeable_bytes", "counted_once_bytes",
+           "allocated_bytes"]
 
 _FSOPT_NOFOLLOW = 0x1
 _FSOPT_ATTR_CMN_EXTENDED = 0x20
@@ -95,9 +96,16 @@ def freeable_bytes(path, st: os.stat_result | None = None,
     if stat.S_ISLNK(st.st_mode) or getattr(st, "st_nlink", 1) > 1:
         return 0
     size = private_bytes(path)
-    blocks = getattr(st, "st_blocks", None)         # none on Windows
-    if size is not None and not (unshared and size == 0 and blocks):
+    alloc = allocated_bytes(st)
+    if size is not None and not (unshared and size == 0 and alloc):
         return size
+    return alloc
+
+
+def allocated_bytes(st: os.stat_result) -> int:
+    """``st``'s allocation: its blocks where the platform reports them,
+    else (Windows has no ``st_blocks``) its apparent size."""
+    blocks = getattr(st, "st_blocks", None)
     return blocks * 512 if blocks is not None else st.st_size
 
 
@@ -114,5 +122,4 @@ def counted_once_bytes(path, st: os.stat_result | None = None) -> int:
         return 0
     if getattr(st, "st_nlink", 1) <= 1:
         return freeable_bytes(path, st)
-    blocks = getattr(st, "st_blocks", None)
-    return blocks * 512 if blocks is not None else st.st_size
+    return allocated_bytes(st)

@@ -65,9 +65,9 @@ def test_a_cloned_file_books_its_allocation_as_budget_progress(
     st = os.lstat(path)
     monkeypatch.setattr(DISK, "private_bytes", lambda p: 0)
     assert DISK.freeable_bytes(path, st) == 0       # the Settings figure
-    assert DISK.freeable_bytes(path, st, unshared=True) == st.st_blocks * 512
+    assert DISK.freeable_bytes(path, st, unshared=True) == DISK.allocated_bytes(st)
     monkeypatch.setattr(DISK, "private_bytes", lambda p: None)
-    assert DISK.freeable_bytes(path, st, unshared=True) == st.st_blocks * 512
+    assert DISK.freeable_bytes(path, st, unshared=True) == DISK.allocated_bytes(st)
 
 
 def test_zero_private_bytes_stop_the_budget_after_one_file(

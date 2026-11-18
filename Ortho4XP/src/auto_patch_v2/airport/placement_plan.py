@@ -1602,13 +1602,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         splits, _touch = _ts.seat_touching(
             splits, plan, _pw or {}, counts, law=touch_seat,
             fixed=_ts.Fixed(_gated, frozenset(_afloat), frozenset(_gz_led)),
-            cut_log=_cut_log, write=write, unit_seats=_unit_seats)
+            cut_log=_cut_log, write=write, unit_seats=_unit_seats,
+            surface=surface, band_m=foot_band_m)
     if deck_warp is not None and splits:
         # #2144 P2: ONE pass over the final bodies, after the touch pass
         from . import deck_profile as _dpf
         splits, _touch["deck_warp"] = _dpf.warp_decks(
             splits, plan, counts, law=deck_warp, surface=surface,
-            cut_log=_cut_log, write=write)
+            cut_log=_cut_log, write=write, connectors=_touch.get("connectors", ()))
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts,

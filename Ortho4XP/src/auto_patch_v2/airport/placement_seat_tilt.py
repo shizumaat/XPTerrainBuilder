@@ -96,6 +96,11 @@ bakes no tilt, and its rider takes none.  :func:`rider_counts` reports a
 rider still written level on a tilted carrier (``seat_tilt_level_rider``,
 0 by construction) beside the riders that followed.
 
+A TILT THAT FLOATS A FOOT AS WRITTEN IS UNDONE (owner RULINGS 2026-11-18h
+(4), #2129): read once over the FINAL bodies, after every pass that moves
+a zero, by ``tilt_float`` -- the frame then seats level at its no-float
+zero.
+
 This module DECIDES the tilt and nothing else; ``obj8_split.tilt_matrix``
 is the one derivation of the rotation itself, so the residual this module
 re-checks and the geometry the writer bakes cannot drift apart.

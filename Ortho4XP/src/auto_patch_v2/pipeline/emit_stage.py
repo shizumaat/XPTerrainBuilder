@@ -449,7 +449,9 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            "agp_groups": _agp_records,
                            # spec 2123 (RULINGS 2026-11-16y): the generated
                            # decks and road bridges the object stage writes
-                           "generated": generated_records(pm, law, airport, sol.z)})
+                           "generated": generated_records(
+                               pm, law, airport, sol.z,
+                               getattr(lrep, "generated_offers", ()))})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,

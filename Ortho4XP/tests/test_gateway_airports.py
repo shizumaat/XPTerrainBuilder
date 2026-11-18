@@ -350,3 +350,50 @@ def test_a_built_tile_runs_the_check_off_the_build_thread(monkeypatch):
     while not seen and time.time() < deadline:
         time.sleep(0.01)
     assert seen == [(44, -124, "/xp")]
+
+
+# ── #2169: bridges a Global Airports entry cannot carry ────────────────
+
+def _graded(patch_dir, icao: str, generated: dict) -> None:
+    from auto_patch_v2.model.rebake import graded_surface_path
+    os.makedirs(patch_dir, exist_ok=True)
+    with open(graded_surface_path(str(patch_dir), icao), "w", encoding="utf-8") as fh:
+        json.dump({"provenance": {"generated": generated}}, fh)
+
+
+def test_a_global_entry_with_offered_bridges_is_offered(xp, tmp_path):
+    patches = tmp_path / "Patches"
+    _graded(patches, "KXXX", {"decks": [], "road_bridges": [],
+                              "offer": ["generated deck at (0, 0): REFUSED -- ..."]})
+    rows = GW._offers(xp.root, ["KXXX"], check_updates=False,
+                     patch_dir=str(patches))
+    assert [(r["icao"], r["reason"], r["name"]) for r in rows] == [
+        ("KXXX", "bridges", "Flat Field")]
+    # no offer recorded (or no patch dir): nothing to offer
+    _graded(patches, "KXXX", {"decks": [], "road_bridges": []})
+    assert GW._offers(xp.root, ["KXXX"], check_updates=False,
+                      patch_dir=str(patches)) == []
+    assert GW._offers(xp.root, ["KXXX"], check_updates=False) == []
+
+
+def test_the_planar_names_a_global_entry_before_its_dsf():
+    from auto_patch_v2.pipeline.generated_publication import generated_records
+    from auto_patch_v2.planar import deck_generated as DG
+    from auto_patch_v2.planar import road_bridge_gen as RBG
+    ga = types.SimpleNamespace(pack=types.SimpleNamespace(
+        dsf_paths=(), apt_dat_path="/X/Global Scenery/Global Airports/Earth nav data/apt.dat"))
+    custom = types.SimpleNamespace(pack=types.SimpleNamespace(
+        dsf_paths=("a.dsf",), apt_dat_path="/X/Custom Scenery/P/Earth nav data/apt.dat"))
+    bare = types.SimpleNamespace(pack=types.SimpleNamespace(
+        dsf_paths=(), apt_dat_path="/X/Custom Scenery/P/Earth nav data/apt.dat"))
+    assert DG._pack_refusal(ga) == DG.GLOBAL_OFFER
+    assert DG._pack_refusal(custom) == ""
+    assert "no pack DSF" in DG._pack_refusal(bare)
+    assert RBG._pack_ok(ga) and RBG._pack_ok(custom) and not RBG._pack_ok(bare)
+    air = types.SimpleNamespace(frame=types.SimpleNamespace(
+        transformers=lambda: (None, None)), road_bridges=())
+    law = types.SimpleNamespace(tables=types.SimpleNamespace(
+        structures=types.SimpleNamespace(deck_gen=None)))
+    pm = types.SimpleNamespace(decks=())
+    assert generated_records(pm, law, air, None) == {"decks": [], "road_bridges": []}
+    assert generated_records(pm, law, air, None, ("x",))["offer"] == ["x"]

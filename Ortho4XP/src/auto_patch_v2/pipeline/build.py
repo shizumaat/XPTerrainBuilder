@@ -677,6 +677,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
     airport, pm, pstats, stage = pre.airport, pre.pm, pre.pstats, pre.stage
+    # #2169 (RULINGS 2026-11-16y (2)): the decks and road bridges a Global
+    # Airports entry cannot carry are the Gateway offer's candidates
+    from ..planar.deck_generated import GLOBAL_OFFER
+    lrep.generated_offers = tuple(
+        n for n in (*_rb_notes, *getattr(getattr(pstats, "structures", None),
+                                         "hard_decks", ()))
+        if n.endswith(GLOBAL_OFFER))
+    for _n in lrep.generated_offers:
+        _say(f"[{icao}] OFFER: {_n.split(': REFUSED')[0].split(' -- REFUSED')[0]}", out)
     fv, road_rep, tt_rep = airport.flat_site, pre.road_rep, pre.reports["taxi_trend"]
     cs, counts, gwalls, strips = pre.cs, pre.counts, pre.gwalls, pre.strips
     _yield_records, seam_yielded = pre.yield_records, pre.seam_yielded

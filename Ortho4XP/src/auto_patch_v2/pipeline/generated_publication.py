@@ -48,9 +48,11 @@ def _roads(db, law, to_ll) -> list[dict]:
             for _id, tags, coords in getattr(db, "covered", ()) or () if len(coords) >= 2]
 
 
-def generated_records(planar, law, airport, z) -> dict[str, list[dict]]:
+def generated_records(planar, law, airport, z, offers=()) -> dict[str, list]:
     """``{"decks": [...], "road_bridges": [...]}`` -- empty lists where
-    the airport generated none (module doc)."""
+    the airport generated none (module doc) -- and, for an airport drawn
+    by Global Airports alone, ``"offer"``: one note per structure refused
+    only for that (#2169), which ``gateway_stage`` offers to install."""
     from ..planar.deck_generated import is_generated
     _to_xy, to_ll = airport.frame.transformers()
     g = law.tables.structures.deck_gen
@@ -77,4 +79,7 @@ def generated_records(planar, law, airport, z) -> dict[str, list[dict]]:
             "roads": _roads(db, law, to_ll)})
     bridges = [{k: v for k, v in dict(b).items() if k not in ("span_xy", "ground")}
                for b in getattr(airport, "road_bridges", ()) or ()]
-    return {"decks": decks, "road_bridges": bridges}
+    out: dict[str, list] = {"decks": decks, "road_bridges": bridges}
+    if offers:
+        out["offer"] = list(offers)
+    return out

@@ -119,3 +119,34 @@ def test_a_span_reads_its_ground_less_each_station_top():
     (_xa, _za, da), (_xb, _zb, db) = seats[1][2][0][1]
     assert abs((db - da) - 0.40) < 0.01
     assert seats[1][1][2] == 120.0
+
+
+def test_the_cap_holds_the_pavement_grade_never_the_bend():
+    """Owner 2026-11-18T23:04Z (RULINGS 2026-11-18i (7), #2157 KRDU): the
+    cap is the PAVEMENT's grade.  Ground rising 1 % under a deck top that
+    falls 1.6 m over the 40 m band bends the body 0.4 + 1.6 = 2.0 m (5 %),
+    unheld; ground rising 2 % is held to the 1.5 % cap and the bend is
+    what that leaves."""
+    m, ground = _span_member(0.015)
+    m.deck_spans = (*m.deck_spans, (0.8, 0.8, -0.8, -0.8, 0.0, 0.0))
+    counts: dict = {}
+    (_xa, _za, da), (_xb, _zb, db) = dp._band_seats(
+        dp.frame_plates([m], 2.0, {}), ground, counts)[1][2][0][1]
+    assert abs((db - da) - 2.0) < 0.02 and "deck_span_over_cap" not in counts
+
+    def steep(_la: float, lo: float) -> float:
+        return 100.0 + 0.02 * (lo - (-78.0)) * 91290.0
+    counts = {}
+    (_xa, _za, da), (_xb, _zb, db) = dp._band_seats(
+        dp.frame_plates([m], 2.0, {}), steep, counts)[1][2][0][1]
+    assert abs((db - da) - (0.6 + 1.6)) < 0.02 and counts["deck_span_over_cap"] == 2
+
+
+def test_the_graded_row_bounds_the_pavement_difference():
+    """``edge_deck._graded_rows``: ``|mean z[S_B] - mean z[S_A]| <= cap *
+    L``, whatever the two end lines' authored tops."""
+    from auto_patch_v2.constraints.edge_deck import _graded_rows
+    ends = [(((1, 0.5), (2, 0.5)), 8.7), (((3, 0.5), (4, 0.5)), 7.5)]
+    lines = [((0.0, -5.0), (0.0, 5.0)), ((70.0, -5.0), (70.0, 5.0))]
+    (row,) = _graded_rows("o", ends, lines, 0.015)
+    assert abs(row.lo + 1.05) < 1e-9 and abs(row.hi - 1.05) < 1e-9

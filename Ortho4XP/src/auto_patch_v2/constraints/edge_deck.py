@@ -590,11 +590,14 @@ def _graded_rows(oid: str, ends: list, lines: list, cap: "float | None") -> list
     cut out of a pack deck lying at grade (``DeckBridge.span_cut``) has no
     one zero -- each end line is flush across itself
     (:func:`_station_rows` per line) at the level the airside solve builds
-    there, and the deck takes the straight grade between them, held to the
-    taxiway longitudinal ``cap``: ``|mean z[S_k] - mean z[S_0] - (top_k -
-    top_0)| <= cap * L_k``, ``L_k`` the run between the two end lines'
-    middles -- one two-sided row under :data:`RIGID`.  Without a cap the
-    deck is rigid (:func:`_rigid_rows`)."""
+    there, and the PAVEMENT takes the straight grade between them, held to
+    the taxiway longitudinal ``cap``: ``|mean z[S_k] - mean z[S_0]| <= cap *
+    L_k``, ``L_k`` the run between the two end lines' middles -- one
+    two-sided row under :data:`RIGID`.  The cap is the driven surface's
+    grade, never the bend off the object's own authored deck (owner
+    2026-11-18T23:04Z, RULINGS 2026-11-18i (7)): the object stage warps the
+    span as far as the pavement needs (``airport/deck_plates._span_grade``).
+    Without a cap the deck is rigid (:func:`_rigid_rows`)."""
     if cap is None:
         return _rigid_rows(oid, ends)
     rows: list[Row] = []
@@ -602,8 +605,8 @@ def _graded_rows(oid: str, ends: list, lines: list, cap: "float | None") -> list
     for k in range(1, len(ends)):
         ts = _end_difference(ends, k)
         if ts:
-            rhs, run = ends[k][1] - ends[0][1], float(cap) * dist(mid[0], mid[k])
-            rows.append(Linear(ts, rhs - run, rhs + run,
+            run = float(cap) * dist(mid[0], mid[k])
+            rows.append(Linear(ts, -run, run,
                                Source(GEN, RIGID, (oid, f"graded end {k}"))))
     return rows
 

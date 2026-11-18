@@ -294,29 +294,32 @@ def _span_grade(fp: _FramePlates, k: int, mine: list, mean_k: float,
     is WARPED (``obj8_warp.Track``, ``("track", ((x, z, D), ...))`` in the
     authored frame, ``D`` off the band's zero ``mean_k``) straight between
     the two lines' ground, so each end line seats on its own and the piers
-    stay vertical.  A grade over ``fp.grade_cap`` is held to it about the
-    middle and counted (``deck_span_over_cap``); end lines closer than the
-    weld (``_GRADE_MIN_M``) stay flat; ``()`` for a flat band."""
+    stay vertical.  The cap ``fp.grade_cap`` holds the PAVEMENT's grade
+    (each end line's ground, ``r[3]``), never the bend off the authored
+    deck (owner 2026-11-18T23:04Z, RULINGS 2026-11-18i (7)): a pavement
+    grade over it is held to it about the middle and counted
+    (``deck_span_over_cap``), the bend is what that leaves; end lines whose
+    bend is under the weld (``_GRADE_MIN_M``) stay flat; ``()`` for a flat
+    band."""
     if fp.grade_cap is None or not fp.keep:
         return ()
     ux, uz = fp.plates.axis
     lo, hi = fp.plates.band(k)[2:]
     mid = 0.5 * (lo + hi)
-    pts = [(*fp.to_frame(r[0], r[1]), r[2]) for r in mine]
+    pts = [(*fp.to_frame(r[0], r[1]), r[2], r[3]) for r in mine]
     ends = [[q for q in pts if (ux * q[0] + uz * q[1] < mid) == first] for first in (True, False)]
     if not all(ends):
         return ()
-    (xa, za, ga), (xb, zb, gb) = ([sum(q[i] for q in e) / len(e) for i in range(3)] for e in ends)
+    (xa, za, ga, pa), (xb, zb, gb, pb) = ([sum(q[i] for q in e) / len(e) for i in range(4)]
+                                          for e in ends)
     run = abs(ux * (xb - xa) + uz * (zb - za))
     if run <= 0.0 or abs(gb - ga) <= _GRADE_MIN_M:
         return ()
-    rise = gb - ga
-    if abs(rise) > fp.grade_cap * run:
+    if abs(pb - pa) > fp.grade_cap * run:
         if counts is not None:
             counts["deck_span_over_cap"] = counts.get("deck_span_over_cap", 0) + 1
-        m = 0.5 * (ga + gb)
-        rise = math.copysign(fp.grade_cap * run, rise)
-        ga, gb = m - 0.5 * rise, m + 0.5 * rise
+        m, rise = 0.5 * (pa + pb), math.copysign(fp.grade_cap * run, pb - pa)
+        ga, gb = ga + (m - 0.5 * rise) - pa, gb + (m + 0.5 * rise) - pb
     if counts is not None:
         counts["deck_span_graded"] = counts.get("deck_span_graded", 0) + 1
     return (("track", ((round(xa, 4), round(za, 4), round(ga - mean_k, 4)),

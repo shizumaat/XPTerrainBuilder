@@ -20,9 +20,19 @@ the span turns no steeper than twice the taxiway longitudinal cap.
 
 A deck that is all bridge (no such at-grade stretch: KBNA's taxiway-L
 plates) is unchanged.  Nothing here names an airport, a pack or a resource.
+
+THE OPENING IS THE WALLS' (#2157 R3, :func:`_wall_spans`): in a deck the
+survey cut, a facing pair of the frame's own wall lines standing in an
+at-grade stretch, with a mapped road crossing the deck between them and
+ground more than a storey under the crest on both flanks of the crossing,
+is a span too, abutment to abutment at the two wall lines -- a bridge the
+bare-earth survey reads as continuous ground (18f: the pack is a witness;
+10-30f: walls set the cut).
 """
 from __future__ import annotations
 
+import dataclasses as _dc
+import math
 import typing as _t
 
 from ..geom.deck_spans import SpanCut, span_cut, span_pieces
@@ -33,10 +43,12 @@ __all__ = ["MARK", "span_split", "at_grade_cells"]
 STEP_M = 2.0
 
 
-def span_split(piece: _t.Any, airport: _t.Any, law: _t.Any
+def span_split(piece: _t.Any, airport: _t.Any, law: _t.Any, walls: _t.Any = None
                ) -> "tuple[SpanCut, list] | None":
     """``(cut, span pieces)`` of a deck piece the rule cuts (module doc),
-    else ``None``."""
+    else ``None``.  ``walls(r, n)``: the frame's wall faces across the road
+    direction ``r`` (``planar/deck_walls.wall_faces``), read for the wall
+    pair spans (:func:`_wall_spans`); ``None`` reads none."""
     dem = getattr(airport, "dem", None)
     storey = float(getattr(law.tables.structures.building_pad, "low_level_min_step_m", 0.0)
                    or 0.0)
@@ -55,8 +67,91 @@ def span_split(piece: _t.Any, airport: _t.Any, law: _t.Any
     if mapped is None or not any(s1 - s0 > width and _on(cut, s0, s1, mapped)
                                  for s0, s1 in cut.at_grade()):
         return None
+    if walls is not None:
+        extra = _wall_spans(cut, walls, airport, piece, storey)
+        if extra:
+            cut = _dc.replace(cut, spans=tuple(sorted(cut.spans + extra)))
     parts = span_pieces(piece, cut)
     return (cut, parts) if parts else None
+
+
+def _wall_spans(cut: SpanCut, walls: _t.Any, airport: _t.Any, piece: _t.Any,
+                storey: float) -> "tuple[tuple[float, float], ...]":
+    """THE OPENING IS THE WALLS' (module doc): the spans ``(s_a, s_b)`` of
+    each facing pair of the frame's wall lines (``geom/wall_lines.
+    wall_lines``, read across the axis) standing inside one at-grade
+    stretch of ``cut`` with a mapped road crossing the axis between them
+    and ground more than ``storey`` under the crest on both of its flanks
+    (:func:`_crossing_drops`)."""
+    from ..geom.wall_lines import project_span, wall_lines
+    ux, uy = cut.unit
+    got = walls((-uy, ux), (ux, uy))
+    if not got:
+        return ()
+    rw, nw, faces = got
+    sign = 1.0 if nw[0] * ux + nw[1] * uy > 0.0 else -1.0
+    at0 = cut.a[0] * nw[0] + cut.a[1] * nw[1]
+    lines = sorted(sign * (u - at0) for u in wall_lines(faces, *project_span(
+        piece.exterior.coords, rw)))
+    out = []
+    for sa, sb in zip(lines, lines[1:]):
+        if not any(s0 <= sa and sb <= s1 for s0, s1 in cut.at_grade()):
+            continue
+        drops = _crossing_drops(cut, sa, sb, airport, piece)
+        if drops and min(drops) > storey:
+            out.append((sa, sb))
+    return tuple(out)
+
+
+def _crossing_drops(cut: SpanCut, sa: float, sb: float, airport: _t.Any, piece: _t.Any
+                    ) -> "tuple[float, float] | None":
+    """Of the first mapped road crossing the axis between stations ``sa``
+    and ``sb``, read along its own direction through the crossing: the
+    crest (the highest ground inside ``piece``) less the lowest ground
+    outside it on each side, within the piece's mean width past its edge;
+    ``None`` (no road, no ground read on a side)."""
+    from shapely.geometry import LineString, Point
+    dem = getattr(airport, "dem", None)
+    if dem is None:
+        return None
+    ux, uy = cut.unit
+    axis = LineString([(cut.a[0] + sa * ux, cut.a[1] + sa * uy),
+                       (cut.a[0] + sb * ux, cut.a[1] + sb * uy)])
+    reach = piece.area / max(cut.length, 1.0)
+    far = reach + max(piece.bounds[2] - piece.bounds[0], piece.bounds[3] - piece.bounds[1])
+    for w in getattr(airport, "osm_ways", None) or ():
+        tags = getattr(w, "tags", None) or {}
+        road = tags.get("highway") or tags.get("railway")
+        if not road or tags.get("bridge") not in (None, "no"):
+            continue
+        line = LineString(w.points)
+        hit = line.intersection(axis)
+        if hit.is_empty or hit.geom_type != "Point":
+            continue
+        (x0, y0), (x1, y1) = w.points[0], w.points[-1]
+        n = math.hypot(x1 - x0, y1 - y0)
+        if n <= 0.0:
+            continue
+        crest, lows = -math.inf, []
+        for side in (1.0, -1.0):
+            low, out_t = math.inf, None
+            for k in range(int(far / STEP_M) + 1):
+                t = k * STEP_M
+                q = Point(hit.x + side * t * (x1 - x0) / n, hit.y + side * t * (y1 - y0) / n)
+                z = dem.z(q.x, q.y)
+                if z is None:
+                    continue
+                if piece.contains(q) and out_t is None:
+                    crest = max(crest, float(z))
+                    continue
+                out_t = t if out_t is None else out_t
+                if t - out_t > reach:
+                    break
+                low = min(low, float(z))
+            lows.append(low)
+        if math.isfinite(crest) and all(math.isfinite(v) for v in lows):
+            return crest - lows[0], crest - lows[1]
+    return None
 
 
 def _mapped_airside(airport: _t.Any, law: _t.Any, piece: _t.Any) -> _t.Any:

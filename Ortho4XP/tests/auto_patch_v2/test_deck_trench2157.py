@@ -84,3 +84,30 @@ def test_a_plan_wider_than_its_taxiway_is_pavement_only_on_it():
     assert got.bounds == pytest.approx((0.0, -half, 200.0, half))
     no_route = types.SimpleNamespace(pavements=(), runways=(), taxi_nodes={}, taxi_edges=())
     assert _on_airside(plan, no_route, law, plan).equals(plan)
+
+
+def test_a_wall_pair_over_a_road_in_an_at_grade_stretch_is_a_span():
+    """#2157 R3 (``deck_span_cut._wall_spans``): two facing wall lines of
+    the frame inside a stretch the survey read at grade, a mapped road
+    crossing between them and ground more than a storey under the crest on
+    both flanks, are a span; without the drop on a flank they are not."""
+    import types
+
+    from shapely.geometry import Polygon
+
+    from auto_patch_v2.geom.deck_spans import SpanCut
+    from auto_patch_v2.planar.deck_span_cut import _wall_spans
+    piece = Polygon([(0, -20), (300, -20), (300, 20), (0, 20)])
+    cut = SpanCut((0.0, 0.0), (300.0, 0.0), ((40.0, 80.0),))
+    faces = tuple((u, -20.0, 20.0) for u in (40.0, 80.0, 200.0, 212.0))
+
+    def walls(r, n):
+        return (0.0, 1.0), (1.0, 0.0), faces
+
+    def airport(low):
+        dem = types.SimpleNamespace(z=lambda x, y: 120.0 if abs(y) <= 20.0 else low)
+        road = types.SimpleNamespace(points=[(206.0, -60.0), (206.0, 60.0)],
+                                     tags={"highway": "service", "tunnel": "yes"})
+        return types.SimpleNamespace(dem=dem, osm_ways=[road])
+    assert _wall_spans(cut, walls, airport(112.0), piece, 3.0) == ((200.0, 212.0),)
+    assert _wall_spans(cut, walls, airport(118.0), piece, 3.0) == ()

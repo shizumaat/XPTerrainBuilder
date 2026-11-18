@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["Face", "inner_faces", "project_span"]
+__all__ = ["Face", "inner_faces", "project_span", "wall_lines"]
 
 #: face lines closer than this across the road are one line (metres)
 _LINE_BIN_M = 0.5
@@ -57,16 +57,33 @@ def inner_faces(faces: _t.Sequence[Face], s0: float, s1: float, u_mid: float,
         if span is None:
             return None, None
         s0, s1 = span
+    walls = _lines(faces, s0, s1, reach is not None)
+    a = [u for u in walls if u < u_mid]
+    b = [u for u in walls if u > u_mid]
+    return (max(a) if a else None), (min(b) if b else None)
+
+
+def wall_lines(faces: _t.Sequence[Face], s0: float, s1: float) -> list[float]:
+    """Every wall line ``u`` of ``faces`` over ``[s0, s1]``, ascending: a
+    line (adjacent bins merged, :func:`inner_faces`) covering
+    :data:`_COVER_MIN` of the stretch the faces themselves occupy there
+    (#2157 R3, ``planar/deck_span_cut``: a frame's facing wall pairs)."""
+    span = _occupied(faces, s0, s1)
+    return [] if span is None else sorted(_lines(faces, span[0], span[1], True))
+
+
+def _lines(faces: _t.Sequence[Face], s0: float, s1: float, merge: bool) -> list[float]:
+    """The wall lines' ``u`` (:func:`inner_faces`): each bin covering
+    :data:`_COVER_MIN` of ``[s0, s1]``, and with ``merge`` each run of weak
+    adjacent bins that covers it together."""
     lines: dict[int, list[Face]] = {}
     for f in faces:
         lines.setdefault(int(round(f[0] / _LINE_BIN_M)), []).append(f)
     walls = [_mean_u(fs) for fs in lines.values() if _covered(fs, s0, s1) >= _COVER_MIN]
-    if reach is not None:
+    if merge:
         walls += [_mean_u(fs) for fs in _merged_runs(lines, s0, s1)
                   if _covered(fs, s0, s1) >= _COVER_MIN]
-    a = [u for u in walls if u < u_mid]
-    b = [u for u in walls if u > u_mid]
-    return (max(a) if a else None), (min(b) if b else None)
+    return walls
 
 
 def _mean_u(fs: _t.Sequence[Face]) -> float:

@@ -170,6 +170,12 @@ def test_skinned_slab_tiles_in_metres(tmp_path):
                              strips=[DeckStrip(((0.0, -20.0), (0.0, 20.0)), 3.75, 3.75,
                                                (0.25, 0.5), 30.0, 0.01)])
     assert "ATTR_poly_os" not in film and "ATTR_hard_deck" not in film   # solid film (1.0.555)
+    # drawn after the slab (owner 1.0.557: the rubber let the ground show through)
+    assert film.splitlines()[film.splitlines().index("TEXTURE r.dds") - 1] == \
+        "ATTR_layer_group objects 1"
+    fp = tmp_path / "f.obj"
+    fp.write_text(film, encoding="ascii", newline="\n")
+    assert parse_obj8(str(fp)) is not None
 
 
 def test_whole_cover_with_no_pavement_over_the_chain():

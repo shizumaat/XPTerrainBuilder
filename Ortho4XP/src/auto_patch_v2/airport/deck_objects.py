@@ -70,6 +70,10 @@ _CENTRE_LIGHTS = frozenset((101, 107))
 #: apart, so nothing coplanar fights at distance.
 _FILM_STEP_M = 0.01
 
+#: the films' draw order over the slab (``deck_obj8.overlay_obj8_text``
+#: ``layer``): the rubber first, then the paint and runway marks over it
+_RUBBER_LAYER, _PAINT_LAYER = 1, 2
+
 
 def ring_polygon(ring) -> Polygon:
     """A record's ``[[lon, lat], ...]`` ring as a valid polygon."""
@@ -389,7 +393,7 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     if strips:
         out.append((rel[:-4] + "_rubber.obj",
                     overlay_obj8_text(top_y, texture=_link(art, art.rubber.albedo), strips=strips,
-                                      lod_m=lod, comments=comments,
+                                      lod_m=lod, comments=comments, layer=_RUBBER_LAYER,
                                       material=_film_material(art, art.rubber, True))))
     return out, stats
 
@@ -412,13 +416,13 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
         page = art.lines[min(art.lines)]
         return overlay_obj8_text(top_y, texture=_link(art, page.texture), strips=strips,
                                  lights=lights, lod_m=lod, comments=comments,
-                                 material=_film_material(art, page, False))
+                                 layer=_PAINT_LAYER, material=_film_material(art, page, False))
     lines = _atlas_lines(pieces, lift, stats) + [DeckLine(j, float(g.joint_m), "black", lift)
                                                  for j in joints]
     if not lines and not lights:
         return ""
     return overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights, lod_m=lod,
-                             comments=comments)
+                             comments=comments, layer=_PAINT_LAYER)
 
 
 def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod, comments,
@@ -443,4 +447,5 @@ def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod
         return ""
     art.files[f"{GENERATED_DIR}/{atlas.name}"] = atlas.png
     return overlay_obj8_text(top_y, texture=atlas.name, decals=decals, lod_m=lod,
-                             comments=comments, material=["GLOBAL_specular 1"])
+                             comments=comments, material=["GLOBAL_specular 1"],
+                             layer=_PAINT_LAYER)

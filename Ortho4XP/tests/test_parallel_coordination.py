@@ -40,8 +40,8 @@ STUB_WORKER = os.path.join(
 
 #: The machine every coordination twin in this file is measured on.
 #: The compute class limit IS the logical core count (owner ruling
-#: 2026-07-30) and the admission ceiling is 80 % of the memory the
-#: machine can hand out — so on a small runner the SCHEDULER's law and
+#: 2026-07-30) and the admission room is the memory the machine
+#: has free above its headroom — so on a small runner the SCHEDULER's law and
 #: the RUNNER's hardware are indistinguishable in a concurrency figure.
 #: A 4-core / ~13 GB-available CI container admitted 3 vector steps
 #: (3.0 GB each against a ~10 GB ceiling) where these twins assert 4 and
@@ -50,7 +50,7 @@ STUB_WORKER = os.path.join(
 #: statement about ``parallel.py``, identical on the owner's Mac, a CI
 #: runner and a laptop.  A twin that is ABOUT the sizing rules
 #: (``test_compute_class_limit_is_the_core_count``,
-#: ``test_memory_budget_is_eighty_percent_of_available``) patches these
+#: ``test_memory_room_is_free_memory_above_the_headroom``) patches these
 #: again itself and is unaffected — the later patch wins.
 PINNED_CORES = 8
 PINNED_MEMORY_GB = 64.0
@@ -338,7 +338,10 @@ def test_compute_class_limit_is_the_core_count(monkeypatch):
     assert parallel.compute_class_limit(4) == 4
 
 
-def test_memory_budget_is_eighty_percent_of_available(monkeypatch):
+def test_memory_room_is_free_memory_above_the_headroom(monkeypatch):
+    """Owner 2026-11-18: the run's room is the free memory above the
+    headroom (15 % of 128 GB here) — no 80 % ceiling; what its steps
+    booked and do not yet use is taken off at admission."""
     import O4_Parallel_Utils as PARALLEL_UTILS
 
     monkeypatch.delenv("O4_CACHE_AWARE_ADMISSION", raising=False)
@@ -346,18 +349,14 @@ def test_memory_budget_is_eighty_percent_of_available(monkeypatch):
         PARALLEL_UTILS, "machine_memory_gigabytes", lambda: 128.0)
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 110.0)
-    # An idle machine: 80 % of available binds (88 < 110 - 19.2).
-    assert parallel.step_memory_budget_gigabytes() == pytest.approx(88.0)
-    # #2083: little free at the start — the headroom (15 % of 128 GB)
-    # binds: 40 - 19.2, not 32.
+    assert parallel.step_memory_budget_gigabytes() == pytest.approx(90.8)
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 40.0)
     assert parallel.step_memory_budget_gigabytes() == pytest.approx(20.8)
-    # Floored at one default estimate: a single tile never deadlocks.
+    # Never negative: the one-step rule keeps a single tile moving.
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 0.5)
-    assert parallel.step_memory_budget_gigabytes() == pytest.approx(
-        parallel.MESH_MEMORY_DEFAULT_GB)
+    assert parallel.step_memory_budget_gigabytes() == 0.0
 
 
 def test_memory_projection_covers_non_mesh_steps():

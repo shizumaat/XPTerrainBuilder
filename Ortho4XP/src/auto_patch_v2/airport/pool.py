@@ -471,6 +471,7 @@ class WorkPool:
         self._isolate = bool(isolate)
         self._ex: _cf.ProcessPoolExecutor | None = None
         self._held = None                 # the machine slots its workers hold
+        self._worker_peak_gb = 0.0        # the largest worker measured
         self._dead = False
         #: why no pool answers (``""`` while one does): the budget, or what
         #: made it give up — said through ``out`` AND kept for the report
@@ -698,13 +699,26 @@ class WorkPool:
         — never the serial fall-back, which would re-read the same resource
         in the build's own process."""
         try:
-            _mem.check(what or "pool", self.pids(), physical_ram_gb(), share())
+            reading = _mem.check(what or "pool", self.pids(), physical_ram_gb(),
+                                 share())
         except _mem.MemoryCeilingError as e:
             self._dead = True
             self.reason = "memory ceiling"
             self._out(f"[pool] MEMORY CEILING: {e}")
             self.close()
             raise
+        self._settle_slots(reading)
+
+    def _settle_slots(self, reading) -> None:
+        """Size the machine slots' reservation from the workers as measured
+        (owner 2026-11-18): once a map has run on them, each slot keeps the
+        largest worker seen times ``pool_memory.COPY_MARGIN`` booked, not
+        the flat per-worker guess made before they existed."""
+        workers = tuple(getattr(reading, "workers_gb", None) or ())
+        if workers:
+            self._worker_peak_gb = max(self._worker_peak_gb, max(workers))
+        if self._held is not None and self.tasks_done and self._worker_peak_gb:
+            self._held.settle(self._worker_peak_gb * _mem.COPY_MARGIN)
 
     def map(self, fn: _t.Callable, tasks: _t.Sequence, local: _t.Any, **kw) -> list:
         """:meth:`try_map`, with the serial answer computed HERE over

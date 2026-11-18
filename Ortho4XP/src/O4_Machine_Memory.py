@@ -207,24 +207,47 @@ def _xplane_gigabytes(table) -> "float | None":
 
 
 def _tree_gigabytes(root: int, table, stop: set) -> "float | None":
-    """``root``'s resident memory with its descendants', not descending
-    into ``stop`` (processes whose growth their own records cover);
-    ``None`` when ``root`` is not running."""
+    """``root``'s share of resident memory with its descendants', not
+    descending past ``stop`` (other records' roots, whose descendants
+    their own records cover); ``None`` when ``root`` is not running.
+
+    Every process counts for exactly one record.  A root counts its own
+    memory only when no other root is above it: a NESTED root (an airport
+    build that reserved its pool's workers, inside the slot its parent
+    reserved for it) is the outer record's process — the outer record
+    counts it, the nested one only its workers.  Until 2026-11-18 the
+    outer record lost sight of the process its slot was for once the pool
+    reserved, and its 3 GB stayed outstanding while the build used it."""
     rss = {pid: kib for pid, _, kib, _ in table}
     if root not in rss:
         return None
+    parent = {pid: ppid for pid, ppid, _, _ in table}
     children: dict = {}
     for pid, ppid, _, _ in table:
         children.setdefault(ppid, []).append(pid)
-    total, stack, seen = 0, [root], set()
+    total = 0 if _root_above(root, parent, stop) else rss[root]
+    stack, seen = list(children.get(root, ())), {root}
     while stack:
         pid = stack.pop()
-        if pid in seen or (pid != root and pid in stop):
+        if pid in seen:
             continue
         seen.add(pid)
         total += rss.get(pid, 0)
-        stack.extend(children.get(pid, ()))
+        if pid not in stop:
+            stack.extend(children.get(pid, ()))
     return total / _KIB_PER_GIB
+
+
+def _root_above(pid: int, parent: dict, roots: set) -> bool:
+    """Is a process of ``roots`` an ancestor of ``pid``?"""
+    seen = {pid}
+    pid = parent.get(pid)
+    while pid is not None and pid not in seen and pid > 1:
+        if pid in roots:
+            return True
+        seen.add(pid)
+        pid = parent.get(pid)
+    return False
 
 
 # -- records ----------------------------------------------------------------
@@ -291,6 +314,28 @@ class Reservation:
         _unlock_fd(fd)
         if sys.platform == "win32":
             _remove(self.path)             # an open file cannot be removed
+        _forget_snapshot()
+
+    def settle(self, gigabytes: float) -> None:
+        """Lower the reservation to ``gigabytes`` once what it covers has
+        been measured (a pool's workers at their working size): a
+        reservation only ever shrinks here, and in place — the record's
+        lock is its life, so it is rewritten under the same descriptor,
+        padded to its old length so no reader sees it cut short."""
+        gigabytes = max(0.0, float(gigabytes))
+        if self._fd is None or gigabytes >= self.gigabytes - 0.05:
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8") as handle:
+                old = handle.read()
+            body = json.loads(old)
+            body["gb"] = round(gigabytes, 3)
+            new = json.dumps(body)
+            os.lseek(self._fd, 0, os.SEEK_SET)
+            os.write(self._fd, new.ljust(len(old)).encode("utf-8"))
+        except (OSError, ValueError):
+            return
+        self.gigabytes = gigabytes
         _forget_snapshot()
 
     def __enter__(self) -> "Reservation":
@@ -489,7 +534,7 @@ def _groups(records: list, table) -> list:
     out = []
     for (_, pid), rows in groups.items():
         reserved = sum(float(r.get("gb", 0.0)) for r in rows)
-        now = _tree_gigabytes(pid, table, roots)
+        now = _tree_gigabytes(pid, table, roots - {pid})
         base = min(float(r.get("base_gb", 0.0)) for r in rows)
         grown = max(0.0, now - base) if now is not None else 0.0
         out.append((rows, max(0.0, reserved - grown), grown))
@@ -630,13 +675,18 @@ def admits(need_gb: float, headroom_gb: float, *, idle: bool = False,
         ok = _idle_may_run(snap)
     mine = session_id()
     others = (room > 0.0 or snap.xplane_gb is not None
-              or snap.pressure != "normal"
+              or _pressure_refuses(snap)
               or any(sid != mine for sid in snap.sessions))
-    text = ("needs %s GB, %s GB free, %s GB kept free; holding: %s%s"
+    # The reason, as it is (owner 2026-11-18: "listing the memory need
+    # which is far lower than the available memory"): what builds have
+    # booked and not yet grown into is what stands between the free
+    # memory and the need; the pressure only when it is what refuses.
+    text = ("needs %s GB, %s GB free, %s GB kept free, %s GB booked by"
+            " builds and not yet in use; holding: %s%s"
             % (_gb(need_gb), _gb(snap.free_gb), _gb(headroom_gb),
-               holders_text(snap),
+               _gb(snap.outstanding_gb), holders_text(snap),
                "; memory pressure %s" % snap.pressure
-               if snap.pressure != "normal" else ""))
+               if _pressure_refuses(snap) else ""))
     return Verdict(ok=ok, spare_gb=spare,
                    contended=not ok and (alone >= 0.0 or others), text=text)
 

@@ -17,6 +17,7 @@ import O4_Rebuild_Cache as REBUILD
 import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
+import O4_Road_Bank as ROAD_BANK
 import O4_Mesh_Pins as MESH_PINS
 import O4_Patch_Voids as PATCH_VOIDS
 import O4_Triangle_IO as TRI_IO
@@ -2452,10 +2453,33 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch pins: {len(stranded)} patch-pinned vertex(es) "
                 "touched no INTERP_ALT triangle and took their patch value "
                 "instead of the DEM (#2034).")
+    import itertools
+    # THE ROAD'S SIDE BANKS (owner RULINGS 2026-11-18d, ``O4_Road_Bank``):
+    # the free ground beside a levelled ribbon is cut / filled to it -- a
+    # 1:2 bank, or a 2:1 retaining face where no bank fits the width cap.
+    try:
+        banked = ROAD_BANK.road_bank_values(
+            tile, vertices, itertools.chain(
+                (v for tri in interp_alt_tris for v in tri), water_valued,
+                pins[0] if pins is not None else ()))
+    except Exception as error:
+        banked = {}
+        UI.lvprint(1, "WARNING: the road side banks (RULINGS 2026-11-18d) "
+                      "failed; the ground beside the roads keeps the DEM:",
+                   str(error))
+    for index, value in banked.items():
+        vertices[6 * index + 2] = value
+        vertices[6 * index + 3] = 0
+        vertices[6 * index + 4] = 0
+    if banked:
+        UI.vprint(
+            1,
+            f"   Road banks: {len(banked)} free vertex(es) beside the "
+            "levelled roads cut or filled to the road's side bank (RULINGS "
+            "2026-11-18d).")
     # #2053 round 3: THE HOLD -- the free vertices under an object the mesh
     # holds the cut ground under (auto_patch.terrain_cut_stage.hold)
     # (``fixed`` is lazy: read only when the tile holds an object)
-    import itertools
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
     TERRAIN_CUT.hold(tile, vertices, corners, itertools.chain(
         (v for tri in interp_alt_tris for v in tri), water_valued,

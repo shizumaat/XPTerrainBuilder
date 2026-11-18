@@ -40,7 +40,7 @@ from auto_patch.build_support import is_user_edited_patch as _is_user_edited_pat
 # engine.
 from O4_Cfg_Vars import _road_grade_cap_from_law as _road_cap_from_law
 from O4_Cfg_Vars import road_neighbourhood_law as _road_neighbourhood_law
-from O4_Road_Yield import ROAD_BENCH_MAX_M, yield_steep_spans
+import O4_Road_Bank as ROAD_BANK
 
 ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
@@ -2716,25 +2716,6 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                                       tile.lane_width + 2, 0, 0)
                  if _band_seed else geometry.Polygon())
         _law = _road_neighbourhood_law()
-        # THE STEEP-GROUND YIELD (owner sim read LPPD 2026-11-18): a span
-        # whose bench would stand more than ROAD_BENCH_MAX_M off its own
-        # ground within one lane is a wall, not a road -- it leaves the
-        # banked network and the mesh follows the DEM there.  Never in
-        # the band the clamp owns.
-        (road_network_banked, banked_classes, banked_ids,
-         _yield) = yield_steep_spans(
-            road_network_banked, tile.dem.alt_vec, tile.lane_width,
-            way_classes=banked_classes, way_ids=banked_ids, exempt=_band)
-        if _yield["ways"]:
-            _wx, _wy = _yield["worst"]
-            UI.vprint(
-                1,
-                "      Steep ground: %d span(s) on %d way(s), %.0f m, "
-                "yield to the DEM (bench over %.1f m; worst %.2f m at "
-                "%.6f,%.6f)." % (
-                    _yield["spans"], _yield["ways"], _yield["yielded_m"],
-                    ROAD_BENCH_MAX_M, _yield["worst_relief_m"],
-                    tile.lat + _wy, tile.lon + _wx))
         # 27a (10) THE RIBBON YIELDS at the joins auto_patch released
         _join_pins = road_join_yield_pins(tile)
         levelled["roads"] = VECT.clamp_road_network(
@@ -2816,6 +2797,20 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                     _clamp_report["join_pinned_stations"],
                     _clamp_report["join_pin_worst_excess_m"]),
             )
+        # THE ROAD'S SIDE BANKS (owner RULINGS 2026-11-18d): where the
+        # levelled ribbon stands off its ground, the ground either side is
+        # cut / filled from the ribbon edge -- a 1:2 bank where one fits
+        # inside the width cap, a 2:1 retaining face at the edge where it
+        # does not.  Decided here per station (the sidecar carries it), drawn
+        # by the mesh step on the free vertices beside the ribbon.
+        _bank = ROAD_BANK.assign_bank_runs(
+            levelled["roads"], tile.dem.alt_vec, tile.lane_width)
+        UI.vprint(
+            1,
+            "      Road banks: %.0f m of road side banked 1:%g, %.0f m held "
+            "by a %g:1 retaining face (width cap %.0f m)." % (
+                _bank["bank_m"], ROAD_BANK.BANK_RUN, _bank["face_m"],
+                1.0 / ROAD_BANK.FACE_RUN, ROAD_BANK.BANK_MAX_WIDTH_M))
         write_levelled_roads_sidecar(tile, levelled["roads"])
         if UI.red_flag:
             return 0
@@ -2845,6 +2840,16 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
         vector_map.encode_MultiPolygon(
             road_area, alt_vec_shift, "INTERP_ALT", check=True, refine=100
         )
+        # the side banks' foot lines (RULINGS 2026-11-18d): the mesh's
+        # vertices at the foot, so the bank is drawn edge-to-foot
+        _feet = ROAD_BANK.bank_foot_lines(levelled["roads"], tile.lane_width)
+        if not _feet.is_empty:
+            _feet = _feet.difference(ops.unary_union([
+                road_area, VECT.improved_buffer(apt_area, tile.lane_width + 2,
+                                                0, 0)]))
+            if not _feet.is_empty:
+                vector_map.encode_MultiLineString(
+                    _feet, tile.dem.alt_vec, "DUMMY", check=True)
         if UI.red_flag:
             return 0
     # Hack (23/02/2024 : seems better without actually, keep it just in case)

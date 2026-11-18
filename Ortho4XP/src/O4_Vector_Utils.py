@@ -2420,6 +2420,13 @@ class Levelled_Roads:
                 "dem_alt": [round(float(v), 6) for v in w["dem"]],
                 "alt": [round(float(v), 6) for v in w["alt"]],
             })
+            if "bank_run" in w:
+                # THE SIDE BANKS (RULINGS 2026-11-18d, ``O4_Road_Bank``):
+                # per station, [left, right] run per rise and foot distance.
+                ways[-1]["bank_run"] = [[round(float(v), 3) for v in side]
+                                        for side in w["bank_run"]]
+                ways[-1]["bank_foot_m"] = [[round(float(v), 2) for v in side]
+                                           for side in w["bank_foot_m"]]
         return {
             "version": 2,
             "producer": "O4_Vector_Map.include_roads",

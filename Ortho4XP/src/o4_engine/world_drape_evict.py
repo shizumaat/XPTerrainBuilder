@@ -133,6 +133,9 @@ def _keep_now(scenery_dir: str) -> set:
         keep |= set(job.tracker.window())
         if job.position is not None:
             keep |= SPAWN.spawn_set(*job.position)
+    # never mid-build: a tile a live build holds (``storage_hold``)
+    from .storage_hold import held_tiles
+    keep |= set(held_tiles())
     return keep
 
 

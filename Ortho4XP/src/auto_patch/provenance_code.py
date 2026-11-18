@@ -322,6 +322,8 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Process_Liveness",
     "O4_Proj_Runtime",
     "O4_Rebuild_Cache",
+    "O4_Road_Bank",
+    "O4_Road_Grade",
     "O4_Scenery_Links",
     "O4_Scenery_Packs",
     "O4_Settings_Model",

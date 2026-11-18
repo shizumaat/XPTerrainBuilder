@@ -44,6 +44,7 @@ import shapely
 from shapely.geometry import Point
 from shapely.prepared import prep
 
+from ..geom.rotated_rect import rotated_rectangle
 from . import deck_chain as _dc
 from .pack_overlap import Frame, HideRow, Structure, _rows
 
@@ -241,8 +242,7 @@ def _along(placed, deck, structures, law) -> set[HideRow]:
     for s in structures:
         if s.poly.area <= 0.0:
             continue
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rect = s.poly.minimum_rotated_rectangle
+        rect = rotated_rectangle(s.poly)
         xy = list(rect.exterior.coords)[:3]
         a = math.dist(xy[0], xy[1])
         b = math.dist(xy[1], xy[2])

@@ -2025,11 +2025,16 @@ def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
             return cap_lipschitz_profile(s_r, z_r, _caps(c), p_idx, p_val)
         return cap_lipschitz_profile(s_r, z_r, _caps(c)), None
 
+    # 11-18e "with feasible pins": where some cap up to the pin ceiling
+    # holds every pin, a cap that cannot is no answer -- its move reads
+    # infinite.  Where none can, the run is §6's refusal at every cap and
+    # reads as it always did (the unpinned profile's move).
+    top_cap = max(cap_ceiling, float(pin_ceiling or cap_ceiling))
+    strict = bool(p_idx) and not (_solve(top_cap)[1] or {}).get("refused")
+
     def _dev(c):
-        # a cap whose pins cannot all hold is no answer (11-18e: "with
-        # feasible pins"): its move reads infinite
         prof, rep_ = _solve(c)
-        if rep_ is not None and rep_.get("refused"):
+        if strict and rep_ is not None and rep_.get("refused"):
             return numpy.inf
         if not judged.any():
             return 0.0
@@ -2056,10 +2061,9 @@ def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
         if not numpy.isfinite(top):
             at_ceiling = True
             cap_eff = cap_ceiling
-            if pin_ceiling is not None and pin_ceiling > cap_ceiling \
-                    and numpy.isfinite(_dev(pin_ceiling)):
+            if top_cap > cap_ceiling:
                 over = True
-                cap_eff = _gentlest(cap_ceiling, float(pin_ceiling),
+                cap_eff = _gentlest(cap_ceiling, top_cap,
                                     numpy.finfo(float).max)
         elif top > budget_m:
             at_ceiling = True
@@ -2117,7 +2121,7 @@ def _window_frame(i0, i1, n, s, z, out, ours, trig):
 def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
                                cap_inside, runout_m, budget_m, cap_ceiling,
                                pin_idx=None, pin_val=None, in_area=None,
-                               grade_change_per_m=None):
+                               grade_change_per_m=None, pin_ceiling=None):
     """THE CLAMP, SCOPED TO THE PATCH NEIGHBOURHOOD (owner RULINGS
     2026-09-18n; spec ``linear-transport-redesign-spec.md``
     §2-SUPPLEMENT S.1–S.3) AND TO THE DEM-WRONG WINDOWS (RULINGS
@@ -2152,7 +2156,8 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
       no band and recorded in ``runs`` with ``kind`` ``"dem_wrong"``.  A
       window the steep cap cannot pin keeps the DEM (``dem_kept``).
     * ``grade_change_per_m`` — THE VERTICAL CURVE (11-18e) in every run
-      and window.
+      and window.  ``pin_ceiling`` — the steepest cap a run takes to reach
+      a deck or join pin the steep cap cannot (the law's ``cap_ceiling``).
     * Stations outside every run and window take ``dem`` identically.
 
     Returns ``(altitudes, report)`` with ``report`` =
@@ -2218,7 +2223,7 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
                 if i1 < n - 1 and not band_r[-1] else None)
         prof, rep, record = _solve_run(
             s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
-            cap_ceiling, budget_m, rate, lead, tail)
+            cap_ceiling, budget_m, rate, lead, tail, pin_ceiling)
         if rep is not None:
             refused_any = refused_any or bool(rep.get("refused"))
             worst_infeas = max(worst_infeas,
@@ -2835,7 +2840,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                                        terrain_cap),
             runout_m=runout_m, budget_m=budget_m, cap_ceiling=steep_cap,
             pin_idx=pin_idx or None, pin_val=pin_val or None,
-            in_area=in_area, grade_change_per_m=rate)
+            in_area=in_area, grade_change_per_m=rate,
+            pin_ceiling=cap_ceiling)
         if report.get("dem_kept"):
             out.dem_kept[len(out.ways)] = list(report["dem_kept"])
         if n_deck:

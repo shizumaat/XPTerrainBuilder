@@ -119,3 +119,20 @@ def test_rail_takes_the_rail_cap_and_curve():
     assert cap == law["rail_cap"] == 0.0125
     assert rate < RG.steep_limits("service", law)[1]
     assert RG.steep_limits("service", law)[0] == law["terrain_cap"] == 0.20
+
+
+def test_a_pin_past_the_steep_cap_is_still_reached():
+    # a join pin 25 m up, 100 m of run-out to the DEM: 25 % -- past the
+    # steep cap, within the pin ceiling: the structure's level is fixed
+    s = numpy.arange(0.0, 201.0, 20.0)
+    dem = numpy.zeros(len(s))
+    band = numpy.zeros(len(s), bool)
+    band[:3] = True
+    z, rep = VECT.neighbourhood_road_profile(
+        s, dem, band, 0.15, pin_idx=[2], pin_val=[25.0], pin_ceiling=0.30,
+        **KW)
+    (run,) = rep["runs"]
+    assert rep["refused"] is False
+    assert run.get("pins_over_steep_cap") is True
+    assert abs(z[2] - 25.0) <= 0.0101       # the pin quantum (_PIN_FEASIBILITY_TOL_M)
+    assert 0.20 < run["cap_eff"] <= 0.30

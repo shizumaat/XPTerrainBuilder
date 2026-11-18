@@ -34,14 +34,16 @@ def _apron_at(out, x, y):
 
 def test_band_ground_behind_an_apron_corridor_is_apron():
     """KBNA sites 1-7: an apron corridor (route33) runs inside the taxi band
-    between the taxi face and the gates' page; the page's band ground on
-    both sides of the corridor is apron, and the corridor stays itself."""
+    between the taxi face and the gates' page; the page's band ground
+    behind the corridor is apron (``fill_to_taxi`` could not reach across
+    the corridor), and the corridor stays itself."""
     band = ribbon_extent([TAXI], LAW, Polygon())
-    route = _cell(1, "apron", "route33", box(0, 34, 200, 36))
-    out, stats, _ = _mint(_airport(box(0, 30, 200, 300)), [TAXI, route])
-    for x, y in ((100, 32.5), (100, 37)):
-        assert band.contains(Point(x, y))           # the band's ground in the base
-        assert _apron_at(out, x, y), (x, y)
+    route = _cell(1, "apron", "route33", box(0, 33, 200, 34.5))
+    gates = _cell(2, "apron", "pav1", box(0, 120, 200, 220))
+    out, stats, _ = _mint(_airport(box(0, 30, 200, 120)), [TAXI, route, gates])
+    assert band.contains(Point(100, 37))            # the band's ground in the base
+    assert _apron_at(out, 100, 37)
+    assert not _apron_at(out, 100, 32)              # a sliver under the piece floor
     assert stats["gap_band_apron_m2"] > 0.0
     for _r, _f, poly, *_ in out:
         assert poly.intersection(Polygon(route.ring)).area < 1e-6

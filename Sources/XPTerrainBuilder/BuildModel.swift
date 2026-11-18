@@ -1480,6 +1480,8 @@ final class BuildModel: ObservableObject {
         /// Vendor defects the pack health check repaired (#1978); 0 from
         /// an engine without the check.
         var repairedCount: Int = 0
+        /// Tiles whose builds wrote the pack (#2168).
+        var tiles: [String] = []
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1509,7 +1511,9 @@ final class BuildModel: ObservableObject {
                         objectCount: entry["objects"]?.intValue ?? 0,
                         forestCount: entry["forests"]?.intValue ?? 0,
                         optimisedCount: entry["optimised"]?.intValue ?? 0,
-                        repairedCount: entry["repaired"]?.intValue ?? 0)
+                        repairedCount: entry["repaired"]?.intValue ?? 0,
+                        tiles: entry["tiles"]?.arrayValue?
+                            .compactMap(\.stringValue) ?? [])
                 })
             }
         }

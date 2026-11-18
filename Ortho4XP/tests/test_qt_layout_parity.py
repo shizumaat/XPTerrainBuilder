@@ -266,12 +266,12 @@ TILE_PACKAGE = (
 
 #: The tile pane's Modified airports row, its actions left to right (owner
 #: 2026-11-15T13:12Z: Adjust… beside Revert): (key, Swift marker in
-#: BuildPane.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
+#: PackRowButtons.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
 PACK_ROW_ACTIONS = (
     ("trees", "buildModel.undoPackForests(packPath:", "self._undo_pack_forests(p)"),
     ("optimise", "buildModel.packOptimiseFromRow(", "self._pack_optimise_from_row(p, u)"),
     ("adjust", "buildModel.adjustPackFromRow(", "self._adjust_pack_from_row(p)"),
-    ("revert", "revertModifiedAirports(row)", "self._revert_modified_pack(p)"),
+    ("revert", "Button(action: revert)", "self._revert_modified_pack(p)"),
 )
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
@@ -1233,8 +1233,8 @@ TileRevealMarker = "Self.revealTitle"
 def test_both_pack_rows_show_the_same_actions_in_order():
     """The Modified airports row: 3D trees, Optimise, Adjust…, Revert —
     the same actions in the same order in both apps."""
-    mac = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
-    start = mac.index('Text("Modified airports:")')
+    mac = (SWIFT / "PackRowButtons.swift").read_text(encoding="utf-8")
+    start = mac.index("struct PackRowButtons")
     qt = inspect.getsource(GUI.MainWindow._on_reanchor_ready)
     for text, column, offset in ((mac, 1, start), (qt, 2, 0)):
         marks = [text.find(row[column], offset) for row in PACK_ROW_ACTIONS]

@@ -2614,12 +2614,20 @@ class EngineSession:
             lambda r, a, la, lo: _OS.optimise_choice(r, a, la, lo, steps=chosen),
             pack_root, action, lat, lon)
 
-    @staticmethod
-    def _pack_choice_worker(name, choice, pack_root, action, lat, lon):
+    def _pack_choice_worker(self, name, choice, pack_root, action, lat, lon):
         """``choice(root, action, lat, lon)`` on a worker thread
         — DSFTool never runs on the transport's read loop; the function
-        announces its own completion event."""
+        announces its own completion event.  A writing action on a pack a
+        live run is rewriting is refused with the reason on the console
+        (#2168): ``{"status": "refused", "reason": ...}``."""
+        from . import pack_busy
         root, act = str(pack_root or ""), str(action or "")
+        busy = (self.pack_busy_reason(root)
+                if act in pack_busy.WRITING_ACTIONS else "")
+        if busy:
+            self.log_warning("%s: not changed — %s."
+                             % (os.path.basename(root.rstrip("/")), busy))
+            return {"status": "refused", "reason": busy}
         la = None if lat is None else int(lat)
         lo = None if lon is None else int(lon)
 
@@ -2751,7 +2759,18 @@ class EngineSession:
         from auto_patch import object_rebake
         if not os.path.isdir(pack_path):
             raise ValueError("not a scenery pack folder: " + str(pack_path))
+        busy = self.pack_busy_reason(pack_path)
+        if busy:
+            raise ValueError(busy)
         return dict(object_rebake.restore_detail(pack_path))
+
+    def pack_busy_reason(self, pack_root):
+        """Why a pack-row action on ``pack_root`` must wait, or ``""``
+        (#2168): only a live run building a tile that writes the pack
+        (``pack_busy.busy_reason``); background jobs never block it."""
+        from . import pack_busy
+        return pack_busy.busy_reason(str(pack_root or ""),
+                                     self.building_tiles())
 
     # ------------------------------------------------------------------
     # Commands: provider account sign-in

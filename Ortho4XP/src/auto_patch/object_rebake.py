@@ -2104,6 +2104,15 @@ def pack_status(pack_root: str) -> dict | None:
     return by_tile
 
 
+def pack_tiles(pack_root: str) -> set[str]:
+    """Every tile (``"+39-107"``) whose build wrote this pack — the v1
+    sidecar's and the v2 records' — so a run building one of them may be
+    rewriting the pack's files (#2168)."""
+    by_tile = pack_status(pack_root) or {}
+    return {key for key in by_tile if key} | {
+        key for key in _v2_status(pack_root) if key}
+
+
 def modified_packs(scenery_dir: str, tile: str | None = None,
                    should_stop=None) -> list[dict]:
     """Every pack under ``scenery_dir`` the engine modified.

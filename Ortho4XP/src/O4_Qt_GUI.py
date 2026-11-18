@@ -156,6 +156,9 @@ from O4_Qt_Widgets import (  # noqa: E402
     wrap_and_never_widen as _wrap_and_never_widen,
 )
 
+# #2168: a pack row's buttons wait only for a run writing that pack
+_PACK_ROW_WAIT = ("Wait: the current run is building a tile that writes "
+                 "this pack.")
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 # Margin around a tile framed from its Activity row (#816), in degrees on
 # each side — the Mac app's MapCamera.framing uses the same fraction.
@@ -3757,6 +3760,7 @@ class MainWindow(QMainWindow):
         if tile != self.map.active_tile():
             return  # stale probe: the user moved on
         self._modified_airport_packs = list(packs)
+        self._pack_rows_busy = [self._pack_row_busy(p) for p in packs]
         while self._modified_airport_rows.count():
             item = self._modified_airport_rows.takeAt(0)
             widget = item.widget()
@@ -3786,6 +3790,7 @@ class MainWindow(QMainWindow):
                         % (repaired, "s" if repaired != 1 else ""))
             label.setToolTip(tip)
             rl.addWidget(label, 1)
+            busy = self._pack_row_busy(pack)
             if pack.get("forests", 0):
                 # #1360: the pack's 3D trees, undone on their own (the mac
                 # row's twin button)
@@ -3793,10 +3798,9 @@ class MainWindow(QMainWindow):
                 trees.setAutoRaise(True)
                 trees.setText("🌲")
                 trees.setFixedSize(18, 18)
-                trees.setEnabled(not self._building)
+                trees.setEnabled(not busy)
                 trees.setToolTip(
-                    "Wait for the current run — the engine may be "
-                    "rewriting these files." if self._building
+                    _PACK_ROW_WAIT if busy
                     else QTFOREST.UNDO_HELP)
                 trees.clicked.connect(
                     lambda _checked=False, p=pack: self._undo_pack_forests(p))
@@ -3807,10 +3811,9 @@ class MainWindow(QMainWindow):
             opt.setAutoRaise(True)
             opt.setText("↺⚡" if optimised else "⚡")
             opt.setFixedHeight(18)
-            opt.setEnabled(not self._building)
+            opt.setEnabled(not busy)
             opt.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files." if self._building
+                _PACK_ROW_WAIT if busy
                 else QTOPT.UNDO_HELP if optimised else QTOPT.OPTIMISE_HELP)
             opt.clicked.connect(
                 lambda _checked=False, p=pack, u=optimised:
@@ -3822,10 +3825,9 @@ class MainWindow(QMainWindow):
             adjust.setAutoRaise(True)
             adjust.setText(QTADJ.ADJUST_BUTTON)
             adjust.setFixedHeight(18)
-            adjust.setEnabled(not self._building)
+            adjust.setEnabled(not busy)
             adjust.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files." if self._building
+                _PACK_ROW_WAIT if busy
                 else QTADJ.ADJUST_HELP)
             adjust.clicked.connect(
                 lambda _checked=False, p=pack: self._adjust_pack_from_row(p))
@@ -3835,11 +3837,9 @@ class MainWindow(QMainWindow):
             undo.setIcon(self.style().standardIcon(
                 QStyle.SP_ArrowBack))
             undo.setFixedSize(18, 18)
-            undo.setEnabled(not self._building)
+            undo.setEnabled(not busy)
             undo.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files."
-                if self._building else
+                _PACK_ROW_WAIT if busy else
                 "Revert to default: restores this package's original "
                 "object files from the reseater's backups."
             )
@@ -3851,12 +3851,20 @@ class MainWindow(QMainWindow):
             self._modified_airport_rows.addWidget(row)
         self._info_layout.setRowVisible(self.modified_airports_row, True)
 
+    def _pack_row_refused(self, pack):
+        """The engine's reason a pack a live run is rewriting must wait
+        (``Session.pack_busy_reason``, #2168), printed; False when free."""
+        reason = self._session.pack_busy_reason(pack["pack_path"])
+        if reason:
+            print("Revert of %s waits: %s." % (pack["pack_name"], reason))
+        return bool(reason)
+
     def _revert_modified_pack(self, pack):
         """Put ONE pack's .anchor_bak originals back (engine restore
         semantics: backups stay for the next bake, provenance sidecar
         removed), then re-probe so the row updates."""
         tile = self.map.active_tile()
-        if self._building or tile is None:
+        if tile is None or self._pack_row_refused(pack):
             return
         import O4_Config_Utils as CFG
 
@@ -4061,6 +4069,16 @@ class MainWindow(QMainWindow):
         state = self._progress_states.get(tile)
         return (self._building and tile in self._run_tiles
                 and not (state and ACTORDER.is_finished(state[0], state[1])))
+
+    def _pack_row_busy(self, pack):
+        """#2168: a Modified airports row waits only while the run builds
+        the active tile or a tile whose build wrote the pack (the mac
+        row's ``packRowBusy``); other tiles and background jobs never
+        hold it."""
+        cells = [self.map.active_tile()] + [
+            FNAMES.parse_tile_key(key) for key in pack.get("tiles") or ()]
+        return any(cell is not None and self._tile_in_run(cell)
+                   for cell in cells)
 
     def _sync_use_auto_patch_btn(self):
         """Use auto patch waits only while ITS tile is in the run."""
@@ -5182,6 +5200,15 @@ class MainWindow(QMainWindow):
         self._sync_row_order()
         if tile == self._custom_patch_tile:
             self._sync_use_auto_patch_btn()
+        self._sync_pack_rows_busy()
+
+    def _sync_pack_rows_busy(self):
+        """#2168: redraw the Modified airports rows when one's wait
+        changes (its pack's tile entered or left the run)."""
+        packs = getattr(self, "_modified_airport_packs", None)
+        if packs and [self._pack_row_busy(p) for p in packs] != getattr(
+                self, "_pack_rows_busy", None):
+            self._on_reanchor_ready((self.map.active_tile(), packs))
 
     def _paint_row_state(self, tile):
         """Repaint one Activity row: status text and colour, the title
@@ -5572,7 +5599,7 @@ class MainWindow(QMainWindow):
         report of the pack as it is on the active tile, which opens the
         question (``PackAdjust(state="adjust")``)."""
         tile = self.map.active_tile()
-        if self._building or tile is None:
+        if tile is None or self._pack_row_busy(pack):
             return
         self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
                                   lat=int(tile[0]), lon=int(tile[1]))
@@ -5725,7 +5752,7 @@ class MainWindow(QMainWindow):
         pack gets its original forest definitions back (the engine
         command; it completes with a PackOldForests event that refreshes
         the rows)."""
-        if self._building:
+        if self._pack_row_busy(pack):
             return
         self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
 
@@ -5734,7 +5761,7 @@ class MainWindow(QMainWindow):
         tile's DSF, its steps ticked as the pack's current choice) or Undo
         optimise (every optimised DSF of the pack); the engine command
         completes with a PackOptimise event."""
-        if self._building:
+        if self._pack_row_busy(pack):
             return
         if undo:
             self._session.pack_optimise(pack_root=pack["pack_path"],
@@ -5829,6 +5856,7 @@ class MainWindow(QMainWindow):
     def _on_run_done(self, event):
         self._building = False
         self._sync_use_auto_patch_btn()
+        self._sync_pack_rows_busy()
         self._storage_auto_clean()
         for box in list(self._slow_step_boxes.values()):
             box.close()

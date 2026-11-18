@@ -296,8 +296,13 @@ def test_the_pack_row_adjust_asks_the_engine(window, monkeypatch):
     assert sent == [{"pack_root": "/X/Custom Scenery/Some Pack",
                      "action": "adjust", "lat": 29, "lon": -96}]
     window._building = True
+    window._run_tiles = {(29, -96)}
+    window._progress_states = {(29, -96): ("active", "mesh", 10)}
     window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
-    assert len(sent) == 1, "never during a run"
+    assert len(sent) == 1, "never while the run builds the pack's tile"
+    window._run_tiles = {(48, 2)}
+    window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
+    assert len(sent) == 2, "a run on other tiles never holds it (#2168)"
 
 
 def test_a_terrain_answer_during_a_run_waits_for_its_end(window, monkeypatch,

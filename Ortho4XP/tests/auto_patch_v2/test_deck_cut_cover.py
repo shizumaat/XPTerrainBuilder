@@ -19,7 +19,7 @@ C = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(C)
 
 LAW = load_default()
-#: the bank under every banked deck (``planar/deck_bank.deck_bank_slope``)
+#: the bank under every banked deck (``model/deck_bank.deck_bank_slope``)
 SLOPE = float(LAW.tables.zones.adjacent_ground.old_dem_fill_slope)
 # a deck 40 m along x (end lines x = 0 and x = 40), 20 m wide, 6 m deep
 DECK = types.SimpleNamespace(object_id="o4gen_t", witness="generated",

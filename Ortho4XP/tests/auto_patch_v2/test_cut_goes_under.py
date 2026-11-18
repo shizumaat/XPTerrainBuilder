@@ -98,7 +98,7 @@ def test_pads_read_off_a_hidden_placement_leave():
 
 
 def test_the_deck_has_straight_sides_and_a_steeper_bank():
-    from auto_patch_v2.planar.deck_bank import deck_bank_slope
+    from auto_patch_v2.model.deck_bank import deck_bank_slope
     from auto_patch_v2.planar.deck_generated import _straight_sided as straight_sided
     from shapely.geometry import Polygon
     # an L-shaped pavement piece over a road along y: one rectangle holds it,
@@ -174,7 +174,7 @@ def test_every_wall_less_deck_stands_on_the_one_bank():
     bank, as a generated deck's -- the one slope; a WALLED pack deck keeps
     the fill behind its walls flush (30f (3))."""
     from auto_patch_v2.constraints.edge_deck import _bank_slope
-    from auto_patch_v2.planar.deck_bank import bank_past_m, banked, deck_bank_slope
+    from auto_patch_v2.model.deck_bank import bank_past_m, banked, deck_bank_slope
     pack, walled, gen = _pack_deck(), _pack_deck(walls=_BOTH_WALLS), _deck()
     assert banked(pack) and banked(gen) and not banked(walled)
     es = lambda d: (types.SimpleNamespace(deck=d),)    # noqa: E731
@@ -216,7 +216,7 @@ def test_a_deck_walled_on_one_side_is_banked():
     side of the road only is cut as a banked deck (``deck_bridge.
     _walled_trench`` is ``None``), so its span is the bank too."""
     import auto_patch_v2.planar.deck_bridge as DB
-    from auto_patch_v2.planar.deck_bank import banked
+    from auto_patch_v2.model.deck_bank import banked
     one_side = _pack_deck(walls=(_BOTH_WALLS[0], _BOTH_WALLS[1], _BOTH_WALLS[2][:1]))
     assert DB._walled_trench(one_side, 0.0) is None and banked(one_side)
     both = _pack_deck(walls=_BOTH_WALLS)

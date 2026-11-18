@@ -9,7 +9,7 @@ DECK AND GENERATED ROAD BRIDGE, off a ``--solved-out`` pickle.
   the bank the cut builds -- the end line's solved seat level less
   ``slope`` x the distance from that end line, at most the end's depth (the
   floor) -- plus ``tol``.  The bank slope is every deck's
-  (``planar/deck_bank.deck_bank_slope``).
+  (``model/deck_bank.deck_bank_slope``).
 * A GENERATED ROAD BRIDGE (``Airport.road_bridges``): under its span, each
   lower road's carriageway stands at least its clearance
   (``structure_approach.design_clearance_m``: ``[bridge] clearance_minimum_m``
@@ -145,7 +145,7 @@ def road_bridge_cover(pm, z, airport, bridge: _t.Mapping, law, tol: float) -> li
 def cut_cover(pm, z, airport, law, tol: float) -> list[dict]:
     """Every banked deck's and generated road bridge's read; ``ll`` on each
     worst sample (``(lat, lon)``)."""
-    from auto_patch_v2.planar.deck_bank import banked, deck_bank_slope
+    from auto_patch_v2.model.deck_bank import banked, deck_bank_slope
     slope = deck_bank_slope(law)
     out = [deck_cover(pm, z, d, slope, tol) for d in getattr(pm, "decks", ()) or ()
            if banked(d)]

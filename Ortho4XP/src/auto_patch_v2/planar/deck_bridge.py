@@ -77,6 +77,7 @@ from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
+from ..geom.wall_lines import project_span
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
@@ -603,12 +604,6 @@ def across_dir(db: DeckBridge) -> XY:
     return (ry, -rx)
 
 
-def project_span(ring, r: XY) -> tuple[float, float]:
-    """``(least, greatest)`` of the ring's points projected on ``r``."""
-    vals = [q[0] * r[0] + q[1] * r[1] for q in ring]
-    return min(vals), max(vals)
-
-
 def mid_line(db: DeckBridge) -> tuple[XY, float]:
     """``(normal, offset)`` of the deck's MIDLINE: the line between its end
     lines' directions halfway across the deck along the road — one line,
@@ -883,12 +878,12 @@ def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped: a deck no corridor runs under mints no
-    ground.  A BANKED deck's reach (``planar/deck_bank``: no wall under it,
+    ground.  A BANKED deck's reach (``model/deck_bank``: no wall under it,
     pack or generated, RULINGS 2026-11-17p) runs ``bank_past_m`` past its
     ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank under it
     "needs to extend about 1m past the bridge edges"): its bank stands on
     that ground (``constraints/edge_deck``)."""
-    from .deck_bank import bank_past_m, banked
+    from ..model.deck_bank import bank_past_m, banked
     past = bank_past_m(law)
     gen = {d.object_id for d in decks if banked(d)}
     rings: dict[tuple, Polygon] = {}

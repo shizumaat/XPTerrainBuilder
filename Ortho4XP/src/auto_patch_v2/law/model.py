@@ -594,7 +594,7 @@ class Bridge:
     #: about 1m past the bridge edges, then smoothly blend the natural
     #: terrain and the cut"), RULINGS 2026-11-17p (every bridge): the bank
     #: under a wall-less deck runs on this far past the ring's edges before
-    #: the ground beyond blends (m; ``planar/deck_bank``)
+    #: the ground beyond blends (m; ``model/deck_bank``)
     bank_past_edge_m: float = 1.0
 
 

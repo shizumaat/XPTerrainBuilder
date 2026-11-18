@@ -131,7 +131,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
-    from ..planar.deck_bank import bank_past_m
+    from ..model.deck_bank import bank_past_m
     from .deck_lines import end_lines, plate_of
     flush = float(law.tables.structures.bridge.deck_flush_m)
     lines = end_lines(planar, law)
@@ -262,7 +262,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     # apart, the open stretch between them held db1cfe30's bank vertex
     # 6.1 m up, flush with o4gen_0abbd35b's seat; RULINGS 2026-11-17p: a
     # pack deck's bank too)
-    from ..planar.deck_bank import banked
+    from ..model.deck_bank import banked
     mine_rings = {tuple(d.ring) for d in decks}
     others = [Polygon(d.ring).buffer(-0.5) for d in getattr(planar, "decks", ()) or ()
               if banked(d) and tuple(d.ring) not in mine_rings]
@@ -311,7 +311,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
 
 
 def _bank_slope(law: Law, es) -> "float | None":
-    """The bank under a BANKED deck's span (``planar/deck_bank``: no wall
+    """The bank under a BANKED deck's span (``model/deck_bank``: no wall
     under it, a pack deck's as a generated one's -- owner RULINGS
     2026-11-17p "EVERY bridge ... shares the logic"), ``None`` (flush) for a
     WALLED pack deck: the fill behind its walls stands at the deck (30f
@@ -325,7 +325,7 @@ def _bank_slope(law: Law, es) -> "float | None":
     MEASURED ESSA (``v2_solve_replay`` capture on e7b8406f0): W 7 vertices of
     the bank's toe +6.0-7.0 m over the floor (a cliff, the bank a shelf at
     deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
-    from ..planar.deck_bank import banked, deck_bank_slope
+    from ..model.deck_bank import banked, deck_bank_slope
     if not all(banked(e.deck) for e in es):
         return None
     # the bank under the deck: the run the cut made (one reader)

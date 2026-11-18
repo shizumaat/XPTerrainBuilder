@@ -134,7 +134,7 @@ from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
-from .deck_bank import deck_bank_slope
+from ..model.deck_bank import deck_bank_slope
 from .deck_generated import is_generated
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
@@ -1402,7 +1402,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
                                                  ()), lane_of.get(id(members[0]), 0))
             # the FLOOR FACE stops at the toe of a generated deck's 1:1.5
-            # bank (``planar/deck_bank``); a pack deck's floor face keeps
+            # bank (``model/deck_bank``); a pack deck's floor face keeps
             # the 1:3 run -- its 1:1.5 bank (RULINGS 2026-11-17p) is the
             # span rows' (``constraints/edge_deck``), at the floor's level
             # beyond its toe.  MEASURED KIAH (lkiah capture): the pack

@@ -57,8 +57,15 @@ def banked(db) -> bool:
     on one side of the road under it or the other -- the planar cut's own
     test (``deck_bridge._walled_trench``: a deck walled on one side only is
     cut as a banked one, MEASURED LFPG ``H16`` obj13023), so the span rows
-    and the deck's ground read the cut the planar stage made."""
-    if not getattr(db, "walls", ()):
+    and the deck's ground read the cut the planar stage made.  The same
+    inner-face test as ``_walled_trench`` (``geom/wall_lines``): here in
+    ``model`` because ``constraints`` may not import ``planar``."""
+    walls = getattr(db, "walls", ())
+    if not walls:
         return True
-    from .deck_bridge import _walled_trench
-    return _walled_trench(db, 0.0) is None
+    from ..geom.wall_lines import inner_faces, project_span
+    r, n, faces = walls
+    u_lo, u_hi = project_span(db.ring, n)
+    s_lo, s_hi = project_span(db.ring, r)
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
+    return ua is None or ub is None

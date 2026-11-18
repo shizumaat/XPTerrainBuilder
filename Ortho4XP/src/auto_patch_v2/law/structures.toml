@@ -731,7 +731,7 @@ small_road_classes     = ["service", "track", "unclassified", "living_street",
 # OWNER sim read 2026-11-17T19:42Z "that embankment needs to extend about 1m past
 # the bridge edges, then smoothly blend the natural terrain and the cut"; RULINGS
 # 2026-11-17p: EVERY bridge (pack and generated): the bank under a wall-less deck
-# runs on this far past its ring (planar/deck_bank: deck_bridge.deck_ground,
+# runs on this far past its ring (model/deck_bank: deck_bridge.deck_ground,
 # constraints/edge_deck)
 bank_past_edge_m       = 1.0
 

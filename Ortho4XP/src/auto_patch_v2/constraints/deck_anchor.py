@@ -301,12 +301,16 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
         zero = sum(r[4] - r[1] for r in rows) / len(rows)
         gov = _threshold_zero(vw, law, rows, zero, thresholds, inside, rw)
         d0 = rows[0][1]
+        # RULINGS 2026-11-18i (b): a graded span's end lines each read their
+        # own profile (``edge_deck._graded_rows``)
+        graded = any(getattr(e[3], "span_cut", ()) for e in ends) and not gov
         for k, (seats, depth, rwid, v, p, _mid, line) in enumerate(rows):
-            z = (gov[0] if gov else zero) + depth
+            z = p if graded else (gov[0] if gov else zero) + depth
             a = DeckAnchor(oid, ("AB"[k] if k < 2 else str(k)) + tag, v, tuple(seats),
                            round(z, 6), round(depth, 6), round(depth - d0, 6),
                            family, rwid, round(p, 6), note=gov[1] if gov else "",
-                           cut=cut.get(line, "none"), line=line, plate=plate)
+                           cut=cut.get(line, "none"), line=line, plate=plate,
+                           graded=graded)
             a = _judge(a, rows, vw, law, rws.get(rwid), senior, yielding)
             # spec 2123: a GENERATED deck keeps its pin on the window-blind
             # profile (the runway deck's reading): a bare-earth DEM reads
@@ -352,8 +356,9 @@ def _solved_level(a: DeckAnchor) -> DeckAnchor:
 
 def settle(pm: PlanarMap, z) -> PlanarMap:
     """``pm`` with every taxi or road deck's anchors at the level the solve
-    built (module doc): the object's one zero -- one per PLATE (#2112) --
-    is the mean over its stations of ``z − top``, each end at
+    built (module doc): the object's one zero -- one per PLATE (#2112),
+    one per END LINE of a graded span (RULINGS 2026-11-18i (b)) -- is the
+    mean over its stations of ``z − top``, each end at
     ``zero + top``.  The anchor stays unpinned:
     it publishes a level, it never held one (the census reads its stations
     off the one zero, ``verify/deck_flush``).  A map with no such deck, or
@@ -361,15 +366,16 @@ def settle(pm: PlanarMap, z) -> PlanarMap:
     anchors = tuple(getattr(pm, "deck_anchors", ()) or ())
     if z is None or len(z) == 0 or not any(_solved(a) for a in anchors):
         return pm
-    acc: dict[tuple[str, int], dict[int, float]] = {}
+    def key(a: DeckAnchor) -> tuple[str, int, str]:
+        return (a.object_id, a.plate, a.end if a.graded else "")
+    acc: dict[tuple[str, int, str], dict[int, float]] = {}
     for a in anchors:
         if _solved(a):
             for s in a.stations:
-                acc.setdefault((a.object_id, a.plate), {}).setdefault(
-                    s, float(z[s]) - float(a.top_y))
+                acc.setdefault(key(a), {}).setdefault(s, float(z[s]) - float(a.top_y))
     zero = {k: sum(d.values()) / len(d) for k, d in acc.items() if d}
-    out = [a if not _solved(a) or (a.object_id, a.plate) not in zero else _dc.replace(
-        a, z_m=round(zero[(a.object_id, a.plate)] + float(a.top_y), 6)) for a in anchors]
+    out = [a if not _solved(a) or key(a) not in zero else _dc.replace(
+        a, z_m=round(zero[key(a)] + float(a.top_y), 6)) for a in anchors]
     return _dc.replace(pm, deck_anchors=tuple(out))
 
 
@@ -520,5 +526,6 @@ def sidecar_records(planar: PlanarMap) -> list[dict]:
              "top_y": round(a.top_y, 3), "rise_m": round(a.rise_m, 3), "family": a.family,
              "ref": a.ref, "yielding": a.yielding, "pinned": a.pinned, "note": a.note,
              "cut": a.cut, "witness": witness.get(a.object_id, ""), "plate": a.plate,
+             **({"graded": True} if a.graded else {}),
              "stations": [ll(v) for v in a.stations]}
             for a in getattr(planar, "deck_anchors", ()) or ()]

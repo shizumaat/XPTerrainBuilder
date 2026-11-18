@@ -462,6 +462,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     deck_uncut = runway_u.difference(unary_union(
         [deck_polygon(db) for db in deck_bridges])) \
         if runway_u is not None and deck_bridges else None
+    # owner RULINGS 2026-11-18i (2): the AT-GRADE plan of a deck cut to its
+    # spans is the airport's pavement on the real ground, no deck over it --
+    # a cut never takes it either (its rim, as the runway's)
+    deck_uncut = _with_at_grade(deck_uncut, polys, cells) if deck_bridges else deck_uncut
     # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
@@ -1940,6 +1944,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
+
+
+def _with_at_grade(uncut, polys, cells):
+    """``uncut`` with the at-grade cells of every deck cut to its spans
+    (``deck_span_cut.at_grade_cells``) added (RULINGS 2026-11-18i (2))."""
+    from .deck_span_cut import MARK
+    got = [p for p, c in zip(polys, cells, strict=False) if str(c.ref).startswith(f"{MARK}:")]
+    if not got:
+        return uncut
+    return unary_union([uncut, *got] if uncut is not None else got)
 
 def _cut_part_refs(ref: str, keep_all: bool, parts: _t.Sequence) -> list[tuple[str, _t.Any]]:
     """The parts of a cell a structure cut that survive, with their refs:

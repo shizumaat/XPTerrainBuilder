@@ -388,7 +388,8 @@ def _span_pieces(u, airport, law, notes: list[str], d):
     """``(piece, span_cut)`` per deck piece of the union ``u``, largest
     first; a piece lying at grade on the airport's pavement is cut to its
     spans (owner RULINGS 2026-11-18i, ``planar/deck_span_cut``), each span
-    carrying ``(a, b, spans)``; every other piece is itself with ``()``."""
+    carrying ``(a, b, spans, grade cap)``; every other piece is itself
+    with ``()``."""
     from .deck_span_cut import span_split
     for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
         if piece.geom_type != "Polygon" or piece.area < 1.0:
@@ -398,12 +399,16 @@ def _span_pieces(u, airport, law, notes: list[str], d):
             yield piece, ()
             continue
         cut, parts = got
+        # RULINGS 2026-11-18i (b): each span takes its own grade, up to the
+        # taxiway cap (``edge_deck._graded_rows``, ``deck_plates._span_grade``)
+        cap = law.ruleset.taxi.longitudinal.value(None, None)
         notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: lies at grade on the "
                      f"airport's pavement -- cut to its {len(parts)} span(s) "
                      + ", ".join(f"{a:.0f}-{b:.0f} m" for a, b in cut.spans)
                      + f" of {cut.length:.0f} m (RULINGS 2026-11-18i)")
         for p in parts:
-            yield p, (tuple(cut.a), tuple(cut.b), tuple(cut.spans))
+            yield p, (tuple(cut.a), tuple(cut.b), tuple(cut.spans),
+                      None if cap is None else float(cap))
 
 
 def _roads_under(airport, law, ring: Polygon) -> "XY | None":

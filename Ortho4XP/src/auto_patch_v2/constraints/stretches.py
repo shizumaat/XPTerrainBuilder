@@ -61,7 +61,7 @@ from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family
 from ..model.planar import PlanarMap
-from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, DECK_GROUND_REF
+from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE
 from .geometry import project_to_chain
 from .precedence import taxi_cap_for
 
@@ -80,20 +80,6 @@ APRON_ROLE = "apron"
 #: deck, whose end lines hold it (``constraints/edge_deck``), never the
 #: floor under it.
 CUT_ROLES = frozenset({CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, "tunnel_ramp"})
-
-def _under_deck(faces) -> bool:
-    """Whether a centreline edge bounded by ``faces`` alone runs over the
-    ground UNDER a deck: a structure's cut (:data:`CUT_ROLES`), or the
-    deck's own ground -- the bank under a wall-less deck (``planar/
-    deck_bridge.deck_ground``, held on the bank by ``constraints/edge_deck``,
-    RULINGS 2026-11-17p).
-    MEASURED KIAH obj24614 (``v2_solve_replay`` lkiah capture): the taxi427
-    centreline ran over the deck's bank, its cap tying the bank to the
-    taxiway beyond the end line."""
-    return bool(faces) and all(
-        f.role in CUT_ROLES or str(getattr(f, "ref", "")).startswith(DECK_GROUND_REF + ":")
-        for f in faces)
-
 
 XY = tuple[float, float]
 
@@ -228,12 +214,12 @@ def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
     apron keeps the taxiway law, RULINGS 2026-09-06t); an edge on no
     stretch (a road centreline, a plain edge) reads the strictest
     bounding face, apron included; ``None`` (no law edge) where the edge
-    is bounded by a structure's cut alone (:data:`CUT_ROLES`, #2127) or by
-    the bank under a deck (:func:`_under_deck`, RULINGS 2026-11-17p)."""
+    is bounded by a structure's cut alone (:data:`CUT_ROLES`, #2127)."""
     e = pm.edges[eid]
     sid = st.by_edge.get(eid)
-    if _under_deck([pm.faces[f] for f in (e.left_face, e.right_face) if f is not None]):
-        return None     # carried over a cut or a bank: the deck states the level
+    sides = [pm.faces[f].role for f in (e.left_face, e.right_face) if f is not None]
+    if sides and all(r in CUT_ROLES for r in sides):
+        return None     # carried over a cut: the deck states the level (CUT_ROLES)
     bounding = [(f, face_caps.get(f)) for f in (e.left_face, e.right_face)
                 if f is not None and face_caps.get(f) is not None]
     if sid is None:

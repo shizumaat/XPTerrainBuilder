@@ -275,14 +275,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         drop = _bank_drop(es, p, bank) if bank is not None and ring_in.contains(p) \
             and _bridge_ground(planar, vx) else 0.0
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
-        if drop <= 0.0:
-            rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
-        # ON THE BANK the pair is a CEILING only (RULINGS 2026-11-17p): the
-        # ground under the deck stands no higher than the bank, and a bank
-        # vertex another row holds lower never pulls its seat -- the deck
-        # and the airside it carries -- down.  MEASURED KIAH (lkiah
-        # capture) with the equality: obj24614's deck solved 1.86 m and its
-        # taxiway 1.95 m lower than the control.
+        rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
 
 

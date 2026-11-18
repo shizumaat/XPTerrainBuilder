@@ -1393,9 +1393,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
                                                  ()), lane_of.get(id(members[0]), 0))
-            # RULINGS 2026-11-17p: every deck's bank is the one 1:1.5 bank
-            # (``planar/deck_bank``), a pack deck's as a generated one's
-            d_run = deck.depth_m / deck_bank_slope(law)
+            # the FLOOR FACE stops at the toe of a generated deck's 1:1.5
+            # bank (``planar/deck_bank``); a pack deck's floor face keeps
+            # the 1:3 run -- its 1:1.5 bank (RULINGS 2026-11-17p) is the
+            # span rows' (``constraints/edge_deck``), at the floor's level
+            # beyond its toe.  MEASURED KIAH (lkiah capture): the pack
+            # floor face widened to the 1:1.5 toe solved obj24614's deck
+            # 1.86 m and its taxiway 1.95 m lower than the control; at the
+            # 1:3 run they stand within 0.03 m of it
+            d_run = deck.depth_m / (deck_bank_slope(law) if is_generated(deck)
+                                    else float(law.tables.emit.design.bank_slope))
             # the airside the cut does not take: the runway no deck carries,
             # the pavement a dead end stops at (#2072 A2), the deck's own
             # airside edge band (#2072: the trench never touches airside) and

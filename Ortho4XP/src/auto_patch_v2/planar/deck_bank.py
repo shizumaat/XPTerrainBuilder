@@ -11,8 +11,11 @@ line down to the cut's floor at :func:`deck_bank_slope`, the bank running
 :func:`bank_past_m` beyond the deck's ring before the ground beyond blends.
 Its readers are the ONE derivation of that bank:
 
-* ``planar/structures`` -- the bank's run, so the floor ``planar/
-  deck_bridge.deck_cut`` takes stops at its toe;
+* ``planar/structures`` -- a GENERATED deck's floor face (``planar/
+  deck_bridge.deck_cut``) stops at the bank's toe; a pack deck's floor face
+  keeps the 1:3 run (MEASURED KIAH: widened, it pulled the pack decks and
+  their taxiways down 1-2 m), the bank's rows carrying the ground down to
+  the floor's level beyond the toe;
 * ``planar/deck_bridge.deck_ground`` -- the deck's own ground reaches
   :func:`bank_past_m` past the ring;
 * ``constraints/edge_deck`` -- the span rows hold that ground ON the bank

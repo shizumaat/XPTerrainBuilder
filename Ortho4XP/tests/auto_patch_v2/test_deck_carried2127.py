@@ -59,16 +59,3 @@ def test_a_shell_stating_no_cut_may_ride_and_a_cut_or_hidden_shell_never():
     owner = types.SimpleNamespace(object_id="owner", hidden=False, footprint=cut)
     liner = types.SimpleNamespace(object_id="liner", hidden=False, footprint=Polygon())
     assert FD._stating_cut([liner, hidden, owner]) == {"hidden", "owner"}
-
-
-def test_a_centreline_edge_over_a_decks_bank_is_no_law_edge():
-    """RULINGS 2026-11-17p: the ground under a wall-less deck is its bank
-    (``deck_ground:<object>`` faces); a centreline edge over it alone and
-    the trench void beside it runs on the deck, never on the bank -- KIAH
-    obj24614's taxi427 centreline tied the bank to its taxiway."""
-    caps = {1: (0.10, 0.10), 2: (0.10, 0.10)}
-    pm = _pm("graded_strip", "retaining_wall")
-    pm.faces[1].ref = "deck_ground:dsf:obj7#3"
-    assert S.edge_cap(pm, LAW, _st(), 7, caps) is None
-    pm.faces[1].ref = "graded_strip:12"          # an ordinary graded strip keeps its law
-    assert S.edge_cap(pm, LAW, _st(), 7, caps) == (0.015, 0.015)

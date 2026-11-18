@@ -35,11 +35,11 @@ group is EVERY overpass deck body of the placement (the deck and its pier
 bodies, which the overpass seat put at the one zero), with what rides them
 (``merged_into``) and every other body of its frame the same seat placed
 that touches the deck -- the rails and pieces of a sibling placement at the
-same anchor, a ring-less one by its plan box; before, each deck body was
-a group of its own, and the piers,
-the rails over them and the loose rail pieces kept the unwarped zero
-(KDEN ``Train_Bridge_1`` b4 / ``_Tracks`` b21 stood +3.3 m over the warped
-rails of b0 / b17 at 39.839152,-104.674323).
+same anchor, a ring-less one by its plan box.  Before, each deck body was
+a group of its own and the piers, the rails over them and the loose rail
+pieces kept the unwarped zero (KDEN ``Train_Bridge_1`` pier b4 stood 2.6 m
+over the ground, its rails up to 4.4 m over the warped deck near
+39.839152,-104.674323; one group: 0.00 and at most 0.12, as authored).
 
 NODES.  BUILDING CONTACT (owner RULINGS 2026-11-17t: "a deck touching two
 buildings at different zeros follows both", whichever frame or 22o group

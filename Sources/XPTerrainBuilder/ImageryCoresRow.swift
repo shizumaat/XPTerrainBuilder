@@ -19,9 +19,9 @@ struct ImageryCoresRow: View {
             text: text, statusColor: ActivityRow.color(tone),
             titleDimmed: !progress.running
         ) {
-            ProgressView(value: progress.fraction, total: 1)
-                .controlSize(.small)
-                .tint(tone == .live ? Color.accentColor : ActivityRow.color(tone))
+            ActivityProgressBar(
+                fraction: progress.fraction,
+                tint: tone == .live ? Color.accentColor : ActivityRow.color(tone))
         } trailing: {
             if progress.running {
                 Button {

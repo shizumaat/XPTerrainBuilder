@@ -9,10 +9,12 @@ selection the user makes here goes to the map (``selection_edited``,
 ``O4_Activity_Order.list_edit``).  A row is a widget the view hosts as
 the item's index widget (title, bar, steps, status line and its stop /
 resume button: no standard item paints those); its margins come from the
-style's item-view metrics.  A selected row draws its bar in the
-selection's text colour (``_emphasize_row``): the bar's fill IS the
-selection colour, so on a selected row it vanished (owner 2026-11-17, the
-Mac app's ``SelectedRowStyle``).  The Mac app's twin is
+style's item-view metrics.  A selected row draws its bar itself
+(``_emphasize_row``): a fill in the selection's text colour on a dark
+translucent track.  The native bar's fill and track ARE the selection
+colour, so on a selected row it vanished (owner 2026-11-17), and a
+palette alone did not reach the macOS style's track (owner 2026-11-18,
+"almost invisible"; the Mac app's ``ActivityProgressBar``).  The Mac app's twin is
 ``ActivitySections`` (``ActivitySections.swift``).
 """
 
@@ -57,21 +59,26 @@ def row_margins(style):
     return (side, top, side, top)
 
 
+#: a selected row's bar: the fill (``%s``: the selection's text colour)
+#: on a dark translucent track, whatever the accent colour is
+EMPHASIZED_BAR_STYLE = (
+    "QProgressBar { background: rgba(0, 0, 0, 72); border: none;"
+    " border-radius: 3px; }"
+    "QProgressBar::chunk { background: %s; border-radius: 3px; }")
+
+
 def _emphasize_row(row, selected):
     """Draw ``row``'s progress bars for a selected row or not: on a
     selected row the fill takes the selection's text colour (Qt's
-    ``HighlightedText``, white on the accent), else the inherited
-    palette."""
+    ``HighlightedText``, white on the accent) over a dark translucent
+    track (:data:`EMPHASIZED_BAR_STYLE`), else the native bar."""
     for bar in row.findChildren(QProgressBar):
         if selected:
-            palette = QPalette(bar.palette())
-            for group in (QPalette.Active, QPalette.Inactive):
-                palette.setColor(group, QPalette.Highlight,
-                                 row.palette().color(group,
-                                                     QPalette.HighlightedText))
-            bar.setPalette(palette)
+            text = row.palette().color(QPalette.Active,
+                                       QPalette.HighlightedText)
+            bar.setStyleSheet(EMPHASIZED_BAR_STYLE % text.name())
         else:
-            bar.setPalette(QPalette())
+            bar.setStyleSheet("")
         bar.setProperty("emphasized", bool(selected))
 
 

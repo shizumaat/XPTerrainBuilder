@@ -161,7 +161,7 @@ def _stub_planar(faces: dict[int, tuple[str, list[int]]], dem: float = 8.0):
     use: dict[tuple[int, int], list[int]] = {}
     inc: dict[int, set[int]] = {}
     for fid, (_ref, ring) in faces.items():
-        for a, b in zip(ring, ring[1:] + ring[:1]):
+        for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
             use.setdefault((min(a, b), max(a, b)), []).append(fid)
         for v in ring:
             inc.setdefault(v, set()).add(fid)

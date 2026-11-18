@@ -247,6 +247,7 @@ CAPABILITIES: tuple = (
     "pack_adjust_edit",             # 2026-11-15, pack row Adjust… (pack_adjust adjust/change)
     "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
     "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
+    "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
 )
 
 
@@ -951,6 +952,46 @@ class GatewayAirports(EngineEvent):
     * ``"installed"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``
       lists the packs installed or the files restored.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    lat: int = 0
+    lon: int = 0
+    items: list = field(default_factory=list)
+    files: list = field(default_factory=list)
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PackOverlaps(EngineEvent):
+    """Large structures two installed packs both draw near an airport,
+    and which pack keeps them (issue #2145; capability ``pack_overlaps``;
+    ``auto_patch.overlap_stage``).
+
+    Emitted by the build once a tile is built, and as the completion of a
+    ``pack_overlaps`` command (it replies ``{"status": "started"}`` at
+    once).  ``items`` is one ``{"key", "packs": [a, b], "airport",
+    "default", "winner", "count", "rows": [n_a, n_b], "summary"}`` per
+    pack pair: ``default`` the airport pack (the picker's pre-selection),
+    ``winner`` the remembered answer (``""`` none, ``"both"`` keep both).
+    A row with ``"kind": "duplicate"`` (RULINGS 17s, ``auto_patch.
+    duplicate_stage``) is two packs defining the same airport, ``packs``
+    upper first by ``scenery_packs.ini``, ``lower`` the pack offered to
+    be disabled: its ``winner`` is ``"disable"`` (that pack's ini row is
+    marked ``SCENERY_PACK_DISABLED``; X-Plane must restart), ``"keep"``
+    (never asked again) or ``""``; ``lower == ""`` is a report (a pack
+    the ini does not list), never answered.  ``state``:
+
+    * ``"found"`` — (build) ask, one picker per pair: **Apply** sends
+      ``pack_overlaps`` with ``action="choose"`` and ``items``
+      ``[{"key", "winner"}]``; **Not now** sends nothing.
+    * ``"ask"`` — (command ``action="ask"``) the report: the same rows.
+    * ``"chosen"`` / ``"undone"`` / ``"failed"`` (``error`` says why) — a
+      command's outcome; ``files`` lists the pack DSFs rewritten.
 
     Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
     matches this class name as a STRING LITERAL (renaming it breaks the

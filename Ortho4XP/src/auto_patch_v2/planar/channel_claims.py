@@ -340,9 +340,27 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
             band = float(getattr(c, "wall_band_m", 0.0) or 0.0)
             floor = floor.difference(du.buffer(band, **_MITRE) if band > 0.0 else du)
             outer = outer.difference(du)
-        void = outer.difference(floor)
+        # #2127 R3 A3: an exit ramp is a PART of the floor — the main floor
+        # stands back from it by the wall band (as from a deck); the crest
+        # ring already takes in its outline (``channel_ramp.crest_with_ramps``)
+        ramps = [(r.ref, _poly(r.ring), _poly(r.outline)) for r in getattr(c, "ramps", ())]
+        ramps = [(ref, ring, line) for ref, ring, line in ramps
+                 if ring is not None and line is not None]
+        if ramps:
+            floor = floor.difference(unary_union([line for _r, _g, line in ramps]))
+            ramps = [(ref, ring.difference(du) if du is not None and not du.is_empty
+                      else ring, line) for ref, ring, line in ramps]
+        void = (outer.difference(unary_union([floor, *(g for _r, g, _l in ramps)]))
+                if ramps else outer.difference(floor))
         for k, part in enumerate(_parts(floor)):
             out.append((FLOOR_ROLE, c.floor_ref + (f"#{k}" if k else ""), part, c.id))
+        taken = None                      # two ends' ramps never overlap
+        for ref, ring, _line in ramps:
+            if taken is not None:
+                ring = ring.difference(taken)
+            taken = ring if taken is None else unary_union([taken, ring])
+            for k, part in enumerate(_parts(ring)):
+                out.append((FLOOR_ROLE, ref + (f"-{k}" if k else ""), part, c.id))
         for k, part in enumerate(_parts(void)):
             out.append((WALL_ROLE, c.wall_ref + (f"#{k}" if k else ""), part, c.id))
         # the knife is handed on as POLYGONS: subtracting the decks can

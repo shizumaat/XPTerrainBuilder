@@ -34,7 +34,7 @@ __all__ = [
     "ring_vertex_ids", "principal_axis", "long_axis",
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
-    "chains_within",
+    "chains_within", "rows_outside", "chords_outside",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
     "polyline_length", "face_cover", "chords_covered", "chord_midpoints_hit",
 ]
@@ -70,19 +70,58 @@ def face_cover(ring: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
         return None
 
 
+#: THE SOUND SCREENS' SAMPLE POINTS along a chord (#1951 part 2), the
+#: midpoint among them: the accept screen below needs one point of the
+#: chord inside the cover.
+_SAMPLES = (0.5, 0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
+
+
 def chords_covered(poly, segments: _t.Sequence[tuple[XY, XY]]) -> list[bool]:
     """Which of ``segments`` (``((x0, y0), (x1, y1))`` each, or the same as
-    one ``(n, 2, 2)`` array) ``poly`` covers — one vectorised GEOS
-    predicate for the whole list; every chord when ``poly`` is ``None``."""
+    one ``(n, 2, 2)`` array) ``poly`` covers; every chord when ``poly`` is
+    ``None``.
+
+    THE SAME PREDICATE, ANSWERED IN THREE STEPS (#1951 part 2: the lot
+    chords of #2099 G4 C put ~1 M chords per airport through it, 243 of
+    road_within_shape's 266 s at KMCI, and the verify stage and the census
+    ask it again):
+
+    * REJECT — a sample point of the chord (:data:`_SAMPLES`) that misses
+      ``poly`` refutes the cover (the midpoint screen's argument, at seven
+      points);
+    * ACCEPT — a chord with a point inside that meets no point of
+      ``poly``'s boundary lies in its interior;
+    * the rest (a chord touching the boundary) — ``covers`` on the PREPARED
+      polygon.  ``covered_by(lines, poly)`` was never prepared: GEOS
+      prepares the predicate's first operand, here the chord.
+
+    MEASURED: KMCI's 72 large lots, 958,447 chords, 0 answers differ from
+    ``covered_by``; 250 s -> 1.1 s."""
     if len(segments) == 0:
         return []
     if poly is None:
         return [True] * len(segments)
     import numpy as np
     import shapely
-    lines = shapely.linestrings(np.asarray(segments, float))
+    seg = np.asarray(segments, float)
     shapely.prepare(poly)
-    return [bool(b) for b in shapely.covered_by(lines, poly)]
+    a, d = seg[:, 0, :], seg[:, 1, :] - seg[:, 0, :]
+    live = np.ones(len(seg), dtype=bool)
+    for fr in _SAMPLES:
+        k = np.flatnonzero(live)
+        if not k.size:
+            break
+        live[k] = shapely.intersects_xy(poly, a[k, 0] + fr * d[k, 0], a[k, 1] + fr * d[k, 1])
+    out = np.zeros(len(seg), dtype=bool)
+    k = np.flatnonzero(live)
+    if k.size:
+        lines = shapely.linestrings(seg[k])
+        rim = poly.boundary
+        shapely.prepare(rim)
+        touch = np.asarray(shapely.intersects(rim, lines), dtype=bool)
+        out[k[~touch]] = True
+        out[k[touch]] = shapely.covers(poly, lines[touch])
+    return out.tolist()
 
 
 def chord_midpoints_hit(poly, segments: _t.Sequence[tuple[XY, XY]]):
@@ -113,6 +152,51 @@ def chord_midpoints_hit(poly, segments: _t.Sequence[tuple[XY, XY]]):
     my = 0.5 * (seg[:, 0, 1] + seg[:, 1, 1])
     shapely.prepare(poly)
     return np.asarray(shapely.intersects_xy(poly, mx, my), dtype=bool)
+
+
+def rows_outside(cover, xy: _t.Sequence[XY], min_d: float,
+                 i0: int, i1: int) -> list[tuple[int, int]]:
+    """The index pairs ``(i, j)``, ``i0 <= i < i1`` and ``j >= i + 2``, of
+    the ring's non-adjacent chords at least ``min_d`` long that ``cover``
+    does NOT cover — in ``(i, j)`` order.  ONE ``covered_by`` over the
+    chunk's chords."""
+    n = len(xy)
+    ii: list[int] = []
+    jj: list[int] = []
+    for i in range(i0, i1):
+        xa, ya = xy[i]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            xb, yb = xy[j]
+            if exact.hypot(xa - xb, ya - yb) >= min_d:
+                ii.append(i)
+                jj.append(j)
+    if not ii:
+        return []
+    import numpy as np
+    pts = np.asarray(xy, float)
+    seg = np.stack([pts[ii], pts[jj]], axis=1)
+    # the SOUND pre-screen first (``chord_midpoints_hit``: a chord whose
+    # midpoint misses the cover is not covered); the full predicate judges
+    # the survivors alone
+    live = np.flatnonzero(chord_midpoints_hit(cover, seg))
+    inside = np.zeros(len(seg), dtype=bool)
+    inside[live] = chords_covered(cover, seg[live])
+    return [(i, j) for i, j, k in zip(ii, jj, inside.tolist(), strict=True) if not k]
+
+
+def chords_outside(xy: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
+                   tol_m: float, min_d: float) -> list[tuple[int, int]]:
+    """Every chord of one ring that leaves its face (RULINGS 2026-09-05ae
+    (1): an apron's; #2099 G4 C: a lot's) — the serial reading, the one
+    predicate the generators, the verify stage (``verify/chord_work``) and
+    the census ask; none for a degenerate face (``face_cover`` is
+    ``None``)."""
+    cover = face_cover(xy, holes, tol_m)
+    if cover is None:
+        return []
+    return rows_outside(cover, xy, min_d, 0, len(xy))
 
 
 # ── ring walks ───────────────────────────────────────────────────────────

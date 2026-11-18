@@ -20,6 +20,9 @@ reading of a retaining wall's two sides that every reader shares:
   (KATL ``muro_27R.obj``: the §47 extension and the corridor's slivers put
   a ``service_road`` face 2-10 m beyond the wall's back, answered by the
   foot road 13 m below);
+* :func:`split_at_walls` — a line split at the footprints, the runs inside
+  dropped (2120-WF3 W-B: a mapped way has no ground inside a retaining
+  piece; ``classify/wall_cutback`` and ``airport/road_profile`` share it);
 * :func:`crosses_wall` — a segment touches a footprint (a way never answers
   a vertex across the wall; two ways across it are never one carriageway);
 * :func:`smear_sampler` — the DEM read past the smear beside a wall: the
@@ -47,7 +50,7 @@ from shapely.ops import nearest_points, unary_union
 
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
-__all__ = ["WallSides", "wall_sides", "far_side_cut", "crosses_wall",
+__all__ = ["WallSides", "wall_sides", "far_side_cut", "split_at_walls", "crosses_wall",
            "smear_sampler", "band_setbacks"]
 
 
@@ -95,6 +98,10 @@ class WallSides:
     #: lower band: what ``planar/wall_slope`` grades to its top; ``None``
     #: for every other wall (the slope reads :attr:`upper`)
     retained: _t.Any = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallComponent.fill_drop_m``): its fill is carried by that face
+    #: (``constraints/wall_zone.fill_row``); ``None``: its fill at its top
+    fill_drop_m: float | None = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -205,6 +212,11 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
             top = top_of(w, g, uf) if top_of is not None else None
+            if top is None and getattr(w, "sunk_rule", ""):
+                # #2120 R2 (master ruling 7): a SUNK wall's top is its upper
+                # ground (its y_up stands on it, the parapet the author's):
+                # the wall slope and the fill grade to that level
+                top = _upper_ground_profile(dem, uf, smear)
             foot = foot_of(w, g, lf) if foot_of is not None else None
             raw = top
             if top is not None and not sheets:
@@ -226,7 +238,8 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                  None if core.is_empty else core,
                                  uf, top, lf, foot,
                                  str(getattr(w, "low_side_source", "") or ""),
-                                 None if kept is None or kept.is_empty else kept))
+                                 None if kept is None or kept.is_empty else kept,
+                                 getattr(w, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -323,6 +336,20 @@ def _foot_retaining(profile: tuple, face: LineString, upper_face: LineString,
     return tuple(out) if any(z is not None for _s, z in out) else None
 
 
+def _upper_ground_profile(dem, face: LineString, smear: float) -> tuple | None:
+    """``((s, z), ...)`` every 2 m along the upper ``face``: the DEM
+    ``smear`` out on its upper side (the hill past the lidar's smeared
+    step), ``None`` unread -- a SUNK wall's top as the solve holds it
+    (``airport/sunk_frame``: the object stage seats its ``y_up`` there)."""
+    stations = list(np.arange(0.0, face.length, 2.0)) + [face.length]
+    z = _ground_out(dem, face, stations, smear)
+    if z is None:
+        return None
+    out = tuple((float(s_), float(gz) if math.isfinite(gz) else None)
+                for s_, gz in zip(stations, z, strict=True))
+    return out if any(gz is not None for _s, gz in out) else None
+
+
 def _ground_out(dem, face: LineString, stations: _t.Sequence[float], out_m: float
                 ) -> list[float] | None:
     """The DEM ``out_m`` out on ``face``'s outer side (its right) at each
@@ -358,11 +385,34 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
             continue
         up = judge.intersection(w.upper).area if w.upper is not None else 0.0
         lo = judge.intersection(w.lower).area if w.lower is not None else 0.0
-        cut = [w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly]
+        foot = w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly
+        cut = [foot]
         if up > 0.0 or lo > 0.0:
             cut.append(w.upper if up < lo else w.lower)
-        geom = geom.difference(unary_union(cut))
+        geom = geom.difference(unary_union([g for g in cut if g is not None]))
     return geom
+
+
+#: a line part shorter than this left by a footprint is noise
+MIN_LINE_M = 1.0
+
+
+def split_at_walls(points: _t.Sequence, polys: _t.Sequence) -> "tuple[list, float] | None":
+    """THE ONE SPLIT of a line at retaining pieces (2120-WF3 W-B; 16d, 16n):
+    ``(parts, dropped m)`` -- the runs of the polyline ``points`` outside
+    every footprint of ``polys`` (each at least :data:`MIN_LINE_M` long, as
+    point tuples) and the length inside them; ``None`` where no footprint
+    reaches the line."""
+    from ..geom.parts import line_parts
+    ln = LineString(points)
+    hit = [g for g in polys if ln.intersects(g)]
+    if not hit:
+        return None
+    rest = ln
+    for g in hit:
+        rest = rest.difference(g)
+    return ([tuple(p.coords) for p in line_parts(rest) if p.length >= MIN_LINE_M],
+            ln.length - rest.length)
 
 
 def crosses_wall(a, b, walls: _t.Sequence[WallSides]) -> bool:
@@ -389,8 +439,10 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
     """``sample`` read past the smear (module doc): a point within a wall's
     ``smear`` of its footprint, in one of its side bands, reads also the
     ground ``smear`` out along its own perpendicular from the wall and
-    takes the lower of the two on the lower side, the higher on the upper.
-    ``sample`` itself where no wall stands."""
+    takes the lower of the two on the lower side, the higher on the upper;
+    a point ON a long face is that face's band's, read ``smear`` out along
+    the face's outward normal (2120-WF3 W-B: a way split at a piece ends on
+    its face).  ``sample`` itself where no wall stands."""
     if not walls:
         return sample
     boxes = np.array([w.poly.buffer(w.smear).bounds for w in walls], float)
@@ -405,12 +457,16 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
             fix, at = [], []
             for i in idx:
                 p = Point(float(xs[i]), float(ys[i]))
-                side = w.side_of((p.x, p.y))
-                if side is None:
-                    continue
                 q = nearest_points(w.poly, p)[0]
                 d = math.hypot(p.x - q.x, p.y - q.y)
-                if d <= 1e-6 or d >= w.smear:
+                if d <= 1e-6:
+                    got = _on_face(w, p)
+                    if got is not None:
+                        fix.append((int(i), got[0]))
+                        at.append(got[1])
+                    continue
+                side = w.side_of((p.x, p.y))
+                if side is None or d >= w.smear:
                     continue
                 f = w.smear / d
                 fix.append((int(i), side))
@@ -426,16 +482,51 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
     return _sample
 
 
+def _on_face(w: WallSides, p: Point) -> "tuple[str, tuple] | None":
+    """``(side, the point smear out)`` for ``p`` ON one of ``w``'s long faces
+    (within 1e-6 m): out along that face's outward normal (its right; the
+    footprint lies on its left); ``None`` off both faces (inside the
+    footprint, or on an end edge)."""
+    for side, face in (("upper", w.upper_face), ("lower", w.lower_face)):
+        if face is None or face.length <= 0.0 or face.distance(p) > 1e-6:
+            continue
+        s = face.project(p)
+        a = face.interpolate(max(0.0, s - 0.5))
+        b = face.interpolate(min(face.length, s + 0.5))
+        tx, ty = b.x - a.x, b.y - a.y
+        n = math.hypot(tx, ty)
+        if n <= 1e-9:
+            return None
+        return side, (p.x + ty / n * w.smear, p.y - tx / n * w.smear)
+    return None
+
+
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:
     """THE BAND STOPS SHORT OF THE WALL (#1633 round 3, spec §3 (2)):
-    ``(cut, footprint, near_m)`` per wall — a graded band (runway zones,
-    the end box, a taxi zone) whose pavement stands farther than ``near_m``
-    (``BEHIND_SHARE x reach``) from the footprint loses ``cut``, the
-    footprint and its upper band (``smear`` wide): the hill between the
+    ``(cut, footprint, near_m, beyond)`` per wall — a graded band (runway
+    zones, the end box, a taxi zone) whose pavement stands farther than
+    ``near_m`` (``BEHIND_SHARE x reach``) from the footprint loses ``cut``,
+    the footprint and its upper band (``smear`` wide): the hill between the
     band's new edge and the wall's back is the wall slope
     (``planar/wall_slope``, #1661) and grades to the wall's top.  A wall
     AT the pavement edge keeps #1139's plane (``constraints/wall_zone.
-    split``)."""
+    split``) on its upper side -- and THE BAND ENDS AT THE WALL (owner
+    RULINGS 2026-11-16n (2), #1934 R4: no pavement or adjacent ground of the
+    high side crosses a retaining wall): ``beyond`` is the footprint and
+    the strip :func:`_beyond_wall` across it, which a band whose pavement
+    lies on the upper side loses (``None`` without a lower face)."""
     return tuple((unary_union([w.poly, w.upper]), w.poly,
-                  BEHIND_SHARE * wall_reach_m(w.height_m)) for w in walls
+                  BEHIND_SHARE * wall_reach_m(w.height_m), _beyond_wall(w)) for w in walls
                  if w.upper is not None and not w.upper.is_empty)
+
+
+def _beyond_wall(w: WallSides):
+    """The wall's footprint and the ground across it from its upper side:
+    ``wall_reach_m`` out of its LOWER face (outward on that face's right),
+    flat at the wall's ends; ``None`` when the lower face is not read."""
+    face = w.lower_face
+    if face is None or face.is_empty or face.length <= 0.0:
+        return None
+    strip = face.buffer(-wall_reach_m(w.height_m), single_sided=True, cap_style="flat",
+                        join_style="mitre", mitre_limit=2.0)
+    return unary_union([w.poly, strip]).buffer(0)

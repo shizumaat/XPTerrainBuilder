@@ -59,7 +59,8 @@ from ..model.constraints import Linear
 from ..model.wall_reach import BEHIND_SHARE, FILL_SLOT_M, wall_reach_m, wall_smear_m
 
 __all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
-           "face_top", "face_foot", "fill_top", "BEHIND_SHARE", "TOP_FACE_M"]
+           "face_top", "face_foot", "fill_top", "fill_wall", "face_vertices", "fill_row",
+           "BEHIND_SHARE", "TOP_FACE_M"]
 
 #: how near the upper face a vertex stands ON it: the identity grid's snap
 #: (a ring vertex of the wall slope lies on the footprint, snapped)
@@ -99,6 +100,11 @@ class RetainingLine(_t.NamedTuple):
     #: seats it at (``None`` for every other wall)
     placement: str = ""
     reseat_z: float | None = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``airport/wall_sides.WallSides.fill_drop_m``): its fill is carried
+    #: by that face (:func:`fill_row`); ``None``: its fill at its top
+    #: (:func:`fill_top`)
+    fill_drop_m: float | None = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -126,7 +132,9 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
                                  _band(r.get("lower_band")),
                                  str(r.get("placement") or ""),
                                  None if r.get("reseat_z") is None
-                                 else float(r["reseat_z"])))
+                                 else float(r["reseat_z"]),
+                                 None if r.get("fill_drop_m") is None
+                                 else float(r["fill_drop_m"])))
     return out
 
 
@@ -343,21 +351,26 @@ def face_foot(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> flo
     return None
 
 
+def _in_fill(w: RetainingLine, p) -> bool:
+    """``p`` stands IN ``w``'s footprint, more than :data:`TOP_FACE_M` off
+    the upper face (:func:`face_top` reads it there) and at least half of
+    :data:`~..model.wall_reach.FILL_SLOT_M` off the lower face (the slot's
+    edge, its fill's)."""
+    return bool(w.top_profile) and w.upper_face is not None and w.lower_face is not None \
+        and w.poly.distance(p) <= 0.25 * FILL_SLOT_M and w.upper_face.distance(p) > TOP_FACE_M \
+        and w.lower_face.distance(p) >= 0.5 * FILL_SLOT_M
+
+
 def fill_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> float | None:
-    """The wall's top at ``xy`` where it stands IN a wall's footprint, more
-    than :data:`TOP_FACE_M` off the upper face (:func:`face_top` reads it
-    there) and at least half of :data:`~..model.wall_reach.FILL_SLOT_M`
-    off the lower face (the slot's edge, its fill's): the top interpolated
-    along the stations that retain a hill (a lid over a stretch that
-    retains none); ``None`` elsewhere."""
+    """The wall's top at ``xy`` where it stands IN a wall's fill
+    (:func:`_in_fill`): the top interpolated along the stations that retain
+    a hill (a lid over a stretch that retains none); ``None`` elsewhere,
+    and in a fill its upper face carries (:func:`fill_wall`)."""
     import numpy as np
     from shapely.geometry import Point
     p = Point(xy)
     for w in lines:
-        if not w.top_profile or w.upper_face is None or w.lower_face is None:
-            continue
-        if w.poly.distance(p) > 0.25 * FILL_SLOT_M or w.upper_face.distance(p) <= TOP_FACE_M \
-                or w.lower_face.distance(p) < 0.5 * FILL_SLOT_M:
+        if w.fill_drop_m is not None or not _in_fill(w, p):
             continue
         st = [t for t in w.top_profile if t[1] is not None]
         if not st:
@@ -365,6 +378,58 @@ def fill_top(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]) -> floa
         a = np.asarray(st, float)
         return float(np.interp(w.upper_face.project(p), a[:, 0], a[:, 1]))
     return None
+
+
+def fill_wall(lines: _t.Sequence[RetainingLine], xy: tuple[float, float]
+              ) -> RetainingLine | None:
+    """2120-W3 F1: the retaining block (``fill_drop_m`` read) whose fill
+    holds ``xy`` (:func:`_in_fill`), or ``None``."""
+    from shapely.geometry import Point
+    p = Point(xy)
+    return next((w for w in lines if w.fill_drop_m is not None and _in_fill(w, p)), None)
+
+
+def face_vertices(w: RetainingLine, xy: _t.Mapping[int, tuple[float, float]]
+                  ) -> list[tuple[float, int]]:
+    """``[(station, vertex), ...]`` in station order: every vertex of
+    ``xy`` standing ON ``w``'s upper face (:func:`face_top`'s test)."""
+    import numpy as np
+    import shapely
+    if w.upper_face is None or not xy:
+        return []
+    vs = list(xy)
+    pts = shapely.points(np.asarray([xy[v] for v in vs], float))
+    d = shapely.distance(w.upper_face, pts)
+    near = np.flatnonzero(d <= TOP_FACE_M)
+    if not len(near):
+        return []
+    ring = shapely.distance(w.poly.exterior, pts[near])
+    keep = near[d[near] <= ring + 1e-6]
+    s_ = shapely.line_locate_point(w.upper_face, pts[keep])
+    return sorted((float(a), vs[int(k)]) for a, k in zip(s_, keep, strict=True))
+
+
+def fill_row(w: RetainingLine, v: int, xy: tuple[float, float],
+             face: _t.Sequence[tuple[float, int]], source) -> Linear | None:
+    """2120-W3 F1, THE FILL IS CARRIED BY ITS UPPER FACE: ``z_v = z_face -
+    fill_drop_m``, ``z_face`` interpolated between the two upper-face
+    vertices (``face``, :func:`face_vertices`) bracketing ``v``'s station
+    (the nearer one alone past either end) -- one plane row, the row type
+    :func:`flat` builds; ``None`` without a face vertex."""
+    if not face:
+        return None
+    from shapely.geometry import Point
+    s_ = w.upper_face.project(Point(xy))
+    lo = [(a, u) for a, u in face if a <= s_]
+    hi = [(a, u) for a, u in face if a >= s_]
+    if lo and hi and hi[0][0] - lo[-1][0] > 1e-9 and lo[-1][1] != hi[0][1]:
+        (a, ua), (b, ub) = lo[-1], hi[0]
+        t = (s_ - a) / (b - a)
+        terms = ((v, 1.0), (ua, -(1.0 - t)), (ub, -t))
+    else:
+        terms = ((v, 1.0), ((lo[-1] if lo else hi[0])[1], -1.0))
+    drop = -float(w.fill_drop_m)
+    return Linear(terms, drop, drop, source, follows=v)
 
 
 def flat(r: Linear) -> Linear:

@@ -93,6 +93,12 @@ class ObjGeometry:
     #: authored file; the sim never shows it there).  Empty = none known
     #: (a geometry built by hand reads as all static).
     animated: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, dtype=bool))
+    #: per solid triangle, whether it was drawn under ``ATTR_layer_group
+    #: terrain`` at a NEGATIVE offset -- before the terrain mesh, so the
+    #: mesh draws over it (a pack's depth-punch trick: a near-invisible quad
+    #: there writes depth over the ground and the mesh drops out over a pit
+    #: drawn under it).  Empty = none known.
+    under_terrain: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, dtype=bool))
 
     def tri_animated(self, idx: np.ndarray) -> bool:
         """Whether ANY of the solid triangles ``idx`` is animated."""
@@ -171,8 +177,9 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
     idx_lines = [ln.split(None, 1)[1] for ln in lines
                  if ln.startswith(b"IDX") and len(ln.split(None, 1)) == 2]
     idx = _ints(idx_lines) if idx_lines else np.zeros(0, dtype=np.int64)
-    ranges: list[tuple[int, int, bool, int, bool]] = []
+    ranges: list[tuple[int, int, bool, int, bool, bool]] = []
     draped = False
+    under = False                  # ATTR_layer_group terrain <negative>
     hard = 0
     anim = 0                       # ANIM_begin nesting depth
     stack = None
@@ -191,7 +198,7 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
         if kw == b"TRIS" and len(toks) >= 3:
             try:
                 ranges.append((int(toks[1]), int(toks[2]), draped, hard,
-                               anim > 0 if stack is None else stack.moving))
+                               anim > 0 if stack is None else stack.moving, under))
             except ValueError:
                 continue
             if stack is not None:
@@ -206,6 +213,11 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
                 stack.feed(toks)
         elif stack is not None and kw.startswith(b"ANIM_"):
             stack.feed(toks)
+        elif kw == b"ATTR_layer_group" and len(toks) >= 2:
+            try:
+                under = toks[1].lower() == b"terrain" and len(toks) >= 3 and int(toks[2]) < 0
+            except ValueError:
+                under = False
         elif kw == b"ATTR_draped":
             draped = True
         elif kw == b"ATTR_no_draped":
@@ -221,9 +233,10 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
     solid_parts: list[np.ndarray] = []
     hard_parts: list[np.ndarray] = []
     anim_parts: list[np.ndarray] = []
+    under_parts: list[np.ndarray] = []
     draped_parts: list[np.ndarray] = []
     moved: list[np.ndarray] = []
-    for k, (off, cnt, is_draped, h, is_anim) in enumerate(ranges):
+    for k, (off, cnt, is_draped, h, is_anim, is_under) in enumerate(ranges):
         lo, hi = max(0, off), min(off + cnt, n)
         hi -= (hi - lo) % 3
         if hi <= lo:
@@ -240,13 +253,15 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
             solid_parts.append(tri)
             hard_parts.append(np.full(tri.shape[0], h, dtype=np.int8))
             anim_parts.append(np.full(tri.shape[0], is_anim, dtype=bool))
+            under_parts.append(np.full(tri.shape[0], is_under, dtype=bool))
     solid = np.concatenate(solid_parts) if solid_parts else np.zeros((0, 3), dtype=np.int64)
     hardness = np.concatenate(hard_parts) if hard_parts else np.zeros(0, dtype=np.int8)
     animated = np.concatenate(anim_parts) if anim_parts else np.zeros(0, dtype=bool)
     drp = np.concatenate(draped_parts) if draped_parts else np.zeros((0, 3), dtype=np.int64)
     if moved:
         verts = np.concatenate([verts] + moved)
-    return ObjGeometry(path, verts, solid, hardness, drp, animated)
+    under_t = np.concatenate(under_parts) if under_parts else np.zeros(0, dtype=bool)
+    return ObjGeometry(path, verts, solid, hardness, drp, animated, under_t)
 
 
 def _posed(verts: np.ndarray, tri: np.ndarray, pose, moved: list, nv: int):
@@ -869,6 +884,11 @@ class PlacedObject:
     #: an origin set built around its origin (geometry below it, or a
     #: member that cannot be read) — kept on-ground whole, never split.
     origin_built: bool = False
+    #: spec 2120-F R1 (owner RULINGS 2026-11-16x): this placement's frame
+    #: stands its AIRSIDE FLOOR a storey over its authored zero, over a
+    #: lower floor (``airport/airside_floor``): ``zero_y`` is that floor
+    #: and ``planar/low_level`` seeds the frame's lower pad from the flag.
+    floor_zero: bool = False
     #: owner RULINGS 2026-10-20aq (#1169): a TERRAIN FEATURE's origin set
     #: (``terrain_feature``) — kept as authored and never read: no
     #: witness, no feet, nothing the patch grades to.
@@ -908,6 +928,9 @@ class ObjReport:
     below_grade_objects: int = 0
     hard_deck_objects: int = 0
     msl_notes: int = 0
+    #: spec 2120-F R1: one line per frame re-zeroed at its airside floor
+    #: (``airside_floor._FloorFrame.note``)
+    floor_frames: list[str] = _dc.field(default_factory=list)
     no_dem_at_anchor: int = 0
     buried_components: int = 0
     #: EVERY BURIED COMPONENT NAMED (spec §24 (7) (a)): one line per
@@ -1367,7 +1390,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         dem_many: "_t.Callable | None" = None,
                         fine: "_t.Callable | None" = None,
                         water: "_t.Callable | None" = None,
-                        hidden: _t.AbstractSet[str] = frozenset()
+                        hidden: _t.AbstractSet[str] = frozenset(),
+                        airside: "_t.Any | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1455,6 +1479,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     riders = frozenset(_tm.set_members(placements, gone)) - frozenset(gone)
     models.update(gone)
     features = features | frozenset(models)
+    # spec 2120-F R1: a frame standing its airside floor a storey over its
+    # zero is read at that floor (``airside_floor``; ``airside`` its witness)
+    from . import airside_floor as _af
+    floor, frames = _af.floor_lifts(placements, path_of, cache, airside,
+                                    features | frozenset(shaped) | frozenset(shells)
+                                    | riders, hidden)
+    msl_lift.update(floor)
+    rep.floor_frames.extend(f.note() for f in frames)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1529,20 +1561,24 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
-    return [_gs.off_the_shell(_msl_frame(o, msl_lift)) if o.id in riders
-            else _msl_frame(o, msl_lift) for o in out], rep
+    return [_gs.off_the_shell(_msl_frame(o, msl_lift, floor)) if o.id in riders
+            else _msl_frame(o, msl_lift, floor) for o in out], rep
 
 
-def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"]) -> PlacedObject:
-    """The one site ``zero_y`` / ``origin_built`` are set (#1102): the
-    zero sits at the member's lowest static y when that is above its
-    origin; a guarded set is ``origin_built``."""
+def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"],
+               floor: _t.Collection[str] = ()) -> PlacedObject:
+    """The one site ``zero_y`` / ``origin_built`` / ``floor_zero`` are set
+    (#1102): the zero sits at the member's lowest static y when that is
+    above its origin; a guarded set is ``origin_built``; a frame read at
+    its airside floor (``floor``, spec 2120-F R1) is ``floor_zero``."""
     if o.id not in lifts:
         return o
     lift = lifts[o.id]
     if lift is None:
         return _dc.replace(o, origin_built=True)
-    return _dc.replace(o, zero_y=max(0.0, -float(lift))) if lift < 0.0 else o
+    if lift >= 0.0:
+        return o
+    return _dc.replace(o, zero_y=max(0.0, -float(lift)), floor_zero=o.id in floor)
 
 
 def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float:

@@ -123,21 +123,8 @@ CUSTOM_AIRPORT_COLOR = QColor(199, 64, 120)
 DIM_ALPHA = 90
 REGION_OUTLINE_COLOR = QColor(158, 158, 158, 217)
 
-# Canonical tile key ("+48-006"): the spelling built-tile folders and the
-# console already use.  One spelling, one parser (``FNAMES.parse_tile_key``)
-# — the persisted selection is written in it and nothing else.
-
-
 def livemap_cache_dir():
     return os.path.join(FNAMES.Preview_dir, "livemap")
-
-
-def tile_key(lat, lon):
-    """The tile's canonical key — FNAMES.short_latlon, no second format."""
-    return FNAMES.short_latlon(lat, lon)
-
-
-parse_tile_key = FNAMES.parse_tile_key
 
 
 # Mixed-imagery-source audit (docs/specs/qt-backlog-parity2-spec.md §QB3).
@@ -1557,7 +1544,7 @@ class MapView(QGraphicsView):
         QTLABELS.paint_tile_labels(
             painter, self._viewport_point,
             LABELS.scale_for_slippy_zoom(self._zoom), self.visible_bounds(),
-            tile_key,
+            FNAMES.short_latlon,
             self._shown_built(),
             self._ortho_tiles
             if MAPFILTER.shows_other_ortho(self._filter_hidden) else None,

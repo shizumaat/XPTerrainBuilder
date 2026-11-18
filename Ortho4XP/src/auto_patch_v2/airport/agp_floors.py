@@ -20,6 +20,10 @@ added (a temp file and ``os.replace``); a miss, a refused write, an
 unreadable cache or no mod cache just computes.  The cache is a pure
 function of the piece files it names, so it never needs the stage's file
 witness: a moved file is a miss by its own stamp.
+
+THE FEET (#2116 R2 C1b, :func:`feet_of`).  The same parse keeps each
+piece's FEET: the bottom edge of every near-vertical solid face — where its
+walls and slab edges stand — as ``(k, 2, 3)`` segments.
 """
 from __future__ import annotations
 
@@ -30,10 +34,16 @@ import threading
 
 import numpy as np
 
-__all__ = ["VERSION", "CACHE_NAME", "floors_of", "flush"]
+__all__ = ["VERSION", "CACHE_NAME", "floors_of", "feet_of", "flush"]
 
-#: the reader's version: a change to :func:`_parse_floors` bumps it
-VERSION = 1
+#: the reader's version: a change to :func:`_parse` bumps it
+VERSION = 2
+#: a wall face's edge within this of the face's lowest corner is its foot (m)
+FOOT_SPAN_M = 0.05
+#: a solid face whose normal's vertical share is at most this is a wall
+_WALL_NY = 0.2
+#: the feet's plan cell (m)
+FOOT_CELL_M = 1.0
 #: the per-pack cache file (``tools/harness/shared_repo_guard``'s families)
 CACHE_NAME = "o4_agp_floors.cache"
 
@@ -42,10 +52,47 @@ _LOCK = threading.Lock()
 _OPEN: dict[str, dict] = {}
 
 
-def _parse_floors(path: str, flat: float) -> np.ndarray:
-    """``(k, 3, 3)`` float32 — every up-facing static floor triangle of
-    the OBJ8 at ``path`` as its three ``(x, y, z)`` corners (authored
-    frame); empty when the file does not parse."""
+def _feet(g) -> np.ndarray:
+    """``(k, 1, 3)`` float32 — the piece's FEET (module doc): along the
+    bottom edge of every near-vertical solid face (its edges within
+    :data:`FOOT_SPAN_M` of the face's lowest corner), samples every
+    ``FOOT_CELL_M / 2``, kept per ``FOOT_CELL_M`` plan cell at the cell's
+    LOWEST sample.  A reader keeps the ones at its own datum."""
+    if g is None or not g.solid.shape[0]:
+        return np.zeros((0, 1, 3), np.float32)
+    v, t = g.vertices, g.solid
+    a, b, c = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
+    n = np.cross(b - a, c - a)
+    norm = np.linalg.norm(n, axis=1)
+    t = t[(norm > 1e-9) & (np.abs(n[:, 1]) <= _WALL_NY * norm)]
+    if not t.shape[0]:
+        return np.zeros((0, 1, 3), np.float32)
+    low = v[t, 1].min(axis=1) + FOOT_SPAN_M
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    lo3 = np.concatenate([low, low, low])
+    e = e[(v[e[:, 0], 1] <= lo3) & (v[e[:, 1], 1] <= lo3) & (e[:, 0] != e[:, 1])]
+    if not e.shape[0]:
+        return np.zeros((0, 1, 3), np.float32)
+    e = np.unique(np.sort(e, axis=1), axis=0)
+    p0, p1 = v[e[:, 0]].astype(np.float64), v[e[:, 1]].astype(np.float64)
+    k = np.maximum(1, np.ceil(np.hypot(*(p1 - p0)[:, [0, 2]].T) / (0.5 * FOOT_CELL_M))).astype(int)
+    seg = np.repeat(np.arange(len(e)), k + 1)
+    start = np.repeat(np.cumsum(k + 1) - (k + 1), k + 1)
+    f = (np.arange(len(seg)) - start) / k[seg]
+    pts = p0[seg] + (p1 - p0)[seg] * f[:, None]
+    cell = np.floor(pts[:, [0, 2]] / FOOT_CELL_M).astype(np.int64)
+    order = np.lexsort((pts[:, 1], cell[:, 1], cell[:, 0]))
+    cell, pts = cell[order], pts[order]
+    first = np.ones(len(cell), bool)
+    first[1:] = np.any(cell[1:] != cell[:-1], axis=1)
+    return pts[first][:, None, :].astype(np.float32)
+
+
+def _parse(path: str, flat: float) -> tuple[np.ndarray, np.ndarray]:
+    """``(floors, feet)`` of the OBJ8 at ``path`` (one parse): ``floors``
+    ``(k, 3, 3)`` float32, every up-facing static floor triangle as its three
+    ``(x, y, z)`` corners (authored frame), and its feet (:func:`_feet`);
+    empty when the file does not parse."""
     from . import obj8 as _obj8
     try:
         g = _obj8.parse_obj8(path, at_rest=True)
@@ -62,7 +109,7 @@ def _parse_floors(path: str, flat: float) -> np.ndarray:
             up &= ~g.animated          # a moving floor (a jetway) joins nothing
         if up.any():
             out = np.stack([a[up], b[up], c[up]], axis=1).astype(np.float32)
-    return out
+    return out, _feet(g)
 
 
 _ROOTS: dict[str, "str | None"] = {}
@@ -132,8 +179,19 @@ def _stamp(path: str) -> tuple[int, float] | None:
 
 
 def floors_of(path: str, flat: float, mod_cache_root: str | None = None) -> np.ndarray:
-    """:func:`_parse_floors` of the PRISTINE file of ``path``, through the
+    """The floors (:func:`_parse`) of the PRISTINE file of ``path``, through the
     pack's floor cache (module doc)."""
+    return _record(path, flat, mod_cache_root)["floors"]
+
+
+def feet_of(path: str, flat: float, mod_cache_root: str | None = None) -> np.ndarray:
+    """The FEET of the PRISTINE file of ``path`` (module doc), through the
+    same cache record as its floors."""
+    return _record(path, flat, mod_cache_root)["feet"]
+
+
+def _record(path: str, flat: float, mod_cache_root: str | None = None) -> dict:
+    """The piece's cache record ``{"floors", "feet", ...}`` (module doc)."""
     from .file_hash import sha256_file_or_none
     from .pack import authored_source
     root = _pack_root_of(path)
@@ -141,28 +199,30 @@ def floors_of(path: str, flat: float, mod_cache_root: str | None = None) -> np.n
     cpath = _cache_path_for(root, mod_cache_root) if root else None
     st = _stamp(src)
     if cpath is None or st is None:
-        return _parse_floors(src, flat)
+        floors, feet = _parse(src, flat)
+        return {"floors": floors, "feet": feet}
     rel = os.path.relpath(path, root)
     with _LOCK:
         rec = _load(cpath)
         got = rec["pieces"].get(rel)
         if got is not None and got["flat"] == float(flat) and got["size"] == st[0]:
             if got["mtime"] == st[1]:
-                return got["floors"]
+                return got
             if got["sha256"] is not None and sha256_file_or_none(src) == got["sha256"]:
                 got["mtime"] = st[1]
                 rec["dirty"] = True
-                return got["floors"]
-    out = _parse_floors(src, flat)
+                return got
+    out, feet = _parse(src, flat)
     box = (tuple(float(v) for v in out[:, :, [0, 2]].reshape(-1, 2).min(axis=0))
            + tuple(float(v) for v in out[:, :, [0, 2]].reshape(-1, 2).max(axis=0))
            if out.shape[0] else None)
     with _LOCK:
         rec = _load(cpath)
-        rec["pieces"][rel] = {"size": st[0], "mtime": st[1], "flat": float(flat),
-                              "sha256": sha256_file_or_none(src), "floors": out, "box": box}
+        got = {"size": st[0], "mtime": st[1], "flat": float(flat),
+               "sha256": sha256_file_or_none(src), "floors": out, "box": box, "feet": feet}
+        rec["pieces"][rel] = got
         rec["dirty"] = True
-    return out
+    return got
 
 
 def flush() -> int:

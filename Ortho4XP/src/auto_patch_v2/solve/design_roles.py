@@ -20,7 +20,7 @@ from ..law.tables import (airside_stage_roles as _airside_stage_roles,
                           role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'runway_led_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'yielded_preference_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'runway_led_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'yielded_preference_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'HeadTest', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -212,6 +212,21 @@ def ruling_head(row: Row) -> str:
     parenthesis, the key ``[design] hard_rulings`` / ``one_way_rulings``
     name a law by."""
     return _head_of(row.source.ruling)
+
+
+class HeadTest(dict):
+    """``ruling string -> whether its head is one of heads``, learnt on first
+    sight: ``test[row.source.ruling]`` is :func:`ruling_head` ``in heads``
+    at the price of one dict read — the form a loop over every one-sided
+    side wants (#1951: 18 M sides per KMCI stage solve)."""
+
+    def __init__(self, heads: _t.AbstractSet[str]) -> None:
+        super().__init__()
+        self.heads = heads
+
+    def __missing__(self, ruling: str) -> bool:
+        got = self[ruling] = _head_of(ruling) in self.heads
+        return got
 
 
 def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:

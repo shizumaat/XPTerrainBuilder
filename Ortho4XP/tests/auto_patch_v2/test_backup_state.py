@@ -769,7 +769,7 @@ def test_the_disabled_pack_gate_sits_before_the_placement_call(tmp_path):
 
     from auto_patch import object_stage
 
-    src = inspect.getsource(object_stage.rebake_after_mesh)
+    src = inspect.getsource(object_stage._object_stage)  # #2129: its body
     gate = src.index("pack_enabled(plan_.pack_root)")
     place = src.index("return _place_objects(")
     assert gate < place, "the disabled-pack gate must precede the write path"

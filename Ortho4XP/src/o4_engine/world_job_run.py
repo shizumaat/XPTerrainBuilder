@@ -46,10 +46,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional, Tuple
 
+import O4_UI_Utils as UI
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
 from . import world_drape_process as DRAPE_PROCESS
+from . import world_spawn_recent as RECENT
 from .build_share import SHARE, BuildShare
 from .events import TileState
 from .fly_here import describe as describe_here
@@ -182,23 +184,24 @@ class _SessionBuilder:
             self._done.append((tile, ok))
 
     def start(self, tile, kind: str, deadline_in_s: float, klass: str,
-              core=None) -> bool:
+              core=None, px=None) -> bool:
         """``core`` ``(lat, lon)``: a drape whose core around that point is
-        fetched at full resolution (a parked aircraft, ``WorldJob``)."""
+        fetched at full resolution (a parked aircraft, ``WorldJob``);
+        ``px``: the drape's photo width (None: the user's)."""
         tile = (int(tile[0]), int(tile[1]))
         if self.share is not None:
             verdict = self.share.take(self.owner, tile, kind)
             if verdict != "start":
                 return verdict == "adopted"
-        started = self._start(tile, kind, deadline_in_s, klass, core)
+        started = self._start(tile, kind, deadline_in_s, klass, core, px)
         if not started and self.share is not None:
             self.share.drop(self.owner, tile)
         return started
 
     def _start(self, tile, kind: str, deadline_in_s: float, klass: str,
-               core=None) -> bool:
+               core=None, px=None) -> bool:
         if kind == "drape":
-            return self._start_drape(tile, core)
+            return self._start_drape(tile, core, px)
         _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
@@ -226,18 +229,21 @@ class _SessionBuilder:
             emit(TileState(lat=tile[0], lon=tile[1], state="queued",
                            label="queued"))
 
-    def _start_drape(self, tile, core=None) -> bool:
+    def _start_drape(self, tile, core=None, px=None) -> bool:
         if self.drape is None:
             return False
         if self._pool is None:
             # as many at once as the job's slots dispatch (it was one: a
             # 3-slot flight ran its drapes one after another)
-            self._pool = ThreadPoolExecutor(thread_name_prefix="o4-drape")
+            self._pool = ThreadPoolExecutor(
+                thread_name_prefix="o4-drape", initializer=UI.set_thread_job,
+                initargs=(WORLD.JOB_NAME,))           # #2148: not a tile's lines
 
         def work() -> None:
             try:
-                ok = bool(self.drape(tile) if core is None
-                          else self.drape(tile, core))
+                extra = {} if px is None else {"px": px}
+                ok = bool(self.drape(tile, **extra) if core is None
+                          else self.drape(tile, core, **extra))
             except Exception as error:      # logged; the job retries once
                 WORLD.write_log({"drape_error": repr(error)[:300],
                                  "tile": WP.tile_name(*tile)})
@@ -284,6 +290,9 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     lat, lon = tile
     px = int(px or drape_px())
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
+    staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
+    if core is None and _recalled(tile, staged, engine):
+        return True
     fetched = DRAPE_PROCESS.run(
         engine=engine, lat=int(lat), lon=int(lon),
         parent=FNAMES.data_path("World_build"), zoomlevel=int(zoomlevel),
@@ -292,7 +301,6 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
         water_wait_s=WATER_WAIT_S, route=_route_dict(),
         core=None if core is None else (float(core[0]), float(core[1]),
                                         CORE_FULL_S))
-    staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
         shutil.rmtree(staged)
     tool = WP.dsftool_path(engine)
@@ -307,6 +315,32 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     with contextlib.suppress(OSError):
         shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+
+
+def _recalled(tile, staged: str, engine: str) -> bool:
+    """A drape the disk budget offloaded to a tier is laid back as the
+    staged tile instead of fetched again (#2142 Q3,
+    ``world_drape_evict.recall``); True when it verifies."""
+    import shutil
+
+    import O4_World_Drape as DRAPE
+
+    from . import world_drape_evict as EVICT
+    if os.path.exists(staged):
+        shutil.rmtree(staged)
+    try:
+        if not EVICT.recall(tuple(tile), staged):
+            return False
+        ok = not DRAPE.verify_drape(staged, *tile,
+                                    WP.dsftool_path(engine))["problems"]
+    except Exception as error:              # logged; fetched as any drape
+        WORLD.write_log({"drape_recall_error": repr(error)[:300],
+                         "tile": WP.tile_name(*tile)})
+        ok = False
+    WORLD.write_log({"drape_recalled": WP.tile_name(*tile), "ok": ok})
+    if not ok:
+        shutil.rmtree(staged, ignore_errors=True)
+    return ok
 
 
 def _route_dict() -> Optional[dict]:
@@ -333,12 +367,15 @@ def _record_drape(staged: str, provider: str, zoomlevel: int,
 
 def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:
     """A held tile merged in (S5: every old name kept), the staging
-    folder gone, and the user offered the reload that shows it."""
+    folder gone.  The reload that shows it is offered once for the
+    episode by the job (``WorldJob.offer``, #2142), not per merge."""
     import shutil
-
-    from . import reload_offer as RELOAD
     WP.swap_in(pack, staged, lat, lon, merge=True)
     shutil.rmtree(staged, ignore_errors=True)
+
+
+def _offer_reload() -> None:
+    from . import reload_offer as RELOAD
     RELOAD.offer("tiles")
 
 
@@ -466,9 +503,8 @@ class _Runner:
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile, core=None: (
-                drape_tile(tile, *photo_source(tile)) if core is None
-                else drape_tile(tile, *photo_source(tile), core=core)),
+            drape=lambda tile, core=None, px=None: drape_tile(
+                tile, *photo_source(tile), core=core, px=px),
             share=SHARE, owner="track", source=photo_source)
         wanted = _Wanted(scenery_dir)
 
@@ -482,15 +518,16 @@ class _Runner:
             slot_free=lambda slots, running: SHARE.free_for(
                 "track", slots, running),
             kind_of=kind_of,
-            kind="drape",
+            kind="drape", drape_px=drape_px(), offer=_offer_reload,
             estimate_s=drape_estimate(drape_px()),
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,
             fly_slots=int(values.get("fly_build_slots") or 0),
             sim_priority=values.get("fly_sim_priority") or "balanced",
             loads=_Loads(scenery_dir), stamp=_utc)
         self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self.run, daemon=True,
-                                       name="o4-world-job")
+        self.thread = threading.Thread(
+            target=lambda: (UI.set_thread_job(WORLD.JOB_NAME), self.run()),
+            daemon=True, name="o4-world-job")
 
     def run(self) -> None:
         status_at, resets = -1e18, self.feed.resets
@@ -502,6 +539,8 @@ class _Runner:
                     resets = self.feed.resets
                     self.job.forget_window()
                 self.job.tick(now, rec)
+                if self.job.on_ground and self.job.position is not None:
+                    RECENT.note(*self.job.position)     # owner 11-17 (a)
             except Exception as error:      # logged; the job goes on
                 WORLD.write_log({"world_job_error": repr(error)[:300]})
             if now - status_at >= STATUS_EVERY_S:
@@ -592,6 +631,11 @@ def autostart(session, port=None, **_ignored) -> Optional[dict]:
         reply = world_job_start(session, port=port, if_enabled=True)
     except Exception as error:              # logged; the follow job starts
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})
+    from . import world_yield as YIELD
+    YIELD.watch(session)                    # its builds pause the backfill
+    if (reply or {}).get("status") in ("started", "running"):
+        from . import world_spawn_window as SPAWN
+        SPAWN.backfill(WORLD.scenery_dir_or_default())  # #2142 Q4
     try:
         from . import flight_record as RECORD
         orphans = RECORD.close_orphans(RECORD.flights_dir())

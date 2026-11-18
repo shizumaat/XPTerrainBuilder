@@ -77,12 +77,17 @@ class _Lower(_t.NamedTuple):
 
 
 def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, law,
-                  grid: float, counts: dict, beyond: _t.Sequence = ()) -> list:
+                  grid: float, counts: dict, beyond: _t.Sequence = (),
+                  frames: _t.Sequence[dict] = ()) -> list:
     """``regs`` (the pad regions, levels minted) with every lower level's
     extension over its group's lower footprint minted beside it (module
     docstring); each piece registered in ``reg.landings``.  ``beyond``: the
     pavement no aircraft reaches once the pads stand -- a piece of it the
-    lower footprint meets is the footprint too (19ag, #1302)."""
+    lower footprint meets is the footprint too (19ag, #1302).  ``frames``:
+    the SEEDS of the frames read at their airside floor (``low_level.
+    _frame_seeds``, spec 2120-F R3) -- hosts of no region of their own, read
+    by their block's polygon; the frame's conforming pads standing in its
+    closed lower footprint are ABSORBED into it (:func:`_absorb`)."""
     from ..model.stage_one import deriving
 
     # a covered cut's level is the cut's, no storey of the group: it extends
@@ -91,7 +96,8 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     # a storey shell's levels are never extended (#2062, spec §2)
     lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
             and v.get("witness") != _COVERED and not v.get("shell")}
-    if not lows or getattr(airport, "partition", None) is None or not air_all:
+    seeds = {_seed_key(f): f for f in frames}
+    if not (lows or seeds) or getattr(airport, "partition", None) is None or not air_all:
         return regs
     to_xy = airport.frame.entry()
     by_ref: dict[str, list] = {}
@@ -105,8 +111,20 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         ui, _p = unit_share(unary_union([r.polygon for r in by_ref[ref]]), airport, to_xy)
         if ui is not None:
             units.setdefault(ui, []).append(ref)
+    for key, f in sorted(seeds.items()):
+        if str(f["block"]) not in by_ref:
+            continue
+        ui, _p = unit_share(unary_union([r.polygon for r in by_ref[str(f["block"])]]),
+                            airport, to_xy)
+        if ui is not None:
+            units.setdefault(ui, []).append(key)
     if not units:
         return regs
+    hosts = {**lows, **seeds}
+
+    def own(ref: str) -> list:
+        """A host's regions: a seed reads its block's."""
+        return by_ref[str(seeds[ref]["block"])] if ref in seeds else by_ref[ref]
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
@@ -124,7 +142,14 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     pave = valid_area(unary_union([r.polygon for r in air_all if r.source != "zone"
                                    and not is_structure_role(law, getattr(r, "role", ""))]))
     feet = _Feet(airport, law, to_xy)
+    # A RETAINING WALL IS NEVER A LEVEL (spec 2120-WF2 W3; #1633, RULINGS
+    # 2026-11-16 R2 master ruling "no pad of any kind on a retaining wall's
+    # footprint"): its footprint and a deck block's cover
+    # (``airport/wall_shade``) keep every piece off, as they keep every pad
+    ws = getattr(airport, "wall_shade", None)
+    shade = [] if ws is None or ws.is_empty else [ws]
     made: list = []
+    frame_levels: dict[str, tuple] = {}
     n_k: dict[str, int] = {}
     for ref in lows:
         po = plane_of(ref)
@@ -135,23 +160,39 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         if po is not None:
             n_k[po[0]] = max(n_k.get(po[0], 0), po[1])
     own_walls: list = []
+    absorbed: dict[str, list[str]] = {}
     for ui, refs in sorted(units.items()):
-        rec0 = lows[refs[0]]
+        rec0 = hosts[refs[0]]
         t = float(rec0["top_y"])
-        lower = feet.lower(ui, t + float(rec0["y_hi"]))
-        if not lower:
-            continue
+        seeded = any(r in seeds for r in refs)
+        if seeded:
+            # a seeded frame's level is its OWN PLAN
+            # (spec 2120-WF2 F3, F5): :func:`_frame_plan`
+            lower = feet.lower(ui, t + float(rec0["y_hi"]), own=True)
+            if not lower:
+                continue
+            bodies, walls = _frame_plan(feet, ui, lower, t + float(rec0["y_hi"]), near), Polygon()
+        else:
+            lower = feet.lower(ui, t + float(rec0["y_hi"]))
+            if not lower:
+                continue
+            bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
         own_walls.extend(p.poly for p in lower if p.reach > 0.0)
-        bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
+        if seeded and not bodies.is_empty:
+            took = _absorb(ui, bodies, by_ref, reg, airport, to_xy)
+            if took:
+                absorbed[refs[0]] = sorted(took)
+                bodies = valid_area(unary_union([bodies, *took.values()]))
+                pads = valid_area(pads.difference(unary_union(list(took.values()))))
         taken = Polygon()
-        if beyond and not bodies.is_empty:
+        if beyond and not bodies.is_empty and not seeded:
             reach = bodies.buffer(near, join_style=2)
             taken = valid_area(unary_union([g for g in beyond if g.intersects(reach)]))
             bodies = valid_area(unary_union([bodies, taken]))
-        levels = {ref: unary_union([r.polygon for r in by_ref[ref]]) for ref in refs}
+        levels = {ref: unary_union([r.polygon for r in own(ref)]) for ref in refs}
         qs = []
         keep_off = valid_area(unary_union([pads.buffer(w, join_style=2),
-                                           air.buffer(near, join_style=2)]))
+                                           air.buffer(near, join_style=2), *shade]))
         for A in (bodies, walls):
             if not A.is_empty:
                 A = valid_area(_overlay(A, keep_off, "difference", grid))
@@ -163,8 +204,11 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             if q.area < pmin:
                 continue
             host = min(refs, key=lambda r: levels[r].distance(q))
-            rec = lows[host]
-            y = _bottom(q, lower, w)
+            rec = hosts[host]
+            # a seeded frame's piece -- its own plan or a pad it absorbed --
+            # stands on the plane through its ground-contact feet, the
+            # frame's lower floor (``_frame_seeds``; 2120-WF2 F4)
+            y = float(rec["y_feet"]) if host in seeds else _bottom(q, lower, w)
             if y is None and q.intersection(taken).area >= 0.5 * q.area:
                 # unreachable pavement cut off the footprint by a keep-off,
                 # with no lower body of its own: the group's ONE lower level
@@ -176,25 +220,64 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             n_k[block] = n_k.get(block, 1) + 1
             ext = plane_ref(block, n_k[block])
             S = _riser(q, pads, air, w, near if q.intersects(taken) else None, smalls)
-            tmpl = by_ref[host][0]
+            tmpl = own(host)[0]
             made.append(_dc.replace(tmpl, ref=ext, polygon=q))
             made.extend(_dc.replace(tmpl, ref=ext + STRIP_SUFFIX, polygon=s)
                         for s in nonempty_polygon_parts(S))
-            reg.landings[ext] = {**rec, "y": round(y - t, 3), "y_lo": round(y - t, 3),
+            from_seed = host in seeds
+            if from_seed:
+                frame_levels[ext] = (q, block, round(y - t, 3))
+            reg.landings[ext] = {**{k: v for k, v in rec.items() if k != "seed"},
+                                 "y": round(y - t, 3), "y_lo": round(y - t, 3),
                                  "y_feet": round(y, 3), "area_m2": round(q.area, 1),
-                                 "low_parts": 0, "extent_of": host}
+                                 "low_parts": 0, "extent_of": block if from_seed else host,
+                                 **({"absorbed": absorbed.get(host, [])} if from_seed else {})}
             pads = unary_union([pads, q.buffer(w, join_style=2)])
     _join_walls(reg, {**{r: v for r, v in lows.items() if r in by_ref},
                       **{str(r.ref): reg.landings[str(r.ref)] for r in made
                          if str(r.ref) in reg.landings}},
                 by_ref, made, air_all, airport, own_walls, counts)
+    gone = _absorbed_refs(absorbed)
+    if gone:
+        # an absorbed pad is the level now: its regions and its hold go
+        for ref in gone:
+            reg.held.pop(ref, None)
+        regs = [r for r in regs if _pad_of(str(r.ref)) not in gone]
+        counts["low_level_absorbed"] = "; ".join(f"{k}: {', '.join(v)}"
+                                                 for k, v in sorted(absorbed.items()))
     if made:
         counts["low_level_extents"] = sum(1 for v in reg.landings.values()
                                           if v.get("extent_of"))
         counts["low_level_extent_list"] = "; ".join(
             f"{k} of {v['extent_of']} y {v['y_feet']:+.2f} {v['area_m2']:g} m2"
             for k, v in sorted(reg.landings.items()) if v.get("extent_of"))
+    if frame_levels:
+        pieces = [w.poly for w in getattr(airport, "retaining_walls", ()) or ()]
+        _frame_runouts(regs + made, reg, frame_levels, air, pieces, airport, law, grid, counts)
     return regs + made
+
+
+def _frame_runouts(regs: list, reg: Registries, levels: dict, air, pieces: list, airport,
+                   law, grid: float, counts: dict) -> None:
+    """A MAPPED ROAD THAT ENTERS A SEEDED FRAME'S LEVEL RUNS OUT FROM IT
+    (2120-WF3 F6; 24a, 10-14c (5)): the road run-outs of a lower region
+    (``cut_runout.cut_runouts`` roads -- one mechanism: its records join
+    ``reg.landing_runouts``, its rows are ``constraints/ramp_runout.
+    landing_runout_rows`` off the level's own vertices) for every road
+    leaving a piece of ``levels`` (``{ref: (piece, block, y)}``) through an
+    OPEN edge.  Every other region -- the pieces' own riser strips among
+    them: a road across the block's riser stays as it is -- the airside and
+    the retaining PIECES take what crosses them (never a plate-capped
+    block's cover: a road under it is at grade, 2120-WF3 W-A)."""
+    from .cut_runout import cut_runouts
+    named = [(str(r.ref), r.polygon) for r in regs
+             if r.polygon is not None and str(r.ref) not in levels]
+    named += [("airside", air)] + [("retaining wall", g) for g in pieces]
+    taken = valid_area(unary_union([q for _r, q in named]))
+    got = cut_runouts(levels, reg.held, airport, law, taken, grid, counts, roads=True,
+                      named=named)
+    reg.landing_runouts.update(got)
+    counts["frame_level_runouts"] = len(got)
 
 
 def _join_walls(reg: Registries, levels: dict, by_ref: dict, made: list, air_all,
@@ -252,6 +335,39 @@ def _join_walls(reg: Registries, levels: dict, by_ref: dict, made: list, air_all
                       f"{len(refs)} strips)")
     if joined:
         counts["low_level_wall_joins"] = "; ".join(joined)
+
+
+def _seed_key(f: dict) -> str:
+    """A frame seed's host name (it has no region and no ref of its own)."""
+    return f"{f['block']}#floor_seed"
+
+
+def _absorbed_refs(absorbed: _t.Mapping[str, _t.Sequence[str]]) -> set[str]:
+    """Every pad ref :func:`_absorb` took, over all hosts."""
+    return {r for v in absorbed.values() for r in v}
+
+
+def _pad_of(ref: str) -> str:
+    """The pad a region belongs to: its ref less a strip suffix."""
+    return ref[:-len(STRIP_SUFFIX)] if ref.endswith(STRIP_SUFFIX) else ref
+
+
+def _absorb(ui: int, bodies, by_ref: dict, reg: Registries, airport, to_xy) -> dict:
+    """``{ref: polygon}``: the HELD CONFORMING pads standing in a seeded
+    frame's closed lower footprint ``bodies`` -- the frame (unit ``ui``)
+    their plurality unit, at least half of each inside it (spec 2120-F R3:
+    a pad of the frame's own parts under its concourse level is the lower
+    level, never a block at the apron's height in its middle)."""
+    out = {}
+    for ref, rs in sorted(by_ref.items()):
+        if not reg.held.get(ref, {}).get("conforming"):
+            continue
+        P = valid_area(unary_union([r.polygon for r in rs]))
+        if P.is_empty or P.intersection(bodies).area < 0.5 * P.area:
+            continue
+        if unit_share(P, airport, to_xy)[0] == ui:
+            out[ref] = P
+    return out
 
 
 class _Feet:
@@ -323,12 +439,12 @@ class _Feet:
                 return r
         return 0.0
 
-    def lower(self, ui: int, y_max: float) -> list[_Lower]:
-        """The group's lower parts: walled parts whose foot plane stands at
-        or under ``y_max``."""
+    def lower(self, ui: int, y_max: float, own: bool = False) -> list[_Lower]:
+        """The group's lower parts (``own``: the unit's alone): walled parts
+        whose foot plane stands at or under ``y_max``."""
         from ..airport.airside_group_seat import PLANE_BAND_M
         out = []
-        for u in self.group(ui):
+        for u in ([ui] if own else self.group(ui)):
             for m in self.airport.partition.units[u].members:
                 for p in m.parts:
                     if (getattr(p, "line", False)
@@ -345,6 +461,36 @@ class _Feet:
                         continue
                     out.append(_Lower(g, ys, self.reach(g), y))
         return out
+
+
+def _frame_plan(feet: "_Feet", ui: int, lower: list[_Lower], y_hi: float, near: float):
+    """THE LOWER LEVEL OF A FRAME READ AT ITS AIRSIDE FLOOR is the frame's
+    OWN PLAN (spec 2120-WF2 F3): its lower storey -- the walled parts whose
+    foot plane stands a storey or more under its zero (``y_hi``): the hall
+    on its floor and the podium its columns carry (owner 2026-11-17 Q2: the
+    ground stays under the podium) -- closed by ``pad_frontage_m``, with no
+    road, no retaining wall's low side and no unreachable pavement beyond it
+    (the 2120-F closing build minted 20.1 k m2 of level no part of the frame
+    stood on, and held the walls' roads 4-9 m under their ground), less the
+    plan of the CONCOURSE beyond it (F5: no ground level under the parts
+    standing at the frame's airside floor or over it -- footless ones by
+    their base)."""
+    B = valid_area(unary_union([p.poly for p in lower]))
+    if B.is_empty:
+        return Polygon()
+    own = B
+    B = valid_area(B.buffer(near, join_style=2).buffer(-near, join_style=2))
+    up = []
+    for m in feet.airport.partition.units[ui].members:
+        for p in m.parts:
+            if getattr(p, "line", False):
+                continue
+            ys = [float(f[2]) for f in (getattr(p, "feet", ()) or ())]
+            if min(ys, default=float(getattr(p, "base_y", 0.0) or 0.0)) > y_hi:
+                up.extend(feet._rings(p))      # the concourse
+    if up:
+        B = valid_area(B.difference(valid_area(unary_union(up)).difference(own)))
+    return B
 
 
 def _riser(q, pads, air, w: float, open_m: "float | None", smalls: list):

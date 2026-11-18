@@ -651,6 +651,75 @@ fail for whole passes, the fallback is a virtual filesystem (WinFsp,
 #1986 §6.1), not a new texture name (that needs a `.ter` change and a
 reload). Measured in §14 P6 (§11 U8).
 
+### 4.8 Page-ahead and the airport ring across tile edges **[#2109, 2026-11-16]**
+
+Owner 2026-11-16T15:55Z (1.0.544, KMMH departure west): reload only as a
+last resort; a built tile keeps high-ZL imagery far enough out that the
+stream takes over in flight.
+
+**Measured (the 15:41-15:54Z flight; `Log.txt`, `logs/imagery_on_demand.log`,
+index copy).** X-Plane loaded its DSF window at the flight start
+(07:41:32 local, columns -121..-118, rows 36..38: `B = round(lon)`,
+`R = floor(lat)`, as `O4_World_Window` models; also LICJ and KATL that
+day) and loaded no other DSF until the owner's reload (07:51): the whole
+flight stayed in its first window. Its texture ramp ("Target scale"
+1 → 16) ran 07:42:09-07:47:25 (316 s). The follow job landed 114 files
+07:42-07:54, 113 "on time" by the step-up crossings; it was busy 148 s of
+697 (21 %): demand, not supply, set the rate. Landing times by slots
+(1,650 download landings to date): tier 3 median 2.6 / 3.1 / 5.7 s at
+1 / 2 / 4 slots (aggregate 100 / 164 / 181 requests/s). Built radius:
+the airport's tile `+37-119` is a full classic tile; the on-demand tile
+west of it, `+37-120`, had no core at all, because a core ring was
+computed from the tile's OWN airports only and KMMH is on the neighbour.
+The flight's track was not logged; `tools/imagery_page_ahead_replay.py`
+reconstructs it from the landings: 86 first-window squares were wanted
+finer along the track than they had at the flight load (30 at tier 3),
+79 of them 20-75 km from the field.
+
+**The read model question this leaves (§11 U13, new).** On §2.5's model a
+square landed before its step-up crossing shows without a reload; the
+owner nevertheless saw the area sharpen only at the reload. Either
+12.4.4 does not re-read a held texture at a step-up (it reads a tile's
+textures when the tile enters the window, and at a reload), or the
+squares the owner looked at were read before the job landed them. The
+recorder (`tools/xplane_reads/`) on 12.4.4 answers it in one flight.
+
+**Page-ahead (`O4_Imagery_Page_Ahead`, `o4_engine/imagery_follow_ahead`).**
+Whichever model holds, a square on disk at its tile's window ENTRY is
+drawn with no reload. So the follow job keeps the window
+(`O4_World_Window.WindowTracker`, loaded at a flight load or jump), runs
+it along the path ahead -- the active flight's route, else the straight
+track -- for `PAGE_HORIZON_S` (900 s), and for every tile that enters
+fetches each of its squares at the tier the path wants there
+(`CROSSING_S[k] + LATERAL_MARGIN_S` S from the path, judged on the route
+or on the track `PASS_S` = 1,800 s further), deadline the entry less
+rule S3's margin and the swap (`O4_World_Ahead.deadline_s`), started on
+a backward one-at-a-time schedule so one slot lands a column just in
+time and more slots are slack. Log `crossing=0`. Inside the window the
+step-up planner runs as before. Every 10 s a `pos=` line logs the camera
+and the window, so the next flight replays exactly.
+
+**The ring (`O4_Imagery_OnDemand_Cores.airport_points(neighbours=True)`).**
+An on-demand tile's cores come from the airports of the tile AND its
+eight neighbours (the after-build core fetch and the index scan): a
+5.2 S ring is 40 km at 37 N and crosses tile edges.
+
+**Sizing [estimate from the measurements].** One corridor column (the
+tier-3/2/1 bands of 1.65/2.8/5.2 S plus the margin, across one tile) at
+37 N is ~12,000-35,000 requests (ZL18 covers raise it), 140-350 s at
+100 requests/s. A column enters every 380-1,420 s at 450-120 kt, seen
+900 s ahead, so the stream holds in cruise with one or two slots. The
+binding case is the FIRST column after departure: it enters when the
+aircraft is `0.65 - |lon - round(lon)|` degrees from the field (0.15-0.65°,
+13-57 km at 37 N; 72 km at KMMH), i.e. 60-440 s after take-off. On the
+step-up model the 5.2 S tiered ring is enough (X-Plane re-reads as the
+aircraft approaches). On the entry model nothing landed after the flight
+load inside the first window shows without a reload, so a no-reload
+departure needs the departure corridor sharp out to the window's far
+edge (1.5-2.5° of longitude, 1-2° of latitude: ~8 GB per airport at
+tier 3 within 120 km, ~28 GB for the whole first window) -- an owner
+decision, not made here.
+
 ## 5. The cache index and "last used"
 
 ### 5.1 The index
@@ -890,6 +959,7 @@ build at that zoom would.
 | U10 | Do landings or the job's disk I/O cause stutter? | R6 rate | Recorder logs frame period (`sim/time/framerate_period`); compare legs with the job on and off | P3 |
 | U11 | Is the flight-start window always ~24 s (one sample)? | §4.5 step 2 | Recorder across five spawns (cold start, airport change, map jump, replay, situation load) | P5 |
 | U12 | Does an outside or replay camera page by the camera (assumed) or the aircraft? | §4.2 position | One leg in an external view orbiting ~10 km out | P3 |
+| U13 | Does X-Plane 12.4.4 re-read a held texture at a step-up (§2.5), or only when its tile enters the window and at a reload (#2109)? | §4.8 ring size | Recorder (`tools/xplane_reads/`) on one flight that lands squares ahead of the aircraft inside the first window | #2109 |
 
 ## 12. Owner decisions and the questions left **[rev 2]**
 

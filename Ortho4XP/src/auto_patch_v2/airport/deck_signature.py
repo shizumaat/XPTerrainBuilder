@@ -79,7 +79,7 @@ from .deck_surface import grown_plate
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
            "is_bridge_way", "is_enclosure_way", "bridge_lines", "family_key", "PierReading",
-           "elevated_deck", "WeldedDeck", "welded_deck", "deck_plate_y"]
+           "elevated_deck", "WeldedDeck", "welded_deck", "deck_plate_y", "dominant_plate"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
 EVIDENCE_BELOW_GRADE = "below_grade"
@@ -917,12 +917,27 @@ def deck_plate_y(cache: _obj8.ResourceCache, path: str, law) -> float | None:
     ``y = 0``, which for a member of a unit IS the unit's zero plane
     (§16g (2)), never its own lowest vertex.  ``None`` when the resource
     carries no such face."""
+    got = dominant_plate(cache, path, law)
+    return None if got is None else got[0]
+
+
+def dominant_plate(cache: _obj8.ResourceCache, path: str, law, hard_only: bool = True
+                   ) -> "tuple[float, float] | None":
+    """``(y, plan m2)`` of a resource's DOMINANT near-horizontal plate
+    (:func:`deck_plate_y`'s bin rule: the ``deck_plane_bin_m`` bin of
+    faces at least ``deck_plate_normal_y_min`` flat holding the most plan
+    area, the tie to the higher bin); ``hard_only`` reads its HARD-DECK
+    faces alone (a ``flag`` member's deck), else every solid face (a
+    portal's cover slab, ``airport/cut_portal_seat``, 2120-WF3 P1).
+    ``None`` when no such face is read."""
     br = law.tables.structures.bridge
     got = _faces_memo(cache, path)
     if got is None:
         return None
     f, _ylo, _yhi, hd = got
-    m = hd & (f.ny >= br.deck_plate_normal_y_min)
+    m = f.ny >= br.deck_plate_normal_y_min
+    if hard_only:
+        m = m & hd
     if not m.any():
         return None
     bins: dict[int, float] = {}
@@ -931,7 +946,7 @@ def deck_plate_y(cache: _obj8.ResourceCache, path: str, law) -> float | None:
         bins[k] = bins.get(k, 0.0) + a
     top = max(bins.values())
     dom = max(k for k, a in bins.items() if a >= br.deck_plane_area_tie * top)
-    return float(dom * br.deck_plane_bin_m)
+    return float(dom * br.deck_plane_bin_m), float(bins[dom])
 
 
 def _place_xz(o: _obj8.PlacedObject, xz: np.ndarray) -> np.ndarray:

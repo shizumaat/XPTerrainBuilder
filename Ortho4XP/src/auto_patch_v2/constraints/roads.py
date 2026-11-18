@@ -24,11 +24,11 @@ from ..law.tables import family, role_cap, role_side
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
-from .geometry import long_axis, pair_is_transverse
+from .geometry import chords_outside, long_axis, pair_is_transverse
 from .precedence import view
 
-__all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
-           "hole_pairs",
+__all__ = ["road_within_shape", "road_family_roles", "road_law_caps", "lot_chords_outside",
+           "hole_pairs", "ring_pairs",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
            "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "stage_one_vertices",
            "PAIR_AIRSIDE", "PAIR_WELD", "PAIR_GROUNDSIDE"]
@@ -299,7 +299,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                               "ring_edge": 0, "ribbon_follower": 0,
                               "ribbon_airside_pair": 0,
                               "airside_pair": 0, "weld_follower": 0,
-                              "hole_pair": 0})
+                              "hole_pair": 0, "outside_face": 0})
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
@@ -342,84 +342,133 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
         src_t = Source(GEN, "road_cross_section (2026-08-25g)",
                        (f"face:{f.id}", f.ref))
         src_ribbon = Source(GEN, RIBBON_RULING, (f"face:{f.id}", f.ref))
+        # #2099 G4 C: a LOT's chord that leaves its face is not a pair
+        outside = lot_chords_outside(f.role, [vw.xy[v] for v in ring],
+                                     [[vw.xy[v] for v in h] for h in vw.holes[f.id]], law)
         for cyc in [ring, *vw.holes[f.id]]:
             n = len(cyc)
-            for i in range(n):
-                a = cyc[i]
-                for j in range(i + 1, n):
-                    b = cyc[j]
-                    d = vw.dist(a, b)
-                    if d < min_d:
+            # #1951: the pairs past the spacing floor and inside the face,
+            # read as arrays (every pair, as before)
+            pairs, n_out = ring_pairs([vw.xy[v] for v in cyc], min_d,
+                                      outside if cyc is ring else ())
+            stats["outside_face"] += n_out
+            for i, j, d in pairs:
+                a, b = cyc[i], cyc[j]
+                # §37 (7): the ROUTE reading where the map carries the
+                # road's own frame; the chord law where it does not
+                fa, fb = frame.get(a), frame.get(b)
+                read = road_pair_reading(cap_l, cap_t, min_deg,
+                                         fa, fb, d, ribbon) \
+                    if frame else NO_FRAME
+                # §37 (10) (2): a pair ACROSS THE RIBBON is the one
+                # verdict this lane changed from NOT_A_PAIR, so it is
+                # the one that may newly bind a mouth
+                priced = read not in (NO_FRAME, NOT_A_PAIR)
+                # ACROSS THE RIBBON: two routes, so before §37 (10)
+                # the verdict was NOT_A_PAIR and the row is NEW.
+                cross = (priced and fa is not None and fb is not None
+                         and fa[0] != fb[0])
+                # ON A MERGED ROUTE: the row MAY be new (the two
+                # frames were two routes before the merge).  A pair
+                # touching a mouth is made ONE-WAY — which can only
+                # reduce the pull on airside — but NEVER dropped,
+                # because a pair that was already priced here must not
+                # lose its row.
+                fused = (priced and not cross and fa is not None
+                         and fa[0] in merged)
+                if read == NOT_A_PAIR:
+                    # A RING EDGE IS ALWAYS PRICED (the census's own
+                    # R19-5 floor): two ADJACENT ring vertices are
+                    # neighbours whatever route answers them — a way
+                    # BOUNDARY mid-road must not leave a step
+                    # unpriced.  Only a non-adjacent cross-route pair
+                    # is the switchback the ruling frees.
+                    if j != i + 1 and not (i == 0 and j == n - 1):
+                        stats["not_a_pair"] += 1
                         continue
-                    # §37 (7): the ROUTE reading where the map carries the
-                    # road's own frame; the chord law where it does not
-                    fa, fb = frame.get(a), frame.get(b)
-                    read = road_pair_reading(cap_l, cap_t, min_deg,
-                                             fa, fb, d, ribbon) \
-                        if frame else NO_FRAME
-                    # §37 (10) (2): a pair ACROSS THE RIBBON is the one
-                    # verdict this lane changed from NOT_A_PAIR, so it is
-                    # the one that may newly bind a mouth
-                    priced = read not in (NO_FRAME, NOT_A_PAIR)
-                    # ACROSS THE RIBBON: two routes, so before §37 (10)
-                    # the verdict was NOT_A_PAIR and the row is NEW.
-                    cross = (priced and fa is not None and fb is not None
-                             and fa[0] != fb[0])
-                    # ON A MERGED ROUTE: the row MAY be new (the two
-                    # frames were two routes before the merge).  A pair
-                    # touching a mouth is made ONE-WAY — which can only
-                    # reduce the pull on airside — but NEVER dropped,
-                    # because a pair that was already priced here must not
-                    # lose its row.
-                    fused = (priced and not cross and fa is not None
-                             and fa[0] in merged)
-                    if read == NOT_A_PAIR:
-                        # A RING EDGE IS ALWAYS PRICED (the census's own
-                        # R19-5 floor): two ADJACENT ring vertices are
-                        # neighbours whatever route answers them — a way
-                        # BOUNDARY mid-road must not leave a step
-                        # unpriced.  Only a non-adjacent cross-route pair
-                        # is the switchback the ruling frees.
-                        if j != i + 1 and not (i == 0 and j == n - 1):
-                            stats["not_a_pair"] += 1
+                    read = NO_FRAME
+                    stats["ring_edge"] += 1
+                if read != NO_FRAME:
+                    bound, transverse = read
+                    stats["routed"] += 1
+                    if cross or fused:
+                        air_a, air_b = _airside(planar, law, a), \
+                            _airside(planar, law, b)
+                        if cross and air_a and air_b:
+                            # two AIRSIDE vertices are not a road pair
+                            # at all — before §37 (10) this was
+                            # NOT_A_PAIR and the road family never
+                            # priced it.  It stays theirs.
+                            stats["ribbon_airside_pair"] += 1
                             continue
-                        read = NO_FRAME
-                        stats["ring_edge"] += 1
-                    if read != NO_FRAME:
-                        bound, transverse = read
-                        stats["routed"] += 1
-                        if cross or fused:
-                            air_a, air_b = _airside(planar, law, a), \
-                                _airside(planar, law, b)
-                            if cross and air_a and air_b:
-                                # two AIRSIDE vertices are not a road pair
-                                # at all — before §37 (10) this was
-                                # NOT_A_PAIR and the road family never
-                                # priced it.  It stays theirs.
-                                stats["ribbon_airside_pair"] += 1
-                                continue
-                            if air_a or air_b:
-                                stats["ribbon_follower"] += 1
-                                rows.append(Diff(a, b, bound / d, d,
-                                                 src_ribbon,
-                                                 follows=(b if air_a else a,)))
-                                continue
-                        _mint(a, b, bound / d, d,
-                              src_t if transverse else src_l)
-                        continue
-                    stats["chord"] += 1
-                    (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
-                    if axis is not None and pair_is_transverse(
-                            axis, bx_ - ax_, by_ - ay_, min_deg):
-                        _mint(a, b, cap_t, d, src_t)
-                    else:
-                        _mint(a, b, cap_l, d, src_l)
+                        if air_a or air_b:
+                            stats["ribbon_follower"] += 1
+                            rows.append(Diff(a, b, bound / d, d,
+                                             src_ribbon,
+                                             follows=(b if air_a else a,)))
+                            continue
+                    _mint(a, b, bound / d, d,
+                          src_t if transverse else src_l)
+                    continue
+                stats["chord"] += 1
+                (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
+                if axis is not None and pair_is_transverse(
+                        axis, bx_ - ax_, by_ - ay_, min_deg):
+                    _mint(a, b, cap_t, d, src_t)
+                else:
+                    _mint(a, b, cap_l, d, src_l)
         if f.role not in roads:
             for a, b, d in hole_pairs(vw.xy, ring, vw.holes[f.id], min_d):
                 stats["hole_pair"] += 1
                 _mint(a, b, cap_l, d, Source(
                     GEN, src_l.ruling, (*src_l.inputs, "hole")))
     return rows
+
+
+def ring_pairs(xy: _t.Sequence[tuple[float, float]], min_d: float,
+               outside: _t.Collection[tuple[int, int]] = ()
+               ) -> tuple[list[tuple[int, int, float]], int]:
+    """EVERY index pair ``(i, j)``, ``i < j``, of one cycle with its plan
+    distance ``d`` (:func:`geom.exact.hypot`, the same double as
+    ``View.dist``), in ``(i, j)`` order — less those closer than ``min_d``
+    and those in ``outside`` (:func:`lot_chords_outside`), whose count is
+    returned beside them.  The all-pairs walk of :func:`road_within_shape`
+    as arrays (#1951 part 2: 10.3 M pairs at KMCI, 8.1 M of them chords
+    leaving their lot)."""
+    import numpy as np
+    n = len(xy)
+    if n < 2:
+        return [], 0
+    pts = np.asarray(xy, dtype=float)
+    ii, jj = np.triu_indices(n, 1)
+    d = exact.hypot_array(pts[ii, 0] - pts[jj, 0], pts[ii, 1] - pts[jj, 1])
+    keep = d >= min_d
+    n_out = 0
+    if outside:
+        code = np.fromiter((i * n + j for i, j in outside), dtype=np.int64, count=len(outside))
+        out = keep & np.isin(ii * n + jj, code)
+        n_out = int(out.sum())
+        keep &= ~out
+    return list(zip(ii[keep].tolist(), jj[keep].tolist(), d[keep].tolist())), n_out
+
+
+def lot_chords_outside(role: str, xy: _t.Sequence[tuple[float, float]],
+                       holes: _t.Sequence[_t.Sequence[tuple[float, float]]], law: Law
+                       ) -> set[tuple[int, int]]:
+    """THE LOT'S CHORDS THAT LEAVE ITS FACE (#2099 G4 C; RULINGS 2026-09-05ae
+    (1), the apron's rule, applied to lots): the index pairs ``(i, j)`` of
+    the outer ring ``xy`` of a lot (``classify/lot_roads.LOT_ROLES``) whose
+    straight chord crosses a hole or the exterior -- not pairs; the ring
+    edges and the inside chords carry the lot law around the notch.  Empty
+    for any other role.  ONE predicate (``geometry.chords_outside``): the
+    generator here, the verify stage's ``within_shape`` and the census's
+    plane branch ask it.  MEASURED CYYZ pol88: all 23 within_shape rows were
+    chords from the frontage across the lot's notch to its back strip."""
+    from ..law.tables import LOT_ROLES, snap_margin_m
+    if role not in LOT_ROLES:
+        return set()
+    return set(chords_outside(xy, holes, snap_margin_m(law),
+                              float(law.tables.emit.identity.min_distinct_spacing_m)))
 
 
 def hole_pairs(xy: _t.Mapping[int, tuple[float, float]],

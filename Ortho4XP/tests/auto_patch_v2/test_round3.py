@@ -238,7 +238,11 @@ def test_an_open_page_welded_to_the_runway_is_apron(law):
         cells = [c for c in cl.cells if c.ref == "bare"]
         flipped = [c for c in cells if c.evidence.get("airside_edge_flip")]
         assert flipped, (reach, [(c.role, c.evidence.get("open_default")) for c in cells])
-        assert {c.role for c in flipped} == {"apron"}
+        # #2134 §4.2 (4), owner Q2: the flip writes the HOST's class.  The
+        # road-reached page is one face along the runway (apron, as ever);
+        # the bare page's remainder lies along the band's junction strip
+        # alone, a taxi-family host, so it is taxi family, never apron
+        assert {c.role for c in flipped} == ({"apron"} if reach else {"junction"})
         was = {str(c.evidence.get("airside_edge_was")) for c in flipped}
         # §110 (issue #110, 2026-10-02): the role the flip found is now
         # `parking_lot` in BOTH arms — the 90 x 25 m remainder is a plate

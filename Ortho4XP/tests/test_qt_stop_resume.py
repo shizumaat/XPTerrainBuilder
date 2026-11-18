@@ -29,7 +29,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Qt_GUI as GUI  # noqa: E402
-import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Tile_Info as TINFO  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 
@@ -129,155 +128,42 @@ def _status_label(window, tile):
 
 
 # ---------------------------------------------------------------------------
-# Q1 — the tile key is one spelling, with one reader
+# Q1 — the app starts with nothing selected (owner 2026-11-17)
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "tile", [(0, 0), (48, -6), (-35, -81), (89, -180), (-1, 179)])
-def test_tile_key_round_trip(tile):
-    assert QTMAP.parse_tile_key(QTMAP.tile_key(*tile)) == tile
-
-
-@pytest.mark.parametrize(
-    "key",
-    ["", "35,-81", "+91-000", "+00-181", "48-006", "+48-6", "+48-006 ",
-     None, 42])
-def test_parse_refuses_malformed_keys(key):
-    assert QTMAP.parse_tile_key(key) is None
-
-
-def test_selection_is_written_to_the_prefs_file(window, prefs_file):
-    window.map.set_selection({TILE, OTHER})
-    window.map.set_active(TILE[0], TILE[1], select=False)
+def test_launch_starts_with_nothing_selected(make_window, prefs_file):
+    """Owner 2026-11-17T15:55Z: a selection stored by an earlier version
+    is not restored (a new pick was ADDED to it) and is removed."""
+    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
+        json.dump({GUI.SELECTED_TILES_KEY: ["+48-006", "+49-006"],
+                   GUI.ACTIVE_TILE_KEY: "+49-006"}, handle)
+    window = make_window()
+    assert window.map.selection() == set()
+    assert window.map.active_tile() is None
     stored = _read_prefs(prefs_file)
-    assert stored[GUI.SELECTED_TILES_KEY] == ["+48-006", "+49-006"]
-    assert stored[GUI.ACTIVE_TILE_KEY] == "+48-006"
+    assert GUI.SELECTED_TILES_KEY not in stored
+    assert GUI.ACTIVE_TILE_KEY not in stored
 
 
-def test_selection_comes_back_on_the_next_launch(make_window):
+def test_a_selection_is_not_stored_for_the_next_launch(make_window,
+                                                       prefs_file):
     first = make_window()
     first.map.set_selection({TILE, OTHER})
     first.map.set_active(OTHER[0], OTHER[1], select=False)
     first.close()
-
+    stored = _read_prefs(prefs_file) if os.path.exists(prefs_file) else {}
+    assert GUI.SELECTED_TILES_KEY not in stored
     second = make_window()
-    assert second.map.selection() == {TILE, OTHER}
-    assert second.map.active_tile() == OTHER
+    assert second.map.selection() == set()
 
 
-def test_deselecting_everything_launches_empty(make_window, prefs_file):
-    first = make_window()
-    first.map.set_selection({TILE})
-    first.map.clear_selection()
-    first.close()
-    assert _read_prefs(prefs_file)[GUI.SELECTED_TILES_KEY] == []
-
-    second = make_window()
-    # Empty state is today's launch: the remembered last tile, active.
-    assert second.map.selection() == {second.map.active_tile()}
-
-
-def test_malformed_stored_keys_are_dropped_silently(make_window, prefs_file):
-    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
-        json.dump({GUI.SELECTED_TILES_KEY: ["+48-006", "nonsense",
-                                            "+91-000", "+49-006"],
-                   GUI.ACTIVE_TILE_KEY: "+49-006"}, handle)
-    window = make_window()
-    assert window.map.selection() == {TILE, OTHER}
-    assert window.map.active_tile() == OTHER
-
-
-def test_active_outside_the_set_falls_back_to_the_first_tile(make_window,
-                                                             prefs_file):
-    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
-        json.dump({GUI.SELECTED_TILES_KEY: ["+49-006", "+48-006"],
-                   GUI.ACTIVE_TILE_KEY: "+10-010"}, handle)
-    window = make_window()
-    assert window.map.selection() == {TILE, OTHER}
-    assert window.map.active_tile() == TILE
-
-
-def test_restored_selection_syncs_the_toolbar_like_a_click(make_window,
-                                                           prefs_file):
-    """The restore must let the per-tile config adoption fire exactly as
-    it does on a user click — the combos are synced to the restored set,
-    not left at the raw prefs defaults."""
-    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
-        json.dump({GUI.SELECTED_TILES_KEY: ["+48-006"],
-                   GUI.ACTIVE_TILE_KEY: "+48-006"}, handle)
-    window = make_window()
-    assert window._combos_synced_to is not None
-    assert window._combos_synced_to[1] == frozenset({TILE})
-
-
-def _shown_after_launch(qapp, make_window, prefs_file, keys):
-    """A window launched on ``keys`` as the stored selection, shown and
-    given its first event-loop turns (the framing waits for the show)."""
-    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
-        json.dump({GUI.SELECTED_TILES_KEY: keys,
-                   GUI.ACTIVE_TILE_KEY: keys[0] if keys else ""}, handle)
-    window = make_window()
-    before = window.map.transform().m11()
-    window.resize(1200, 800)
-    window.show()
-    for _ in range(5):
-        qapp.processEvents()
-    return window, before
-
-
-def _visible_and_tiles(window, tiles):
-    import O4_Geo_Utils as GEO
-    view = window.map
-    visible = view.mapToScene(view.viewport().rect()).boundingRect()
-    lats = [t[0] for t in tiles]
-    lons = [t[1] for t in tiles]
-    x0, y0 = GEO.wgs84_to_pix(max(lats) + 1, min(lons), QTMAP.SCENE_ZL)
-    x1, y1 = GEO.wgs84_to_pix(min(lats), max(lons) + 1, QTMAP.SCENE_ZL)
-    return visible, (x0, y0, x1, y1)
-
-
-def _assert_framed(window, tiles):
-    visible, (x0, y0, x1, y1) = _visible_and_tiles(window, tiles)
-    assert visible.left() <= x0 and x1 <= visible.right()
-    assert visible.top() <= y0 and y1 <= visible.bottom()
-    # Framed, not merely on screen: the tiles span most of the limiting
-    # side of the view.
-    assert max((x1 - x0) / visible.width(),
-               (y1 - y0) / visible.height()) > 0.6
-
-
-def test_launch_frames_one_restored_tile(qapp, make_window, prefs_file):
-    """#1554: the restored tile fills the view with the Activity-row
-    margin, winning over the launch centring at zoom 7."""
-    window, _ = _shown_after_launch(qapp, make_window, prefs_file,
-                                    ["+48-006"])
-    _assert_framed(window, [TILE])
-
-
-def test_launch_frames_three_restored_tiles(qapp, make_window, prefs_file):
-    tiles = [(48, -6), (49, -6), (48, -4)]
-    window, _ = _shown_after_launch(
-        qapp, make_window, prefs_file, [QTMAP.tile_key(*t) for t in tiles])
-    _assert_framed(window, tiles)
-
-
-def test_launch_with_nothing_restored_keeps_the_view(qapp, make_window,
-                                                     prefs_file):
-    window, before = _shown_after_launch(qapp, make_window, prefs_file, [])
-    assert window.map.transform().m11() == pytest.approx(before)
-
-
-def test_launch_framing_happens_once(qapp, make_window, prefs_file):
-    """Later selection changes (and later shows) leave the camera."""
-    window, _ = _shown_after_launch(qapp, make_window, prefs_file,
-                                    ["+48-006"])
-    framed = window.map.transform().m11()
-    window.map.set_selection({TILE, OTHER, (40, 10)})
-    window.hide()
-    window.show()
-    for _ in range(5):
-        qapp.processEvents()
-    assert window.map.transform().m11() == pytest.approx(framed)
-
+def test_forget_stored_selection_saves_only_when_something_went(monkeypatch):
+    saved = []
+    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: saved.append(1))
+    assert GUI._forget_stored_selection({"other": 1}) is False
+    assert saved == []
+    prefs = {GUI.SELECTED_TILES_KEY: ["+48-006"], GUI.ACTIVE_TILE_KEY: ""}
+    assert GUI._forget_stored_selection(prefs) is True
+    assert prefs == {} and saved == [1]
 
 # ---------------------------------------------------------------------------
 # Q2 — the rules, with no widgets in the way

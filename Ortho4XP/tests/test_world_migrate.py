@@ -118,7 +118,7 @@ def xp(tmp_path, monkeypatch):
                         lambda rel: str(tmp_path / "data" / rel))
     # a kept tile's records land in the data root's Tiles (world_records)
     monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "data" / "Tiles"))
-    monkeypatch.setattr(CORES, "airport_points", lambda lat, lon: [])
+    monkeypatch.setattr(CORES, "airport_points", lambda lat, lon, **_kw: [])
     for module in (ICONV, MIGRATE, WORLD):
         monkeypatch.setattr(module, "_xplane_running", lambda: False)
     # the disk has room: a run skips every tile under RESERVE_BYTES free,

@@ -64,6 +64,9 @@ struct PatchEditOpsTests {
                 (lat: number($0[0])!, lon: number($0[1])!, alt: number($0[2]))
             }
             try doc.addShape(corners, tags: args["tags"] as? [String: String] ?? [:])
+        case "set_way_tags":
+            try doc.setWayTags(int("way"), put: args["put"] as? [String: String] ?? [:],
+                               remove: args["remove"] as? [String] ?? [])
         default: Issue.record("unknown op \(op["op"] ?? "nil")")
         }
     }

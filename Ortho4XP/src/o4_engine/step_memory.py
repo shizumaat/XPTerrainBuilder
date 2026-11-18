@@ -26,12 +26,9 @@ Standard library only; every function here is advisory and never raises.
 """
 from __future__ import annotations
 
-import subprocess
-import sys
-
 __all__ = ["RECORDED_PEAK_MARGIN", "VECTOR_AIRPORT_DEFAULT_GB",
            "VECTOR_NO_AIRPORT_GB", "LIVE_CHECKED_STEPS",
-           "charged_gigabytes", "projected_gigabytes",
+           "charged_gigabytes", "ledger_gigabytes", "projected_gigabytes",
            "tree_resident_gigabytes"]
 
 #: a recorded peak is the maximum of 2-second samples, not the true peak:
@@ -90,27 +87,22 @@ def charged_gigabytes(step_key, projected):
     return float(projected)
 
 
+def ledger_gigabytes(step_key, charged):
+    """What a step reserves on the MACHINE memory ledger
+    (``O4_Machine_Memory``) once admitted: its charge, except that a
+    self-gated step reserves only its own parse — its airport builds and
+    their pools reserve their memory themselves, slot by slot, and must
+    not be counted twice."""
+    if step_key in _SELF_GATED_STEPS:
+        return min(float(charged), VECTOR_NO_AIRPORT_GB)
+    return float(charged)
+
+
 def _process_table():
-    """``[(pid, ppid, rss KiB)]`` of every process, or ``[]``."""
-    if sys.platform == "win32":
-        return []
-    try:
-        # close_fds=False keeps CPython on posix_spawn: the scheduler's
-        # process may have GDAL/PROJ loaded, whose atfork handler crashes
-        # a forked child (O4_Parallel_Utils, the 2026-07-16 crash class).
-        output = subprocess.run(
-            ["ps", "-A", "-o", "pid=,ppid=,rss="],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=10.0, check=False, close_fds=False).stdout
-    except Exception:
-        return []
-    rows = []
-    for line in output.splitlines():
-        fields = line.split()
-        if len(fields) == 3 and all(f.isdigit() for f in fields):
-            rows.append((int(fields[0]), int(fields[1]), int(fields[2])))
-    return rows
+    """``[(pid, ppid, rss KiB)]`` of every process, or ``[]`` (one ``ps``,
+    read by the machine memory ledger's ``process_table``)."""
+    import O4_Machine_Memory as MEMORY
+    return [row[:3] for row in MEMORY.process_table()]
 
 
 def tree_resident_gigabytes(root_pids, table=None):

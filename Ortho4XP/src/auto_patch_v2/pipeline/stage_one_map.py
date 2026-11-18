@@ -89,21 +89,23 @@ def _items(vertices):
 
 
 def gap_free(cl):
-    """``cl`` without its LAST-STAGE cells — the §53 gap pieces and the pad
+    """``cl`` without its LAST-STAGE cells — the §53 gap pieces, the pad
     roads (issue #609: a mapped-road ribbon admitted for a pad, evidence
-    ``pad_road``) — or ``None`` when it has none: THE BASE MAP of the last
-    stage (below)."""
-    from ..model.planar import is_gap_ref
+    ``pad_road``) and the #2114 car lots (``classify/car_lot``) — or
+    ``None`` when it has none: THE BASE MAP of the last stage (below)."""
+    from ..classify.roles import is_pad_road_cell
+    from ..model.planar import is_car_lot_ref, is_gap_ref
     cells = tuple(c for c in cl.cells
-                  if not (is_gap_ref(getattr(c, "ref", ""))
-                          or (getattr(c, "evidence", None) or {}).get("pad_road")))
+                  if not (is_gap_ref(getattr(c, "ref", "")) or is_pad_road_cell(c)
+                          or is_car_lot_ref(getattr(c, "ref", ""))))
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)
 
 
 def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
-                   roads_only: bool = False) -> tuple[set[int], dict]:
+                   roads_only: bool = False, lots_only: bool = False
+                   ) -> tuple[set[int], dict]:
     """THE LAST STAGE'S UNKNOWNS (spec §53 (9); owner RULINGS 2026-10-04o/q,
     master 2026-10-04: "pieces follow, never lead"): the vertices of every
     §53 GAP PIECE, and of every mapped-road RIBBON
@@ -115,17 +117,24 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
     a ``soft_roles`` role (the adjacent-ground bands, which adopt their
     value) does not hold a vertex.  ``roads_only``: THE PAD ROADS' OWN
     STAGE (issue #609) — they alone follow, the gap pieces and the ribbons
-    along them stand with everything else.  ``(vertices, report)``."""
-    from ..model.planar import gap_follower_faces, pad_road_faces
-    gap, ribbons = ([], []) if roads_only else gap_follower_faces(pm_full)
-    # the pad roads (issue #609; 13a (1)): followers as a gap piece is
-    pad_roads = pad_road_faces(pm_full)
-    ribbons = [*ribbons, *(f for f in pad_roads
-                           if f.id not in {r.id for r in ribbons})]
+    along them stand with everything else.  ``lots_only``: THE CAR LOTS'
+    OWN STAGE (#2114 round 2 P1) — the car lots alone follow; every other
+    face, a pad road and a gap piece included, stands.
+    ``(vertices, report)``."""
+    from ..model.planar import gap_follower_faces, is_car_lot_ref, pad_road_faces
+    if lots_only:
+        gap, ribbons, pad_roads = [f for f in pm_full.faces.values()
+                                   if is_car_lot_ref(f.ref)], [], []
+    else:
+        gap, ribbons = ([], []) if roads_only else gap_follower_faces(pm_full)
+        # the pad roads (issue #609; 13a (1)): followers as a gap piece is
+        pad_roads = pad_road_faces(pm_full)
+        ribbons = [*ribbons, *(f for f in pad_roads
+                               if f.id not in {r.id for r in ribbons})]
     follow = {f.id for f in gap} | {f.id for f in ribbons}
     # a ramp-foot run-out's 1:3 bank (``classify/ramp_runout``, #1093)
     # follows with its strip
-    runs = getattr(pm_full, "ramp_runouts", None) or {}
+    runs = {} if lots_only else (getattr(pm_full, "ramp_runouts", None) or {})
     if runs:
         from ..model.planar import is_collar_ref, platform_ref_of
         follow |= {f.id for f in pm_full.faces.values()
@@ -198,7 +207,8 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
 def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
                     free: _t.AbstractSet[int], tol_m: float,
                     notch_m: float = 0.0,
-                    rigid: _t.AbstractSet[str] = frozenset()) -> dict:
+                    rigid: _t.AbstractSet[str] = frozenset(),
+                    edge_of: dict[int, tuple[int, int]] | None = None) -> dict:
     """THE NEW NODE ON A STANDING EDGE STANDS ON THAT EDGE (spec §53 (11)).
     A follower's ring nodes the rim it shares with a standing cell, so the
     full map carries vertices the base map lacks that no follower owns.
@@ -206,7 +216,9 @@ def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
     level at its foot — the linear interpolation of the edge's two solved
     ends — and joins ``fixed`` (in place): the standing cell's surface is
     the base's, with one more node on a straight edge.  A vertex on no base
-    edge is counted (``off_edge``) and stays an unknown.
+    edge is counted (``off_edge``) and stays an unknown.  ``edge_of`` (when
+    given, filled in place): ``{node: (a, b)}``, the base edge each levelled
+    node stands on (#1918 R4: ``pipeline/neck_release`` reads it).
 
     ``notch_m`` (the pad roads' stage, issue #609): a node the arrangement
     NOTCHED off its standing edge (pass C's stand-off, ``constraints/
@@ -225,6 +237,7 @@ def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
     from shapely.strtree import STRtree
     todo = [j for j, _v in _items(pm_full.vertices) if j not in fixed and j not in free]
     rep = {"rim_nodes": len(todo), "on_a_base_edge": 0, "off_edge": 0}
+    edge_of = {} if edge_of is None else edge_of
     if not todo:
         return rep
     bv = pm_base.vertices
@@ -243,10 +256,11 @@ def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
             off.append(j)
             continue
         fixed[j] = _edge_level(lines[k], edges[k], pts[i], z_base)
+        edge_of[j] = (int(edges[k].a), int(edges[k].b))
         rep["on_a_base_edge"] += 1
     if notch_m > 0.0 and off:
         rep["notched"] = _notched_levels(pm_base, z_base, pm_full, fixed, off, notch_m,
-                                         rigid)
+                                         rigid, edge_of)
         rep["off_edge"] -= rep["notched"]
     return rep
 
@@ -261,7 +275,8 @@ def _edge_level(line, e, pt, z_base) -> float:
 
 def _notched_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
                     off: _t.Sequence[int], notch_m: float,
-                    rigid: _t.AbstractSet[str] = frozenset()) -> int:
+                    rigid: _t.AbstractSet[str] = frozenset(),
+                    edge_of: dict[int, tuple[int, int]] | None = None) -> int:
     """:func:`late_rim_levels`' ``notch_m`` pass: each of ``off`` within
     ``notch_m`` (any distance on a face of a ``rigid`` role) of a base edge
     of a face carrying one of ITS standing refs takes the nearest such
@@ -290,6 +305,8 @@ def _notched_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
             continue
         a, b = segs[k]
         fixed[j] = _edge_level(lines[k], _Edge(a, b), pt, z_base)
+        if edge_of is not None:
+            edge_of[j] = (int(a), int(b))
         n += 1
     return n
 
@@ -327,7 +344,9 @@ def last_stage_head(ruling: str) -> str:
 def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
                      yield_heads: _t.AbstractSet[str] = frozenset(),
                      widen_heads: _t.AbstractSet[str] = frozenset(),
-                     widen_floor_m: float = 0.0
+                     widen_floor_m: float = 0.0,
+                     no_widen: _t.AbstractSet[int] = frozenset(),
+                     alone: bool = False
                      ) -> tuple[ConstraintSet, dict]:
     """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
     with NO unknown is not the last stage's.  Every row whose vertices are
@@ -347,12 +366,21 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
     consistent under exactly this inequality, so a follow row and a widened
     cap never conflict by construction and the cap gives by the floor over
     its chord and no more.  (A TIER alone does not bound it: a relaxed row
-    is demoted to a soft penalty — probed, 22 chords stood over the floor.)"""
+    is demoted to a soft penalty — probed, 22 chords stood over the floor.)
+    A row touching a node of ``no_widen`` (a released neck station, #1918
+    R4) is never widened: its kerb holds the pad road's own law.
+
+    ``alone`` (THE CAR LOTS' STAGE, #2114 round 2 P1/P3): the followers are
+    SOLVED ALONE against the constants — every row naming both an unknown
+    and a constant leaves too (``coupled``), whatever generator minted it
+    (§28's frontage, the apron-edge ramp, the road-end contact, ...): the
+    stage's own follow rows (``constraints/car_lot_follow``) are the one
+    relation between a car lot and the ground standing beside it."""
     kept, dropped = [], {}
     widened = 0
     for r in cs.rows():
         if widen_heads and str(r.source.ruling).split("(")[0].strip() in widen_heads \
-                and not any(v in fixed for v in row_vertices(r)):
+                and not any(v in fixed or v in no_widen for v in row_vertices(r)):
             r = _dc.replace(r, source=_dc.replace(
                 r.source, ruling=last_stage_head(r.source.ruling)))
             if isinstance(r, Diff) and r.d > 0.0 and widen_floor_m > 0.0:
@@ -369,8 +397,12 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
             dropped["Pin (yielding, on a follower)"] = \
                 dropped.get("Pin (yielding, on a follower)", 0) + 1
             continue
-        if all(v in fixed for v in row_vertices(r)):
+        vs = row_vertices(r)
+        if all(v in fixed for v in vs):
             k = type(r).__name__
+            dropped[k] = dropped.get(k, 0) + 1
+        elif alone and any(v in fixed for v in vs):
+            k = f"coupled: {r.source.generator}"
             dropped[k] = dropped.get(k, 0) + 1
         else:
             kept.append(r)

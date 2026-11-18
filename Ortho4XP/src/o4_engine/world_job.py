@@ -36,14 +36,22 @@ Each tick:
    swaps are spaced :data:`SWAP_SPACING_S` apart (§10) unless a tile's
    margin would run out before the next slot (then at once: the spacing
    never makes a tile late).
-3. Candidates: flying (:data:`MOVING_MS` or faster), the tiles that enter
-   along the straight track within the horizon, plus the turn margin
+3. Candidates (#2142 part 3), always both: the RING -- the tiles the
+   window takes in on its next move in any direction
+   (``O4_World_Ahead.ring``), each with the deadline of turning straight
+   at it (``O4_World_Ahead.ring_deadline_s``, at :data:`PARKED_ASSUMED_MS`
+   or faster) -- and, flying (:data:`MOVING_MS` or faster), the tiles that
+   enter along the straight track within the horizon plus the turn margin
    (``O4_World_Ahead.ahead``), each with its deadline (entry less the S3
-   margin and the swap); a tile that cannot be built by its deadline even
-   at the low estimate is ``late`` and not started ("Flying faster than
-   tiles can be built here").  Parked or slow: the tiles the window takes
-   in on its next move in any direction (``O4_World_Ahead.ring``), nearest
-   first, with a deadline at :data:`PARKED_ASSUMED_MS`.
+   margin and the swap); a tile in both keeps the earlier.  Only an AHEAD
+   tile that cannot be built by its deadline even at the low estimate is
+   ``late`` and not started ("Flying faster than tiles can be built
+   here").  A placeholder is left out only while it is in the window or
+   within S3's margin of it NOW (:meth:`WorldJob.in_window_now`): the
+   ``Log.txt`` witness keeps no placeholder out for the session (a tile
+   X-Plane loaded empty and then left is draped before it comes back).
+   Ring and held tiles are drawn at :data:`QUICK_PX`; an ahead tile at the
+   user's width when that fits its deadline (:meth:`WorldJob.px_for`).
 4. Dispatch, earliest deadline first, while fewer builds run than the slots
    allow: ``O4_World_Governor.flight_slots`` in flight, ``parked_slots``
    parked, less what the frame-time guard has given back, less what an
@@ -63,6 +71,17 @@ to S3, merged file by file so no name X-Plane may open goes (S5,
 ``publisher.settle(..., merge=True, fresh=True)``), which then OFFERS the user the
 reload that shows it; nothing reloads on its own (12c (4)).
 
+HELD PLACEHOLDERS (#2142 part 2): every placeholder of the window
+X-Plane holds now is a candidate as well -- on the ground at once
+(class P0, after the aircraft's own tile, nearest first), in the air
+LAST (after every ring and ahead tile).  A placeholder X-Plane holds
+goes in although it holds it (``O4_World_Pack.nothing_held``, #2032)
+but shows only after a reload: when the last of them (and the parked
+aircraft's own tile) is swapped or has failed, and the aircraft is on
+the ground, the job calls ``offer()`` ONCE for the episode (a flight
+load starts a new one); in the air nothing is offered until it is next
+on the ground (owner Q2, 2026-11-17).
+
 A build that fails twice is ``failed`` (two attempts, never a third,
 spec §11).  Each finished build rescales the kind's remaining estimates by
 measured / predicted, clamped to 0.5-2.5 (§9).
@@ -81,8 +100,8 @@ import O4_World_Window as WINDOW
 from O4_Imagery_Follow_Motion import MotionTracker
 
 __all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS",
-           "PARKED_ASSUMED_MS", "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob",
-           "drape_estimate"]
+           "PARKED_ASSUMED_MS", "SWAP_SPACING_S", "MAX_ATTEMPTS", "QUICK_PX",
+           "WorldJob", "drape_estimate"]
 
 #: The intermediate kind the job builds: D1 decided ``drape`` (spec §17,
 #: RULINGS 2026-11-11j); ``light`` is retired.
@@ -114,6 +133,16 @@ PARKED_MS = 2.0
 #: The horizon runs this many degrees of travel past one build's length.
 HORIZON_EXTRA_DEG = 1.0
 MAX_HORIZON_S = 3600.0
+#: A window move takes in this many tiles at most per column (the 5-row
+#: ring's side); the horizon covers building them on the slots.
+RING_SIDE = 5
+#: The photo width of every ring and held tile (owner Q1, 2026-11-17:
+#: Quick for every speculative tile; the follow job sharpens it live).
+QUICK_PX = 512
+#: A ring or ahead tile due within this many builds (high estimate) goes
+#: before the ground's held placeholders (CYYR replay: the held ones
+#: took the parked slots the first ring needed).
+URGENT_BUILDS = 2.0
 _M_PER_DEG = 111_320.0
 
 Tile = tuple[int, int]
@@ -133,6 +162,12 @@ class _Job:
     finished_at: Optional[float] = None
     swapped_at: Optional[float] = None
     notes: list = field(default_factory=list)
+    #: photo width this build is asked for (None: the builder's default)
+    px: Optional[int] = None
+    #: a placeholder X-Plane holds in its window now (part 2)
+    held: bool = False
+    #: started on the ground as a held placeholder
+    ground_start: bool = False
     #: the parked aircraft's own tile: built at once with its core at
     #: ``core`` (lat, lon), swapped in although X-Plane holds it
     core: Optional[tuple] = None
@@ -148,7 +183,11 @@ class WorldJob:
                  estimate_s: Optional[dict] = None,
                  slot_free: Callable[[int, int], int] = lambda s, r: s - r,
                  kind_of: Callable[[Tile], Optional[str]] = lambda t: None,
-                 stamp: Callable[[], object] = lambda: "") -> None:
+                 stamp: Callable[[], object] = lambda: "",
+                 drape_px: Optional[int] = None,
+                 offer: Callable[[], object] = lambda: None) -> None:
+        """``drape_px``: the user's drape width (None: builds are started
+        without ``px``); ``offer()``: the episode's one reload offer."""
         if kind not in KINDS:
             raise ValueError(f"unknown intermediate kind {kind!r} "
                              f"(known: {list(KINDS)})")
@@ -178,6 +217,16 @@ class WorldJob:
         self.turn_deg_s = 0.0
         self._seen_loads: set = set()
         self._swap_at = -math.inf
+        self.drape_px = drape_px
+        self.offer = offer
+        self.offers: list = []              # job-clock times offered
+        self._ahead: set = set()
+        self._new_episode()
+
+    def _new_episode(self) -> None:
+        """A flight (re)load: the reload offer may be made again."""
+        self._shown_on_reload: set = set()  # swapped while X-Plane held it
+        self._offered = False
 
     # ------------------------------------------------------------ inputs
 
@@ -186,6 +235,7 @@ class WorldJob:
         (``WindowTracker.load``) and the motion history is forgotten."""
         self.tracker.load(lat, lon)
         self.motion.restart()
+        self._new_episode()
 
     def forget_window(self) -> None:
         """X-Plane loaded a flight somewhere unknown (the feed's reader
@@ -193,6 +243,7 @@ class WorldJob:
         then the witness narrows it) and so is the motion."""
         self.tracker.forget()
         self.motion.restart()
+        self._new_episode()
 
     def estimate(self) -> tuple[float, float]:
         """``(low, high)`` seconds one build of the job's kind takes now."""
@@ -212,6 +263,7 @@ class WorldJob:
         self.spawn = self._spawn_tile(rec)
         self.governor.observe(now, rec.get("frame_s"), self._running() > 0)
         self._settle(now)
+        self._maybe_offer(now)
         if rec.get("paused"):
             self.state, self.reason = "paused", "X-Plane is paused."
             return
@@ -259,6 +311,12 @@ class WorldJob:
         return AHEAD.held(self.tracker, self.position, self.gs_ms, tile,
                           self._seen_loads)
 
+    def in_window_now(self, tile: Tile) -> bool:
+        """In the window or within S3's margin of it now -- the witness
+        left out (a placeholder X-Plane loaded and then left is wanted
+        again; tiles holding real files keep S4 at the publisher)."""
+        return AHEAD.held(self.tracker, self.position, self.gs_ms, tile)
+
     def _held_soon(self, tile: Tile) -> bool:
         """Would ``tile`` be held one swap spacing from now?"""
         if self.position is None:
@@ -271,6 +329,14 @@ class WorldJob:
 
     def _running(self) -> int:
         return sum(1 for j in self.jobs.values() if j.state == "building")
+
+    def _counted(self) -> int:
+        """Running builds that hold a slot: flying, a held placeholder
+        started on the ground does not (it was dispatched on the parked
+        slots; counting it on the 1-3 flight slots kept the first tiles
+        on the track from starting for one build, CYYR replay)."""
+        return sum(1 for j in self.jobs.values() if j.state == "building"
+                   and not (self._track is not None and j.ground_start))
 
     def _harvest(self, now: float) -> None:
         for tile, ok in self.builder.poll(now):
@@ -300,10 +366,11 @@ class WorldJob:
                        if j.state in ("built", "staged")),
                       key=lambda j: j.deadline)
         for job in done:
+            shown = job.held
             if job.core is not None:        # the parked exception to S3
+                shown = self.held(job.tile)
                 state = self.publisher.settle(job.tile, job.kind, False,
-                                              merge=self.held(job.tile),
-                                              fresh=True)
+                                              merge=shown, fresh=True)
             else:
                 held = self.held(job.tile)
                 if (not held and now - self._swap_at < SWAP_SPACING_S
@@ -311,6 +378,8 @@ class WorldJob:
                     held = True             # waits for the next slot
                 state = self.publisher.settle(job.tile, job.kind, held)
             if state == "swapped":
+                if shown:                   # X-Plane shows it on a reload
+                    self._shown_on_reload.add(job.tile)
                 job.state, job.swapped_at = "swapped", now
                 if job.core is not None:
                     self._cored.add(job.tile)
@@ -321,30 +390,79 @@ class WorldJob:
             elif state in ("staged", "failed"):
                 job.state = state
 
+    def _maybe_offer(self, now: float) -> None:
+        """The episode's ONE reload offer (see the module): every held
+        placeholder and the parked aircraft's own tile settled, at least
+        one of them swapped while X-Plane held it, on the ground."""
+        if (self._offered or not self._shown_on_reload or not self.on_ground
+                or self.spawn is not None):     # its own tile comes first
+            return
+        if any((j.held or j.core is not None)
+               and j.state not in ("swapped", "failed")
+               for j in self.jobs.values()):
+            return
+        self._offered = True
+        self.offers.append(now)
+        self.offer()
+
     # ---------------------------------------------------------- planning
 
     def _horizon_s(self) -> float:
         lat = self.position[0] if self.position else 0.0
         deg_m = _M_PER_DEG * max(math.cos(math.radians(lat)), 0.2)
         extra = HORIZON_EXTRA_DEG * deg_m / max(self.gs_ms, MOVING_MS)
-        return min(MAX_HORIZON_S, self.estimate()[1] + extra)
+        rounds = math.ceil(RING_SIDE / max(1, self.slots()))
+        return min(MAX_HORIZON_S, self.estimate()[1] * rounds + extra)
 
     def candidates(self) -> dict[Tile, float]:
         """``{tile: deadline in seconds from now}`` (see the module, step
-        3); every tile the window may take in next, wanted or not."""
+        3): the ring and, flying, the tiles ahead; every tile the window
+        may take in next, wanted or not.  The ahead ones are kept in
+        ``_ahead`` (only they can be late)."""
         lat, lon = self.position
+        out = {tile: AHEAD.ring_deadline_s(km, self.gs_ms)
+               for tile, km in AHEAD.ring(self.tracker, lat, lon).items()}
+        self._ahead = set()
         if self._track is None:
-            return {tile: km * 1000.0 / PARKED_ASSUMED_MS
-                    for tile, km in AHEAD.ring(self.tracker, lat, lon).items()}
+            return out
         entries = AHEAD.ahead(self.tracker, lat, lon, self._track[1],
                               self.gs_ms, self._horizon_s(), self.turn_deg_s)
-        return {tile: AHEAD.deadline_s(t, self.gs_ms)
-                for tile, t in entries.items()}
+        for tile, t in entries.items():
+            deadline = AHEAD.deadline_s(t, self.gs_ms)
+            self._ahead.add(tile)
+            out[tile] = min(deadline, out.get(tile, deadline))
+        return out
+
+    def held_placeholders(self) -> dict[Tile, float]:
+        """``{tile: deadline}`` of the placeholders X-Plane holds in its
+        window now (see the module): on the ground at once, nearest
+        first; in the air after every other candidate."""
+        lat, lon = self.position
+        base = 0.0 if self.on_ground else MAX_HORIZON_S
+        out = {}
+        for tile in self.tracker.window():
+            if tile == self.spawn or not self.wanted(tile):
+                continue
+            km = math.hypot(tile[0] + 0.5 - lat, (tile[1] + 0.5 - lon)
+                            * math.cos(math.radians(lat))) * _M_PER_DEG / 1e3
+            out[tile] = base + km / 1000.0
+        return out
+
+    def px_for(self, deadline_s: float) -> Optional[int]:
+        """An ahead tile's width: the user's when its high estimate fits
+        ``deadline_s``, else :data:`QUICK_PX` (None: no user width)."""
+        if self.drape_px is None:
+            return None
+        high = (SCHEDULE.drape_seconds(self.drape_px) * self.scale
+                * SPREAD[1])
+        return int(self.drape_px) if high <= deadline_s else QUICK_PX
 
     def _plan(self, now: float) -> None:
         low = self.estimate()[0]
         wanted = {tile: d for tile, d in self.candidates().items()
-                  if self.wanted(tile) and not self.held(tile)}
+                  if self.wanted(tile) and not self.in_window_now(tile)}
+        held = self.held_placeholders()
+        wanted.update(held)
         if self.spawn is not None:
             wanted[self.spawn] = 0.0        # at once, although X-Plane holds it
             done = self.jobs.get(self.spawn)
@@ -366,8 +484,13 @@ class WorldJob:
                 job.state = "queued"
                 continue
             job.core = None
-            moving = self._track is not None
-            job.state = "late" if moving and deadline < low else "queued"
+            job.held = tile in held
+            ahead = self._track is not None and tile in self._ahead
+            quick = None if self.drape_px is None else QUICK_PX
+            job.px = (self.px_for(deadline) if ahead and not job.held
+                      else quick)
+            job.state = ("late" if ahead and not job.held and deadline < low
+                         else "queued")
         late = [j for j in self.jobs.values() if j.state == "late"]
         self.reason = ("Flying faster than tiles can be built here: ahead "
                        "stays X-Plane's own scenery." if late else "")
@@ -378,16 +501,69 @@ class WorldJob:
                else GOVERNOR.parked_slots(self.capacity))
         return self.governor.allowed(cap)
 
-    def _dispatch(self, now: float) -> None:
-        free = self.slot_free(self.slots(), self._running())
+    def _rank(self, job: _Job, now: float) -> int:
+        """Dispatch order: the parked aircraft's tile; a ring or ahead
+        tile due within one build (high estimate); the ground's held
+        placeholders; the track; the ring; the air's held placeholders."""
+        if job.core is not None:
+            return 0
+        if job.held:
+            return 2 if self.on_ground else 5
+        if job.deadline - now <= self.estimate()[1] * URGENT_BUILDS:
+            return 1
+        return 3 if job.tile in self._ahead else 4
+
+    def _order(self, now: float) -> list:
+        """The queued jobs in dispatch order (:meth:`_rank`, then
+        deadline); on the ground the held placeholders alternate with
+        the ring after the urgent ones, so neither takes every parked
+        slot (CYYR replay: the ring the first minutes of flight need)."""
         queued = sorted((j for j in self.jobs.values() if j.state == "queued"),
-                        key=lambda j: (j.deadline, j.tile))
+                        key=lambda j: (self._rank(j, now), j.deadline, j.tile))
+        if not self.on_ground:
+            return queued
+        head = [j for j in queued if self._rank(j, now) < 2]
+        held = [j for j in queued if self._rank(j, now) == 2]
+        rest = [j for j in queued if self._rank(j, now) > 2]
+        mixed = [j for pair in zip(held, rest, strict=False) for j in pair]
+        n = min(len(held), len(rest))
+        return head + mixed + held[n:] + rest[n:]
+
+    def _gated(self, job: _Job) -> bool:
+        """Flying, a build off the track (ring, held) waits for a spare
+        slot (:meth:`_spare_off_track`)."""
+        return (self._track is not None and job.core is None
+                and job.tile not in self._ahead)
+
+    def _spare_off_track(self, queued: list) -> int:
+        """Builds off the track that may start now while flying: none
+        while a track tile waits, and never the last slot (a build is not
+        pre-empted: the track's next tile must find one free)."""
+        if self._track is None:
+            return len(queued)
+        if any(not self._gated(j) for j in queued):
+            return 0
+        running = sum(1 for j in self.jobs.values() if j.state == "building"
+                      and self._gated(j) and not j.ground_start)
+        return self.slots() - 1 - running
+
+    def _dispatch(self, now: float) -> None:
+        free = self.slot_free(self.slots(), self._counted())
+        queued = self._order(now)
+        spare = self._spare_off_track(queued)
         for job in queued[:max(0, free)]:
+            if self._gated(job):
+                if spare <= 0:
+                    break
+                spare -= 1
             core = {} if job.core is None else {"core": job.core}
+            if job.px is not None:
+                core["px"] = job.px
             if not self.builder.start(job.tile, job.kind, job.deadline - now,
                                       job.klass, **core):
                 continue
             job.state, job.started_at = "building", now
+            job.ground_start = job.held and self.on_ground
             job.attempts += 1
 
     # ----------------------------------------------------------- status

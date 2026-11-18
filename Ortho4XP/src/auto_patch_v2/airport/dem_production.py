@@ -54,7 +54,7 @@ from O4_Airport_Modes import mode_admits, normalize_mode, resolved_inset_mode
 from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
 
-__all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
+__all__ = ["ColdDemFrame", "ProductionDem", "baked_cell", "load_production_dem",
            "frame_state", "TileWater", "cold_frame_code",
            "COLD_CACHE_CODE", "FETCH_FAILED_CODE", "BASE_MISSING_CODE"]
 
@@ -252,6 +252,25 @@ def _inset_mode_of(tile) -> str:
         return "?"
 
 
+def baked_cell(lat, lon, tile_lat: int, tile_lon: int,
+               frame: tuple[float, float, float, float], nx: int, ny: int):
+    """``(iy, ix, iyp, ixp, ry, rx)``: the working-grid cell the mesh's
+    bilinear query (``DEM.alt_vec_baked``) reads at each point of a baked
+    ``ny x nx`` raster whose ``frame`` is ``(x0, x1, y0, y1)`` in degrees
+    from the tile corner — the corner rows/columns and the fractions.
+    Shared by :class:`_BakedTile` and the cursor's point reader
+    (``o4_engine.base_elevation``), which reads only those four posts."""
+    x0, x1, y0, y1 = frame
+    Nx, Ny = nx - 1, ny - 1
+    x = np.clip(np.asarray(lon, dtype=np.float64) - tile_lon, x0, x1)
+    y = np.clip(np.asarray(lat, dtype=np.float64) - tile_lat, y0, y1)
+    px = (x - x0) / (x1 - x0) * Nx
+    py = (y1 - y) / (y1 - y0) * Ny
+    ix = np.minimum(px.astype(np.int64), Nx)
+    iy = np.minimum(py.astype(np.int64), Ny)
+    return iy, ix, np.minimum(iy + 1, Ny), np.minimum(ix + 1, Nx), py - iy, px - ix
+
+
 class _BakedTile:
     """One tile's baked working raster and the mesh's bilinear query
     (``O4_DEM_Utils.DEM.alt_vec_baked``, reproduced vectorised so the
@@ -280,16 +299,8 @@ class _BakedTile:
 
     def sample(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
         ny, nx = self.alt.shape
-        Nx, Ny = nx - 1, ny - 1
-        x = np.clip(lon - self.lon, self.x0, self.x1)
-        y = np.clip(lat - self.lat, self.y0, self.y1)
-        px = (x - self.x0) / (self.x1 - self.x0) * Nx
-        py = (self.y1 - y) / (self.y1 - self.y0) * Ny
-        ix = np.minimum(px.astype(np.int64), Nx)
-        iy = np.minimum(py.astype(np.int64), Ny)
-        ixp = np.minimum(ix + 1, Nx)
-        iyp = np.minimum(iy + 1, Ny)
-        rx, ry = px - ix, py - iy
+        iy, ix, iyp, ixp, ry, rx = baked_cell(
+            lat, lon, self.lat, self.lon, (self.x0, self.x1, self.y0, self.y1), nx, ny)
         a = self.alt
         return (a[iy, ix] * (1 - rx) * (1 - ry) + a[iy, ixp] * rx * (1 - ry)
                 + a[iyp, ix] * (1 - rx) * ry + a[iyp, ixp] * rx * ry)

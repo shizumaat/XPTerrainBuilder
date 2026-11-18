@@ -36,17 +36,20 @@ _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 # ``auto_patch_v2/law/emit.toml`` ``[road_profile]`` and the core reads
 # them HERE — never as literals beside the clamp.
 def road_neighbourhood_law() -> dict:
-    """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes}`` from the law
-    table (``O4_Vector_Utils.clamp_road_network`` / v2's
-    ``airport/road_profile``)."""
+    """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes,
+    terrain_cap}`` from the law table (``O4_Vector_Utils.clamp_road_network``
+    / v2's ``airport/road_profile``).  ``terrain_cap`` is the road on steep
+    ground's cap (owner RULINGS 2026-11-17, ``tables.road_terrain_cap``)."""
     from auto_patch_v2.law import tables as _v2_tables
-    rp = _v2_tables.load_default().tables.emit.road_profile
+    law = _v2_tables.load_default()
+    rp = law.tables.emit.road_profile
     return {
         "runout_m": float(rp.runout_m),
         "budget_m": float(rp.budget_m),
         "cap_ceiling": float(rp.cap_ceiling),
         "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
         "public_classes": tuple(str(c) for c in rp.public_classes),
+        "terrain_cap": float(_v2_tables.road_terrain_cap(law)),
     }
 
 
@@ -989,14 +992,17 @@ cfg_tile_vars = {
     },
     "cover_approach_ft": {
         "type": int,
-        "default": 1000,
+        "default": -1,
         "hint": (
             "The sharper airport imagery also follows each runway's "
             "approach (#1990): from each landing threshold out along the "
             "extended centreline until a 3 degree glide path is this many "
             "feet above the threshold (1000 ft is about 5.8 km, 500 ft "
             "about 2.9 km; 0 = the airport only), widening from the "
-            "runway width to 1 km."
+            "runway width to 1 km.  -1 (the default) = as far as the eye "
+            "on that glide path still resolves the base zoom's full "
+            "detail: about 6.3 km at 40 degrees latitude, 8 km at the "
+            "equator.  -2 = half that (Balanced)."
         ),
     },
     "cover_zl": {

@@ -50,7 +50,7 @@ from ..constraints.roads import (NO_FRAME, NOT_A_PAIR, one_ribbon_m,
                                  road_pair_reading)
 from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
 from ..constraints.taxi import short_pairs
-from ..law.tables import role_cap, snap_margin_m
+from ..law.tables import LOT_ROLES, role_cap, snap_margin_m
 from . import chord_work as _cw
 from .frame import Patch, Row, Shape, noise_m, row
 from .steps import joint_index
@@ -408,7 +408,9 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
             ax = long_axis(sh.xy)
             axis = ax[0] if ax else None
         strict = spine | rigid_v
-        outside = chords_outside_face(p, sh, min_d) if sh.role == "apron" else set()
+        # a chord leaving its face is no pair: an apron's (05ae-1), a lot's (#2099 G4 C)
+        outside = chords_outside_face(p, sh, min_d) \
+            if sh.role == "apron" or sh.role in LOT_ROLES else set()
         for i in range(n):
             a = sh.ids[i]
             for j in range(i + 1, n):

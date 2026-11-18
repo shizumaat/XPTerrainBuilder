@@ -31,13 +31,12 @@ here decides anything, and no worker count reaches a row or a report.
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
 import numpy as np
 
 from ..airport.pool import WorkPool, budget_bound, share_object, shared_object
-from ..constraints.geometry import chord_midpoints_hit, chords_covered, face_cover
+from ..constraints.geometry import chords_outside, face_cover, rows_outside
 
 XY = tuple[float, float]
 #: one ring and its hole rings
@@ -76,47 +75,6 @@ MAX_WORKERS = 8
 def ring_chords(n: int) -> int:
     """How many non-adjacent chords a ring of ``n`` vertices has."""
     return n * (n - 3) // 2 if n > 3 else 0
-
-
-def rows_outside(cover, xy: _t.Sequence[XY], min_d: float,
-                 i0: int, i1: int) -> list[tuple[int, int]]:
-    """The index pairs ``(i, j)``, ``i0 <= i < i1`` and ``j >= i + 2``, of
-    the ring's non-adjacent chords at least ``min_d`` long that ``cover``
-    does NOT cover — in ``(i, j)`` order.  ONE ``covered_by`` over the
-    chunk's chords."""
-    n = len(xy)
-    ii: list[int] = []
-    jj: list[int] = []
-    for i in range(i0, i1):
-        xa, ya = xy[i]
-        for j in range(i + 2, n):
-            if i == 0 and j == n - 1:
-                continue
-            xb, yb = xy[j]
-            if math.hypot(xa - xb, ya - yb) >= min_d:
-                ii.append(i)
-                jj.append(j)
-    if not ii:
-        return []
-    pts = np.asarray(xy, float)
-    seg = np.stack([pts[ii], pts[jj]], axis=1)
-    # the SOUND pre-screen first (``chord_midpoints_hit``: a chord whose
-    # midpoint misses the cover is not covered); the full predicate judges
-    # the survivors alone
-    live = np.flatnonzero(chord_midpoints_hit(cover, seg))
-    inside = np.zeros(len(seg), dtype=bool)
-    inside[live] = chords_covered(cover, seg[live])
-    return [(i, j) for i, j, k in zip(ii, jj, inside.tolist()) if not k]
-
-
-def chords_outside(xy: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
-                   tol_m: float, min_d: float) -> list[tuple[int, int]]:
-    """Every chord of one ring that leaves its face — the serial reading;
-    none for a degenerate face (``face_cover`` is ``None``)."""
-    cover = face_cover(xy, holes, tol_m)
-    if cover is None:
-        return []
-    return rows_outside(cover, xy, min_d, 0, len(xy))
 
 
 def chunks(n: int, size: int) -> list[tuple[int, int, int]]:

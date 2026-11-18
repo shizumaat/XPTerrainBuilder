@@ -113,7 +113,7 @@ enum SettingsLayout {
             SettingItem("cover_airports_with_highres", "Use sharper imagery at airports?", .tile, summary: "The same photos at a finer detail; more download and disk."),
             SettingItem("cover_zl", "Which ZL should the airport imagery use?", .tile, summary: "ZL17 is about 1 m per pixel, ZL18 about 0.6 m."),
             SettingItem("cover_extent", "How far past the airport should it reach (km)?", .tile, summary: "The sharper imagery covers the airport and this band around it."),
-            SettingItem("cover_approach_ft", "How far along the approaches (ft on a 3° glide path)?", .tile, summary: "1,000 ft is about 5.8 km past each runway end; 0 covers the airport only."),
+            SettingItem("cover_approach_ft", "How far along the approaches (ft on a 3° glide path)?", .tile, summary: "1,000 ft is about 5.8 km; 0 = the airport only; -1 = as far as the eye resolves; -2 = half"),
             SettingItem("sea_nodata_fill", "Repair blank spots in imagery over the sea?", .tile, summary: "Fills the white or black rectangles some providers leave over coastal water."),
             SettingItem("color_harmonization", "Even out imagery colors across the tile?", .tile, summary: "Removes the patchwork of different photo dates and providers."),
             // #1992 §7: the world switch (app-wide; P6 decides its default).

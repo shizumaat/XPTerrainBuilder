@@ -360,6 +360,10 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # profile, ``pipeline/publication.tunnel_mouth_depths``).  EVIDENCE: v2
     # verify's ``tunnel_mouth_canonical`` reads it off the publication.
     "tunnel_mouth_depths",
+    # #2120 R2: the mouths a portal in a cut walls (``pipeline/publication.
+    # cut_portal_mouths``).  EVIDENCE: the drawn gate's road layer reads the
+    # cut face there as the mouth's face (``harness/drawn_roads``).
+    "cut_portal_mouths",
     # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am, sidecar
     # ``lifted_caps``): ``[shapeID, corridor, road ref, span m, designed
     # grade]`` per ramp face whose within-shape LONGITUDINAL cap is LIFTED
@@ -502,6 +506,10 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # gap.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes by it;
     # the census prices nothing from it.
     "pad_touch",
+    # #2114 round 2 P3 (``pipeline/publication.car_lot_terraces``): each car
+    # lot held apart from a standing ring as a declared terrace, with both
+    # levels.  EVIDENCE: the census prices nothing from it.
+    "car_lot_terraces",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is

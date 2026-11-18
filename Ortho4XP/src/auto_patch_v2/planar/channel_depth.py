@@ -54,7 +54,7 @@ import shapely
 from shapely.geometry import LineString
 
 __all__ = ["extend_axis", "rejoin", "crest_through_feet", "VisibleFloor", "FLOOR", "LEDGE",
-           "BELOW", "END", "UNMET",
+           "BELOW", "END", "UNMET", "RAMP",
            "FLOOR_AT_HIGHEST_FOOT"]
 
 #: OWNER Q2 (spec ``object-gate-member-floors-20261113.md`` §9, RULINGS
@@ -63,6 +63,9 @@ __all__ = ["extend_axis", "rejoin", "crest_through_feet", "VisibleFloor", "FLOOR
 FLOOR_AT_HIGHEST_FOOT = True
 #: a foot's kind at its station (:func:`_classify`, :func:`_member_feet`)
 FLOOR, LEDGE, BELOW, END, UNMET = "floor", "ledge", "below", "end", "unmet"
+#: #2127 R3 A2: a foot of a member's run flanking an exit ramp — it states
+#: the ramp, never the floor's profile or edge
+RAMP = "ramp"
 #: a continuation way turning more than this off the axis is a branch
 _TURN_MAX_DEG = 45.0
 #: end nodes this close are one node (the feed's own coordinates)
@@ -335,16 +338,20 @@ def _smooth(ss, got_s, got_h, floor: float, step: float, window: float) -> np.nd
 
 def _member_feet(feet: _t.Sequence[np.ndarray], kinds: _t.Sequence[np.ndarray],
                 sides: tuple[_Side, _Side], moved: np.ndarray,
-                members: _t.Sequence[tuple[str, float]]) -> list[tuple]:
+                members: _t.Sequence[tuple[str, float]],
+                ramp: _t.AbstractSet[tuple[int, int]] = frozenset()) -> list[tuple]:
     """One record per member / side / station: ``(x, y, authored y,
     placement id, kind)`` — :data:`FLOOR` / :data:`LEDGE`, :data:`END` (a
-    floor or ledge foot at a station ``rejoin`` moved) or :data:`UNMET` (a
-    ledge foot beyond the side's innermost one, or a :data:`BELOW` foot)."""
+    floor or ledge foot at a station ``rejoin`` moved), :data:`UNMET` (a
+    ledge foot beyond the side's innermost one, or a :data:`BELOW` foot) or
+    :data:`RAMP` (``ramp``: ``(station, row)`` of an exit ramp's run)."""
     out = []
     for i, (f, k) in enumerate(zip(feet, kinds, strict=True)):
-        for row, kind in zip(f, k, strict=True):
+        for j, (row, kind) in enumerate(zip(f, k, strict=True)):
             side = sides[0] if row[1] >= 0.0 else sides[1]
-            if kind == BELOW or (kind == LEDGE and not abs(abs(row[1]) - side.ledge[i]) < 1e-9):
+            if (i, j) in ramp:
+                kind = RAMP
+            elif kind == BELOW or (kind == LEDGE and not abs(abs(row[1]) - side.ledge[i]) < 1e-9):
                 kind = UNMET
             elif moved[i]:
                 kind = END
@@ -364,7 +371,8 @@ class VisibleFloor:
         self.extent = _cut_extent(cuts, axis_ln, cap)
         self.members = _cut_members(cuts)
         self.span = _cut_span(self.points)
-        self.feet = self.kinds = self.raw = None
+        self.feet = self.kinds = self.raw = self.level = None
+        self.ramp: frozenset[tuple[int, int]] = frozenset()
 
     def profile(self, ss: _t.Sequence[float], step: float, flat: float):
         """The floor profile over ``ss`` (:func:`_cut_profile`), or ``None``."""
@@ -373,8 +381,23 @@ class VisibleFloor:
         self.ss, self.step, self.flat = list(ss), step, flat
         self.feet = _cut_feet(self.points, ss, step)
         lv = _shell_floor(self.extent, ss, step, flat) if len(self.extent) else None
+        self.level = lv
         self.kinds = _classify(self.feet, lv, flat)
         self.raw = _cut_profile(self.feet, ss, self.kinds, flat)
+        return self.raw
+
+    def without_ramp_feet(self, rows: _t.AbstractSet[tuple[int, int]]):
+        """The floor profile again with the ``(station, row)`` feet of an
+        exit ramp's run out of it (#2127 R3 A2: a ramp's rising feet are no
+        floor feet — MEASURED LGAV ``Trench_07`` s1857-1883 lifted the whole
+        floor 0.7-0.9 m); a :data:`FLOOR` one becomes :data:`RAMP` (out of
+        the profile and the floor's edge), a :data:`LEDGE` one stays the
+        crest's pin.  Published :data:`RAMP` either way."""
+        self.ramp = frozenset(rows)
+        for i, j in rows:
+            if self.kinds[i][j] == FLOOR:
+                self.kinds[i][j] = RAMP
+        self.raw = _cut_profile(self.feet, self.ss, self.kinds, self.flat)
         return self.raw
 
     def sides(self, profile, axis_fn, floor_half: float, cap: float, band: float,
@@ -402,7 +425,7 @@ class VisibleFloor:
                 u = np.subtract(axis_fn(s + 1.0), axis_fn(max(0.0, s - 1.0)))
                 u = u / (np.hypot(*u) or 1.0)
                 pins.append((float(p[0] - u[1] * off), float(p[1] + u[0] * off), float(z)))
-        feet = _member_feet(self.feet, self.kinds, sides, moved, self.members)
+        feet = _member_feet(self.feet, self.kinds, sides, moved, self.members, self.ramp)
         return ((tuple(map(float, sides[0].edge)), tuple(map(float, sides[1].edge))),
                 (tuple(map(float, sides[0].crest)), tuple(map(float, sides[1].crest))),
                 tuple(pins), tuple(feet), tuple(rings))

@@ -60,6 +60,9 @@ class TunnelObject:
     # of the plan area under its rim stands, as authored, under the ground
     # around it (a road ramp walled by its parapets climbs out of it)
     pit_sunken_min_share: float
+    # #1949 rule 7: only an OPEN TRENCH (its rim's cover of the floor under
+    # this share, no walls hanging under its plate) banks its open edges
+    trench_roof_max_share: float
     # 2026-11-06d (4): the cut stands this far under the floor face over it
     floor_clearance_m: float
     # …measured against THE AUTHOR'S GROUND (``geom/author_ground``): the
@@ -113,3 +116,6 @@ class TunnelObject:
     wing_reach_max_m: float
     # #2099 R3 D6: a group wall foot slope under this witnesses no ramp grade
     group_foot_min_grade: float
+    # #2099 G4 D5' (RULINGS 2026-11-16l): the ground behind a retaining wall
+    # stands this far under its top -- a parapet, never flush
+    retaining_parapet_m: float

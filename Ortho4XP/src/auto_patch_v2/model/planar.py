@@ -46,9 +46,10 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
            "is_stack_ground_ref", "is_stack_apron_ref", "AGP_GROUND_PREFIX",
-           "is_agp_ground_ref", "is_agp_bank_ref",
+           "is_agp_ground_ref", "is_agp_bank_ref", "PIT_BANK_PREFIX", "is_pit_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
-           "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
+           "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX", "CAR_LOT_PREFIX",
+           "is_car_lot_ref",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
            "EDGE_STRIP_PREFIX", "is_edge_strip_ref", "edge_strip_host",
            "FENCE_YARD_PREFIX", "fence_yard_pad",
@@ -173,6 +174,17 @@ def is_agp_ground_ref(ref: object) -> bool:
 def is_agp_bank_ref(ref: object) -> bool:
     """Is this face an AGP plate's bank (``agp_ground:...:bank#k``)?"""
     return is_agp_ground_ref(ref) and ":bank#" in str(ref)
+
+
+#: #1949 R3 (spec ``sim-review/1949-R2.md``): the face ref of a walled pit's
+#: bank -- ``pit_bank:<floor>:<run>#k`` from its open edge's crest down to
+#: the lidar (``planar/pit_bank``) -- graded ground, no zone class
+PIT_BANK_PREFIX = "pit_bank:"
+
+
+def is_pit_bank_ref(ref: object) -> bool:
+    """Is this face a piece of a walled pit's bank?"""
+    return str(ref or "").startswith(PIT_BANK_PREFIX)
 
 
 def is_stack_apron_ref(ref: object) -> bool:
@@ -377,6 +389,12 @@ def face_vertex_set(pm, face) -> set[int]:
     return out
 
 
+def face_cycles(pm, face) -> list[list[int]]:
+    """A face's outer ring and its holes, each as its vertex ids in walking
+    order (``PlanarMap.ring_vertices``)."""
+    return [list(pm.ring_vertices(c)) for c in (face.ring, *face.holes)]
+
+
 def face_vertex_ids(ring: _t.Sequence[int],
                     holes: _t.Iterable[_t.Sequence[int]]) -> list[int]:
     """THE VERTEX SET OF A FACE — its outer ring's vertices, then each hole
@@ -545,6 +563,15 @@ class PlanarMap:
     #: the ground beside a grouped mouth's wings, held on their feet by
     #: ``constraints/wing_cut``
     wing_cuts: tuple = ()
+    #: #2128 round 4 THE GRADE-SEPARATED ROAD CROSSINGS (owner RULINGS
+    #: 2026-11-17d; ``planar/grade_separation``, ``model/grade_separation.
+    #: RoadCrossing``): two roads one over the other share no level (the
+    #: road ramp, ``airport/road_ramp``).  Empty: every crossing joined.
+    road_crossings: tuple = ()
+    #: #2128 round 4 (R2 spec R4) THE SURVEYED CUT beside a kept hard deck
+    #: (``planar/survey_deck_cut`` region C) as ``(exterior, holes)`` frame
+    #: rings: no road-ramp seed or target inside, the road follows its floor.
+    survey_cuts: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled
@@ -850,6 +877,20 @@ class PlanarMap:
     #: by ``constraints/public_road_release`` (the rows yield) and
     #: ``pipeline/publication.lifted_caps`` (the census lift)
     public_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-11-17 (#2122): face id -> the cap a road ON STEEP
+    #: GROUND takes (``tables.road_terrain_cap``), for every non-public
+    #: mapped-road face whose target runs over the road cap somewhere (``airport/public_road.
+    #: steep_road_lifts``); read by ``constraints/public_road_release.
+    #: steep_release`` (the rows rise to it), ``constraints/road_ramp.
+    #: terrace_rewrite`` (its routes' runs) and ``pipeline/publication.
+    #: lifted_caps`` (the census lift)
+    steep_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: #2073 (owner 2026-11-13T22:48Z, #1939 site 3): face id -> its SPAN
+    #: vertices, for every groundside road / lot face a deckless mapped
+    #: bridge carries (``airport/bridge_span``); read by ``constraints/
+    #: bridge_span_release`` (the span's rows yield to its ground) and
+    #: ``pipeline/publication.lifted_caps`` (the census lift)
+    bridge_span: _t.Mapping[int, frozenset] = _dc.field(default_factory=dict)
     #: OWNER RULINGS 2026-10-27f / 27s (Q186 / Q197): vertex -> the ref of
     #: the PUBLIC road it stands on, for every vertex of a SIZED junction
     #: joint (the side street's mouth and transition, the main road's kerb
@@ -873,6 +914,11 @@ class PlanarMap:
     #: ``planar/covered_ground``; ``airport/road_ramp`` reads each as a wall
     #: that retains its height (the road past the mouth at its own floor).
     mouth_walls: tuple[tuple[tuple[tuple[float, float], ...], float, str], ...] = ()
+    #: THE MOUTHS A PORTAL IN A CUT WALLS (#2120 R2): ``(bore way ids,
+    #: (x, y) on the walled edge, portal object id)`` -- derived with
+    #: ``mouth_walls`` (``planar/covered_ground``); published as claimed
+    #: mouths (``pipeline/publication.cut_portal_mouths``).
+    portal_mouths: tuple[tuple[tuple[int, ...], tuple[float, float], str], ...] = ()
     #: THE JETWAY GROUND (issue #802; owner RULINGS 2026-10-16b (1)): the
     #: exterior rings of the PAVEMENT a terminal pad took in when it grew
     #: over its jetways — derived ONCE in ``classify/evidence._with_jetways``.
@@ -966,8 +1012,8 @@ class PlanarMap:
                     air.update(self.ring_vertices(cyc))
         return frozenset(v for v in self.ribbon_vertices() if v not in air)
 
-    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset()
-                           ) -> frozenset[int]:
+    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset(),
+                           cut: bool = True) -> frozenset[int]:
         """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
         mapped-road ribbon shares with an adjacent-ground band — every
         vertex touching both an OSM ribbon face (:func:`is_osm_ribbon_ref`)
@@ -983,7 +1029,11 @@ class PlanarMap:
 
         A ROAD THROUGH ZONE 2 (owner RULINGS 2026-10-20c, 39): the band is
         cut back from it (``road_yield``), so it shares no vertex — its
-        ribbon vertices standing in the cut are the kerb all the same."""
+        ribbon vertices standing in the cut are the kerb all the same.
+        ``cut=False`` leaves them out: the road's own-ground target still
+        reaches them (#2121, ``airport/road_ramp._cut_kerb_ground``) — the band holds
+        them under its ceiling only, so the road follows its ground below
+        the band's grade instead of hanging on the objective alone."""
         rib: set[int] = set()
         band: set[int] = set()
         air: set[int] = set()
@@ -1001,8 +1051,9 @@ class PlanarMap:
         # 39 (owner RULINGS 2026-10-20c): a ribbon vertex in a road's cut
         # out of zone 2 is the band's kerb too, across the stand-off, and so
         # is the zone-1 lip's where the road crosses it (``road_yield``)
-        cut = {v for y in (getattr(self, "road_yield", ()) or ()) for v in y.kerb}
-        return frozenset(((rib & band) | cut) - air)
+        cut_kerb = ({v for y in (getattr(self, "road_yield", ()) or ()) for v in y.kerb}
+                    if cut else set())
+        return frozenset(((rib & band) | cut_kerb) - air)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of
@@ -1225,6 +1276,17 @@ def is_facade_ref(ref) -> bool:
                                                EDGE_STRIP_PREFIX, FENCE_YARD_PREFIX)
 
 
+#: owner RULINGS 2026-11-16p (#2114): the ref ``classify/car_lot`` spells —
+#: ``carlot:<k>`` for the ground under a group of parked cars
+CAR_LOT_PREFIX = "carlot"
+
+
+def is_car_lot_ref(ref) -> bool:
+    """A #2114 CAR LOT (``classify/car_lot``): a LAST-STAGE cell, absent from
+    the base map and solved alone against it (``pipeline/car_lot_stage``)."""
+    return str(ref or "").split(":", 1)[0] == CAR_LOT_PREFIX
+
+
 def fence_yard_pad(ref) -> "str | None":
     """The upper pad a fence yard (spec 2068 A2) is read beside, else ``None``."""
     parts = str(ref or "").split(":", 2)
@@ -1413,6 +1475,7 @@ def is_late_ref(ref) -> bool:
     """A LATE cell's ref: a face that JOINS THE FINISHED MAP (pass C,
     ``planar/ribbons``) and is absent from the stage-1 map — the mapped-road
     ribbons (30aa), the §52 facade cells and the §53 gap pieces.  The
-    ARRANGEMENT asks this; the road laws keep asking
+    ARRANGEMENT asks this (a #2114 car lot is one too); the road laws keep asking
     :func:`is_osm_ribbon_ref`."""
-    return is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)
+    return (is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)
+            or is_car_lot_ref(ref))

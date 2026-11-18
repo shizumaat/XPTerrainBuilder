@@ -421,7 +421,8 @@ def bridge_stacks(airport, objects, cache, law
     (rule 10); notes)`` (module doc)."""
     free = tuple(getattr(airport, "free_bridges", ()) or ())
     kept = tuple(getattr(airport, "kept_bridges", ()) or ())
-    if not (free or kept) or getattr(airport, "dem", None) is None or law is None:
+    agp = getattr(airport, "agp_groups", ()) or ()
+    if not (free or kept or agp) or getattr(airport, "dem", None) is None or law is None:
         return (), (), frozenset(), []
     cx = _Ctx(airport, objects, cache, law)
     out: list[DeckStack] = []
@@ -448,7 +449,11 @@ def bridge_stacks(airport, objects, cache, law
     from .access_road import ride_access_roads
     out, every, n = ride_access_roads(cx, out, every, cx.restack)
     notes += n
-    return tuple(out), tuple(every), frozenset(refused), notes
+    # #2116: the ends of an AGP follower's own driven decks
+    from .agp_deck_ends import agp_end_stacks
+    ends, n = agp_end_stacks(cx)
+    notes += n
+    return tuple(out) + tuple(ends), tuple(every) + tuple(ends), frozenset(refused), notes
 
 
 def log_lines(icao: str, stacks: _t.Sequence[DeckStack]) -> list[str]:

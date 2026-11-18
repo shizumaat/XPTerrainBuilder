@@ -21,13 +21,16 @@ import typing as _t
 
 from .frame import XY
 
-__all__ = ["WallLine", "WingCut", "WING_CUT_REF", "WING_BACK_REF", "wing_floor_y",
-           "wing_top_y"]
+__all__ = ["WallLine", "WingCut", "WING_CUT_REF", "WING_BACK_REF", "WING_WALL_REF",
+           "wing_floor_y", "wing_top_y"]
 
 #: the ref prefix of the ground minted in a wing cut (``wing_cut:<mouth>``)
 WING_CUT_REF = "wing_cut"
 #: the ref prefix of the strip behind a wall line (``wing_back:<mouth>``, R3 D5)
 WING_BACK_REF = "wing_back"
+#: the ref prefix of a ramp wing's wall plans cut out of the ground
+#: (``wing_wall:<ramp>``, #2099 G4 W): plain ground, the step hides there
+WING_WALL_REF = "wing_wall"
 
 
 @_dc.dataclass(frozen=True)
@@ -42,6 +45,9 @@ class WallLine:
     back: tuple[XY, ...]
     foot: tuple[float, ...]
     top: tuple[float, ...]
+    #: per station, how far under ``top`` the strip behind the line stands
+    #: (#2099 G4 D5', RULINGS 2026-11-16l: a parapet; ``()`` = flush)
+    drop: tuple[float, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -66,11 +72,19 @@ class WingCut:
     #: how far from a wall line's face a vertex may stand and still read
     #: that line (R3b D4b; ``[tunnel] dual_carriageway_max_separation_m``)
     reach: float = math.inf
+    #: the walls' own plans (rings), cut out of the ground and pavement
+    #: drawn over them (#2099 G4 W, RULINGS 2026-11-16d): a ramp wing's
+    walls: tuple[tuple[XY, ...], ...] = ()
 
     @property
     def back_ref(self) -> str:
         """The ref of the strip behind the lines (``wing_back:<mouth>``)."""
         return f"{WING_BACK_REF}:{self.mouth}"
+
+    @property
+    def wall_ref(self) -> str:
+        """The ref of the walls' plans (``wing_wall:<ramp>``, #2099 G4 W)."""
+        return f"{WING_WALL_REF}:{self.mouth}"
 
 
 def _along(pts: _t.Sequence[XY], xy: XY) -> tuple[float, float, int]:
@@ -141,8 +155,16 @@ def wing_floor_y(cut: WingCut, xy: XY) -> float:
 
 
 def wing_top_y(cut: WingCut, xy: XY) -> float:
-    """The wall top over the mouth's floor behind which ``xy`` stands (R3
-    D5): the nearest line's top, read along its far face."""
-    near = [(_along(ln.back, xy)[1], _at(ln.top, _along(ln.back, xy)[0]))
+    """The level over the mouth's floor of the strip behind which ``xy``
+    stands (R3 D5): the nearest line's top less its drop (D5', a parapet),
+    read along its far face."""
+    near = [(_along(ln.back, xy)[1], _at(_back_level(ln), _along(ln.back, xy)[0]))
             for ln in cut.lines if ln.back]
     return min(near)[1] if near else 0.0
+
+
+def _back_level(line: WallLine) -> tuple[float, ...]:
+    """A line's tops less their drop (D5'), or its tops with none."""
+    if len(line.drop) != len(line.top):
+        return line.top
+    return tuple(t - d for t, d in zip(line.top, line.drop, strict=True))

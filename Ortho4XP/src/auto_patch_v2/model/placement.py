@@ -585,6 +585,10 @@ class PlacementPlan:
     #: (``airport/tile_route``).  The placement is no row of this dump:
     #: its bodies are APPENDED as new rows, and it claims no ordinal.
     guests: tuple[Split, ...] = ()
+    #: #2129: a GUEST plan's ground mark — what its bodies were seated on
+    #: (``tile_route.neighbour_ground``); kept in its pack-record row, never
+    #: in the plan JSON
+    ground: str = ""
 
     # ── views the writers use ───────────────────────────────────────────
     def conversion_indices(self) -> frozenset[int]:

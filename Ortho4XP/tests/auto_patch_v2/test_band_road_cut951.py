@@ -5,7 +5,8 @@ lanes or drawn edge, whichever is larger."
 A mapped carriageway through a band's zone 2 is CUT out of zone 2 by its
 half-width plus the groundside stand-off (``planar/zones``,
 ``planar/road_yield``); its ribbon vertices are the band's kerb, held under
-the band's ceiling only (``constraints/zones``); the band beside it reads
+the band's ceiling only (``constraints/zones``) and on the road's own-ground
+target (#2121); the band beside it reads
 the DEM past the road's cut (``planar/road_shadow``); the step across the
 stand-off is a declared wall (``pipeline/band_road_wall``).
 
@@ -47,6 +48,16 @@ class _PostedDem(_StepDem):
 
     def posting_m(self) -> float:
         return 2.0
+
+
+class _HumpDem(_StepDem):
+    """The step DEM with a 3 m hump under the road (x 690..810, crest at
+    x = 750), below the band's grade: the road's own ground in its cut."""
+
+    def z(self, x: float, y: float) -> float:
+        if y > -21.0:
+            return 100.0
+        return 92.0 + 3.0 * max(0.0, 1.0 - abs(x - 750.0) / 60.0)
 
 
 @pytest.fixture(scope="module")
@@ -166,7 +177,8 @@ def test_the_shadow_reads_the_ground_past_the_cut(law):
     xs = np.array([50.0, 50.0, 50.0])
     ys = np.array([-27.0 + probe - 1.5, -27.0 + probe + 0.5, -27.0 - probe + 1.5])
     zs = np.array([92.0, 92.0, 92.0])
-    out, rep = road_shadow(_PostedDem(), law, [y], [0, 1, 2], xs, ys, zs)
+    walled = _walled(law, -27.0 + 4.5, -27.0 - 4.5)
+    out, rep = road_shadow(_PostedDem(), law, [y], [0, 1, 2], xs, ys, zs, walled)
     # vertex 0 (north, inside the probe, on the 92 m slope of the cut): its
     # probe point lands at y = -27 + probe (> -21) on the 100 m ground;
     # vertex 1 is past the probe; vertex 2 (south) reads the 92 m beyond
@@ -175,8 +187,42 @@ def test_the_shadow_reads_the_ground_past_the_cut(law):
     other = BandYield(axis.buffer(5.0), LineString([(0.0, -27.0 + 1.5 * probe),
                                                    (100.0, -27.0 + 1.5 * probe)]),
                       4.0, "runway", 2, None, "09/27", True)
-    out2, _rep2 = road_shadow(_PostedDem(), law, [y, other], [0], xs, ys, zs)
+    out2, _rep2 = road_shadow(_PostedDem(), law, [y, other], [0], xs, ys, zs, walled)
     assert out2[0] == 92.0
+
+
+def _walled(law, *wall_ys: float):
+    """A RoadWitness with a wall along the road at each of ``wall_ys``."""
+    from auto_patch_v2.law.tables import snap_margin_m
+    from auto_patch_v2.planar.road_wall_witness import RoadWitness
+    from shapely.geometry import MultiLineString
+    walls = MultiLineString([[(0.0, w), (100.0, w)] for w in wall_ys]) if wall_ys else None
+    return RoadWitness(walls, None, snap_margin_m(law))
+
+
+def test_the_shadow_needs_a_wall_lining_the_road(law):
+    """#2122 item 3 (owner 2026-11-17T12:53Z, option (a)): with no wall
+    witness between the road and the vertex the band follows its own
+    ground (NZWN: 2.2-2.6 m lifts onto a natural bank); a wall beyond the
+    vertex holds nothing between it and the road; a mapped cut under the
+    road's axis is a witness."""
+    import numpy as np
+    from auto_patch_v2.law.tables import snap_margin_m
+    from auto_patch_v2.planar.road_shadow import road_shadow
+    from auto_patch_v2.planar.road_wall_witness import RoadWitness
+    from auto_patch_v2.planar.road_yield import BandYield
+    axis = LineString([(0.0, -27.0), (100.0, -27.0)])
+    y = BandYield(axis.buffer(5.0), axis, 4.0, "runway", 2, None, "09/27", True)
+    probe = 4.0 + _cut(law) + 2.0 * float(law.tables.zones.adjacent_ground.road_shadow_dem_cells)
+    xs, ys = np.array([50.0]), np.array([-27.0 + probe - 1.5])
+    zs = np.array([92.0])
+    for wit, want in ((_walled(law), 92.0),                          # no witness
+                      (_walled(law, ys[0] + 0.5), 92.0),             # wall beyond it
+                      (_walled(law, -27.0 + 4.5), 100.0),            # wall at the kerb
+                      (RoadWitness(None, axis.buffer(4.0), snap_margin_m(law)), 100.0)):
+        out, rep = road_shadow(_PostedDem(), law, [y], [0], xs, ys, zs, wit)
+        assert out[0] == want
+        assert rep.unwalled == (0 if want == 100.0 else 1)
 
 
 def test_a_road_wider_than_its_drawn_page_is_walled_at_its_lanes(law):
@@ -238,3 +284,19 @@ def test_the_seam_beside_a_road_is_where_a_runway_and_a_taxi_band_meet():
                   "runway", 4, None, "06L/24R", True)
     assert _seam_beside([y], faces, face_vs, edges, xy, 0.35) == {0: frozenset({1})}
     assert _seam_beside([_dc.replace(y, through=False)], faces, face_vs, edges, xy, 0.35) == {}
+
+
+def test_a_road_in_its_cut_follows_a_hump_in_its_ground(law):
+    """#2121: every road vertex standing in a zone-2 cut keeps the road's
+    own-ground target (``road_ramp_z``) — untargeted, the objective alone
+    held it and the road sagged through the hump (measured KLAX beside
+    33.94757, -118.39978: 0.89 m under its DEM, no row binding it).  The
+    band still caps it from above only (cap-only rows)."""
+    a = _dc.replace(_with(_way(-3, ROAD, highway="tertiary")), dem=_HumpDem())
+    pm, sol, _rep = _solve(a, law)
+    road = _road(pm)
+    assert road and road <= set(pm.road_ramp_z)
+    crest = [v for v in road if abs(pm.vertices[v].xy[0] - 750.0) <= 15.0]
+    assert crest
+    dem = _HumpDem()
+    assert max(abs(sol.z[v] - dem.z(*pm.vertices[v].xy)) for v in crest) <= 0.3

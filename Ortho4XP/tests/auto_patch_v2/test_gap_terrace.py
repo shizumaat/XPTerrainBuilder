@@ -227,7 +227,12 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # (96, 35, 71, 194) before.
     # RE-RECORDED (batch 18, #2068 13aa (2)): five footless plates are base
     # slabs, five more parts — 95 -> 100
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (100, 35, 68, 194)
+    # RE-RECORDED (test-556, #2134 apron reclass): l2134's apron gate
+    # re-roles pieces of this HECA capture, so the gap pieces and their cut
+    # change; attributed by reading this twin on the merged tree with
+    # l2134's src diff reverted, which gives the old counts back —
+    # (100, 35, 68, 194) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (105, 34, 66, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

@@ -1075,6 +1075,8 @@ def _run(args, sites, tool: str, work: str) -> dict:
         label = ", ".join(list(args.object) + list(args.row))
         report["sites"].append(measure_site(Site("objects: " + label, p0.lat, p0.lon, 0.0),
                                             named, mesh, args.clearance_only))
+    if getattr(args, "roads", False):
+        _road_layer(args, sites, picked, mesh, report, tool, work)
     ends = plan_end_lines(args.end_lines) if args.end_lines else None
     for s in report["sites"]:
         s["objects"] = object_bars(s["components"], args.tol, GROUND_BAR_M, PRINT_RUN_M,
@@ -1082,6 +1084,29 @@ def _run(args, sites, tool: str, work: str) -> dict:
                                    (s["lat"], s["lon"], s["radius_m"])
                                    if args.mouth and s["radius_m"] else None, ends)
     return report
+
+
+def _road_layer(args, sites, picked, mesh, report, tool: str, work: str) -> None:
+    """``--roads`` (spec 2123 A6 / B5, ``drawn_site_roads``): every drawn
+    road sample at each site, with the hard object surface over it."""
+    from drawn_site_roads import network_dsfs, road_samples
+    for s, rec in zip(sites, report["sites"], strict=False):
+        fr = Frame(s.lat, s.lon)
+        placed = []
+        for q in (q for q in picked if s in q["sites"]):
+            p = q["p"]
+            e0, n0 = fr.enter(p.lat, p.lon)
+            base = row_base(p, float(mesh.z([p.lat], [p.lon])[0]))
+            placed.append(dict(q, V=placed_vertices(q["g"], float(e0), float(n0),
+                                                    p.heading_deg, base)))
+        hard = OtherSurfaces(placed)
+
+        def over(lats, lons, _h=hard, _f=fr):
+            e, n = _f.enter(lats, lons)
+            return _h.excluding(None, None)(np.asarray(e), np.asarray(n))
+        rec["roads"] = road_samples(s, network_dsfs(args.custom_scenery,
+                                                    tile_of(s.lat, s.lon), args.pack),
+                                    tool, work, mesh, over)
 
 
 def parse_point(text: str) -> tuple[str, float, float, float | None]:
@@ -1275,6 +1300,10 @@ def main(argv=None) -> int:
         # does the drawn ground stay under one object (``tools/drawn_cover.py``)
         import drawn_cover
         return drawn_cover.main([a for a in argv if a != "--cover"])
+    if "--joints" in argv:
+        # #2144: the drawn joint steps of a pack's span decks (``drawn_site_joints``)
+        import drawn_site_joints
+        return drawn_site_joints.main(argv)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", action="append", default=[],
@@ -1335,6 +1364,10 @@ def main(argv=None) -> int:
     ap.add_argument("--cache", default=None, help="keep the box's tile triangles here (.npy)")
     ap.add_argument("--top", type=int, default=40, help="components printed per site")
     ap.add_argument("--json", default=None, help="write the full report here")
+    ap.add_argument("--roads", action="store_true",
+                    help="spec 2123: also read the ROADS X-Plane draws at each site "
+                         "(every network DSF in load order, sim/exclude_net honoured) and "
+                         "the hard object surface over each sample (drawn_site_roads)")
     args = ap.parse_args(argv)
     if args.custom_scenery is None or args.mod_cache is None:
         import O4_Config_Utils  # noqa: F401
@@ -1363,6 +1396,11 @@ def main(argv=None) -> int:
         print_against(rep["against"])
     elif not args.summary:
         print_report(rep, args.top)
+    if args.roads:
+        from drawn_site_roads import print_roads
+        for s in rep["sites"]:
+            if "roads" in s:
+                print_roads(s)
     if not args.clearance_only:
         print_bars(rep, GROUND_BAR_M)
     if args.json:

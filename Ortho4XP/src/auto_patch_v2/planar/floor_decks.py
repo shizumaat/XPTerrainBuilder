@@ -111,13 +111,22 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
                              f"by its end lines (#1883 r3 B2)")
         if got:
             decked = {g.object_id for g in got}
-            riders = _deck_riders(f, got, decked | floor_ids, by_id, cache, airport, on)
+            riders = _deck_riders(f, got, decked | _stating_cut(floors), by_id, cache,
+                                  airport, on)
             notes.extend(f"{f.id}: {pid} stands on a deck piece of its frame: it rides "
                          f"that piece (#1883)" for pid in riders)
             f = _dc.replace(f, decks=tuple(got), riders=riders,
                             seats=tuple(s for s in f.seats if s[0] not in decked))
         out.append(f)
     return out, notes
+
+
+def _stating_cut(floors: _t.Sequence[ObjectFloor]) -> set[str]:
+    """The floors that state a cut -- a footprint, or hidden -- and so never
+    ride a deck piece.  A frame shell stating none (A4's shallower shell:
+    LGAV ``Trench_01``'s bridges under the deck pieces) rides like any part
+    of the frame: its parts on a piece take the piece's zero (#2127)."""
+    return {f.object_id for f in floors if f.hidden or has_footprint(f)}
 
 
 #: how near a deck piece's plan a rider's part stands (m): a rail on its edge
@@ -127,7 +136,7 @@ RIDER_REACH_M = 1.0
 def _deck_riders(f: ObjectFloor, decks, skip, by_id, cache, airport, on: float
                  ) -> tuple[str, ...]:
     """#1883: the placements of ``f``'s frame (``f.seats``, never a deck or a
-    floor) with a solid part STANDING ON one of its deck pieces -- at least
+    floor stating a cut) with a solid part STANDING ON one of its deck pieces -- at least
     ``on`` of the part's vertices within :data:`RIDER_REACH_M` of the
     piece's plan and its top reaching the piece's deck top (a rail on the
     deck, the bridge's walls under its edge; a carriageway on the trench

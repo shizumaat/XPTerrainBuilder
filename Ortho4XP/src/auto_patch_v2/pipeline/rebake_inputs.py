@@ -265,6 +265,9 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     if oid in kept or not es:
         return
     deck = es[0].deck
+    if getattr(deck, "witness", "") == "generated":
+        return          # spec 2123: no pack placement to reseat; the object
+        #                 stage writes it (``pipeline/generated_publication``)
     bottom = float(deck.bottom_y)
     y, st, *rest = out.get(oid, (0.5 * (deck.top_a + deck.top_b), [], 0.0, DECK_PLATE))
     # deck-end-anchors spec §3: the zero the anchors state — the anchor's
@@ -409,8 +412,10 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
     from ..airport import mouth_group as _mg
     from ..airport import terrain_shaped as _ts
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    from ..airport.ramp_wing import mapped_roads
     groups, notes = _mg.mouth_groups(getattr(airport, "partition", None), objects,
-                                     _mg.mouths_of(pm), _solid_cache(law), law, taken)
+                                     _mg.mouths_of(pm), _solid_cache(law), law, taken,
+                                     mapped_roads(airport))
     if groups or notes:
         for line in _mg.log_lines(str(getattr(airport, "icao", "")), groups, notes):
             print(line)
@@ -418,6 +423,108 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
     rowed = [g for g in groups if g.mouth.object_id not in plates]
     return (_mg.wing_plates(plated, plates),
             _mg.wing_records(rowed, authored, _ts.PORTAL_SEAT))
+
+
+def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
+    """#1934 R3 (``airport/retaining_seat``): placement id -> ``(retained
+    top y, upper-side stations, 0.0, RETAINING_PLATE)`` for each retaining
+    wall no other rule seats."""
+    from ..airport.retaining_seat import RETAINING_PLATE, retaining_seats
+    from ..classify.rules import load_rules
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = retaining_seats(airport, load_rules().service,
+                          float(law.tables.emit.identity.min_distinct_spacing_m),
+                          float(law.tables.structures.bridge.abutment_sample_step_m),
+                          taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
+              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on its upper "
+              f"ground, {len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+
+
+def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
+    """#2099 F2 P5 (``airport/hung_wall_seat``): placement id -> ``(top y,
+    airside stations, 0.0, WALL_TOP_PLATE)`` for each hung wedge wall no
+    other rule seats (P5b: the kind keeps its plate datum at any sign of top
+    y and out of every §16g unit)."""
+    from ..airport.hung_wall_seat import WALL_TOP_PLATE, hung_wedge_plates
+    from ..classify.rules import load_rules
+    from ..law.tables import airside_stage_roles
+    from ..planar.index import face_polygon
+    roles = airside_stage_roles(law)
+    airside = [face_polygon(pm, fid) for fid, f in pm.faces.items() if f.role in roles]
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = hung_wedge_plates(airport, airside, law, load_rules().service, _solid_cache(law), taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] hung wedge wall {w.oid}: top y {w.top_y:+.2f}, "
+              f"foot range {w.foot_range:.2f} m, airside {100 * w.share:.0f} % upper / "
+              f"{100 * w.other:.0f} % other, {len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, WALL_TOP_PLATE) for w in got}
+
+
+def _portal_plates(pm, law, airport, plates, authored, excluded) -> dict:
+    """#2120 R2 P2 (``airport/cut_portal_seat``): placement id -> ``(cover
+    slab y, cover-side stations, 0.0, PORTAL_PLATE)`` for each portal in a
+    cut no other rule seats; 2120-WF3 P1: the slab on the airside pavement
+    of the solved surface (the roles ``_hung_wedges`` reads)."""
+    from ..airport.cut_portal_seat import PORTAL_PLATE, portal_seats
+    from ..law.tables import airside_stage_roles
+    from ..planar.index import face_polygon
+    roles = airside_stage_roles(law)
+    paved = [g for fid, f in pm.faces.items() if f.role in roles
+             for g in (face_polygon(pm, fid),) if g is not None] \
+        if getattr(airport, "cut_portals", ()) else []
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = portal_seats(airport, float(law.tables.emit.identity.min_distinct_spacing_m),
+                       float(law.tables.structures.bridge.abutment_sample_step_m), taken,
+                       paved=paved, cache=_solid_cache(law), law=law)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] portal in a cut {w.oid} "
+              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on the cover, "
+              f"{len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, PORTAL_PLATE) for w in got}
+
+
+def _cut_bridge_plates(law, airport, objects, regions, taken) -> dict:
+    """#2120 S (``airport/cut_bridge``): placement id -> ``(deck top y at
+    the cover-side end, its stations, 0.0, CUT_BRIDGE_PLATE)`` for every
+    member of each bridge over a portal's cut no other rule seats: one
+    plate, so every record of the frame is led by it
+    (``open_frame_seat.LEAD_PLATES``) -- a rider holding none took its
+    connected group's median on the cut floor (KATL build, 293.54)."""
+    import time
+
+    from ..airport.cut_bridge import cut_bridges
+    from ..airport.cut_portal_seat import CUT_BRIDGE_PLATE
+    t0 = time.perf_counter()
+    got = cut_bridges(airport, objects, regions, _solid_cache(law),
+                      float(law.tables.emit.identity.min_distinct_spacing_m),
+                      float(law.tables.structures.bridge.abutment_sample_step_m), taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] bridge over a portal's cut "
+              f"({w.resource.rsplit('/', 1)[-1]}, {len(w.members)} members, cut of "
+              f"{w.portal}): deck top y {w.top_y:+.2f} at its cover-side end, "
+              f"{len(w.stations)} stations ({time.perf_counter() - t0:.2f} s)")
+    return {oid: (w.top_y, list(w.stations), 0.0, CUT_BRIDGE_PLATE)
+            for w in got for oid in w.members}
+
+
+def _portal_cuts(pm, airport) -> list:
+    """#2120 R2 P2: the open cut beyond each mouth a portal in a cut walls
+    (``PlanarMap.mouth_walls``) as a below-grade region ``(polygon, owner
+    ids)`` -- a candidate deck over it spans the cut (04k), the portal itself
+    never."""
+    from shapely.geometry import Polygon
+    owners: dict[str, list[str]] = {}
+    for p in getattr(airport, "cut_portals", ()) or ():
+        owners.setdefault(p.resource, []).append(p.object_id)
+    out = []
+    for ring, _depth, path in getattr(pm, "mouth_walls", ()) or ():
+        if path in owners and len(ring) >= 3:
+            g = Polygon(ring)
+            out.append((g if g.is_valid else g.buffer(0), tuple(owners[path])))
+    return out
 
 
 def _solid_cache(law):
@@ -515,21 +622,38 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
                                         excluded | shelled | modelled)
         plates.update(p_wings)
         authored += tuple(r_wings)
+        # #2099 F2 P5: a hung wedge wall's top is flush with the airside
+        plates.update(_hung_wedges(pm, law, airport, plates, authored,
+                                   excluded | shelled | modelled))
+    # #2120 R2 P2: a portal in a cut stands its top on the cover
+    plates.update(_portal_plates(pm, law, airport, plates, authored,
+                                 excluded | shelled | modelled))
+    from ..model.free_bridge import published as _free_published
+    free_decks = {**_free_published(getattr(pm, "free_bridges", ()) or (),
+                                    airport.frame.transformers()[1],
+                                    float(law.tables.structures.bridge.free_end_ground_out_m)),
+                  **_kept_published(airport, pm, agp_report)}
+    if objects:
+        # #2120 S: a bridge over a portal's cut stands its deck on the cover
+        plates.update(_cut_bridge_plates(
+            law, airport, objects, _portal_cuts(pm, airport),
+            set(plates) | excluded | shelled | modelled | set(free_decks)
+            | {str(r.get("id")) for r in authored}))
+    # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
+    plates.update(_retaining_plates(pm, law, airport, plates, authored,
+                                    excluded | shelled | modelled))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the
     # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
     excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}
-    from ..model.free_bridge import published as _free_published
     return {
-        "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),
-                                         airport.frame.transformers()[1],
-                                         float(law.tables.structures.bridge.free_end_ground_out_m)),
-                       **_kept_published(airport, pm, agp_report)},
+        "free_decks": free_decks,
         "tunnel_objects": plates,
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone
         "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)
                            + tuple(model_seats)),
         "exclude": excluded,
-        "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
+        "below_grade": ([(_basin_polygon(b), tuple(b.objects)) for b in pm.basins]
+                        + _portal_cuts(pm, airport)),
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``
         "deck_datum": lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy)}

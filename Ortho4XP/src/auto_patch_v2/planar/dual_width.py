@@ -34,7 +34,7 @@ from shapely.geometry import LineString, Point
 
 from ..model.frame import XY
 
-__all__ = ["dual_half_fn", "compose_half_fn"]
+__all__ = ["dual_half_fn", "compose_half_fn", "widened_half_fn"]
 
 
 def dual_half_fn(axis_fn: _t.Callable[[float], XY], members: _t.Sequence, half: float
@@ -102,3 +102,18 @@ def compose_half_fn(pav_hw: dict, dual, half: float, base, wide: bool = False
             return (max(got[0], low[0]), max(got[1], low[1]))
         return got
     return fn
+
+
+def widened_half_fn(fn, half: float, by: float
+                    ) -> _t.Callable[[float], tuple[float, float]]:
+    """``fn`` (or the constant ``half`` where ``fn`` is ``None``) with
+    ``by`` metres more on each side: the ramp of a bore under a GENERATED
+    deck carries the drawn road's shoulders (#2131, ``[deck_gen]
+    shoulder_m``)."""
+    if fn is None:
+        return lambda _s: (half + by, half + by)
+
+    def wide(s: float) -> tuple[float, float]:
+        a, b = fn(s)
+        return (a + by, b + by)
+    return wide

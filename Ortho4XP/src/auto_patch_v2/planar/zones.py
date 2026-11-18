@@ -41,6 +41,7 @@ from ..law.tables import (
     zone_edge_offset_m,
 )
 from ..model.planar import is_gap_apron_ref, is_late_ref
+from .end_barriers import EndBarriers, runway_end_cut
 from .road_yield import BandYield, road_cut_pieces
 from .shore import SHORE_WALL_TAGS, ShoreVerdict, shore_contact, shore_declarations, shore_verdict
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -287,7 +288,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  rsa_carriageways: tuple | None = None,
                  plates: tuple = (),
                  trenches=None,
-                 wall_setbacks: tuple = ()) -> list[ZoneRegion]:
+                 wall_setbacks: tuple = (),
+                 end_barriers: EndBarriers | None = None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -322,7 +324,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
 
     ``wall_setbacks`` (``airport/wall_sides.band_setbacks``, #1633 round
     3): a band whose pavement stands back from a retaining wall stops
-    ``smear`` short of the wall's upper face."""
+    ``smear`` short of the wall's upper face.
+
+    ``end_barriers`` (``planar/end_barriers.end_barriers``, #2111 R2): a
+    runway's end area ends at the first pack barrier standing across it —
+    zones 1 and 2 lose the ground behind the barrier's far face; the claim
+    keeps the uncut extent."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -527,6 +534,17 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         z2 = fixed_difference(fixed_difference(outer, inner), claimed)
         z1 = fixed_difference(z1, beside)
         z2 = fixed_difference(z2, beside)
+        # #2111 R2: THE END AREA ENDS AT THE FIRST BARRIER ACROSS IT
+        # (``planar/end_barriers``) — behind its far face no band, so no
+        # road there yields to one (the through cut below reads the rest)
+        extent = outer
+        if fam == "runway" and end_barriers is not None:
+            ecut = _end_barrier_cut(key, u, law, runways, status_of, letter_of(key),
+                                    end_barriers, edge_report)
+            if ecut is not None:
+                z1 = fixed_difference(z1, ecut)
+                z2 = fixed_difference(z2, ecut)
+                extent = fixed_difference(outer, ecut)
         if trench is not None and fam == "taxi":
             before = z1.area + z2.area
             z1 = fixed_difference(z1, trench)
@@ -540,16 +558,21 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         # stepped 2.8 m under the taxiway it serves); a public road through
         # either keeps 20c (39) and follows its own ground
         if through:
-            z2 = _yield_zone2(z2, outer, key, through, yields)
+            z2 = _yield_zone2(z2, extent, key, through, yields)
         if plate_u is not None:
             # 27t (#1201): the band ends at the plate — no stand-off
             z1 = fixed_difference(z1, plate_u)
             z2 = fixed_difference(z2, plate_u)
-        for wcut, foot, near_m in wall_setbacks:
+        for wcut, foot, near_m, beyond in wall_setbacks:
             # spec §3 (2): only a band whose pavement stands back from it
             if u.distance(foot) > near_m:
                 z1 = fixed_difference(z1, wcut)
                 z2 = fixed_difference(z2, wcut)
+            elif beyond is not None and u.intersection(beyond).area < 1.0:
+                # 16n (2), #1934 R4: a band whose pavement stands AT the
+                # wall on its upper side ends at the wall line
+                z1 = fixed_difference(z1, beyond)
+                z2 = fixed_difference(z2, beyond)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):
@@ -621,6 +644,26 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             counters[(fam, cls, zone)] = k
         claimed = canonical_union([claimed, outer])
     return out
+
+
+def _end_barrier_cut(key, u, law: Law, runways: tuple, status_of: dict, letter,
+                     barriers: EndBarriers, edge_report: EdgeReport | None):
+    """The #2111 R2 cut of one runway group (``planar/end_barriers``),
+    counted in ``edge_report``; ``None`` without one."""
+    _fam, cn, cl = key
+    ref = cl[len(_RUNWAY_KEY):]
+    rec = next((r for r in runways if r[0] == ref), None)
+    if rec is None:
+        return None
+    ins = status_of.get(ref, 0)
+    hw = zone2_half_width_m(law, "runway", cn, letter, ins) or 0.0
+    cut, ids = runway_end_cut(rec, float(hw),
+                              runway_safety_area_length_m(law, cn, letter, ins), u,
+                              barriers)
+    if cut is not None and edge_report is not None:
+        edge_report.end_barriers += len(ids)
+        edge_report.end_barrier_cut_m2 += float(cut.area)
+    return cut
 
 
 def _plate_union(plates: tuple):

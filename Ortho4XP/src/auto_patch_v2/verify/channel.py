@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 
+from ..geom.channel_declared import declared_floor_z, ramp_index
 from .frame import Patch, Row, Shape, row
 
 __all__ = ["channel_floor_at_declaration", "channel_crest_at_edge",
@@ -59,6 +60,19 @@ def _profile_of(rec: dict) -> list[tuple[float, float, float]]:
         except (TypeError, ValueError, IndexError):
             continue
         out.append((la, lo, z))
+    return out
+
+
+def _ramps_of(p: Patch, rec: dict) -> dict[int, list[tuple[float, float, float]]]:
+    """The record's exit ramps (#2127 R3): ramp number -> its long section
+    in the patch's metres."""
+    out: dict[int, list[tuple[float, float, float]]] = {}
+    for r in rec.get("ramps") or ():
+        k = ramp_index(str(r.get("ref") or ""))
+        if k is None:
+            continue
+        out[k] = [(*p.to_m(float(la), float(lo)), float(z))
+                  for la, lo, z in r.get("stations_ll") or ()]
     return out
 
 
@@ -134,6 +148,7 @@ def channel_floor_at_declaration(p: Patch) -> list[Row]:
     if not recs:
         return []
     by_id = {str(r.get("id") or ""): _profile_of(r) for r in recs}
+    ramps = {str(r.get("id") or ""): _ramps_of(p, r) for r in recs}
     tol = float(p.law.tables.emit.materiality.elevation_m)
     out: list[Row] = []
     for sh in _floors(p):
@@ -143,7 +158,11 @@ def channel_floor_at_declaration(p: Patch) -> list[Row]:
             continue
         for k, v in enumerate(sh.ids):
             lat, lon = p.ll[v]
-            want = _declared_at(p, prof, lat, lon)
+            # #2127 R3 A4: the ONE declared-floor reading (a ramp part's own
+            # long section, else the profile at the vertex's axis station)
+            want = declared_floor_z(sh.ref, *p.to_m(lat, lon),
+                                    lambda _x, _y, _la=lat, _lo=lon, _pr=prof: _declared_at(
+                                        p, _pr, _la, _lo), ramps.get(key) or {})
             if want is None:
                 continue
             got = float(sh.z[k])

@@ -26,6 +26,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .edge_floor import seat_pair
+from .public_road_release import steep_vertex_caps
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
@@ -156,13 +157,24 @@ def road_ramp_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
                       ) -> list[Row]:
     """§37 (10) (1): for every road vertex whose route END contacts an
-    airside face within ``[road_contact] contact_reach_m``, ONE row
+    airside face within ``[road_contact] contact_reach_m``, TWO rows, the
+    contact read from both sides
 
-        ``z[v] - (1-u)·z[a] - u·z[b] <= cap · s``
+        ``z[v] - (1-u)·z[a] - u·z[b] <= cap · s``   (the ceiling)
+        ``z[v] - (1-u)·z[a] - u·z[b] >= -cap · s``  (its mirror, the floor)
 
-    — the road stands at most its own longitudinal cap above the AIRSIDE
+    — the road stands within its own longitudinal cap of the AIRSIDE
     EDGE's own level after ``s`` metres of route from the contact.  At the
     contact itself (``s = 0``) that is the airside's level exactly.
+
+    THE FLOOR (lane lrc37): §37 (10) C1 withdraws the §37 (6) DEM target
+    over the end group, so with the ceiling alone nothing held the end UP —
+    it hung from its neighbours and sank under both its contact and its
+    ground (test-550 replays: KBNA 29 ends > 0.5 m under both, worst
+    -3.40 m at ``small_roads:-383``; KDEN 58, -4.23 m; KMCI 58, -3.91 m).
+    The mirror is the same row read from below, at the same weight, under
+    the same ruling and the same lag; the DEM target stays withdrawn
+    (C1 arm 3, HECA ``route0``'s 0.70 m weight contest).
 
     ONE-WAY (``follows=(v,)``, the ruling registered in ``[design]
     one_way_rulings``): the road vertex keeps its column, the two airside
@@ -193,10 +205,10 @@ def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
         a, b, u, s = edges[v]
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
-        rows.append(Linear(((v, 1.0), (a, -(1.0 - u)), (b, -u)),
-                           None, cap * float(s),
-                           Source(GEN, CONTACT_RULING, (f"vertex:{v}", ref)),
-                           follows=(v,)))
+        terms = ((v, 1.0), (a, -(1.0 - u)), (b, -u))
+        src = Source(GEN, CONTACT_RULING, (f"vertex:{v}", ref))
+        rows.append(Linear(terms, None, cap * float(s), src, follows=(v,)))
+        rows.append(Linear(terms, -cap * float(s), None, src, follows=(v,)))
     return rows
 
 
@@ -466,10 +478,20 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     # #1661 (Q299 (a)) / #1662: the wall slope's face vertices at the wall's
     # top (upper face) or its foot (lower face)
     seated = _reseat_seats(planar, law, held)
+    faces: dict[int, list] = {}
     for v, (tz, ruling) in sorted(tops.items()):
         if v in beyond:
             continue
         src = Source("wall_terrace", ruling, (f"vertex:{v}",))
+        if tz is None:
+            # 2120-W3 F1: a retaining block's fill rides its upper face
+            row = _fill_row(held, v, xy, faces, src)
+            if row is None:
+                rep["fill_unanchored"] = rep.get("fill_unanchored", 0) + 1
+            else:
+                linears.append(row)
+                rep["fill_face_rows"] = rep.get("fill_face_rows", 0) + 1
+            continue
         got = _seated_top(held, seated, xy[v]) if ruling == WALL_TOP_RULING else None
         if got is None:
             bands.append(Band(v, tz, tz, src))
@@ -480,6 +502,9 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         linears.extend(seat_pair(v, (terms, zero - tz), src))
         rep["wall_top_seated"] = rep.get("wall_top_seated", 0) + 1
     rep["wall_top_ground"] = len(bands) - len(cs.bands) - rep["beyond_wall_ground"]
+    if rep.get("fill_unanchored"):
+        print(f"[wall-zone] STOP 2120-W3 F1: {rep['fill_unanchored']} fill vertices "
+              f"of a retaining block found no upper-face vertex (no relative row)")
     return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
                        bands=tuple(bands)), rep
 
@@ -515,15 +540,32 @@ def _seated_top(held: _t.Sequence, seated: _t.Mapping[str, tuple], p: tuple
     return None
 
 
+def _fill_row(held: _t.Sequence, v: int, xy: _t.Mapping[int, tuple],
+              faces: dict[int, list], src: Source) -> Linear | None:
+    """2120-W3 F1: ``v``'s row to the upper face of the retaining block
+    whose fill holds it (``wall_zone.fill_row``); ``faces`` caches each
+    block's face vertices by its index in ``held``."""
+    from .wall_zone import face_vertices, fill_row, fill_wall
+    w = fill_wall(held, xy[v])
+    if w is None:
+        return None
+    k = next(i for i, x in enumerate(held) if x is w)
+    if k not in faces:
+        faces[k] = face_vertices(w, xy)
+    return fill_row(w, v, xy[v], faces[k], src)
+
+
 def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple]
-                 ) -> dict[int, tuple[float, str]]:
+                 ) -> dict[int, tuple[float | None, str]]:
     """#1661 (Q299 (a)) / #1662: every vertex only wall slopes hold
     (``planar/wall_slope``) that stands on a wall's upper face, -> the
     wall's top as it sits there (``wall_zone.face_top``; in its fill,
-    ``wall_zone.fill_top``, #1600), or on its lower
-    face, -> its foot (``wall_zone.face_foot``); with the row's ruling."""
+    ``wall_zone.fill_top``, #1600 -- ``None`` in a retaining block's fill,
+    which its upper face carries: ``wall_zone.fill_wall``, 2120-W3 F1), or
+    on its lower face, -> its foot (``wall_zone.face_foot``); with the
+    row's ruling."""
     from ..model.wall_reach import is_wall_slope_ref
-    from .wall_zone import face_foot, face_top, fill_top
+    from .wall_zone import face_foot, face_top, fill_top, fill_wall
     if not any(getattr(w, "top_profile", None) or getattr(w, "foot_profile", None)
                for w in held):
         return {}
@@ -533,6 +575,9 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
         if not inc or not all(is_wall_slope_ref(planar.faces[f].ref) for f in inc):
             continue
         z = face_top(held, p)
+        if z is None and fill_wall(held, p) is not None:
+            out[v] = (None, WALL_TOP_RULING)
+            continue
         if z is None:
             z = fill_top(held, p)
         if z is not None:
@@ -608,6 +653,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # 10-03b BEFORE 29x: a ribbon vertex between two pavements at different
     # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
     cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)
+    # #2121: a road in its own zone-2 cut follows its ground under the
+    # band's ceiling (``constraints/cut_kerb``)
+    from .cut_kerb import cut_kerb_rewrite
+    cs, rep["cut_kerb"] = cut_kerb_rewrite(planar, law, cs, levels)
     cs, rep["wall_release"] = wall_release(planar, law, cs)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
@@ -714,7 +763,10 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     design: float | None = None, lane: float = 0.0,
                     ceil: _t.Mapping[int, float] | None = None,
                     upper: _t.Mapping[int, float] | None = None,
-                    upper_cap: float | None = None
+                    upper_cap: float | None = None,
+                    route_caps: _t.Mapping[int, float] | None = None,
+                    shared: _t.Mapping[int, tuple[int, float]] | None = None,
+                    kerb_ground: _t.Mapping[int, float] | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -742,6 +794,9 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       too short for the design grade to reach the road's target by its end,
       and then by the least grade that does (RULINGS 2026-10-09c (2b),
       :func:`_run_grade`);
+    * an ``at_mouth`` vertex (a road at a structure mouth, 06c (5), #1939)
+      with its own ``floor`` target is levelled there in place of its
+      foot's level (one without a target keeps its foot's);
     * a route with no levelled foot keeps its targets;
     * an ``anchors`` vertex — a §37 (9) COVERAGE-EDGE JOIN, where the core's
       levelled road takes over — is never governed, and every vertex of its
@@ -782,7 +837,35 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       climbs at ``upper_cap`` (owner RULINGS 2026-11-14b: up to 20 %,
       ``[road_contact] upper_pad_road_grade``) when given, else ``cap``.
 
+    * THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122):
+      ``route_caps`` is ``{route: cap}`` for every route on ground steeper
+      than the road cap (``public_road_release.steep_vertex_caps``, the cap
+      its rows rise to).  On such a route ``cap`` reads that cap — the bare
+      exit steepens toward it and a join's envelope is read at it — so the
+      profile asks no more of the rows than they allow, and no less.
+
+    * THE SHARED NODE (owner 2026-11-17T16:38Z, #2122: "the road is only
+      anchored to the apron where it touches ... only the shared nodes take
+      the apron level"): ``shared`` is ``{v: (route, s)}`` for every road
+      vertex on a stage-1 pavement's ring (``road_terrace``'s ``shared``),
+      its level ``levels[v]``.  Every vertex of that route with a target
+      reaches each shared node inside ``clip(target, z_s - cap·d,
+      z_s + cap·d)`` (:func:`_shared_envelope`) — the cap's feasibility
+      envelope, as at a coverage join; a vertex it leaves alone keeps its
+      own row.  MEASURED LGAV ``small_roads:-780``: freed from apron
+      ``pav25``'s level, its own ceiling stood 3.4 m under the shared node
+      0.5 m away, and the relaxed hard set moved the apron 0.47 m.
+
+    * THE KERB OF A ROAD LEAVING ITS BAND RUN (owner RULINGS 2026-11-18b,
+      #2152): ``kerb_ground`` is ``{band-kerb vertex: its ground}`` on a
+      route with a band run (``airport/band_run``).  A kerb carries no
+      §37 (6) target, so on the bare exit it reads its ground as the
+      target the exit descends to -- the road's edge descends with the
+      road, never left to the objective (MEASURED KEGE ``small_roads:-311``:
+      the kerbs past the run hung 0.6-1.0 m off the ramp).
+
     Returns ``{v: target}`` for every vertex it governs and the report."""
+    kerb_ground = kerb_ground or {}
     foot = terrace.get("foot") or {}
     rim = terrace.get("rim") or {}
     upper = upper or {}
@@ -814,6 +897,13 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 rep["ceiled"] += 1
         else:
             rep["unlevelled"] += 1
+    # 06c (5), #1939: a road vertex AT A STRUCTURE MOUTH (``road_terrace``'s
+    # ``at_mouth``) is levelled at its own §37 (6) target, the mouth's ramp
+    for v in terrace.get("at_mouth") or {}:
+        if v in floor:
+            lev[v] = float(floor[v])
+            capped.discard(v)
+            rep["at_mouth"] = rep.get("at_mouth", 0) + 1
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v, (r, s_) in station.items():
         by_route.setdefault(int(r), []).append((float(s_), int(v)))
@@ -891,18 +981,25 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 out[v] = z_e
                 rep["pad_held"] += 1
                 continue
-            fl = anchors.get(v, floor.get(v))   # a join's level is its pin's
+            fl = anchors.get(v, floor.get(v, kerb_ground.get(v)))  # a join's: its pin's
             if fl is None:
                 continue
             bare.setdefault((r, i == 0), (z_e, []))[1].append((d, v, float(fl)))
             rep["bare"] += 1
-    for _key, (z_e, run) in sorted(bare.items()):
-        g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, cap, lane)
+    route_caps = route_caps or {}
+
+    def _cap(r: int) -> float:
+        return max(cap, float(route_caps.get(int(r), cap)))
+
+    for (r_b, _lo), (z_e, run) in sorted(bare.items()):
+        g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, _cap(r_b), lane)
         rep["bare_steepened"] += g > g0 + 1e-9
         rep["bare_runs"] += 1
         rep["max_bare_grade"] = max(rep["max_bare_grade"], g)
         for d, v, fl in run:
             out[v] = min(max(fl, z_e - g * d), z_e + g * d)
+    rep["shared"] = _shared_envelope(shared or {}, levels, floor, station,
+                                     out, _cap, frozenset(rim))
     by_anchor: dict[int, list[tuple[float, float]]] = {}
     for v, za in anchors.items():
         if v in station:
@@ -912,9 +1009,10 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     rep["anchored"] = 0
     for v in list(out):
         r, s_ = station[v]
+        cr = _cap(r)
         for sa, za in by_anchor.get(int(r), ()):
             d = abs(float(s_) - sa)
-            t = min(max(out[v], za - cap * d), za + cap * d)
+            t = min(max(out[v], za - cr * d), za + cr * d)
             if abs(t - out[v]) > 1e-9:
                 out[v] = t
                 rep["anchored"] += 1
@@ -928,6 +1026,60 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
         # the ARRIVAL GAP: how far under its level the arm arrives (spec 2068 Q3)
         rep["upper_gap_m"] = round(min(gaps), 3)
     return out, rep
+
+
+def _shared_envelope(shared: _t.Mapping[int, tuple[int, float]],
+                     levels: _t.Mapping[int, float], floor: _t.Mapping[int, float],
+                     station: _t.Mapping[int, tuple[int, float]],
+                     out: dict[int, float], cap_of: _t.Callable[[int], float],
+                     skip: _t.AbstractSet[int]) -> int:
+    """Clip every target of a route with SHARED NODES into each node's
+    cap envelope (:func:`terrace_profile`'s ``shared``), in place in
+    ``out``; returns how many targets it changed."""
+    ends: dict[int, list[tuple[float, float]]] = {}
+    for v, (r, s_) in shared.items():
+        if v in levels:
+            ends.setdefault(int(r), []).append((float(s_), float(levels[v])))
+    n = 0
+    for v, (r, s_) in station.items():
+        if int(r) not in ends or v in skip or (v not in out and v not in floor):
+            continue
+        z0 = out.get(v, floor.get(v))
+        t, cr = float(z0), cap_of(r)
+        for sa, za in ends[int(r)]:
+            d = abs(float(s_) - sa)
+            t = min(max(t, za - cr * d), za + cr * d)
+        if abs(t - float(z0)) > 1e-9:
+            out[v] = t
+            n += 1
+    return n
+
+
+def _steep_route_caps(planar: PlanarMap, law: Law,
+                      station: _t.Mapping[int, tuple[int, float]]) -> dict[int, float]:
+    """Route -> the highest cap its vertices' rows rise to on steep ground
+    (owner RULINGS 2026-11-17; ``public_road_release.steep_vertex_caps``)."""
+    out: dict[int, float] = {}
+    for v, g in steep_vertex_caps(planar, law).items():
+        if v in station:
+            r = int(station[v][0])
+            out[r] = max(out.get(r, 0.0), g)
+    return out
+
+
+def _run_kerb_ground(planar: PlanarMap, terr: _t.Mapping[str, _t.Mapping]
+                     ) -> dict[int, float]:
+    """``{band-kerb vertex: DEM}`` on the routes with a band run (owner
+    RULINGS 2026-11-18b; :func:`terrace_profile`'s ``kerb_ground``)."""
+    station = terr.get("station") or {}
+    routes = {station[v][0] for v in terr.get("band_run") or {} if v in station}
+    out: dict[int, float] = {}
+    for v in terr.get("kerb") or {}:
+        dz = planar.vertices[v].dem_z if v in planar.vertices else None
+        if v in station and station[v][0] in routes and dz is not None \
+                and math.isfinite(float(dz)):
+            out[v] = float(dz)
+    return out
 
 
 def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -956,11 +1108,15 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         tag = src.inputs[0] if src.inputs else ""
         return int(tag[7:]) if tag.startswith("vertex:") else None
 
+    # a kerb in a road's own zone-2 cut carries a §37 (6) row since #2121
+    # (``airport/road_ramp._cut_kerb_ground``); the terrace reads it as the band's
+    # kerb it always was — never a floor of its profile
+    cut = _cut_kerb(planar, law)
     floor: dict[int, float] = {}
     for r in cs.linears:
         if r.source.generator == GEN and r.source.ruling == RULING:
             v = _vertex(r.source)
-            if v is not None and r.hi is not None:
+            if v is not None and r.hi is not None and v not in cut:
                 floor[v] = float(r.hi)
     joins = {p.v: float(p.z) for p in cs.pins
              if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
@@ -991,7 +1147,9 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         design=float(law.tables.emit.road_contact.ramp_grade),
         lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil,
         upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
-        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade))
+        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade),
+        route_caps=_steep_route_caps(planar, law, terr["station"]),
+        shared=terr.get("shared") or {}, kerb_ground=_run_kerb_ground(planar, terr))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —
@@ -1030,6 +1188,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in rim:
                 rep["rim_dropped"] += 1
                 continue
+            if v in add:
+                continue             # the kerb's terrace level supersedes it (below)
             if v in prof:
                 r = _dc.replace(r, lo=prof[v], hi=prof[v])
         linears.append(r)
@@ -1045,6 +1205,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in rim:
                 rep["rim_dropped"] += 1
                 continue
+            if v in add:
+                continue             # no ceiling on a terrace kerb (as before #2121)
             if v in prof and r.hi is not None:
                 r = _dc.replace(r, hi=prof[v] + vis)
         bands.append(r)
@@ -1403,3 +1565,14 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     rep["max_step_m"] = round(rep["max_step_m"], 3)
     rep["max_bank_slope"] = round(rep["max_bank_slope"], 3)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def _cut_kerb(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """The ribbon vertices standing in a road's own zone-2 cut (#2121): the
+    band kerb less the kerb a ribbon shares with a band face."""
+    kerb = getattr(planar, "band_kerb_vertices", None)
+    if kerb is None:
+        return frozenset()
+    from ..law.tables import airside_stage_roles
+    stage1 = airside_stage_roles(law)
+    return kerb(stage1) - kerb(stage1, cut=False)

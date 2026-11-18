@@ -9,8 +9,11 @@ selection the user makes here goes to the map (``selection_edited``,
 ``O4_Activity_Order.list_edit``).  A row is a widget the view hosts as
 the item's index widget (title, bar, steps, status line and its stop /
 resume button: no standard item paints those); its margins come from the
-style's item-view metrics.  The Mac app's twin is ``ActivitySections``
-(``ActivitySections.swift``).
+style's item-view metrics.  A selected row draws its bar in the
+selection's text colour (``_emphasize_row``): the bar's fill IS the
+selection colour, so on a selected row it vanished (owner 2026-11-17, the
+Mac app's ``SelectedRowStyle``).  The Mac app's twin is
+``ActivitySections`` (``ActivitySections.swift``).
 """
 
 import O4_Activity_Order as ACTORDER
@@ -22,8 +25,10 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QProgressBar,
     QStyle,
     QTreeWidget,
     QTreeWidgetItem,
@@ -32,6 +37,10 @@ from PySide6.QtWidgets import (
 )
 
 __all__ = ["ActivityList", "completed_title", "row_margins"]
+
+#: Extra space above and below a row's content (the Mac app's
+#: ``SelectedRowStyle.rowVerticalPadding``, owner 2026-11-17).
+ROW_EXTRA_V = 2
 
 
 def completed_title(count):
@@ -44,8 +53,26 @@ def row_margins(style):
     style's own item-view text margins (QCommonStyle pads an item's text
     by the focus frame margin plus one)."""
     side = style.pixelMetric(QStyle.PM_FocusFrameHMargin) + 1
-    top = style.pixelMetric(QStyle.PM_FocusFrameVMargin) + 1
+    top = style.pixelMetric(QStyle.PM_FocusFrameVMargin) + 1 + ROW_EXTRA_V
     return (side, top, side, top)
+
+
+def _emphasize_row(row, selected):
+    """Draw ``row``'s progress bars for a selected row or not: on a
+    selected row the fill takes the selection's text colour (Qt's
+    ``HighlightedText``, white on the accent), else the inherited
+    palette."""
+    for bar in row.findChildren(QProgressBar):
+        if selected:
+            palette = QPalette(bar.palette())
+            for group in (QPalette.Active, QPalette.Inactive):
+                palette.setColor(group, QPalette.Highlight,
+                                 row.palette().color(group,
+                                                     QPalette.HighlightedText))
+            bar.setPalette(palette)
+        else:
+            bar.setPalette(QPalette())
+        bar.setProperty("emphasized", bool(selected))
 
 
 class _Cell(QWidget):
@@ -255,6 +282,7 @@ class ActivityList(QTreeWidget):
         finally:
             self._syncing = False
         self._shown = shown
+        self._emphasize_selected()
 
     def row_clicked(self, item, modifiers):
         """A click on ``item``'s row, as the view's ExtendedSelection takes
@@ -280,7 +308,14 @@ class ActivityList(QTreeWidget):
         """What the list showed selected before the user's edit."""
         return set(self._shown)
 
+    def _emphasize_selected(self):
+        for item in self._items.values():
+            cell = self.itemWidget(item, 0)
+            if cell is not None:
+                _emphasize_row(cell.row(), item.isSelected())
+
     def _selection_changed(self):
+        self._emphasize_selected()
         if self._syncing:
             return
         new = self.selected_tiles()

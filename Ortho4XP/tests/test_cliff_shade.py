@@ -116,6 +116,15 @@ def test_dark_patch_away_from_the_wall_is_left_alone():
     assert extra is None
 
 
+def test_dark_ground_on_top_of_the_cliff_is_not_its_shadow():
+    # dark land ABOVE the rim (a bluff's vegetation, an airfield on top):
+    # the plain east of the wall is 200 m up; nothing is carried there
+    wall_x = WALL * CELL
+    extra, _stats = _run(_photo(dark_x=(wall_x, wall_x + 300)))
+    top = XYZ[:, 2] > 100
+    assert extra is None or extra[top].max() == 0
+
+
 def test_reach_is_capped():
     wall_x = WALL * CELL
     extra, stats = _run(_photo(dark_x=(0, wall_x)))

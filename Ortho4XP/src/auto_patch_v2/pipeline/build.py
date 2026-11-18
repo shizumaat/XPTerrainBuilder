@@ -403,6 +403,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # spec 2068 A2 F1: a unit's own fences join the one fence list
     from ..airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, load_rules(), law, ocache)
+    # #2120 R2 P1: the portals in a cut, read once (the shade, the mouth walls, the seat)
+    from ..airport.cut_portal import attach_cut_portals
+    airport = attach_cut_portals(airport, pack_objects, ocache, law)
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law, _pins)
@@ -568,6 +571,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pack_objects, pack_report = _ps["objects"], _ps["report"]
     _part, _groups = _ps["partition"], _ps["groups"]
     wall["partition"] = _ps["wall"]["total"]
+    # spec 2123 B (RULINGS 2026-11-16y): a mapped road bridge the pack only
+    # drapes as pavement is generated as an X-Plane road, its span out of
+    # the pavement sources -- read once, before the stage cache keys them
+    from ..planar.road_bridge_gen import attach_road_bridges
+    _rb_notes: list[str] = []
+    airport = attach_road_bridges(airport, law, _rb_notes, pack_objects, ocache,
+                                  inputs.mod_cache_root)
+    for _n in _rb_notes:
+        if "GENERATED" in _n or "REFUSED" in _n:
+            _say(f"[{icao}] {_n}", out)
     # THE STAGE CACHE (issue #843; ``pipeline/front_cache.py``): classify,
     # planar, flat_site, road_profile and the shapes are served from their
     # records when key and witnesses hold.  Off (``Config.stage_cache``
@@ -591,6 +604,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # what ``classify`` leaves in ``classify.evidence`` for the sidecar's
     # ``pad_refusals``, put back on a hit (and, unchanged, on a miss)
     _front.install_classify_side_state(_cl_side)
+    # spec 2123 B3: the pack pavement under a generated road bridge's span
+    # leaves the cells (the sources were read whole)
+    from ..planar.road_bridge_gen import span_cells
+    cl, _span_notes = span_cells(cl, airport, law)
+    for _n in _span_notes:
+        _say(f"[{icao}] {_n}", out)
     wall["classify"] = time.perf_counter() - t
     # RULINGS 2026-10-30e (#1686): a taxi centreline over ground no cell
     # holds names a missed pavement source — a reading, never a law
@@ -666,6 +685,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
+    from ..constraints.deck_floor_follow import floor_follow_rewrite
     from ..constraints.door_pad import blend_release
     from ..constraints.road_ramp import reach_seed_rewrite
 
@@ -676,6 +696,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lv1 = dict(lv)
         door, bands, pref = blend_release(pm, law, airport, lv, cs)
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
+        # a generated deck's floor follows its end lines as stage 1 solved them
+        cs2, rep["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
+        if rep["deck_floor_follow"]["pins"]:
+            _say(f"[{icao}] generated deck floor follows its end lines: "
+                 f"{rep['deck_floor_follow']}", out)
         if bands:
             cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
         rep["door_blend"] = door
@@ -793,7 +818,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
-             "hard_conflict": hard_conflict},
+             "hard_conflict": hard_conflict, "cs": cs},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
             speculate=speculate_roads)
@@ -818,6 +843,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "lot_rows": _late["follow"].get("lot_rows", 0),
                         "declared_bounds": len(_late["follow"].get("declared", ())),
                         "wall_s": _late["wall_s"]}
+        if _late.get("car_lots"):
+            # #2114 round 2: the car lots' stage — its cut, the lots that
+            # welded and every declared terrace with both levels
+            _cl_rep = _late["car_lots"]
+            _late_report["car_lots"] = {
+                "cut": _cl_rep["cut"], "rows": _cl_rep["follow"]["rows"],
+                "welded_lots": _cl_rep["follow"]["welded_lots"],
+                "terraced_lots": _cl_rep["follow"]["terraced_lots"]}
+            _late_report["car_lot_terraces"] = _cl_rep["follow"]["terraces"]
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS (``emit_stage``)
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD

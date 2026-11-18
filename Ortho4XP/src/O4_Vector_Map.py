@@ -14,6 +14,7 @@ import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_ZProv as ZPROV
+import O4_Patch_Voids as PATCH_VOIDS
 import O4_File_Names as FNAMES
 import O4_Rebuild_Cache as REBUILD
 import O4_Geo_Utils as GEO
@@ -1566,6 +1567,8 @@ def build_poly_file(tile):
     # edit can rewrite them without this step (``O4_Patch_Fast_Path``).
     vector_map.zprov.write(ZPROV.zprov_file(node_file))
     vector_map.write_poly_file(poly_file)
+    # The voids the mesh step's patch coverage leaves out (O4_Patch_Voids).
+    PATCH_VOIDS.write(poly_file, getattr(vector_map, "patch_voids", None))
 
     UI.vprint(
         1, "\nFinal number of constrained edges :", len(vector_map.dico_edges)
@@ -2729,6 +2732,7 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
             class_caps=_law["class_caps"],
             join_pins=_join_pins,
             public_classes=_law["public_classes"],
+            terrain_cap=_law["terrain_cap"],
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -3268,12 +3272,11 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
             seed_area, witness, tile.lat, tile.lon)
         COAST_VET.refuse_mostly_sea_highland(
             seed_area, getattr(tile, "dem", None), tile.lat, tile.lon)
-        for polygon in seed_area.geoms:
-            seed = numpy.array(polygon.representative_point().coords[0])
-            if "SEA" in vector_map.seeds:
-                vector_map.seeds["SEA"].append(seed)
-            else:
-                vector_map.seeds["SEA"] = [seed]
+        # Rule 4: every seed clear of its polygon's edge, no sliver seed.
+        seeds, _slivers = COAST_VET.sea_seed_points(
+            seed_area, tile.lat, tile.lon)
+        if seeds:
+            vector_map.seeds.setdefault("SEA", []).extend(seeds)
         # Seawall along the pavement/sea edge (see SEAWALL_MARKER).  The
         # cutter is ``seed_area``, not the raw ``sea_area``: it is exactly
         # where the SEA attribute will live, so it is exactly where the
@@ -3993,6 +3996,43 @@ def _say_dropped_patch_ring(pfile_name, wayid, dt, why):
         f"{why}; the ring is DROPPED and its interior keeps the raw DEM.")
 
 
+#: A USER patch ring with none of these says nothing about the ground
+#: (owner 2026-11-17, LPPD: an untagged 5.5 km2 closed way was seeded
+#: as patch pavement, dried 1.2 km2 of sea and lifted it up to 57 m
+#: behind a seawall; "if there were no tags it was just completely
+#: ignored, I would lean toward that handling").  The way's height tags
+#: (the altitude vocabulary :func:`include_patches` reads), the nodes'
+#: and the engine's role tags.  Auto patches always carry roles and are
+#: never asked.
+PATCH_WAY_HEIGHT_TAGS = frozenset((
+    "altitude", "cst_alt_abs", "cst_alt_rel", "var_alt_rel",
+    "altitude_high", "altitude_low", "node_altitudes"))
+PATCH_NODE_HEIGHT_TAGS = frozenset(("alt_abs", "alt_rel"))
+PATCH_ROLE_TAGS = frozenset(("role", "o4_feature"))
+
+
+def _untagged_user_ring(way_tags, node_ids, node_tags):
+    """True when a user patch's closed way carries no height and no role
+    (:data:`PATCH_WAY_HEIGHT_TAGS`): it is IGNORED -- never inserted,
+    never in ``patches_area``, never seeded, no water barrier, no wall."""
+    if any(k in way_tags for k in PATCH_WAY_HEIGHT_TAGS | PATCH_ROLE_TAGS):
+        return False
+    return not any(k in node_tags.get(nid, ()) for nid in node_ids
+                   for k in PATCH_NODE_HEIGHT_TAGS)
+
+
+def _say_ignored_patch_ring(pfile_name, wayid, way_lonlat):
+    """Name an ignored untagged ring at verbosity 0: its (reader-numbered)
+    id, where it is and its size."""
+    lon, lat = (float(v) for v in numpy.mean(way_lonlat[:-1], axis=0))
+    try:
+        km2 = geometry.Polygon(way_lonlat).area * 111.32 ** 2 * cos(lat * pi / 180)
+    except Exception:
+        km2 = float("nan")
+    UI.loud_warning(f"     {pfile_name} way {wayid} near {lat:.5f},{lon:.5f}: "
+                    f"untagged closed way, {km2:.2f} km2, ignored.")
+
+
 def _alt_abs_sources(pfile_name, node_ids, node_tags, dtype):
     """#1323 (``O4_ZProv``): per node of a patch way, the patch node whose
     ``alt_abs`` became its z — ``(patch file, node id, the dtype of the
@@ -4033,6 +4073,9 @@ def include_patches(vector_map, tile):
     # Closed patch polygons, kept so that INTERP_ALT seeds can be placed
     # per planar FACE after all patch files are read (see below).
     interp_alt_patch_polygons = []
+    # The UNCOVERED HOLE rings of every patch (``O4_Patch_Voids``): each is
+    # constrained, but its void is not coverage and takes no INTERP_ALT seed.
+    hole_polygons = []
     # RULINGS 2026-09-13cp: how many OPEN load-bearing runs took the
     # patch-ring marker (a report figure — the 1.0.329 defect was 105 of
     # them silently going in as DUMMY).
@@ -4146,6 +4189,11 @@ def include_patches(vector_map, tile):
             way = numpy.array(
                 [dn[nodeid] for nodeid in dw[wayid]], dtype=float
             )
+            if (not is_auto and len(way) > 3 and (way[0] == way[-1]).all()
+                    and _untagged_user_ring(dt["w"].get(wayid, {}),
+                                           dw[wayid], dt["n"])):
+                _say_ignored_patch_ring(pfile_name, wayid, way)
+                continue
             way = way - numpy.array([[tile.lon, tile.lat]])
             alti_way_orig = tile.dem.alt_vec(way)
             cplx_way = False
@@ -4300,13 +4348,21 @@ def include_patches(vector_map, tile):
                 try:
                     pol = geometry.Polygon(way)
                     if pol.is_valid and pol.area:
-                        patches_area_polys.append(pol)
+                        # An uncovered hole ring covers nothing; its void
+                        # leaves the coverage below (O4_Patch_Voids).
+                        wtags = dt["w"].get(wayid, {})
+                        cover = pol
+                        if PATCH_VOIDS.is_hole(wtags):
+                            hole_polygons.append(pol)
+                            cover = None
+                        if cover is not None:
+                            patches_area_polys.append(cover)
                         # R17-3: role-scoped seawall admission.  The role
                         # tag is the patch's own (``layout.to_osm``);
                         # a ring without one is not graded coverage.
-                        if (dt["w"].get(wayid, {}).get("role")
+                        if (cover is not None and wtags.get("role")
                                 in GRADED_COVERAGE_ROLES):
-                            graded_area_polys.append(pol)
+                            graded_area_polys.append(cover)
                         # Pavement in our patch is LAND: the ring blocks
                         # the WATER / SEA / SEA_EQUIV floods as well as
                         # the INTERP_ALT one (see PATCH_RING_MARKER).
@@ -4316,7 +4372,8 @@ def include_patches(vector_map, tile):
                             check=True,
                             zsrc=zsrc,
                         )
-                        interp_alt_patch_polygons.append(pol)
+                        if cover is not None:
+                            interp_alt_patch_polygons.append(cover)
                         if cplx_way and cuts_long:
                             for i in range(1, cuts_long):
                                 id0 = vector_map.dico_nodes[tuple(way[i])]
@@ -4386,6 +4443,15 @@ def include_patches(vector_map, tile):
                     patches_area = patches_area.union(pol)
                 except Exception:
                     UI.vprint(2, "     Skipping invalid patch polygon.")
+    patch_voids = PATCH_VOIDS.voids(hole_polygons, patches_area_polys)
+    if not patch_voids.is_empty:
+        try:
+            patches_area = patches_area.difference(patch_voids)
+            graded_area = graded_area.difference(patch_voids)
+        except Exception:
+            UI.vprint(1, "     Patch voids could not be taken out of the "
+                         "coverage — the holes stay covered this tile.")
+            patch_voids = geometry.Polygon()
     # Seed every planar FACE of the patch coverage, not one point per ring.
     # Triangle4XP spreads a regional attribute by plague, and the flood is
     # blocked by ANY segment carrying the same attribute bit (see the
@@ -4399,9 +4465,13 @@ def include_patches(vector_map, tile):
         try:
             interp_alt_seeds = []
             covered = prep(patches_area)
+            # The hole rings cut the faces too: they are patch-ring edges
+            # the flood stops at, so a host's ring outside its hole is a
+            # face of its own (O4_Patch_Voids).
             for face in ops.polygonize(
                 ops.unary_union(
-                    [pol.boundary for pol in interp_alt_patch_polygons]
+                    [pol.boundary for pol in
+                     interp_alt_patch_polygons + hole_polygons]
                 )
             ):
                 # A face with no room holds no mesh vertex and cannot be
@@ -4457,7 +4527,21 @@ def include_patches(vector_map, tile):
                     tile,
                 )
             )
+    vector_map.patch_voids = patch_voids
+    if hole_polygons:
+        UI.vprint(
+            1,
+            f"   Patch holes: {len(hole_polygons)} uncovered hole ring(s) "
+            "constrained; their void "
+            f"({_tile_area_m2(vector_map.patch_voids, tile):,.0f} m2) is not "
+            "patch coverage and keeps the DEM.")
     return (patches_area, patches_list, graded_area)
+
+
+def _tile_area_m2(polygon, tile):
+    """``polygon``'s area (tile-relative degrees) in square metres."""
+    return polygon.area * 111120.0 ** 2 * cos(
+        (tile.lat + 0.5) * pi / 180)
 
 
 ################################################################################

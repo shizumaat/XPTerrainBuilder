@@ -46,7 +46,7 @@ coverage beyond it.
 | `elevation_level` | Global `Ortho4XP.cfg` | 90 | auto | auto |
 | `airport_elevation_level` | Global `Ortho4XP.cfg` | 30 | auto | auto |
 | `approach_rings` | Global `Ortho4XP.cfg` | off | off | auto |
-| `cover_approach_ft` | Global `Ortho4XP.cfg` | 0 | 500 | 1000 |
+| `cover_approach_ft` | Global `Ortho4XP.cfg` | 0 | -2 (half the eye rule) | -1 (eye rule) |
 | `cover_airports_with_highres` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
 | `auto_patch` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
 | `airport_elevation_insets` | Global `Ortho4XP.cfg` | ICAO | ICAO | ICAO |
@@ -59,9 +59,10 @@ coverage beyond it.
   30 m (`airport_elevation_level` 30), no approach rings.
 - **Balanced** builds at the registry's zoom (`default_zl`'s default, 16,
   as both apps' zoom default), ZL18 inside each ICAO airport's boundary,
-  the best airport elevation but no approach rings. It equals the registry
+  the best airport elevation, no approach rings, and approach corridors
+  half the eye-rule length. It equals the registry
   defaults except `cover_airports_with_highres` (default False),
-  `cover_extent` (default 1.0), `approach_rings` (default auto), `cover_approach_ft` (default 1000) and `bathymetry_near_other_airports`
+  `cover_extent` (default 1.0), `approach_rings` (default auto), `cover_approach_ft` (default -1) and `bathymetry_near_other_airports`
   (default True), which the engine keeps so builds outside the apps do not
   change: an untouched config shows Custom.
 - **Sharper airports** turns on the existing airport high-detail zones for
@@ -74,6 +75,12 @@ coverage beyond it.
   thresholds respected) out along the extended centreline until a 3° glide
   path is this many feet above the threshold (1,000 ft ≈ 5.8 km, 500 ft ≈
   2.9 km, 0 = the airport only), widening from the runway width to 1 km.
+  -1 (Sharper airports, the default; RULINGS 2026-11-17u) sets the length
+  by the eye rule of the in-flight loader (RULINGS 2026-11-12f): out to
+  the point of the 3° path where the aircraft, looking down the path at
+  the threshold, no longer resolves the base zoom's full-resolution texel
+  (`EYE_RAD`, ~1′): about 6.3 km at 38–40° N, 8.1 km at the equator. -2 (Balanced; RULINGS 2026-11-18a) is half that length:
+  about 3.2 km at 38–40° N, 4 km at the equator.
   `cover_extent` widens the boundary polygon itself, not its bounding
   box; the squares are those meeting boundary ∪ corridors
   (`O4_Airport_Approach_Cover`).

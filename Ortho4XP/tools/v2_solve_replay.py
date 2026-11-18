@@ -696,6 +696,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
+    from auto_patch_v2.airport.cut_portal import attach_cut_portals
+    airport = attach_cut_portals(airport, pack_objects, ocache, law)      # #2120 R2 P1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law, _epins)   # #1747
     from auto_patch_v2.airport.deck_routes import attach_deck_routes
@@ -1143,7 +1145,8 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
-               hard_conflict=(), runway_flex=(), agp_report=None, objects=None) -> dict:
+               hard_conflict=(), runway_flex=(), agp_report=None, objects=None,
+               rebake_plan: bool = False, car_lot_terraces=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1155,7 +1158,14 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     patch as ``<ICAO>.authored_seats.json`` (#1689).
 
     The patch-boundary bank pass that once ran here is deleted (owner
-    RULINGS 2026-10-04c (3))."""
+    RULINGS 2026-10-04c (3)).
+
+    ``rebake_plan`` (``--rebake-plan``, #2120 R2): ALSO the object stage's
+    plan, ``o4_v2_rebake_<ICAO>.json``, built by ``rebake_plan.plan`` from
+    these same rebake inputs over the capture's LOAD partition (the build's
+    call, ``rebake_screen.build_plan``'s inputs) -- for
+    ``tools/v2_rebake_replay.py plan`` over a built mesh, so an object seat
+    is replayed before a tile build."""
     from auto_patch_v2.emit.graded import graded_surface
     from auto_patch_v2.emit.osm_adapter import write_patch
     from auto_patch_v2.emit.terrain_edge import with_terrain_edges
@@ -1204,6 +1214,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if late_stage is not None:
         from auto_patch_v2.pipeline.publication import late_stage as _late_stage
         pub["late_stage"] = _late_stage(late_stage)
+    if car_lot_terraces is not None:
+        # #2114 round 2 P3: as ``pipeline/emit_stage`` publishes it
+        from auto_patch_v2.pipeline.publication import car_lot_terraces as _terraces
+        pub["car_lot_terraces"] = _terraces(car_lot_terraces, airport.frame.transformers()[1])
     from auto_patch_v2.pipeline.publication import pad_touch as _pad_touch
     _touch = _pad_touch(cells, law, pm)
     if _touch:
@@ -1237,11 +1251,33 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
         (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
             sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
             indent=0, default=str), encoding="utf-8")
+        # #2099 G4: the PLATE seats (a mouth's and its wings', ``tunnel_objects``):
+        # plate y, kind and anchor zero per id -- a wing's seat is read here
+        (emit_dir / f"{icao}.plate_seats.json").write_text(json.dumps(
+            {k: {"y": v[0], "stations": len(v[1]), "rest": list(v[2:])}
+             for k, v in sorted((got.get("tunnel_objects") or {}).items())},
+            indent=0, default=str), encoding="utf-8")
+        if rebake_plan:
+            from auto_patch_v2.airport import frame_entry as _fe
+            from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+            from auto_patch_v2.airport.rebake_plan import plan as _rplan
+            from auto_patch_v2.model.rebake import PLAN_FILENAME
+            _c = _RCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
+            _p = _rplan(airport, objects, _c, law, got["deck_datum"], exclude=got["exclude"],
+                        below_grade=got["below_grade"], tunnel_objects=got["tunnel_objects"],
+                        partition=getattr(airport, "partition", None),
+                        authored_seats=got.get("authored_seats", ()),
+                        free_decks=got.get("free_decks"))
+            _out = emit_dir / PLAN_FILENAME.format(icao=icao)
+            _out.write_text(_p.to_json(), encoding="utf-8")
+            print(f"    rebake plan -> {_out}")
     return {"patch": str(paths.patch), "surface": surf_out}
 
 
 def reclassify(pkl: Path, rule: dict[str, object],
-               json_out: Path | None, top: int = 12) -> int:
+               json_out: Path | None, top: int = 12,
+               roles_out: Path | None = None, roles_against: Path | None = None,
+               protect: "tuple[str, ...] | list[str]" = ()) -> int:
     """THE §40 SHOULDER-BAND READING, DRY, OFF A REGISTERED CAPTURE
     (lane ``v2shoulderband`` r2; promoted on its second use per RULINGS
     ``7e90032`` — r1 hand-rolled it in a scratchpad for the HECA control
@@ -1287,6 +1323,21 @@ def reclassify(pkl: Path, rule: dict[str, object],
     cl = classify(airport, law, rules)
     print(f"[{icao}] classify {time.perf_counter() - t0:.1f} s, "
           f"{len(cl.cells)} cells")
+    # #2134 THE ROLE-FLIP CENSUS: dump this tree's cells, or read them
+    # against a dump of the base tree (``tools/role_flips.py``)
+    flips = None
+    if roles_out or roles_against:
+        if str(ROOT / "tools") not in sys.path:
+            sys.path.insert(0, str(ROOT / "tools"))
+        import role_flips
+        _to_ll = airport.frame.transformers()[1]
+        if roles_out:
+            role_flips.dump(cl.cells, _to_ll, roles_out)
+            print(f"[{icao}] roles -> {roles_out}")
+        if roles_against:
+            print(f"[{icao}] ROLE FLIPS against {roles_against}")
+            flips = role_flips.report(roles_against, cl.cells, _to_ll,
+                                      protect=protect)
 
     rw_of = {rw.id: rw for rw in airport.runways}
     def _lat_off(ring, rw) -> float:
@@ -1310,6 +1361,8 @@ def reclassify(pkl: Path, rule: dict[str, object],
         "remainder": {"faces": len(rest), "m2": sum(_area(c) for c in rest)},
         "stats": {k: v for k, v in cl.stats.items() if k.startswith("shoulder_band")},
     }
+    if flips is not None:
+        res["role_flips"] = flips
     by_role: dict[str, list[float]] = {}
     for c in rest:
         by_role.setdefault(c.role, []).append(_area(c))
@@ -2116,7 +2169,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    sites: list[tuple[float, float]] | None = None,
                    pad_read_only: bool = False, shape_dump: Path | None = None,
                    rim_diagnostics: bool = False, late: dict | None = None,
-                   gap_free: bool = False, rule: dict | None = None) -> dict:
+                   gap_free: bool = False, rule: dict | None = None,
+                   hand_role: dict | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2289,11 +2343,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         airport = attach_wall_reseats(airport, _epins)
         airport = attach_wall_shade(airport, _load_rules().service)
         airport = attach_unit_fences(airport, _load_rules(), law)
-        # #1747: a capture written before ``Airport.entrance_shade`` derives
-        # it here, off the pack read the classify / planar stages take
-        if getattr(airport, "entrance_shade", None) is None:
-            from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-            airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
+        # #2120 R2 P1: the portals in a cut, and with them the entrance
+        # shade (#1747), re-derived under the current tree on every early
+        # resume, off the pack read the classify / planar stages take
+        from auto_patch_v2.airport.cut_portal import attach_cut_portals
+        from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+        airport = attach_cut_portals(airport, _objs, _ocache, law)
+        airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture
@@ -2320,6 +2376,16 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         for _n in _fb_notes:
             print(f"[{icao}]   [free-bridge] {_n}")
     if resume == "classify":
+        # spec 2123 B: the generated road bridges' spans leave the pavement
+        # sources before classify, as ``pipeline/build`` does (a no-op on a
+        # capture that already carries them)
+        from auto_patch_v2.planar.road_bridge_gen import attach_road_bridges
+        _rb_notes: list = []
+        airport = attach_road_bridges(airport, law, _rb_notes, _objs, _ocache,
+                                      inputs.mod_cache_root)
+        for _n in _rb_notes:
+            if "GENERATED" in _n or "REFUSED" in _n:
+                print(f"[{icao}] {_n}")
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
         # derivation (``plan_clusters``) or the pad mint (``geom.
@@ -2345,6 +2411,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if rule:
             print(f"[{icao}] REPLAY ARM [rules] {rule}")
         cl = _classify(airport, law, _crules, cache=_ocache)
+        # spec 2123 B3: the span cut, as ``pipeline/build`` makes it
+        from auto_patch_v2.planar.road_bridge_gen import span_cells as _span_cells
+        cl, _sn = _span_cells(cl, airport, law)
+        for _n in _sn:
+            print(f"[{icao}] {_n}")
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
         # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
@@ -2591,6 +2662,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
                 "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay, "objects": _objs}
 
+    if hand_role:
+        # lane lkbna15 (#2112/#2134): named sources re-roled BEFORE the map
+        # is built (``tools/role_arm.py``), extract-only
+        from auto_patch_v2.law.tables import role_side as _role_side
+        from role_arm import force_roles as _force_roles
+        cl, _hl = _force_roles(cl, hand_role, lambda r: _role_side(law, r))
+        for _ln in _hl:
+            print(f"[{icao}] {_ln}")
     if gap_free:
         # THE BUILD'S OWN BASE (``pipeline/build``: ``gap_free(cl)``, spec §55
         # (4)): the classification without its §53 gap pieces — a piece
@@ -2602,7 +2681,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free
         _n = len(cl.cells)
         cl = _gap_free(cl) or cl
-        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads) dropped, "
+        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads, car lots) dropped, "
               f"{len(cl.cells)} cells (the build's base map)")
     if late is None:
         return _rest(cl)
@@ -2632,13 +2711,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
+           rebake_plan: bool = False,
            why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
            late_from: Path | None = None, gap_free: bool = False,
-           null_change: int | None = None, rule: dict | None = None) -> int:
+           null_change: int | None = None, rule: dict | None = None,
+           hand_role: dict | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2651,14 +2732,17 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _base = pickle.load(_fh)
         _late = {"base": {"pm": _base["pm"], "z": _base["z"],
                           "pin_yield": _base.get("pin_yield", ()),
-                          "hard_conflict": _base.get("hard_conflict", ())},
+                          "hard_conflict": _base.get("hard_conflict", ()),
+                          # the rows standing under the base's levels (the
+                          # car lots' stage carries them, #2114 round 2)
+                          "cs": _base.get("cs")},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
                               "method": method}}
         _base_hold = _base.get("hold_report")
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late,
-                          gap_free=gap_free, rule=rule)
+                          gap_free=gap_free, rule=rule, hand_role=hand_role)
     if late_from is not None and _base_hold:
         # the last stage re-mints the HELD registry: the base solve's hold
         # report is carried over it, as ``pipeline/build`` does — without it
@@ -2696,6 +2780,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             except ImportError:                   # a tree that predates it
                 pass
             cs2, rep2 = reach_seed_rewrite(pm, law, cs, lv1)
+            try:
+                from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
+                cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
+                print(f"[{icao}] generated deck floor follows its end lines: "
+                      f"{rep2['deck_floor_follow']}")
+            except ImportError:                   # a tree that predates it
+                pass
             if bands:
                 cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
             rep2["preferred_z"] = pref
@@ -3036,7 +3127,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      cells=cl.cells, hard_conflict=hard_conflict,
                                      runway_flex=rep.runway_flex,
                                      agp_report=(rep.reach_seed or {}).get("agp_level"),
-                                     objects=prob.get("objects")))
+                                     objects=prob.get("objects"), rebake_plan=rebake_plan,
+                                     car_lot_terraces=(
+                                         (prob["late"]["rep"].get("car_lots") or {})
+                                         .get("follow", {}).get("terraces")
+                                         if late_from is not None else None)))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)
@@ -3077,7 +3172,12 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
             kw["stage1"] = s1
         else:
             cs_x = _null.with_bands(cs, bands)
-        kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
+        def _s2(lv, cs_x=cs_x):
+            from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
+            cs2, rep2 = reach_seed_rewrite(pm, law, cs_x, lv)
+            cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv)
+            return cs2, rep2
+        kw["stage2_rewrite"] = _s2
         from auto_patch_v2.constraints.taxi_trend import (
             low_hold_retarget,
             stage_one_retarget,
@@ -3180,6 +3280,18 @@ def main() -> int:
                          "remainder by earned role, the worst lateral offset and "
                          "the vertices beyond the band).  Prices no law and counts "
                          "no defects.")
+    ap.add_argument("--roles-out", type=Path, metavar="PATH",
+                    help="with --reclassify: dump this tree's cells (role, ref, "
+                         "ring, evidence) for a later --roles-against (#2134)")
+    ap.add_argument("--roles-against", type=Path, metavar="PATH",
+                    help="with --reclassify: the ROLE-FLIP CENSUS -- read a "
+                         "--roles-out dump of the base tree against this run: "
+                         "apron area that left apron, by new role and by base "
+                         "minting rule, the largest flips with lat, lon, the "
+                         "cells that became apron (tools/role_flips.py)")
+    ap.add_argument("--protect", action="append", default=[], metavar="REF",
+                    help="with --roles-against: a ref that must stay apron "
+                         "(an owner-ruled apron); any flip of it is printed")
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume",
                     choices=("constraints", "shapes", "planar", "classify"),
@@ -3228,6 +3340,10 @@ def main() -> int:
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
                     help="the --site horizon in metres (default 12; the owner's step horizon is 60)")
     ap.add_argument("--emit", type=Path, metavar="DIR", help="write the patch of the solved surface")
+    ap.add_argument("--rebake-plan", action="store_true",
+                    help="with --emit: also write the object stage's plan "
+                         "(o4_v2_rebake_<ICAO>.json, rebake_plan.plan over the capture's load "
+                         "partition) for tools/v2_rebake_replay.py plan (#2120 R2)")
     ap.add_argument("--verify", action="store_true",
                     help="run the v2 verify census on the solved surface and print the rows "
                          "per family and the DEFECT families (the app's gate)")
@@ -3245,6 +3361,11 @@ def main() -> int:
                          "(pipeline/stage_one_map.gap_free; a piece classed apron, "
                          "\u00a759, stays) \u2014 with --solved-out, the base a --late-from "
                          "run reads.  Needs --from classify or --from planar")
+    ap.add_argument("--hand-role", action="append", default=[], metavar="SRC=ROLE",
+                    help="lane lkbna15 ARM (tools/role_arm.py): re-role the cells of "
+                         "pavement source SRC that are outside the taxi family to ROLE "
+                         "(a #1697 choosable role) before the map is built; repeat. "
+                         "Needs --from classify or --from planar")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
                     help="pickle the solved set for --why-from")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
@@ -3405,7 +3526,8 @@ def main() -> int:
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)
-        return reclassify(a.reclassify, rl, a.json)
+        return reclassify(a.reclassify, rl, a.json, roles_out=a.roles_out,
+                          roles_against=a.roles_against, protect=a.protect)
     if a.why_from:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:
@@ -3460,12 +3582,14 @@ def main() -> int:
                       design_weights={k.strip(): _design_value(v)
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
-                      emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
+                      emit_dir=a.emit, rebake_plan=a.rebake_plan, why_hump=wh, verify=a.verify,
+                      solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
                       late_from=a.late_from, gap_free=a.gap_free,
                       null_change=a.null_change,
-                      rule=dict(it.split("=", 1) for it in a.rule) or None)
+                      rule=dict(it.split("=", 1) for it in a.rule) or None,
+                      hand_role=dict(it.split("=", 1) for it in a.hand_role) or None)
     ap.error("one of --capture / --replay")
     return 2
 

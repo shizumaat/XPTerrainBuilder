@@ -155,6 +155,21 @@ class TestTwoLineElidedLabel:
         assert label.maximumHeight() == two_lines
 
 
+def _widest_children(panel, count=12):
+    """The visible descendants of ``panel`` demanding the most width, so a
+    platform-only overflow names its widget (the runner's font is not the
+    mac's)."""
+    from PySide6.QtWidgets import QWidget
+    rows = []
+    for child in panel.findChildren(QWidget):
+        if child.isVisibleTo(panel):
+            text = child.text() if callable(getattr(child, "text", None)) else ""
+            rows.append((child.minimumSizeHint().width(),
+                         child.sizePolicy().horizontalPolicy().name,
+                         type(child).__name__, str(text)[:40]))
+    return "\n".join(map(str, sorted(rows, reverse=True)[:count]))
+
+
 class TestPanelFitsItsViewport:
     """The right panel is a fixed-width scroll area with the horizontal
     scrollbar off: content wider than the viewport silently clips, so
@@ -191,7 +206,8 @@ class TestPanelFitsItsViewport:
         scroll = panel.parentWidget()
         while not hasattr(scroll, "viewport"):
             scroll = scroll.parentWidget()
-        assert panel.minimumSizeHint().width() <= scroll.viewport().width()
+        assert panel.minimumSizeHint().width() <= scroll.viewport().width(), (
+            _widest_children(panel))
         assert panel.width() <= scroll.viewport().width()
 
     def test_info_rows_get_two_lines_in_the_form(self, qapp, make_window):

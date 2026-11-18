@@ -105,10 +105,11 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
+from .gap_stands import holds_stand as _holds_startup   # the one 1300-containment read
 from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
-from .open_default import (apron_evidence, narrow_road, open_pavement_role,
+from .open_default import (apron_witness, narrow_road, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
                         is_held_step, is_touching, part_evidence,
@@ -466,20 +467,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             evid["n_taxi_unnamed"] = len(taxi) - len(named)
         else:
             kind, axis, evid = _kind(face, taxi, rules)
-        # §40 (2): OSM `aeroway=apron` cover REFUSES the corridor kind —
-        # the cell is apron and the proximity cut does not re-mint it
+        # §40 (2) WITHDRAWN AS A CORRIDOR REFUSAL (#2134, owner Q1
+        # 2026-11-17T14:33Z): OSM `aeroway=apron` over only part of a cell
+        # is AIRSIDE evidence, never apron — a corridor is refused the taxi
+        # family only by a stand on it (#262 below).  The cell's cover is
+        # still read: it is an A2 witness for a LOBED cell at a majority
+        # (``open_default.apron_witness``).  MEASURED (spec §3): 820 of
+        # 3,916 apron cells were §40 (2)'s, 637 of them holding no stand
+        # (KBNA ``dsf:pol267``, Taxiway-H, 1.1-1.4 km ribbons at 20-24 %).
         cover = _apron_cover(face, apron_u) if kind == "corridor" else 0.0
-        # §43 (1) OVERRIDES §40 (2) ON A NECK, and the two rules read the
-        # same ground: OSM draws one `aeroway=apron` polygon over HECA's
-        # apron AND over the taxiway that leaves it (shape 344's cell
-        # reads 50 % cover), so apron cover cannot say where the apron
-        # ends — the LOCAL width can, and §43 is the owner's word for
-        # exactly this pavement.  A neck is taxi family by construction.
-        apron_refused = cover >= rules.lot.apron_cover_fraction and not is_neck
-        if apron_refused:
-            kind, axis = "apron", None
-            evid = dict(evid, kind="apron", apron_cover_refused_corridor=1.0,
-                        cell_apron_cover=cover)
+        apron_refused = False
         # #262 (owner sim read 2026-10-02, CYXY 60.7085411, -135.0764314): A
         # 1300 STARTUP INSIDE THE CELL REFUSES THE CORRIDOR KIND, the same
         # rung as §40 (2) read on the apt.dat author's own evidence — a
@@ -646,8 +643,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         rest = "apron"
         road_w = (narrow_road(face, rules) if role == "apron" and not apron_refused
                   and not is_neck and not _holds_startup(face, start_tree)
-                  and apron_evidence(face, src_of.get(ref), evid, start_tree,
-                                     rules) is not None else None)
+                  and apron_witness(face, src_of.get(ref), evid, start_tree,
+                                    _apron_cover(face, apron_u), rules)[0] is not None
+                  else None)
         if road_w is not None:
             rest = "service_road"
             evid = dict(evid, narrow_road=1.0, narrow_road_width_m=road_w)
@@ -697,6 +695,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         notes.append("no terminal: landside demotion skipped (user 2026-06-11)")
     road_ev = _road_evidence(scored, ev, rules)
     stats["demoted_lots"] = 0
+    # #2134 WHAT MAY BE AN APRON: the witness of every face scored apron,
+    # read once, and the gate's verdict over the whole slice
+    wit = {i: apron_witness(f, src_of.get(r), e, start_tree, _apron_cover(f, apron_u), rules)
+           for i, (f, role, r, _l, e, _n) in enumerate(scored) if role == "apron"}
+    gate = _apron_gate(scored, wit, ev, cells, src_of, taxi_tree, taxi_parts, through,
+                       law, rules)
+    stats.update(_gate_stats(gate))
     final: list[list] = []
     for i, (face, role, ref, letter, evid, _net) in enumerate(scored):
         # THE DEMOTION YIELDS TO APRON EVIDENCE (owner RULINGS 2026-09-11ac
@@ -710,8 +715,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # its face chains to no runway.  The ladder is `open_default`'s
         # OWN (04u), imported, never re-spelled here.
         if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY) \
-                and apron_evidence(face, src_of.get(ref), evid, start_tree,
-                                   rules) is None:
+                and (wit[i] if i in wit else apron_witness(
+                    face, src_of.get(ref), evid, start_tree, _apron_cover(face, apron_u),
+                    rules))[0] is None:
             # landside: §110's unclassified verdict (owner remark RULINGS
             # 2026-09-30b, issue #110) — a road RIBBON by its proportions,
             # else a parking LOT.  ONE derivation with the 04u open default
@@ -727,11 +733,22 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             evid = dict(evid, demoted=1.0, **_why)
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
-        elif role == "apron" and ev.terminal_present:
-            # RULINGS 2026-09-04u: open pavement is never apron by default
-            role, evid = open_pavement_role(face, src_of.get(ref), evid, start_tree,
-                                            i in road_ev, rules)
-            stats["open_defaulted"] = stats.get("open_defaulted", 0) + int(role != "apron")
+        elif role == "apron":
+            # RULINGS 2026-09-04u: open pavement is never apron by default;
+            # #2134: apron only on a STRONG witness (``apron_gate``), with or
+            # without a terminal (the landside DEMOTION above stays skipped
+            # without one, user 2026-06-11; the witness is no demotion)
+            g = gate[i]
+            evid = dict(evid, **g.evidence)
+            if g.role is None:
+                role, evid = open_pavement_role(face, i in road_ev, rules, evid,
+                                                str(g.evidence.get("apron_witness")))
+                stats["open_defaulted"] = stats.get("open_defaulted", 0) + 1
+            else:
+                role = g.role
+                letter = g.letter if role == "junction" else None
+                if role == "junction":
+                    evid = dict(evid, kind="junction")
         final.append([role, ref, face, letter, evid, str(evid.get("kind", ""))])
 
     # ── service roads outside pavement ─────────────────────────────
@@ -795,6 +812,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats.update(join_taxi_shoulders(
         final, TAXI_FAMILY, [ln for ln, _c in taxi_parts], rules,
         lambda f: _holds_startup(f, start_tree), road_lines))
+    # #2134: what the shoulder join did not take of the gate's taxi-touched
+    # faces is taxi family (``apron_gate.settle``)
+    from .apron_gate import settle as _settle_gate
+    stats["apron_gate_taxi_settled"] = _settle_gate(final)
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
@@ -814,11 +835,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
                                 born_airside_pages(final, law))
     band, storey_cuts = storey_band(airport, law, cells, final), {}
+    # #2113: the gates' stands on the gap sheets are airside contact
+    from .gap_stands import stand_ground
+    stands = stand_ground(airport, [f[2] for f in final] + [p for _r, p in ev.pads],
+                          start_tree, rules.cells.min_area_m2)
+    stats["gap_stand_parts"] = len(stands)
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
                           to_xy=None if airport.frame is None else airport.frame.entry(),
-                          fences=fence_band(fences, rules))
+                          fences=fence_band(fences, rules), stands=stands)
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
     # RULINGS 2026-11-13aa (1): a pad under an upper storey keeps its road
@@ -936,6 +962,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # fence-foot plane's ground — late cells beside the edge strips
     from .fence_yard import mint_fence_yards
     stats.update(mint_fence_yards(airport, cells, law, rules, add))
+    # owner RULINGS 2026-11-16p (#2114): parked cars on ground no cell holds
+    # mark a lot, LAST — it takes only free ground, off every pad's set-back
+    from .car_lot import mint_car_lots
+    stats.update(mint_car_lots(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
     # patch editor is that role in every pavement cell of it — a user edit
     # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)
@@ -1005,6 +1035,13 @@ def is_late_cell(cell_or_region) -> bool:
     absent from the stage-1 map: a mapped-road ribbon, a §52 facade cell or
     a §53 gap piece (``model.planar.is_late_ref``)."""
     return is_late_ref(getattr(cell_or_region, "ref", ""))
+
+
+def is_pad_road_cell(cell) -> bool:
+    """A PAD ROAD's cell (issue #609): a mapped-road ribbon admitted for a
+    pad, evidence ``pad_road`` — a last-stage cell, solved after the gap
+    pieces against their levels."""
+    return bool((getattr(cell, "evidence", None) or {}).get("pad_road"))
 
 
 def _mouth_ll(mouth, to_ll) -> str:
@@ -1507,6 +1544,40 @@ def _route_territory(face: Polygon, prox, corridors, rules: Rules
     return territory, near.area, remainder
 
 
+def _apron_gate(scored, wit, ev: Evidence, cells, src_of, taxi_tree, taxi_parts,
+                through, law: Law, rules: Rules) -> dict:
+    """``apron_gate.resolve_aprons`` over the scorer's ``scored`` rows: the
+    faces scored apron, the taxi-family faces, the runway cells standing."""
+    from .apron_gate import resolve_aprons
+    faces = {i: scored[i][0] for i in wit}
+    taxi_faces = [f for f, role, *_r in scored if role in TAXI_FAMILY]
+    runway = [Polygon(c.ring, c.holes) for c in cells if c.role == "runway"]
+    path_taxi = {i: src_of[scored[i][2]].path_taxi_name for i in wit
+                 if scored[i][2] in src_of and src_of[scored[i][2]].path_taxi_name}
+
+    def taxi_on(f: Polygon) -> bool:
+        return bool(_touching(f, taxi_tree, taxi_parts, rules))
+
+    def letter_of(f: Polygon):
+        return _junction_letter(f, _touching(f, taxi_tree, taxi_parts, rules),
+                                through, rules)[0]
+    no_landside = rules.groundside.requires_terminal and not ev.terminal_present
+    return resolve_aprons(faces, wit, taxi_faces, runway, [p for _r, p in ev.pads],
+                          taxi_on=taxi_on, letter_of=letter_of, path_taxi=path_taxi,
+                          no_landside=no_landside, law=law, rules=rules)
+
+
+def _gate_stats(gate: dict) -> dict[str, int]:
+    """The gate's verdict counts, for the classification stats."""
+    out: dict[str, int] = {}
+    for g in gate.values():
+        key = "apron_gate_" + (g.role or "groundside")
+        if g.evidence.get("q3_taxiway"):
+            key = "apron_gate_q3_taxiway"
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
 def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],
                      rules: Rules) -> tuple[str | None, int]:
     """THE JUNCTION'S CODE LETTER (RULINGS 2026-09-04t-3, superseding
@@ -1582,10 +1653,6 @@ def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules
                             ).length >= rules.cells.min_shared_m:
             seen[chain.id] = chain
     return list(seen.values())
-
-
-def _holds_startup(face: Polygon, tree: STRtree | None) -> bool:
-    return tree is not None and len(tree.query(face, predicate="contains")) > 0
 
 
 def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:

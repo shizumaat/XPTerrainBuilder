@@ -292,10 +292,11 @@ def test_one_apron_cover_key_serves_both_readings(law):
     src = {r.id: r for r in classify_sources(
         a, build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2),
         rules)[0]}["lotpage"]
-    from auto_patch_v2.classify.open_default import apron_evidence
-    why = apron_evidence(Polygon(_rect(240.0, 320.0, 300.0, 400.0)), src,
-                         {"n_taxi": 0}, None, rules)
-    assert why is not None and "aeroway=apron" in why, why
+    from auto_patch_v2.classify.open_default import A3, apron_witness
+    # #2134 (owner Q1): partial cover is AIRSIDE evidence, never apron (A3)
+    rung, why = apron_witness(Polygon(_rect(240.0, 320.0, 300.0, 400.0)), src,
+                              {"n_taxi": 0}, None, 0.0, rules)
+    assert rung == A3 and "aeroway=apron" in why, why
     # ...and the page is no longer cut out as a lot: the pavement over it
     # is airside (here it merges into the apron beside it, which is what
     # "the apron never absorbs a lot" stops happening the other way round)
@@ -338,7 +339,7 @@ def test_startups_keep_a_demoted_page_airside(law):
             if c.ref == "stands"]
     assert page and all(c.side == "airside" for c in page), \
         [(c.role, c.side) for c in page]
-    assert any(c.evidence.get("apron_evidence") == "startup on the face"
+    assert any(c.evidence.get("apron_witness") == "startup on the face"
                for c in page), [dict(c.evidence) for c in page]
 
 
@@ -642,7 +643,9 @@ def test_a_proportions_ribbon_bridging_airside_end_on_is_apron(law):
         return final[2]
 
     flipped = run(why)
-    assert flipped[0] == "apron", flipped[4]
+    # #2134 (owner Q2): its only airside host is the taxi family, so the
+    # flip writes the host's class -- taxi family, never apron
+    assert flipped[0] == "junction", flipped[4]
     assert flipped[4]["airside_edge_was"] == "service_road"
     # a road BY EVIDENCE (no §110 proportions verdict) keeps its mouths
     kept = run({})

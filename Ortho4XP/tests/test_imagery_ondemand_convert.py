@@ -116,7 +116,7 @@ def _hashes(folder) -> dict:
 def _isolate(monkeypatch, tmp) -> None:
     monkeypatch.setattr(FNAMES, "data_path",
                         lambda relative: str(tmp / "data" / relative))
-    monkeypatch.setattr(CORES, "airport_points", lambda lat, lon: [])
+    monkeypatch.setattr(CORES, "airport_points", lambda lat, lon, **_kw: [])
     monkeypatch.setattr(ICONV, "_xplane_running", lambda: False)
 
 

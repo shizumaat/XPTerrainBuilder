@@ -10,13 +10,15 @@ it used its photos as the base and detail layers of its own ground art.
 This module is the extra REQUIRED condition; a definition is hidden only
 when ALL of these hold:
 
-1. it is a PHOTO LAYER (witness (1)-(4): the pack's own draped,
-   non-wrapping, image-mapped north-up ``.pol``, no paved surface, not
-   weather-transparent) of a MACHINE-NAMED FAMILY: its ``.pol`` or image
-   shares, with at least :data:`MIN_TILES` - 1 other layers of its
-   folder, the stem left when the numbers are taken out (``Ortho1`` …
-   ``Ortho18``, ``KDAL_Photoreal23+2k+4k``), or both are hash-like names
-   of one length (``7JF26B82``);
+1. it is a PHOTO LAYER (witness (1)-(4): the pack's own draped photo
+   ``.pol`` — one non-wrapping image, or a wrapping one WED centred —
+   image-mapped north-up, no paved surface, not weather-transparent) of
+   a MACHINE-NAMED FAMILY: its ``.pol`` or image shares, with at least
+   :data:`MIN_TILES` - 1 other layers of its folder, the stem left when
+   the numbers are taken out (``Ortho1`` … ``Ortho18``,
+   ``KDAL_Photoreal23+2k+4k``; the quarters of numbered cells drawn at
+   one order, ``n1e215_BR`` … ``n1e216_UL``), or both are hash-like
+   names of one length (``7JF26B82``);
 2. its polygons TILE A GRID with the family: edge-adjacent tiles (shared
    edges within :data:`EDGE_TOL` of the tile size), at least
    :data:`MIN_TILES` connected tiles of one size (within
@@ -86,6 +88,9 @@ Box = tuple[float, float, float, float]          # lon0, lat0, lon1, lat1
 _HASH = re.compile(r"[A-Za-z0-9]{6,}")
 #: WED's sub-tile suffix of a split orthophoto (``KDAL_Photoreal23+2k+4k``)
 _SUBTILE = re.compile(r"(\+\d+k)+$")
+#: a quadrant suffix of a numbered tile (``n1e215_BR``: one cell's four
+#: quarters, ``_BL`` ``_BR`` ``_UL`` ``_UR``; issue #2115)
+_QUADRANT = re.compile(r"(?<=\d)[_-][A-Za-z]{1,2}$")
 _NUMBER = re.compile(r"\d+")
 
 
@@ -103,12 +108,18 @@ def _stem(name: str) -> str:
     return os.path.splitext(os.path.basename(name.replace("\\", "/")))[0]
 
 
-def _family_keys(path: str, texture: str) -> set[str]:
+def _family_keys(path: str, texture: str, layer: float | None = None
+                 ) -> set[str]:
     """The machine-name keys of one layer (witness (1)): its folder plus,
     for each name, the stem with WED's sub-tile suffix taken off and every
     number made ``#`` (``KDAL_Photoreal23+2k+4k`` and ``KDAL_Photoreal28``
-    are ``kdal_photoreal#``), and the length of a hash-like name (letters
-    and digits, at least two of each: ``7JF26B82``)."""
+    are ``kdal_photoreal#``), that stem without the quadrant suffix of a
+    numbered tile AT ITS DRAW ORDER ``layer`` (``n1e215_BR`` and
+    ``n1e216_UL`` are both ``n#e#``: a grid laid as cells of four quarters
+    side by side; a suffixed layer drawn over its cell, ``KEYW_3_06_sw``,
+    is that cell's detail and keeps its own family, issue #2115), and the
+    length of a hash-like name (letters and digits, at least two of each:
+    ``7JF26B82``)."""
     folder = os.path.dirname(path.replace("\\", "/")).lower()
     keys: set[str] = set()
     for tag, name in (("pol", _stem(path)), ("img", _stem(texture))):
@@ -116,6 +127,10 @@ def _family_keys(path: str, texture: str) -> set[str]:
         if not name:
             continue
         keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', name.lower())}")
+        cell = _QUADRANT.sub("", name)
+        if cell != name and layer is not None:
+            keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', cell.lower())}"
+                     f"|quarters@{layer:g}")
         if (_HASH.fullmatch(name) and sum(c.isdigit() for c in name) >= 2
                 and sum(c.isalpha() for c in name) >= 2):
             keys.add(f"{folder}|{tag}|hash{len(name)}")
@@ -134,7 +149,7 @@ def _families(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
 
     first: dict[str, int] = {}
     for i, ly in enumerate(layers):
-        for k in _family_keys(ly.path, ly.texture):
+        for k in _family_keys(ly.path, ly.texture, ly.layer):
             if k in first:
                 parent[find(i)] = find(first[k])
             else:
@@ -364,8 +379,9 @@ def pack_photos(layers: _t.Sequence[Layer], kin: _t.Sequence[Layer],
                               if k not in gs.detail))
     every = {ly.index: ly for ly in (*layers, *kin)}
     keys = {(k, every[i].layer) for i in out if i in every
-            for k in _family_keys(every[i].path, every[i].texture)}
+            for k in _family_keys(every[i].path, every[i].texture,
+                                  every[i].layer)}
     out |= {ly.index for ly in every.values() if ly.index not in gs.grid_of
             and any((k, ly.layer) in keys
-                    for k in _family_keys(ly.path, ly.texture))}
+                    for k in _family_keys(ly.path, ly.texture, ly.layer))}
     return out

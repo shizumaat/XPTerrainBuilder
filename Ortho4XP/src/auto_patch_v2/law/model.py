@@ -39,6 +39,7 @@ from .basin_schema import Basin  # noqa: F401
 from .base_profile_schema import BaseProfileLaw  # noqa: F401
 from .walled_plate_schema import WalledPlateLaw  # noqa: F401
 from .agp_schema import AgpLaw  # noqa: F401
+from .deck_gen_schema import DeckGenLaw, RoadGenLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -240,6 +241,10 @@ class CommonLaw:
     #: letter caps stay targets under it (``constraints/ceiling.py``)
     pavement_max_grade: float
     road_max_grade: float
+    #: THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17): the most a road's
+    #: cap rises to where its own ground is steeper than ``road_max_grade``
+    #: (``tables.road_terrain_cap``)
+    road_terrain_max_grade: float
     #: OWNER RULINGS 2026-10-27s (Q197): A PUBLIC ROAD'S JOINT AT A JUNCTION
     #: (town-street values, ~30 km/h): a grade change up to this needs no
     #: curve (``airport/road_joint``)
@@ -580,6 +585,17 @@ class Bridge:
     airside_run_max_m: float
     #: ... and a bank this wide either side of it down to the airside
     airside_run_bank_m: float
+    #: owner 2026-11-17T19:08Z "Accept 4.2m clearance for small roads": the
+    #: ``highway`` classes a GENERATED deck or road bridge clears by
+    #: ``clearance_minimum_m``; every other road (and rail) keeps ``[tunnel]
+    #: clearance_m`` (``planar/structure_approach.design_clearance_m``)
+    small_road_classes: tuple[str, ...] = ()
+    #: owner sim read 2026-11-17T19:42Z ("that embankment needs to extend
+    #: about 1m past the bridge edges, then smoothly blend the natural
+    #: terrain and the cut"), RULINGS 2026-11-17p (every bridge): the bank
+    #: under a wall-less deck runs on this far past the ring's edges before
+    #: the ground beyond blends (m; ``model/deck_bank``)
+    bank_past_edge_m: float = 1.0
 
 
 @_dc.dataclass(frozen=True)
@@ -626,6 +642,10 @@ class BuildingPad:
     #: ... and the pit's rim carries a vertex at least this often (the open
     #: side held flat along its length); ``0`` = the corners only
     split_level_rim_step_m: float = 0.0
+    #: ... and a surface car park within this of its upper-footed runs
+    #: stands at the upper floor (#1934 R6, RULINGS 2026-11-17h (5)); ``0``
+    #: disarms
+    split_level_forecourt_reach_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None
@@ -743,6 +763,10 @@ class Structures:
     #: the governor, the datum and the plates' numbers.  Defaulted like
     #: ``walled_plate``.
     agp: AgpLaw = _dc.field(default_factory=AgpLaw)
+    #: THE GENERATED TAXIWAY DECK / ROAD BRIDGE (``[deck_gen]`` /
+    #: ``[road_gen]``, spec 2123, RULINGS 2026-11-16y).  Defaulted like ``agp``.
+    deck_gen: DeckGenLaw = _dc.field(default_factory=DeckGenLaw)
+    road_gen: RoadGenLaw = _dc.field(default_factory=RoadGenLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────
@@ -940,6 +964,11 @@ class RoadContact:
     #: destination) climbs at up to this instead of the road cap; nothing
     #: else changes the road cap (``constraints/road_ramp.terrace_profile``)
     upper_pad_road_grade: float
+    #: THE NECK BAR (#1918 R4, owner RULINGS 2026-11-16e): a standing road
+    #: kerb station abeam a pad road's standing vertex across a level
+    #: difference over this is a NECK, released in the pad roads' stage
+    #: where its own law lets it (``pipeline/neck_release``)
+    neck_step_m: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard

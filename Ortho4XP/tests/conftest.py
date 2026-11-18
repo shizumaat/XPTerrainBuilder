@@ -385,6 +385,9 @@ def _world_home_guard_outlives_each_test(tmp_path_factory):
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("O4_WORLD_HOME_POINTER",
                   str(basetemp / "world_home" / "session.json"))
+        # RULINGS 2026-11-17v: a World job runner a test drives notes the
+        # aircraft's ground places; never into the checkout's data folder.
+        mp.setenv("O4_WORLD_SPAWNS", str(basetemp / "world_spawns.json"))
         mp.setattr(HOME, "migrate", _migrate_only_under(basetemp, HOME.migrate))
         yield
 
@@ -548,6 +551,33 @@ def _dds_cache_is_per_test(monkeypatch, tmp_path_factory, request):
         _DDS_CACHE_BASE = str(tmp_path_factory.mktemp("dds_cache"))
     slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
     monkeypatch.setenv("O4_DDS_CACHE_DIR", os.path.join(_DDS_CACHE_BASE, slot))
+    yield
+
+
+_LEDGER_BASE = None
+
+
+@pytest.fixture(autouse=True)
+def _machine_ledger_is_per_test(monkeypatch, tmp_path_factory, request):
+    """No test reserves memory on the user's machine-wide ledger
+    (``~/.ortho4xp/machine_memory``, ``O4_Machine_Memory``) or reads the
+    real builds there, and no test sees this machine's memory pressure or
+    a running X-Plane: each test has its own ledger folder, the pressure
+    reads normal and no process is X-Plane.  The ledger twins set their
+    own.  The folder is only named here."""
+    global _LEDGER_BASE
+    import O4_Machine_Memory as MEMORY
+    import O4_Parallel_Utils as PARALLEL_UTILS
+    if _LEDGER_BASE is None:
+        _LEDGER_BASE = str(tmp_path_factory.mktemp("machine_ledger"))
+    slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
+    monkeypatch.setenv(MEMORY.ENV_DIR, os.path.join(_LEDGER_BASE, slot))
+    for name in (MEMORY.ENV_ROLE, MEMORY.ENV_LABEL, MEMORY.ENV_SESSION,
+                 MEMORY.ENV_STEP_RESERVED):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(PARALLEL_UTILS, "machine_memory_pressure",
+                        lambda: "normal")
+    monkeypatch.setattr(MEMORY, "XPLANE_NAMES", frozenset())
     yield
 
 

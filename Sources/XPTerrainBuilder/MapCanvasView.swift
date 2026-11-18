@@ -162,12 +162,6 @@ struct MapCanvasView: View {
                     camera.value = MapCamera.fitted(to: proxy.size)
                 }
                 canvasSize.value = proxy.size
-                if firstLayout {
-                    // #1554: the restored selection is framed once, at
-                    // launch — later selection changes leave the camera.
-                    controller.frameRestoredSelection(
-                        buildModel.selected.sorted().map { (lat: $0.lat, lon: $0.lon) })
-                }
                 controller.scheduleViewportUpdate()
                 buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
                                                      overlays: overlays)
@@ -773,7 +767,7 @@ struct MapCanvasView: View {
                 guard let reply = try? await client.cursorElevation(lat: lat, lon: lon, buildDir: buildDir),
                       !Task.isCancelled else { return }
                 cursorElevation = reply.readout
-                if !reply.pending { return }
+                if !reply.isPending { return }
                 delay = 400_000_000
             }
         }

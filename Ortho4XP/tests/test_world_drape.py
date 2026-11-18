@@ -97,6 +97,11 @@ def test_write_and_verify_round_trip(tmp_path):
     dsf = os.path.join(out, WP.dsf_relpath(52, -63))
     assert DRAPE.is_drape(dsf) and not WP.is_placeholder(dsf)
     assert WP.dsf_header(dsf)["md5_ok"]
+    # #2142 R1: every .pol declares the square's full width, whatever the
+    # DDS is now, so the follow job's finer tiers are stepped up to
+    pols = list((out / "terrain" / "+52-063").glob("*.pol"))
+    assert pols and all(p.read_text(encoding="utf-8").rstrip().split()[-1] == "4096"
+                        for p in pols)
 
 
 def _world_module():

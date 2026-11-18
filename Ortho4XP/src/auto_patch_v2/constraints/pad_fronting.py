@@ -106,7 +106,26 @@ def _polys(planar: PlanarMap, law: Law, roles: _t.Collection[str]
     return out
 
 
-def facing(planar: PlanarMap, law: Law) -> dict[int, dict[int, list[int]]]:
+def _wall_faces(planar: PlanarMap, law: Law) -> list[tuple[int, str, set[int], Polygon]]:
+    """Every retaining wall's slope and fill face (``model/wall_reach.
+    is_wall_slope_ref``), as :func:`_polys` lists a face."""
+    from ..model.wall_reach import is_wall_slope_ref
+    roles = {f.role for f in planar.faces.values() if is_wall_slope_ref(str(f.ref))}
+    return [b for b in _polys(planar, law, roles) if is_wall_slope_ref(str(planar.faces[b[0]].ref))]
+
+
+def _wall_plans(airport) -> list[tuple[int, str, set[int], Polygon]]:
+    """Every retaining wall's PLAN (``Airport.wall_shade``: its pieces and
+    a plate-capped block's cover, 2120-WF3 W-A) as a blocker: the cover is
+    no fill face, yet a pad never fronts an apron across it."""
+    from ..geom.parts import nonempty_polygon_parts
+    shade = getattr(airport, "wall_shade", None)
+    return [] if shade is None else [(-1, "wall", set(), g)
+                                     for g in nonempty_polygon_parts(shade)]
+
+
+def facing(planar: PlanarMap, law: Law, airport: Airport | None = None
+           ) -> dict[int, dict[int, list[int]]]:
     """THE RELATION AS DATA: pad face id -> ``{apron face id: the pad's
     own rim vertices FACING it}``.  A vertex faces an apron when the
     apron's edge is farther than ``[design] pad_frontage_m`` (nearer is
@@ -130,6 +149,12 @@ def facing(planar: PlanarMap, law: Law) -> dict[int, dict[int, list[int]]]:
     # ``dsf:objpav115`` and the pad fell to its DEM datum, 3.67 m
     blockers = [b for b in _polys(planar, law, tuple(pavement_roles(law)))
                 if not is_late_ref(planar.faces[b[0]].ref)]
+    # A RETAINING WALL IS THE STEP BETWEEN TWO LEVELS, never bare ground a
+    # pad fronts across (2120-WF2, W1's "never across a wall"): its slope
+    # and fill faces block the facing segment.  MEASURED KATL (WF2 arm 2):
+    # ``building44`` 40.9 m from ``pav4`` across ``katl126_wall``'s fill
+    # took the apron's 300.78 m, 10.6 m over its own ground
+    blockers += _wall_faces(planar, law) + _wall_plans(airport)
     a_tree = STRtree([a[3] for a in aprons])
     b_tree = STRtree([b[3] for b in blockers])
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
@@ -212,7 +237,7 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     from .cluster_pad import plane_groups
     from .pads import (_pad_polys, frontage_leaders, pad_frontage_leaders,
                        _LEADER_NEAR_M)
-    fac = facing(planar, law)
+    fac = facing(planar, law, airport)
     polys = {fid: poly for fid, _r, _g, poly in _pad_polys(planar, law)}
     vw = view(planar, law)
     face_vs = {fid: {v for r in [vw.rings[fid], *vw.holes[fid]] for v in r}

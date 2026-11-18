@@ -122,6 +122,7 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
         fam_of[r] = "runway"
     for r in p.taxi_family.members:
         fam_of[r] = "taxi"
+    floor = _structure_floor_vertices(vw)
     out: dict[tuple[int, int], tuple[int, int, str, int | None, str | None, str]] = {}
     for f in vw.faces_of_role(tuple(fam_of)):
         fam = fam_of[f.role]
@@ -129,6 +130,8 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
             n = len(ring)
             for k in range(n):
                 a, b = ring[k], ring[(k + 1) % n]
+                if a in floor or b in floor:
+                    continue         # #1934 R3: a structure floor is no lip
                 key = (a, b) if a < b else (b, a)
                 cur = out.get(key)
                 # a shared edge keeps the senior family (runway, taxi, apron)
@@ -136,6 +139,24 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
                     out[key] = (key[0], key[1], fam, f.code_number, f.code_letter,
                                 str(f.ref))
     return [out[k] for k in sorted(out)]
+
+
+def _structure_floor_vertices(vw: View) -> frozenset[int]:
+    """THE STRUCTURE FLOOR IS NO LIP REFERENCE (#1934 R3; spec
+    ``docs/specs/1934-R3.md`` §4): every vertex of a structure's own VALUE
+    surface -- a tunnel / door / corridor / garage ramp (precedence
+    ``structure = true``, ``value = true``).  A pavement or pad edge ending
+    on one reads the floor's level, which the ground beside the pavement
+    never meets: the ramp's own walls and banks carry that drop.  MEASURED
+    KLAX: the split-level building's lower-storey corner on the north
+    tunnel ramp (25.54) was taxi F zone 2's blend partner 8 m off and held
+    the strip on the taxiway bridge at 29.1 over a DEM of 32.8 -- the
+    owner's hole (2026-11-16 14:32Z)."""
+    p = vw.law.tables.precedence
+    roles = tuple(r for r, spec in p.roles.items()
+                  if getattr(spec, "structure", False) and getattr(spec, "value", False))
+    return frozenset(v for f in vw.faces_of_role(roles)
+                     for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring)
 
 
 def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
@@ -582,6 +603,11 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # stand
     seam = frozenset(v for y in (getattr(planar, "road_yield", ()) or ())
                      for v in getattr(y, "beside", ()))
+    # owner RULINGS 2026-11-18b (#2152): the band beside a road that has
+    # left its band run comes down to the road -- its floor yields, the bank
+    # rows below hold it between the road and the road plus the 1:3 bank
+    # (``airport/band_run.ramp_banks``, published with the road terrace)
+    banks = (getattr(planar, "road_terrace", None) or {}).get("bank") or {}
     for v, classes in _with_road_yield(planar, member).items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
@@ -667,6 +693,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if hi is None:
                     continue         # a farther taxi band's floor: yielded
                 lo = None            # the taxi band's lift yields (Q53 (1))
+            elif v in banks:
+                if hi is None:
+                    continue         # 18b: beside the leaving road, no floor
+                lo = None
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:
@@ -680,7 +710,20 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         beyond = _beyond_graded_ceiling(ctx, law, v, found, src)
         if beyond is not None:
             rows.append(beyond)
+    rows.extend(_bank_rows(banks, float(law.tables.emit.design.bank_slope)))
     return rows
+
+
+#: 2026-11-18b: the band beside a road off its band run, down to the road
+BANK_RULING = "zones.adjacent_ground band bank to a road leaving its band run (2026-11-18b)"
+
+
+def _bank_rows(banks: _t.Mapping[int, tuple[int, float]], slope: float) -> list[Row]:
+    """ONE-WAY: band vertex ``v`` stands between its road vertex ``u`` and
+    ``u`` plus the bank over their distance -- the road leads."""
+    return [Linear(((v, 1.0), (u, -1.0)), 0.0, slope * d,
+                   Source(GEN, BANK_RULING, (f"vertex:{v}",)), follows=v)
+            for v, (u, d) in sorted(banks.items())]
 
 
 def _with_road_yield(planar: PlanarMap, member: dict[int, set[tuple]]

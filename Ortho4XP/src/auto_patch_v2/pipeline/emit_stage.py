@@ -423,6 +423,7 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     out = lines.append
     report: dict[str, _t.Any] = {}
     from ..airport.centreline_seat import runway_ends_ll
+    from .generated_publication import generated_records
     from .publication import jetway_strips_ll
     _strip_records = jetway_strips_ll(pm, airport, strips,
                                       design_rep.jetway_strip)
@@ -445,7 +446,10 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            # seats approach-light sets at these ends
                            "runway_ends": runway_ends_ll(airport),
                            # #2090 A5: the AGP groups' published datum
-                           "agp_groups": _agp_records})
+                           "agp_groups": _agp_records,
+                           # spec 2123 (RULINGS 2026-11-16y): the generated
+                           # decks and road bridges the object stage writes
+                           "generated": generated_records(pm, law, airport, sol.z)})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,
@@ -469,6 +473,12 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
         pub["gap_pieces"] = _gap_records
     if late_report is not None:
         pub["late_stage"] = late_stage(late_report["stage"])
+    if late_report is not None and "car_lot_terraces" in late_report:
+        # #2114 round 2 P3: each car lot held apart from a standing ring,
+        # with both levels (``constraints/car_lot_follow``)
+        from .publication import car_lot_terraces
+        pub["car_lot_terraces"] = car_lot_terraces(
+            late_report["car_lot_terraces"], airport.frame.transformers()[1])
     _touch = pad_touch(cl.cells, law, pm)
     if _touch:
         pub["pad_touch"] = _touch

@@ -315,6 +315,37 @@ def test_a_cut_steepens_only_to_reach_the_next_fixed_contact():
         assert d.label[i] <= -DROP + CAP * x + 1e-9
 
 
+def test_a_cut_on_steep_ground_keeps_its_depth_at_the_steep_ground_cap():
+    """RULINGS 2026-11-17 (#2122, NZWN hill road): a cut climbing ground
+    that rises at 15 %, over the 10 % road cap, follows its floor at up to
+    the steep-ground cap (``follow``) -- it never sinks deeper under its
+    ground than it stood after the contact's own hop.  At the road cap
+    alone the depth grows."""
+    adj, floors, xs, _e = _road(200.0)
+    floors = {i: 0.15 * xs[i] for i in floors}
+    deep = climb(adj, {0: -2.0}, lambda v: {0: -2.0}.get(v, floors.get(v)), floors,
+                 DESIGN, CAP, LANE)
+    held = climb(adj, {0: -2.0}, lambda v: {0: -2.0}.get(v, floors.get(v)), floors,
+                 DESIGN, CAP, LANE, follow=0.20)
+    last, first = len(xs) - 1, floors[1] - held.label[1]   # after the contact's hop
+    assert floors[last] - deep.label[last] > first + 1.0
+    for i in range(2, len(xs)):
+        assert floors[i] - held.label[i] <= first + 1e-9
+
+
+def test_a_cut_meets_its_floor_at_the_road_s_far_end():
+    """Owner sim read 2026-11-17T22:34Z (#2122): "It should smoothly climb
+    to meet the DEM at the end".  Given the road's far end (``end_of``),
+    the cut that would end 3 m under its floor at 5 % steepens to the
+    least grade (7.3 %) that brings it up there -- the cap at most."""
+    adj, floors, xs, end_of = _road(DROP / 0.073)
+    d = climb(adj, {0: -DROP}, lambda v: {0: -DROP}.get(v, floors.get(v)), floors,
+              DESIGN, CAP, LANE, end_of=end_of)
+    (r,) = d.ramps
+    assert r["steepest"] == pytest.approx(0.073) and "the road's end" in r["why"]
+    assert d.label[len(xs) - 1] == pytest.approx(0.0, abs=1e-6)
+
+
 def test_a_contact_on_or_over_its_floor_cuts_nothing():
     """The road that can follow its floor from the contact builds no cut,
     and a contact standing OVER its floor is the descent's, not the cut's."""

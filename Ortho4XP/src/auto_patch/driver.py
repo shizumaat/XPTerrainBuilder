@@ -1989,6 +1989,11 @@ def generate_auto_patches(tile, cifp_path: str,
             "lane_width": getattr(tile, "lane_width", None),
             # the airport's own photos (#1359, 26y), read by the witness
             "imagery_paths": imagery_paths,
+            # #2129: the tiles that build this airport themselves (a runway
+            # threshold on them, ``cifp.airport_in_tile``); ``engine_v2``
+            # lays the one solve's piece in every other tile it touches
+            "threshold_tiles": sorted({(int(floor(d["lat"])), int(floor(d["lon"])))
+                                       for d in runways.values()}),
         })
 
     # ── STALE ROAD DATA IS SAID ONCE FOR THE TILE, NOT ONCE PER AIRPORT ─

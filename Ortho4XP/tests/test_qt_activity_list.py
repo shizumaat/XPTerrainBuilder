@@ -201,3 +201,30 @@ def test_a_row_click_takes_the_lists_modifiers_on_every_platform(window):
     # selectRow() (no event) extend instead of replace.
     _click_title(window, order[0])
     assert listed.selected_tiles() == {order[0]}
+
+
+def test_a_selected_rows_bar_fill_is_the_selection_text_colour(window):
+    """Owner 2026-11-17T16:04Z: the bar's fill is the selection colour, so
+    on a selected row it vanished.  A selected row draws the fill in the
+    selection's text colour (the Mac app's ``SelectedRowStyle``)."""
+    from PySide6.QtWidgets import QProgressBar
+    window._start_run([A, B], dict(SETTINGS))
+    window.map.set_selection([A])
+    bar_a = window._tile_rows[A][2].findChild(QProgressBar)
+    bar_b = window._tile_rows[B][2].findChild(QProgressBar)
+    assert bar_a.property("emphasized") is True
+    assert bar_a.palette().color(QPalette.Active, QPalette.Highlight) == (
+        window._tile_rows[A][2].palette().color(QPalette.Active,
+                                                QPalette.HighlightedText))
+    assert not bar_b.property("emphasized")
+    window.map.set_selection([B])
+    assert not bar_a.property("emphasized")
+    assert bar_b.property("emphasized") is True
+
+
+def test_rows_carry_the_extra_vertical_space(qapp):
+    from PySide6.QtWidgets import QStyle, QWidget
+    style = QWidget().style()
+    (_l, top, _r, bottom) = QTACT.row_margins(style)
+    assert top == bottom == (
+        style.pixelMetric(QStyle.PM_FocusFrameVMargin) + 1 + QTACT.ROW_EXTRA_V)

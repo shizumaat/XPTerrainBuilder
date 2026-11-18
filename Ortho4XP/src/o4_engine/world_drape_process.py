@@ -112,10 +112,13 @@ def run(task=fetch_drape, **kwargs):
     (the World job logs it and retries the tile once)."""
     import O4_File_Names as FNAMES
     import O4_Imagery_Utils as IMG
+    import O4_UI_Utils as UI
 
     from .command_process import CommandProcess
+    job = UI.thread_job()       # the worker's lines are the caller's job's
     proc = CommandProcess(
-        out=lambda line: print(line, file=sys.stderr), stall_s=STALL_S,
+        out=lambda line: print(UI.job_text(job, line), file=sys.stderr),
+        stall_s=STALL_S,
         setup=_worker_setup,
         setup_args=(FNAMES.current_data_root(), IMG.shared_tile_cache_dir))
     try:

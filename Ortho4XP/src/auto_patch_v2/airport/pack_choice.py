@@ -15,8 +15,8 @@ import typing as _t
 
 __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
            "GATEWAY_CHOICES", "GROUND_CHOICES", "GENERIC_CHOICES", "TERRAIN_CHOICES",
-           "TERRAIN_FOUND", "hidden_terrain",
-           "Store", "store_path", "read",
+           "TERRAIN_FOUND", "PRIORITY_CHOICES", "OVERLAP_FOUND", "hidden_terrain",
+           "Store", "store_path", "read", "read_all",
            "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
@@ -37,6 +37,14 @@ TERRAIN_CHOICES = "pack_terrain_choices.json"
 #: the terrain objects a build offered for hiding, per pack
 #: (``auto_patch_v2.airport.pack_terrain``): the answer works outside a build
 TERRAIN_FOUND = "pack_terrain_found.json"
+#: which pack keeps a structure two packs both draw, per pack pair (#2145;
+#: ``pack_overlap_choice``): keyed by ``pack_overlap_choice.pair_key``
+PRIORITY_CHOICES = "pack_priority_choices.json"
+#: the overlapping structures a build found, per pack pair (#2145)
+OVERLAP_FOUND = "pack_overlap_found.json"
+#: whether to disable the lower of two packs defining one airport, per
+#: pair (#2145, RULINGS 17s; ``pack_duplicate``): "disable" / "keep"
+DUPLICATE_AIRPORT_CHOICES = "pack_duplicate_airport_choices.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")
@@ -66,8 +74,9 @@ def step_list(value: object) -> bool:
                     for part in value.split("|") for w in part.split(",")))
 
 
-def _read_all(path: str, allowed: _t.Callable[[object], bool] = _remembered
-              ) -> dict[str, str]:
+def read_all(path: str, allowed: _t.Callable[[object], bool] = _remembered
+             ) -> dict[str, str]:
+    """Every remembered answer of the file ``path``, by key."""
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
@@ -81,13 +90,13 @@ def read(path: str, pack_root: str,
          allowed: _t.Callable[[object], bool] = _remembered) -> str:
     """``"update"`` | ``"never"`` | ``""`` (ask) for a pack (or what
     ``allowed`` admits)."""
-    return _read_all(path, allowed).get(_pack_key(pack_root), "")
+    return read_all(path, allowed).get(_pack_key(pack_root), "")
 
 
 def write(path: str, pack_root: str, choice: str,
           allowed: _t.Callable[[object], bool] = _remembered) -> None:
     """Remember (or, with ``""``, forget) the user's answer for a pack."""
-    doc = _read_all(path, allowed)
+    doc = read_all(path, allowed)
     key = _pack_key(pack_root)
     if doc.get(key, "") == (choice if allowed(choice) else ""):
         return                          # nothing to change: no write

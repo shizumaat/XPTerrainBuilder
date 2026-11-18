@@ -158,6 +158,14 @@ def _imagery_request_worker(src, active_dir, log_dir, requests_each):
             return Answer(headers={}, content=b"")
 
     session = Session()
+    # Start together: each spawned process imports the engine first, and a
+    # slow import (seconds on a loaded runner) let the four run one after
+    # another, so the budget was never reached (ubuntu CI, test-558).
+    _append(os.path.join(log_dir, "ready-%d" % os.getpid()), "x")
+    deadline = time.monotonic() + 60
+    while (len([n for n in os.listdir(log_dir) if n.startswith("ready-")]) < 4
+           and time.monotonic() < deadline):
+        time.sleep(0.01)
     for n in range(requests_each):
         IMG.http_request_to_image(
             256, 256, "https://tiles.example.test/%d.jpg" % n, None, session,
@@ -171,7 +179,7 @@ def test_a_server_budget_of_two_holds_across_four_processes(tmp_path, slot_sessi
     logs.mkdir()
     _run_workers(_imagery_request_worker,
                  [(SRC, str(active), str(logs), 6)] * 4)
-    per_worker = sorted(os.listdir(logs))
+    per_worker = sorted(n for n in os.listdir(logs) if n.startswith("in_flight-"))
     assert len(per_worker) == 4
     seen = [int(n) for name in per_worker for n in _lines(str(logs / name))]
     assert len(seen) == 24

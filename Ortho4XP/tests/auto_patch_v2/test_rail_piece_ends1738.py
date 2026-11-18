@@ -82,8 +82,11 @@ class _Witness:
     def __init__(self, answer):
         self.answer = answer
 
-    def at(self, end, path):
+    def at(self, end, path, bore=None):
         return self.answer
+
+    def over(self, bore):          # no generated deck over it (#2131)
+        return None
 
 
 def test_r2_an_unwitnessed_rail_end_is_not_opened_and_a_witnessed_one_is(law):

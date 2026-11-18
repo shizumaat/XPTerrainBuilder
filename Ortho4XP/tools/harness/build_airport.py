@@ -2353,7 +2353,11 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     absent = (absent_osm_layers(lat, lon,
                                 VMAP.osm_layer_warm_specifications(own_tile))
               if cold_airports else [])
-    if not stale and not cold_airports:
+    # #2073: the tile's own ``airport_small_roads`` feed, never derived (a
+    # cold tile whose airports layer another refresh already warmed)
+    cold_small = not os.path.isfile(
+        FNAMES.osm_cached(int(lat), int(lon), "airport_small_roads"))
+    if not stale and not cold_airports and not cold_small:
         prog.note("refresh osm_layers: no schema-stale and no absent "
                   f"cached layer on tile {lat:+d}{lon:+d} or its 3x3 "
                   f"neighbourhood — nothing to re-derive")
@@ -2437,8 +2441,14 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
             # inside the same authorisation, lock, snapshot and ledger.
             # Only for a tile whose own feed was moved aside above: this
             # refresh re-derives what it NAMED, never more.
-            if (tlat, tlon) in small_roads_tiles:
-                prog.note(f"refresh osm_layers: re-deriving the "
+            # A COLD tile (#2073): the build tile's feed was never derived
+            # at all — nothing was moved aside, so without this the frame
+            # judged CURRENT and every capture read no small roads
+            # (ESSA 2026-11-16: 173 highway ways, service road -2811 absent)
+            cold = (tlat, tlon) == (int(lat), int(lon)) and cold_small
+            if (tlat, tlon) in small_roads_tiles or cold:
+                verb = "deriving the ABSENT" if cold else "re-deriving the"
+                prog.note(f"refresh osm_layers: {verb} "
                           f"airport_small_roads cache of tile "
                           f"{tlat:+03d}{tlon:+04d} (not a tile-wide "
                           f"layer, so the prefetch never touches it)")
@@ -4731,6 +4741,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
     Returns ``(timings, skipped)``: per-step seconds for the steps that
     ran, and the recorded skip reasons.
     """
+    import O4_Machine_Slots as SLOTS
     import O4_Step_Reuse as REUSE
     import O4_UI_Utils as UI
     timings, skipped = {}, {}
@@ -4742,7 +4753,13 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
         prog.note(f"step {name} START")
         CS.mark_phase(name)
         t0 = time.time()
-        result = step(tile)
+        # ONE machine slot and the step's memory on the machine ledger,
+        # waiting here while other builds hold it (the vector step lends
+        # it back while its airports build, as in the app).
+        with SLOTS.step(gb=_step_ledger_gigabytes(name, tile),
+                        what=f"step {name}",
+                        give_up=lambda: UI.red_flag):
+            result = step(tile)
         dt = round(time.time() - t0, 1)
         if UI.red_flag:
             raise SystemExit(f"step {name} raised the red flag — stopping")
@@ -4764,6 +4781,16 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
             REUSE.record(tile, reuse_key)
     CS.mark_phase("")
     return timings, skipped
+
+
+def _step_ledger_gigabytes(name: str, tile) -> float:
+    """What a release step reserves on the machine memory ledger: the
+    engine's own default for its step (``parallel.step_reservation_
+    gigabytes``; "4 tile" is the engine's imagery step)."""
+    from o4_engine import parallel
+    key = {"4 tile": "imagery"}.get(name, name.split()[-1])
+    return parallel.step_reservation_gigabytes(
+        key, getattr(tile, "elevation_level", None))
 
 
 #: The release steps whose end cuts a step-reuse record (``run_tile_steps``).
@@ -4954,7 +4981,8 @@ def disk_floor_gate(root, tile: bool) -> None:
     tile builds and stalled every session, so a build checks free space
     first.  A tile build needs MIN_FREE_GB_TILE, a patch build
     MIN_FREE_GB_PATCH.  No override: free space by removing finished lane
-    worktrees and scratch builds, then run at most 4 builds at once.
+    worktrees and scratch builds.  How many builds run at once is no count:
+    every build shares the machine memory ledger (:func:`claim_lane_memory`).
     """
     import shutil
     free_gb = shutil.disk_usage(str(root)).free / 1e9
@@ -4964,12 +4992,25 @@ def disk_floor_gate(root, tile: bool) -> None:
             f"REFUSING: {free_gb:.0f} GB free on the build disk, a "
             f"{'tile' if tile else 'patch'} build needs {need} GB (owner "
             f"HARD RULE 2026-11-06).  Push and remove finished lane "
-            f"worktrees and delete scratch builds first; run at most 4 "
-            f"builds at once.")
+            f"worktrees and delete scratch builds first.")
 
 
 MIN_FREE_GB_TILE = 30
 MIN_FREE_GB_PATCH = 5
+
+
+def claim_lane_memory(root) -> None:
+    """This build is a LANE on the machine memory ledger
+    (``O4_Machine_Memory``, incident 2026-11-17): its steps, airports and
+    pools reserve their memory there with every other build on the
+    machine — app, other lanes, command-line runs — wait while that
+    memory is spoken for, and yield to the app's builds and X-Plane.  The
+    logs name it by its worktree."""
+    import O4_Machine_Memory as MEMORY
+    parts = Path(root).resolve().parts
+    name = (parts[parts.index("worktrees") + 1]
+            if "worktrees" in parts[:-1] else Path(root).resolve().parent.name)
+    MEMORY.claim("lane", "lane %s" % name)
 
 
 def main(argv=None) -> int:
@@ -5363,6 +5404,7 @@ def main(argv=None) -> int:
             "authorised, so there is nothing to refresh and nothing to "
             "record.  Name the scope(s): --refresh-data osm_layers[,dem].")
     disk_floor_gate(root, tile=bool(args.tile))
+    claim_lane_memory(root)
     if args.tile:
         lat, lon = args.tile
     else:
@@ -5602,6 +5644,7 @@ def main(argv=None) -> int:
         pk for inst in xplane_install_roots() + owner_install_roots()
         for pk in pack_roots_for_tile(lat, lon, inst)}))
         if lat is not None else ())
+    window_start = time.time()      # the audit's window (#2093)
     before = shared_repo_snapshot()
     before.update(install_snapshot(pack_roots))
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
@@ -5828,9 +5871,9 @@ def main(argv=None) -> int:
         # now, in the process that did the building, which scopes this run
         # pointed outside the repo — a delta in one of those has no
         # possible author here (2026-09-15, the VHHH mis-attribution).
-        offenders = report_unauthorised_writes(changes, requested, prog,
-                                               blocked=guard.blocked,
-                                               input_scope=input_scope)
+        offenders = report_unauthorised_writes(
+            changes, requested, prog, blocked=guard.blocked,
+            input_scope=input_scope, window=(window_start, time.time()))
         unchanged = refetched_unchanged()
         for sc in sorted(requested):
             in_scope = {k: [r for r in v if scope_of(r) == sc]

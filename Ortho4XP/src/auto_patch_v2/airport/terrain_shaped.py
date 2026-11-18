@@ -58,8 +58,8 @@ __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "bin_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
            "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
-           "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records",
-           "portal_frame_records"]
+           "FRAME_SEAT", "DECK_ENDS_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros",
+           "portal_seat_records", "portal_frame_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -92,6 +92,9 @@ HIDDEN_SEAT = "hidden shell"
 #: 1.3 km away, while its mates and the rails riding it stand at the frame's
 #: zero (#1883: LGAV's rails 0.43 m under their deck on the owner's install)
 FRAME_SEAT = "object floor frame"
+#: owner RULINGS 2026-11-18c: a deck of a floor's frame seated by its own
+#: end lines on the roads they land on (``airport/floor_deck_ends``)
+DECK_ENDS_SEAT = "object floor deck ends"
 #: a lifted row the terrain adapted to, at the zero its cut was read for
 #: (``airport/adapted_riders.seat_records``; owner sim read KMCI 1.0.480)
 ADAPTED_SEAT = "adapted row"
@@ -106,7 +109,7 @@ STOREY_SEAT = "storey shell"
 _WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model", STOREY_SEAT: "storey_shell",
         PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
         OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY,
-        FRAME_SEAT: "object_floor_frame"}
+        FRAME_SEAT: "object_floor_frame", DECK_ENDS_SEAT: "object_floor_deck_ends"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":

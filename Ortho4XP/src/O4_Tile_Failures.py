@@ -453,6 +453,10 @@ EXCEPTION_CODES = {
     # by the gateway_airports command and the build's log; never raised
     # inside a build step
     "GatewayError": "unexpected_error",
+    # a UV-mapped pack polygon under a generated pack's clip region
+    # (``dsf_poly_clip``): caught by ``generated_pack``, which keeps the
+    # page; never raised out of a build step
+    "UvMappedPage": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",
@@ -476,6 +480,7 @@ EXCEPTION_CODES = {
     # mesh
     "BankAnnulusCollapse": "mesh_refused",
     "InterpAltLeak": "mesh_refused",
+    "SeaLeak": "mesh_refused",
     "UnsealedInterpAltSeed": "mesh_refused",
     # a malformed or truncated .mesh / Triangle exchange file (O4_Mesh_IO, O4_Triangle_IO)
     "MeshFormatError": "mesh_failed",

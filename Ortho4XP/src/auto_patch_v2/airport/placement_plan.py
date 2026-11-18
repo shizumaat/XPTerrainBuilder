@@ -125,6 +125,7 @@ from .placement_body import isolated_raws  # noqa: E402  (§9a A1 §3.4)
 from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
 from . import split_guard as _sg  # noqa: E402
+from . import deck_plates as _dpl  # noqa: E402
 from . import drawn_anchor as _da  # noqa: E402
 from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
@@ -135,6 +136,7 @@ from .open_frame_seat import (  # noqa: E402
     carried_lift as _carried_lift, frame_lifts as _frame_lifts,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
     group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
+    plate_led as _plate_led,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros,
     unit_root as _ofs_unit_root)
@@ -297,7 +299,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  isolated_base_min_fraction: float = 0.0,
                  # §9a I9 (#2074): ``[placement] isolated_sheet_max_aspect``
                  # — a ground sheet keeps today's seat; 0 disarms
-                 isolated_sheet_max_aspect: float = 0.0
+                 isolated_sheet_max_aspect: float = 0.0,
+                 # #2110 R3 (RULINGS 2026-11-16k/u/v): ``touch_seat.law_of(
+                 # [placement])`` -- touching buildings seat as one group at
+                 # the lower; ``None`` disarms
+                 touch_seat: _t.Any = None,
+                 # #2144 P2: ``deck_profile.law_of(structures)`` -- a deck
+                 # touching buildings at two levels is warped; ``None`` disarms
+                 deck_warp: _t.Any = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -426,8 +435,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr),
                            routable)
 
-    def _drawn(r):
-        # #2075: no body anchored where X-Plane drops it (``drawn_anchor``)
+    def _drawn(r, mm=None, fp=None):
+        # #2112: a deck in plates seats each plate on its own end lines
+        # (``deck_plates``), then (#2075) no body is anchored where X-Plane
+        # drops it (``drawn_anchor``)
+        r = _dpl.split_record(r, mm, fp, surface, counts)
         return _da.drawn_as_placed(r, exclusions, surface, tile_box, counts)
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
@@ -512,7 +524,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction,  # 27a
                                       level_tol_m=split_tol_m,  # 10n (3)
-                                      piece_reach_m=piece_reach_m)  # 19u
+                                      piece_reach_m=piece_reach_m,  # 19u
+                                      rims=rims, column=free_column)  # #2118
+    _unit_seats = tuple(_seats)    # (``_seats`` is a unit's deck seats below)
+    _cut_log: dict[int, tuple] = {}     # #2110 R3: each written record's cut
+    _gated: dict[str, str] = {}         # #2110 R3: frames no group pass moves
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
@@ -925,11 +941,28 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # must be written alone.
                 cz = (None if c.anchor.surface_z is None
                       else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                # #2110: and only a group CONTIGUOUS IN PLAN with the body
+                # (§16b (1)'s coarsen reach, ``group_at_zero``) that MOVES
+                # WITH THE CARRIER — one holding a part of the carrier's
+                # connected unit (§16g root): the unit seat and 22o's group
+                # zero move each unit on its own later, and a group of
+                # another unit carried the body with it (LOWS 1.0.539:
+                # Terminal_LOWS_77's terminal pieces 1.38 m under their walls)
                 same = _pc.group_at_zero(
                     st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
                     next((st.raw[i][7] for i in bi
                           if st.raw[i][7] is not None), None),
-                    memo=_gz_memo)
+                    memo=_gz_memo, near=[st.boxes[i] for i in bi if st.boxes[i]],
+                    boxes=st.boxes, reach_m=coarsen_reach_m,
+                    allowed=(_with_carrier(st.groups, st.raw, c.pids, _pw, _gz_memo)
+                             if _pw else None))
+                if same < 0 and coarsen_reach_m > 0.0 and _pc.group_at_zero(
+                        st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
+                        next((st.raw[i][7] for i in bi
+                              if st.raw[i][7] is not None), None),
+                        memo=_gz_memo) >= 0:
+                    counts["elevated_same_zero_apart"] = \
+                        counts.get("elevated_same_zero_apart", 0) + 1
                 if same >= 0:
                     counts["elevated_ride_own_file_same_zero"] = \
                         counts.get("elevated_ride_own_file_same_zero", 0) + 1
@@ -1150,6 +1183,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
+        # #2112: a frame whose deck is in disjoint plates is cut by plate
+        _plates = _dpl.frame_plates([st.m for st in staged], rigid_reach_m, counts)
         # #2077: a roof resting on a terrain-carried body takes its seat
         _terrain_u = _tb.with_hosts(_terrain, _own_ground_bodies(staged, u))
         # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
@@ -1241,6 +1276,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         open_frame = bool(u.members) and all(
             str(getattr(x, "deck_kind", "") or "") in _OPEN_KINDS
             for x in u.members)
+        _gate = ("open_frame" if open_frame else "airside_deck" if airside
+                 else "bridge" if bridge else "free_bridge" if free
+                 else "terrain_adapted" if any(x.id in _az for x in u.members) else "")
+        if _gate:
+            _gated[str(u.id)] = _gate
         # R5: in a LIFTED frame (one anchor, one authored OBJECT_AGL lift:
         # one object the author stood on his own ground) an unchained body
         # joins the connected unit whose parts it comes within a metre of,
@@ -1349,7 +1389,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 before = len(splits)
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
@@ -1365,12 +1405,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st,
                                       {body.body_id: range(len(st.raw))})
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
-                              drape_law=drape_law)
+                              drape_law=drape_law, cut_log=_cut_log)
                 written_of[mi] = len(splits) > before
                 continue
             bodies = list(formed[mi])                      # T1
@@ -1446,7 +1486,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         counts.get("footless_carrier_kept_whole", 0) + 1
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
@@ -1461,12 +1501,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           m, _clift)
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
-                              drape_law=drape_law)
+                              drape_law=drape_law, cut_log=_cut_log)
             else:
                 # §14 (1)'s own sentence, read on the case §14 (3) creates.
                 # A ONE-BODY placement is KEPT — its row untouched — and on a
@@ -1493,7 +1533,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _pre = record
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
@@ -1514,12 +1554,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 # §9a A1 §3.4: an isolated share is WRITTEN at its own anchor
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=off_row or _v, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
-                              drape_law=drape_law)
+                              drape_law=drape_law, cut_log=_cut_log)
             written_of[mi] = len(splits) > before
             if written_of[mi]:
                 # R1: a rider names the file its carrier was WRITTEN as
@@ -1555,11 +1595,53 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # ground for a reason no report names)
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
+    _touch: dict = {}
+    if touch_seat is not None and splits:
+        # #2110 R3 §1.1: ONE pass over the FINAL bodies
+        from . import touch_seat as _ts
+        splits, _touch = _ts.seat_touching(
+            splits, plan, _pw or {}, counts, law=touch_seat,
+            fixed=_ts.Fixed(_gated, frozenset(_afloat), frozenset(_gz_led)),
+            cut_log=_cut_log, write=write, unit_seats=_unit_seats)
+    if deck_warp is not None and splits:
+        # #2144 P2: ONE pass over the final bodies, after the touch pass
+        from . import deck_profile as _dpf
+        splits, _touch["deck_warp"] = _dpf.warp_decks(
+            splits, plan, counts, law=deck_warp, surface=surface,
+            cut_log=_cut_log, write=write)
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
-                    plan_wide=_pw or {}, pit_shifts=_pit_shifts)
+                    plan_wide=_pw or {}, pit_shifts=_pit_shifts,
+                    touch_table=_touch)
 
 
+
+
+def _with_carrier(groups: _t.Sequence[_t.Sequence[int]], raw: _t.Sequence[_t.Any],
+                  carrier_pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
+                  memo: "dict | None" = None) -> set[int]:
+    """#2110: the indices of a member's own ``groups`` holding a part of a
+    connected unit (§16g root) the carrier's parts hold — the groups the
+    unit seat and the group zero move WITH the carrier.  ``memo`` keeps
+    each group's roots by its length (a group only grows)."""
+    roots = _unit_roots(carrier_pids, plan_wide)
+    if not roots:
+        return set()
+    memo = {} if memo is None else memo
+    out = set()
+    for gi, g in enumerate(groups):
+        key = ("roots", gi, len(g))
+        if key not in memo:
+            memo[key] = _unit_roots((p.pid for i in g for p in raw[i][0]), plan_wide)
+        if roots & memo[key]:
+            out.add(gi)
+    return out
+
+
+def _unit_roots(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple]) -> set[str]:
+    """The connected units (§16g roots) the parts ``pids`` are seated in."""
+    return {_ofs_unit_root(plan_wide[q][0]) for q in pids
+            if plan_wide.get(q) and plan_wide[q][0]}
 
 
 def _own_ground_bodies(staged: _t.Sequence[_t.Any], u: _t.Any) -> list[tuple]:

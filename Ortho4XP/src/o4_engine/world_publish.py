@@ -249,6 +249,9 @@ def watch(session: Any,
                     # the build-ahead job (W2) retries them on its own.
                     _swap_waiting(where, session.tile_build_dir)
                     session._emit(WORLD.status_event(where, last_swap=swap))
+                    if result["state"] in ("swapped", "staged"):
+                        from . import world_spawn_window as SPAWN
+                        SPAWN.start(lat, lon, where)    # #2142 part 1
             except Exception as error:      # logged; the build is done
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
@@ -282,6 +285,8 @@ def watch(session: Any,
             lat, lon = int(event.lat), int(event.lon)
             enqueue((lat, lon, scenery_dir()))
     session.subscribe(on_event)
+    from . import world_yield as YIELD
+    YIELD.watch(session)            # its builds pause the spawn pre-drape
 
 
 def _utc() -> str:

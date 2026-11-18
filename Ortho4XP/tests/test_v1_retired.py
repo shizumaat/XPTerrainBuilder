@@ -81,7 +81,13 @@ KEEP = frozenset({
     # #1989: the Gateway airports offer (the build's check, the install)
     "auto_patch.gateway_api",
     "auto_patch.gateway_stage",
+    # #2145: the offer to hide large structures two packs both draw
+    "auto_patch.overlap_stage",
+    # ... and to disable the lower of two packs defining one airport (17s)
+    "auto_patch.duplicate_stage",
     "auto_patch.forest_stage",
+    # ... the ground a guest body stands on, and its re-seat (#2129)
+    "auto_patch.guest_stage",
     # ... the pack health check's repairs (#1978)
     "auto_patch.health_stage",
     # ... "Optimise pack" (#1707), and the per-pack answer store and
@@ -96,6 +102,8 @@ KEEP = frozenset({
     "auto_patch.terrain_cut_stage",
     # ... and the sibling packs' rows on the airport's re-seated decks (#1252)
     "auto_patch.sibling_stage",
+    # ... and the overlay packs' deck chains seated as OBJECT_MSL rows (#2144 P1)
+    "auto_patch.chain_stage",
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",

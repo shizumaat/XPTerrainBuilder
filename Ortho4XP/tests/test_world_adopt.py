@@ -281,7 +281,7 @@ def test_keep_cores_lands_from_the_tile_and_stops_at_the_room(xp, monkeypatch): 
     MIGRATE.migrate(xp["scenery"], [LINK], index=xp["index"])
     lean = MIGRATE.Journal(xp["work"]).get(LINK)["config_dir"]
     monkeypatch.setattr(CORES, "airport_points",
-                        lambda lat, lon: [("ZZZZ", 45.5, 7.5)])
+                        lambda lat, lon, **_kw: [("ZZZZ", 45.5, 7.5)])
     monkeypatch.setattr(ADOPT, "room_left", lambda path: 10**13)
     calls = []
 

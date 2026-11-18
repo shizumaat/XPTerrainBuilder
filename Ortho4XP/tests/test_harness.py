@@ -1722,7 +1722,20 @@ def _osm_layer_fixture(tmp_path, monkeypatch, schema):
     monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
     cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
     _write_schema_stamped_layer(cache, schema)
+    # the tile's own small-roads feed is present and current, so it is
+    # not the cold feed #2073 derives (that case is its own test)
+    _write_current_small_roads(40, -4)
     return root, cache
+
+
+def _write_current_small_roads(lat, lon):
+    """Tile (lat, lon)'s ``airport_small_roads`` feed, schema-current."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import osm as _v2osm
+
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(lat, lon, "airport_small_roads")),
+        _v2osm.ROAD_CACHE_TAG_SCHEMA)
 
 
 def _mock_engine_fetch(monkeypatch, calls):
@@ -1941,6 +1954,50 @@ def test_a_pack_dsf_with_no_cached_dump_refuses_and_names_the_mod_cache(
     # 4. A --tile run names no airport: the check stands down rather than
     #    guess which packs cover the tile.
     assert build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, None) == []
+
+
+def test_the_apps_logged_cleanup_is_external_not_a_side_effect(
+        guard_mod, tmp_path):
+    """#2093 (2026-11-17T05:29:03Z): the app's automatic cleanup deleted
+    regional extracts and moved elevation footprints out of the shared
+    corpus while lanes were building, and each build's audit called it
+    the build's SIDE EFFECT.  A delta the app logged in
+    ``logs/storage.log`` inside the build's window is labelled "external:
+    app automatic cleanup"; one logged outside the window, or not logged,
+    still contaminates."""
+    import time as _time
+    repo = tmp_path / "repo"
+    (repo / "logs").mkdir(parents=True)
+    now = _time.time()
+
+    def stamp(t):
+        return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(t))
+
+    (repo / "logs" / "storage.log").write_text(
+        f"{stamp(now - 3600)} deleted 9 bytes {repo}/OSM_data/old.pbf "
+        f"(osm_extracts, automatic cleanup)\n"
+        f"{stamp(now)} deleted 0 bytes {repo}/OSM_data/_regional_extracts/"
+        f"a.osm.pbf (osm_extracts, automatic cleanup)\n"
+        f"{stamp(now)} moved 4096 bytes {repo}/Elevation_data/footprints/"
+        f"f.json to /Volumes/Tier/Elevation_data/footprints/f.json "
+        f"(elevation, automatic cleanup)\n", encoding="utf-8", newline="\n")
+    changes = {"added": [], "modified": [],
+               "removed": ["OSM_data/_regional_extracts/a.osm.pbf",
+                           "Elevation_data/footprints/f.json",
+                           "OSM_data/old.pbf", "OSM_data/b.osm.bz2"]}
+    notes = []
+    prog = type("P", (), {"note": staticmethod(notes.append)})
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), prog, redirected=(), window=(now - 60, now + 1),
+        repo=repo)
+    mine = {o["path"] for o in guard_mod.contaminating_writes(offenders)}
+    assert mine == {"OSM_data/old.pbf", "OSM_data/b.osm.bz2"}
+    assert any("external: app automatic cleanup — 2 path(s)" in n
+               for n in notes)
+    # No window: the pre-#2093 audit to the letter.
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), prog, redirected=())
+    assert len(guard_mod.contaminating_writes(offenders)) == 4
 
 
 def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
@@ -2445,6 +2502,7 @@ def test_an_osm_layers_refresh_COVERS_airport_small_roads(
     root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
     _write_schema_stamped_layer(
         Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    _write_current_small_roads(32, -97)        # its own feed is current
     nbr = Path(FNAMES.osm_cached(33, -98, "airport_small_roads"))
     _write_schema_stamped_layer(nbr, "2026-07-16")
 
@@ -2852,8 +2910,17 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     # ``apply_plan`` by ``sibling_stage.write``, whose only caller is
     # ``object_stage._place_objects`` right after the airport pack's own
     # write — the tile path still owns every pack write
+    # #2144 P1: the overlay packs' deck chains (``chain_stage.write``) go
+    # through the same ``apply_plan``, likewise called only from
+    # ``object_stage._place_objects`` after the airport pack's own write
     assert callers == {"auto_patch/object_stage.py",
-                       "auto_patch/sibling_stage.py"}, callers
+                       "auto_patch/sibling_stage.py",
+                       "auto_patch/chain_stage.py"}, callers
+    chain_callers = {
+        p.relative_to(src).as_posix() for p in src.rglob("*.py")
+        if "_chain.write(" in p.read_text(errors="replace", encoding="utf-8")
+        or "chain_stage.write(" in p.read_text(errors="replace", encoding="utf-8")}
+    assert chain_callers == {"auto_patch/object_stage.py"}, chain_callers
     sibling_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
         if "_sib.write(" in p.read_text(errors="replace", encoding="utf-8")

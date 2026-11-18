@@ -163,6 +163,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "tunnel_mouth_depths",
     # RULINGS 2026-10-26k: the cuts a pack portal pins (``publication.portal_cuts``)
     "portal_cuts",
+    # #2120 R2: the mouths a portal in a cut walls (``publication.cut_portal_mouths``)
+    "cut_portal_mouths",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     # #1777: {shapeID: side} where a face's census side is not its role's
     "face_sides",
@@ -207,6 +209,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "object_cuts",
     # #1903: the trench objects' own floors (REPORT ONLY; tools/drawn_check)
     "object_floors",
+    # 2120-W3 G1: each retaining wall's footprint (``publication.
+    # retaining_walls``; tools/harness/drawn_roads reads no road inside it)
+    "retaining_walls",
     # #2065 A3: the free / kept bridge stacks' land ends (``publication.bridge_rows``)
     "free_bridges",
     # #2090 A5: the AGP groups' published datum (``constraints/agp_level.
@@ -247,6 +252,10 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # groundside cells TOUCHING it in the source geometry and the GAPPED
     # ones with their gap (``pipeline/publication.pad_touch``).  EVIDENCE
     "pad_touch",
+    # #2114 round 2 P3: each car lot the car lots' stage held apart from a
+    # standing ring as a declared terrace, with both levels
+    # (``pipeline/publication.car_lot_terraces``).  EVIDENCE
+    "car_lot_terraces",
     # spec §55 (15) rule B: what the last stage USED — ``{"floor_m",
     # "followers"}`` (``pipeline/publication.late_stage``).  LAW INPUT
     # (``check_grade.SIDECAR_LAW_KEYS``): the census prices a pair of two

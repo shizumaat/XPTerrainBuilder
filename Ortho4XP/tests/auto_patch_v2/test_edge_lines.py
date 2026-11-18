@@ -307,3 +307,30 @@ def test_a_fence_named_wall_buried_under_its_zero_is_a_retaining_wall(tmp_path):
 def test_a_fence_standing_on_its_zero_stays_no_wall(tmp_path):
     wall_class._BURIED.clear()
     assert wall_class.wall_class_components(_fence_airport(tmp_path, 0.0), CFG) == []
+
+
+def test_a_fence_on_a_bank_top_above_the_road_does_not_grow_it():
+    """#2111 R1 (KBNA ``small_roads:-2557``): a fence 6 m off the road with a
+    3 m bank between stands on the bank top, not on the road's level -- it
+    marks no edge; the bank is nobody's.  The same fence on a flat verge
+    (the ground at its base the road's) still marks it."""
+    class Bank(_Dem):
+        def z_many(self, xs, ys):
+            ys = np.asarray(ys, float)
+            return np.clip(3.0 + (ys - 9.0), 3.0, 6.0)     # 3 m to y 9, 6 m past y 12
+
+        def water_many(self, xs, ys):
+            return np.zeros(np.shape(ys), bool), np.full(np.shape(ys), np.nan)
+
+        def water_geometry(self, bounds):
+            return None
+    fence = EdgeLine("dsf:line0", "lib/fence.fac", ((0.0, 14.0), (100.0, 14.0)), False,
+                     -0.05, 2.33, -0.05, 0.3, 0.0)
+    assert _mint((fence,), Bank())[1].get("edge_hosts_grown", 0) == 0
+
+    class Verge(Bank):
+        def z_many(self, xs, ys):
+            return np.where(np.asarray(ys, float) > 15.0, 0.0, 3.0)
+    cells = []
+    _mint((fence,), Verge(), grown=cells)
+    assert cells[0].evidence["edge_kind"] == ls.WIRE_FENCE

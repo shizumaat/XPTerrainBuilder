@@ -31,6 +31,7 @@ FT_TO_M = 0.3048
 __all__ = ["CifpRunway", "read_cifp_runways", "read_cifp_approach_runways",
            "parse_lat", "parse_lon", "match_designator", "match_threshold",
            "read_threshold_dicts", "xplane_root_from_cifp_path",
+           "xplane_root_from_config",
            "discover_cifp_airports", "airport_in_tile"]
 
 _log = logging.getLogger(__name__)
@@ -155,6 +156,23 @@ def xplane_root_from_cifp_path(cifp_path: str) -> str | None:
             return root
     except OSError:
         pass
+    return None
+
+
+def xplane_root_from_config(configuration) -> str | None:
+    """The X-Plane install the app's settings name: the configured CIFP
+    folder's install (:func:`xplane_root_from_cifp_path`), then the parent
+    of the configured Custom Scenery folder; ``None`` when neither
+    resolves.  ``configuration`` is the ``O4_Config_Utils`` module (or any
+    object carrying ``cifp_data_path`` / ``custom_scenery_dir``)."""
+    root = xplane_root_from_cifp_path(getattr(configuration, "cifp_data_path", "") or "")
+    if root:
+        return root
+    custom_scenery = getattr(configuration, "custom_scenery_dir", "") or ""
+    if custom_scenery:
+        root = os.path.dirname(os.path.normpath(custom_scenery))
+        if os.path.isdir(root):
+            return root
     return None
 
 

@@ -929,10 +929,18 @@ def _split_pits(airport, classification, law, objects, cache, polys, basins, new
     sb, sc, sk, notes, refused = split_level_pits(
         airport, cells, polys, law, objects, cache or obj8.ResourceCache(
             law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law)),
-        len(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY, skip=skip)
+        _next_number(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY, skip=skip)
     stats.split_levels.extend(notes)
     stats.refused.extend(refused)
     return list(basins) + sb, list(new_cells) + sc, list(knives) + sk
+
+
+def _next_number(basins) -> int:
+    """The first basin number no basin holds.  A region basin is numbered
+    by its ring, refused rings included, so ``len(basins)`` reused a held
+    number (#1934 R5: ELLX's split-level pit and a region basin both
+    ``basin_floor:4``, and the constraints pooled the two floors by ref)."""
+    return 1 + max((int(str(b.id).rsplit(":", 1)[1]) for b in basins), default=-1)
 
 
 def _apply_pits(classification, cells, polys, basins, new_cells, knives, law, bl, stats):

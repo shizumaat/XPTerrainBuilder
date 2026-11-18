@@ -292,7 +292,13 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
                                        "road_ramp_withdrawn_on_runout",
                                        # RULINGS 2026-10-22h (#1254): the
                                        # public road's rows yield to its terrain
-                                       "public_road_release"}
+                                       "public_road_release",
+                                       # RULINGS 2026-11-17: the other
+                                       # roads' rows rise to steep ground
+                                       "steep_road_release",
+                                       # #2073: a bridge's carried page is
+                                       # not graded over the span
+                                       "bridge_span_release"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message

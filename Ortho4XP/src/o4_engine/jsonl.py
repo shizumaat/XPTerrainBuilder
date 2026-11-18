@@ -65,6 +65,7 @@ from typing import Any, Callable, Dict, Optional, TextIO
 
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
+import O4_Machine_Memory
 import O4_Machine_Slots
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
@@ -72,6 +73,7 @@ import O4_Unmounted_Links as UNMOUNTED
 
 from . import failure_report
 from . import library as _LIBRARY
+from .command_errors import command_error_text
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -279,6 +281,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # #1989 (capability gateway_airports): completes through
         # GatewayAirports.
         "gateway_airports": session.gateway_airports,
+        # #2145 (capability pack_overlaps): completes through PackOverlaps.
+        "pack_overlaps": session.pack_overlaps,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -775,6 +779,11 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             # Below the user's applications, inherited by every tile,
             # airport and pool process this engine starts (#1225).
             O4_Machine_Slots.lower_priority()
+            # The machine memory ledger knows this engine as the app's: a
+            # lane or command-line build on the machine yields to it
+            # (inherited by its workers; a harness that started this engine
+            # already claimed ``lane``, which stands).
+            O4_Machine_Memory.claim("app")
             # The global cfg's one-time migrations run BEFORE the hello:
             # the Mac app re-reads the global cfg on the hello, so it never
             # shows pre-migration values (1.0.480: Detail "Custom").
@@ -835,7 +844,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
                 result = handler(**arguments)
             except Exception as exc:  # a bad command must not end the session
                 write_obj({"reply": call_id, "ok": False,
-                           "error": str(exc)})
+                           "error": command_error_text(command, exc)})
                 return
             write_obj({"reply": call_id, "ok": True,
                        "result": _json_safe(result)})

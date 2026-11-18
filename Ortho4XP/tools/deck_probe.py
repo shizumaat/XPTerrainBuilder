@@ -13,7 +13,11 @@ floor (0.02 m) that touches a vertex within ``--near`` metres (default 5)
 of a deck ring or on an end line — the "no NOT SETTLED row within 5 m of
 any deck" bar — and the row fingerprint (count and sha of every row).
 ``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
-row on it with its violation.  Writes nothing but ``--json``.
+row on it with its violation.  ``--cut-cover TOL``: the cut under every
+BANKED deck (generated or a wall-less pack deck, RULINGS 2026-11-17p) and
+generated road bridge (``tools/deck_cut_cover``; owner 2026-11-17 "the cut
+goes all the way under"), exit 1 on a FAIL.  Writes
+nothing but ``--json``.
 
 Promoted from the deckanchor lanes' scratch probes (``deckA/probe.py``,
 ``unsettled.py``, ``attr.py``) on their second use (tool discipline,
@@ -114,6 +118,10 @@ def main(argv=None) -> int:
     ap.add_argument("--near", type=float, default=5.0)
     ap.add_argument("--vertex", type=int, nargs="*", default=())
     ap.add_argument("--json", type=Path, default=None)
+    ap.add_argument("--cut-cover", type=float, default=None, metavar="TOL",
+                    help="the cut under every GENERATED deck and road bridge "
+                         "(tools/deck_cut_cover): solved ground over the bank / "
+                         "floor / clearance by more than TOL m fails; exit 1")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -162,9 +170,23 @@ def main(argv=None) -> int:
     n, sha = fingerprint(cs.rows())
     res["rows"] = {"count": n, "sha": sha}
     print("rows", n, "sha", sha)
+    rc = 0
+    if a.cut_cover is not None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_cut_cover import cut_cover
+        res["cut_cover"] = cut_cover(pm, z, d.get("airport"), Law.for_airport(pm.icao),
+                                     a.cut_cover)
+        for q in res["cut_cover"]:
+            bad = q["over"] > 0
+            rc |= bad
+            verdict = "FAIL" if bad else ("PASS" if q["samples"] else "NOT MEASURED")
+            print(f"CUT-COVER {verdict} {q['object']}"
+                  + (f" over {q['lower']}" if q.get("lower") else "")
+                  + f": {q['over']}/{q['samples']} sample(s) over {a.cut_cover:g} m, worst "
+                  f"{q['worst_m']} m at {q.get('ll')} {q['worst_at']} {q.get('note', '')}")
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, default=str))
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

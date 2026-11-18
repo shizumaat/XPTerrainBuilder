@@ -111,6 +111,12 @@ class Body:
     lift_m: float = 0.0
     #: #1903: the row's ``OBJECT_MSL`` elevation (``model.placement.Body``)
     msl_z: float | None = None
+    #: #2112: the deck-plate band this body keeps (``deck_plates``;
+    #: ``obj8_split.BodyCut.band``), None for a whole body
+    band: "tuple[float, float, float, float] | None" = None
+    #: #2144: the deck warp this body bakes -- its track and pier feet
+    #: (``deck_profile``; ``obj8_split.BodyCut.warp``), () for none
+    warp: tuple = ()
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
@@ -118,6 +124,14 @@ class Body:
             d["lift_m"] = self.lift_m
         if self.msl_z is not None:
             d["msl_z"] = self.msl_z
+        if self.band is not None:
+            d["band"] = list(self.band)
+        if self.warp:
+            # #2144: the track's displacement range and the feet stretched
+            # (the plan geometry stays in the file)
+            ds = [float(q[2]) for t in self.warp if t[0] == "track" for q in t[1]]
+            d["warp"] = {"d": [round(min(ds), 3), round(max(ds), 3)] if ds else [],
+                         "feet": sum(1 for t in self.warp if t[0] == "foot")}
         if self.anchor.isolated:
             d["isolated_of"] = self.anchor.isolated      # §9a
         return d
@@ -262,6 +276,10 @@ class SplitSet:
     #: (``placement_write.dump_rows``).  Not serialised.
     pit_shifts: _t.Mapping[str, float] = _dc.field(default_factory=dict,
                                                    repr=False, compare=False)
+    #: #2110 R3: ``touch_seat.seat_touching``'s table — the touching groups
+    #: by class, what moved, what was fixed and why.  Not serialised.
+    touch_table: _t.Mapping[str, _t.Any] = _dc.field(default_factory=dict,
+                                                     repr=False, compare=False)
 
     @property
     def all(self) -> tuple[Split, ...]:

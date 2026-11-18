@@ -335,9 +335,15 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # trench under the station), so the corridor is taken like a pad
     from ..classify.pad_cut_corridor import cutting_corridors
     _cut = cutting_corridors(airport, law)
+    # #2120 R2 (master ruling): NO PAD OF ANY KIND on a retaining wall's
+    # footprint, a sunken ramp, a mouth or a deck stack -- the one shade
+    # every pad reader takes (``geom.cluster_outline.pad_shade_extra``)
+    from ..geom.cluster_outline import pad_shade_extra
+    _shade = pad_shade_extra(airport)
     base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
                             + [air_u.buffer(_keep) if _keep > 0.0 else air_u]
                             + ([_cut] if _cut is not None else [])
+                            + ([_shade] if _shade is not None else [])
                             + [q for q in structures if q is not None and not q.is_empty])
     taken = base_hard
     plats: list = []

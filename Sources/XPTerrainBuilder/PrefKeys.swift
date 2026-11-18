@@ -11,10 +11,11 @@ enum PrefKeys {
     /// Where downloads, caches and built tiles live (ORTHO4XP_DATA_ROOT).
     /// Empty until the first-run prompt has been answered.
     static let dataRoot = "DataRootPath"
-    /// The build map's selected set, as canonical tile keys
+    /// RETIRED (2026-11-17, LaunchSelection): the selected set an earlier
+    /// version stored, removed at launch. Canonical tile keys
     /// (`TileMath.key`, e.g. "+35-081"), sorted by (lat, lon).
     static let selectedTiles = "SelectedTiles"
-    /// The build map's active tile, one canonical tile key.
+    /// RETIRED likewise: the stored active tile, one canonical tile key.
     /// Absent or empty = no active tile.
     static let activeTile = "ActiveTileKey"
     /// The map's first-visit hint was dismissed (#828) — the Qt prefs

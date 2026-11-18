@@ -63,6 +63,22 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_MACHINE_SLOTS":
         "how many heavy processes the session's budget runs at once — "
         "scheduling only",
+    "O4_MACHINE_LEDGER_DIR":
+        "where the machine memory ledger's records are (O4_Machine_Memory, "
+        "incident 2026-11-17) — scheduling only",
+    "O4_MEMORY_SESSION":
+        "which engine session a process belongs to on the machine memory "
+        "ledger — scheduling only",
+    "O4_MEMORY_ROLE":
+        "app / lane / command-line: who yields memory to whom — scheduling "
+        "only",
+    "O4_MEMORY_LABEL":
+        "the words the memory-wait logs name a session by — logs only",
+    "O4_MEMORY_STEP_RESERVED":
+        "a parallel run's worker: its parent reserved the step's memory — "
+        "scheduling only",
+    "O4_MEMORY_LEDGER_ANNOUNCED":
+        "the ledger's log line was printed in this process tree — logs only",
     "O4_MACHINE_SLOTS_UNGATED":
         "a slot session that proves mechanics (the pool self-check) skips "
         "the live memory gate — scheduling only",
@@ -142,6 +158,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
         "which file names the World folder as the tiles' home (RULINGS "
         "2026-11-12g/h); it moves where a tile folder lives, never what "
         "an airport build writes",
+    "O4_WORLD_SPAWNS":
+        "which file keeps the places the World job saw the aircraft on "
+        "the ground (RULINGS 2026-11-17v); it chooses which spawn windows "
+        "are pre-draped, never what an airport build writes",
     "O4_HARNESS_IN_LEDGER": "the harness's own re-entry marker",
     "O4_HARNESS_PYTHON": "which interpreter the lane ritual uses",
     "O4_RUN_LEDGER_PATH": "where the run ledger is kept",
@@ -207,6 +227,7 @@ SETTINGS_OUTSIDE_CONFIG: frozenset[str] = frozenset({
     # the mesh and vector steps
     "O4_BANK_ANNULUS_BAR", "O4_BANK_BLEND_DUMP", "O4_HAIRLINE_PREFLIGHT",
     "O4_INTERP_ALT_LEAK", "O4_INTERP_ALT_SEAL", "O4_SEAWALL_OFFSET_M",
+    "O4_SEA_LEAK",
     "O4_VECTOR_SPLIT_M", "O4_VECTOR_WELD_M",
     # the census law (``tools/harness/law_support``)
     "O4_APRON_BODY_CHORD_MAX_M", "O4_APRON_CHORD_ANCHOR_TARGET",

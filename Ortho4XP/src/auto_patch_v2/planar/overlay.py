@@ -29,7 +29,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Classification, is_late_cell
+from ..classify.roles import Classification, is_late_cell, is_pad_road_cell
 from . import arrangement_memo as _arr_memo
 from ..geom.containment import sets_inside_one_ring
 from ..geom.proportions import inscribed_width_m
@@ -41,8 +41,9 @@ from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
 from ..model.wall_reach import is_wall_fill_ref
-from .chords import densify, densify_within, ring_lines, stations
+from .chords import abeam_stations, densify, densify_within, ring_lines, stations
 from .lidar_road import survey_road_trenches
+from .end_barriers import end_barriers
 from .road_yield import road_carriageways, rsa_carriageways
 from .terrain_edge import EdgeReport, road_edges
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
@@ -56,9 +57,10 @@ from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
 from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
 from .agp_ground import agp_ground_pieces
-from .ground_chords import road_ground_densifier
-from ..model.planar import (ROAD_ROLES, is_agp_ground_ref, is_stack_apron_ref,
-                            is_stack_ground_ref)
+from .pit_bank import banked_floors, pit_bank_pieces
+from .ground_chords import near_any, road_ground_densifier
+from ..model.planar import (ROAD_ROLES, is_agp_ground_ref, is_pit_bank_ref,
+                            is_stack_apron_ref, is_stack_ground_ref)
 from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
@@ -297,7 +299,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None, *,
                       level_b: float | None = None,
                       level_seeds: _t.Sequence = (),
-                      shells: _t.Sequence = ()) -> Arrangement:
+                      shells: _t.Sequence = (),
+                      floors: _t.Sequence = ()) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
     registries its passes mint (:attr:`Arrangement.registries`).
     ``level_b``: the airport's object-stated level-B depth
@@ -306,7 +309,9 @@ def build_arrangement(airport: Airport, classification: Classification,
     walls stand a storey under their zero (``planar/level_regions``), whose
     lower levels take the unreachable pieces they touch; ``shells`` the
     storey shells (``planar/storey_pad``), whose pads the block planner
-    holds and splits at their storeys."""
+    holds and splits at their storeys; ``floors`` the object floors
+    (``airport/object_floor``), whose walled pits' open edges take a bank
+    (``planar/pit_bank``)."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -364,7 +369,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                               lambda region: survey_road_trenches(
                                   airport, law, carriageways, region),
                               band_setbacks(tuple(getattr(airport, "retaining_walls", ())
-                                                  or ()))):
+                                                  or ())),
+                              _end_barriers(airport)):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,
@@ -440,6 +446,26 @@ def build_arrangement(airport: Airport, classification: Classification,
             if _n_ag or _ag_notes:
                 print(f"    [agp-ground] {_n_ag} piece(s) ({time.perf_counter() - _t_ag:.2f} s)"
                       + "".join(f"; {n}" for n in _ag_notes))
+        # #1949 R3: a walled pit's open edge (a wall lower than the ground
+        # behind it) takes a bank from its crest down to the lidar
+        if banked_floors(floors):
+            _t_pb = time.perf_counter()
+            _pb_notes: list[str] = []
+            for ref, g in pit_bank_pieces(
+                    floors, airport, [r.polygon for r in regions if r.source == "zone"],
+                    [r.polygon for r in regions if r.source != "zone"]
+                    + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+                    + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+                    law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+                    2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+                    law, airside=air_cells,
+                    ribbons=[Polygon(c.ring, c.holes) for c in ribbon_cells],
+                    notes=_pb_notes):
+                regions.append(Region("graded_strip", ref, g, None, None,
+                                      role_side(law, "graded_strip"), "zone"))
+            print(f"    [pit-bank] {sum(1 for r in regions if is_pit_bank_ref(r.ref))} "
+                  f"piece(s) ({time.perf_counter() - _t_pb:.2f} s)"
+                  + "".join(f"; {n}" for n in _pb_notes))
 
         # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
         # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line
@@ -556,6 +582,15 @@ def build_arrangement(airport: Airport, classification: Classification,
         r.polygon for r in (*base_regions, *pad_regions) if r.role in _contact])
     stated = {c.ref for c in classification.cells if c.kind == "structure"
               or (c.evidence or {}).get("pavement_deck")}
+    # #1918 R3/R4-1: a PAD ROAD's kerb vertex gains its OPPOSITE — a station
+    # at its foot on the facing chord (``chords.abeam_stations``), never on
+    # or by a contact or rigid rim; the stage-1, base and gap maps hold none
+    pad_refs = {c.ref for c in classification.cells if is_pad_road_cell(c)}
+    _keep_off = near_any([r.polygon for r in (*base_regions, *pad_regions)
+                          if r.role in _contact or is_rigid_role(law, r.role)],
+                         float(snap_margin_m(law))) if pad_refs else None
+    _abeam = (float(law.tables.emit.road_contact.pair_lateral_m),
+              float(law.tables.emit.identity.min_distinct_spacing_m))
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []
@@ -568,6 +603,9 @@ def build_arrangement(airport: Airport, classification: Classification,
                     ring = ground(ring)
                 if end_zone is not None and r.role in ROAD_ROLES:
                     ring = densify_within(ring, end_zone, end_step)
+                if r.ref in pad_refs and r.role in ROAD_ROLES and r.ref not in stated:
+                    ring = abeam_stations(ring, *_abeam, face=r.polygon,
+                                          keep_off=_keep_off)
                 if len(ring) >= 2:
                     out.append(LineString(ring))
         return out
@@ -669,7 +707,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, noded, [], regions, bands, law, keeps,
             float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes,
-            cut=covered_cut_taken(airport, law, pad_regions, reg))
+            cut=covered_cut_taken(airport, law, pad_regions, reg),
+            walls=getattr(airport, "wall_shade", None))
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),
@@ -683,7 +722,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         air_f if frozen is not None else None,
         base_order[0] if frozen is not None else None,
         base_order[1] if frozen is not None else None, reg=reg,
-        air_nodes=air_nodes)
+        air_nodes=air_nodes, walls=getattr(airport, "wall_shade", None))
     if frozen is not None:
         # 30aa rule 10 / 30z (1) AT THE DERIVATION SITE: the airside's own
         # vertex set (aircraft pavement + pads) with the ribbons against the
@@ -919,7 +958,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           refuse_roles: tuple[str, ...] = (),
                           frozen: "set | None" = None,
                           hosts_seen: "dict | None" = None,
-                          air_nodes: "set | None" = None
+                          air_nodes: "set | None" = None,
+                          slot=None
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -964,7 +1004,16 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     sliver carrying a coordinate outside it never grows an aircraft-
     pavement host either — the zone's own nodes would become airside
     vertices, so a zone-width change would re-node the pavement (measured
-    CYXY: the last 9 gone / 17 new airside vertices of a 5 m change)."""
+    CYXY: the last 9 gone / 17 new airside vertices of a 5 m change).
+
+    ``slot`` (#1934 R3, RULINGS 2026-11-16d / 13x (1)): the retaining walls'
+    footprints grown one identity-grid step (``model/wall_reach.wall_slot``).  A
+    sliver lying mostly in it is the step between a wall's two levels: no
+    GROUNDSIDE host takes it (a road dissolved across the wall reaches the
+    upper side's rim and climbs to it -- KLAX ``big_roads:-1143`` took
+    taxi F's 1 m zone sliver between the apron rim and the road at the
+    ``Fence_Terminal_1.obj`` wall, 34.8 m beside 33.6 m); an airside host
+    may, else the DEM owns it and the step stands inside the slot."""
     if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
         return faces, 0, 0, 0.0, ()
     tree = STRtree([p for p, _r in faces])
@@ -998,6 +1047,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
         best = None
         best_rank = None
         thawed = _thawed(poly)
+        stepped = slot is not None and not slot.is_empty and \
+            poly.intersection(slot).area >= 0.5 * poly.area
         key = shapely.normalize(poly).wkb if hosts_seen is not None else None
         want = hosts_seen.get(key) if (hosts_seen is not None and frozen is not None) else None
         for j in tree.query(poly, predicate="intersects"):
@@ -1005,7 +1056,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             if j == i or keep[j] is None:
                 continue
             pj, rj = keep[j]
-            if rj.role in refused or (thawed and rj.role in hosts):
+            if rj.role in refused or (thawed and rj.role in hosts) or \
+                    (stepped and rj.side == "groundside"):
                 continue
             try:
                 shared = poly.boundary.intersection(pj.boundary).length
@@ -1255,6 +1307,15 @@ def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
         out.append(_band([(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1))
                           for k in range(n)], False))
     return [b for b in out if not b.is_empty and b.geom_type == "Polygon"]
+
+
+def _end_barriers(airport):
+    """#2111 R2: the airport's barriers (``planar/end_barriers``), read with
+    the classifier's line thresholds."""
+    from ..classify.rules import load_rules
+    rules = load_rules()
+    return end_barriers(getattr(airport, "edge_lines", ()) or (), rules.service,
+                        float(rules.edge_lines.min_run_m))
 
 
 def _runway_records(airport, law) -> tuple:

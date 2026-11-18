@@ -86,7 +86,7 @@ class FakeBuilder:
         self.started: list = []
         self.cancelled: list = []
 
-    def start(self, tile, kind, deadline_in_s, klass) -> bool:
+    def start(self, tile, kind, deadline_in_s, klass, **_kw) -> bool:
         took = (self.seconds[kind] if isinstance(self.seconds, dict)
                 else float(self.seconds))
         self.running[tuple(tile)] = self.now + took
@@ -109,8 +109,32 @@ class FakePublisher:
     """Stages a finished tile and swaps it as soon as S3 allows."""
 
     @staticmethod
-    def settle(tile, kind, held: bool) -> str:
+    def settle(tile, kind, held: bool, merge=False, fresh=False) -> str:
         return "staged" if held else "swapped"
+
+
+class PackPublisher:
+    """``_PackPublisher`` over a pack of kinds ``{tile: kind}``: a held
+    tile stays staged only while the pack holds a real version of it (S4,
+    ``nothing_held``, #2032); a swap makes the tile a ``drape``.  Every
+    swap of a tile holding real files while it is held is recorded in
+    ``real_swaps`` (the bar: none), the parked aircraft's ``fresh`` merge
+    excepted (RULINGS 2026-11-12c (3))."""
+
+    def __init__(self, kinds: dict) -> None:
+        self.kinds = kinds
+        self.real_swaps: list = []
+        self.swapped: list = []
+
+    def settle(self, tile, kind, held: bool, merge=False, fresh=False) -> str:
+        real = self.kinds.get(tile) not in (None, "placeholder")
+        if held and real:
+            return "staged"
+        if real and merge and not fresh:
+            self.real_swaps.append(tile)
+        self.kinds[tile] = "drape"
+        self.swapped.append(tile)
+        return "swapped"
 
 
 def _opens(flight: dict, pack: str) -> dict:
@@ -169,6 +193,117 @@ def replay(flight: dict, kit: dict, kind: str = "drape",
             "built": len(builder.started), "tiles": tiles, "late": late,
             "loaded_swaps": loaded_swaps,
             "ok": not late and not loaded_swaps}
+
+
+def cut_follow_log(path: str, utc_from: str, utc_to: str) -> list:
+    """``[[t, lat, lon, agl_m], ...]``: the follow job's ``pos`` lines of
+    ``imagery_on_demand.log`` whose stamp (this Mac's local time, as the
+    job writes it) lies in ``utc_from..utc_to`` (``YYYY-MM-DDTHH:MM:SSZ``);
+    ``t`` in seconds from the first line kept."""
+    import calendar
+    import time as _time
+    lo = calendar.timegm(_time.strptime(utc_from, "%Y-%m-%dT%H:%M:%SZ"))
+    hi = calendar.timegm(_time.strptime(utc_to, "%Y-%m-%dT%H:%M:%SZ"))
+    rows = []
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            parts = line.split()
+            if len(parts) < 3 or not parts[1].startswith("pos="):
+                continue
+            at = _time.mktime(_time.strptime(parts[0], "%Y-%m-%dT%H:%M:%S"))
+            if not lo <= at <= hi:
+                continue
+            fields = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
+            lat, lon = (float(v) for v in fields["pos"].split(","))
+            rows.append([at, lat, lon, float(fields.get("agl_m") or 0.0)])
+    t0 = rows[0][0] if rows else 0.0
+    return [[round(r[0] - t0, 1), *r[1:]] for r in rows]
+
+
+def replay_held(fixture: dict, build_s: float | None = None,
+                capacity: int = 16, cores: int = 18,
+                predrape: bool = False) -> dict:
+    """#2142 bar 1/2: the track job over a follow-log fixture (``pos``
+    rows ``[t, lat, lon, agl_m]``, ``kinds`` ``{tile name: kind}`` of the
+    World pack then) on the fake clock, X-Plane holding every window tile
+    of ours from the flight load.  ``predrape``: part 1 ran first (the
+    first position's spawn set, ``world_spawn_window.spawn_set``, is
+    drape wherever it was a placeholder).  Counts the window's held
+    placeholders, when each was dispatched and swapped, the reload offers
+    (on the ground / in the air) and the swaps of a held tile holding
+    real files."""
+    from o4_engine import world_spawn_window as SPAWN
+    kinds = {WP.parse_tile(n): k for n, k in fixture["kinds"].items()}
+    pos = fixture["pos"]
+    if predrape:
+        for tile in SPAWN.spawn_set(pos[0][1], pos[0][2]):
+            if kinds.get(tile) == "placeholder":
+                kinds[tile] = "drape"
+    seconds = JOB.ESTIMATE_S["drape"] if build_s is None else float(build_s)
+    builder = FakeBuilder(seconds)
+    publisher = PackPublisher(kinds)
+    offers: list = []
+    state = {"ground": True, "now": 0.0}
+    job = JOB.WorldJob(
+        builder=builder, publisher=publisher, kind="drape",
+        wanted=lambda tile: kinds.get(tile) == "placeholder",
+        kind_of=kinds.get, capacity=capacity, cores=cores,
+        estimate_s={"drape": seconds}, loads=lambda: loaded,
+        offer=lambda: offers.append((state["now"], state["ground"])))
+    job.flight_loaded(pos[0][1], pos[0][2])
+    loaded = {t for t in job.tracker.window() if t in kinds}
+    held = sorted(t for t in loaded if kinds[t] == "placeholder")
+    first_air = None
+    for t, lat, lon, agl, *_ in pos:
+        state["now"] = builder.now = float(t)
+        state["ground"] = agl < JOB.ON_GROUND_AGL_M
+        if not state["ground"] and first_air is None:
+            first_air = float(t)
+        job.tick(float(t), {"lat": lat, "lon": lon, "agl_m": agl})
+    started = {}
+    for tile, at in builder.started:
+        started.setdefault(tile, at)
+    rows = [{"tile": WP.tile_name(*tile),
+             "dispatched_s": started.get(tile),
+             "swapped_s": (job.jobs[tile].swapped_at
+                           if tile in job.jobs else None)} for tile in held]
+    window_builds = [WP.tile_name(*t) for t in started if t in loaded]
+    return {"build_s": seconds, "predrape": predrape,
+            "held_placeholders": len(held), "tiles": rows,
+            "dispatched": sum(1 for r in rows if r["dispatched_s"] is not None),
+            "swapped": sum(1 for r in rows if r["swapped_s"] is not None),
+            "window_builds": window_builds,
+            "first_airborne_s": first_air,
+            "offers_ground": sum(1 for _t, g in offers if g),
+            "offers_air": sum(1 for _t, g in offers if not g),
+            "offers": offers,
+            "real_swaps": [WP.tile_name(*t) for t in publisher.real_swaps]}
+
+
+def _print_held(result: dict) -> None:
+    print(f"held placeholders {result['held_placeholders']}, dispatched "
+          f"{result['dispatched']}, swapped {result['swapped']} "
+          f"(drape {result['build_s']:.0f} s, predrape "
+          f"{result['predrape']}); window builds "
+          f"{len(result['window_builds'])}; reload offers on the ground "
+          f"{result['offers_ground']}, in the air {result['offers_air']} "
+          f"{result['offers']}; real held swaps {result['real_swaps']}; "
+          f"first airborne {result['first_airborne_s']} s")
+    for row in result["tiles"]:
+        print(f"  {row['tile']}  dispatched {row['dispatched_s']}  "
+              f"swapped {row['swapped_s']}")
+
+
+def held_ok(result: dict) -> bool:
+    """Bar 1 (held placeholders) or bar 2 (``predrape``)."""
+    if result["predrape"]:
+        return (not result["window_builds"] and not result["offers_ground"]
+                and not result["offers_air"] and not result["real_swaps"])
+    return (result["held_placeholders"] > 0
+            and result["dispatched"] == result["held_placeholders"]
+            and result["swapped"] == result["held_placeholders"]
+            and result["offers_ground"] == 1 and result["offers_air"] == 0
+            and not result["real_swaps"])
 
 
 def _flight_plan(flight: dict, dest: tuple):
@@ -425,7 +560,39 @@ def main(argv=None) -> int:
     ap.add_argument("--corridor-km", type=float, default=20.0)
     ap.add_argument("--divert", default=None, metavar="T,LAT,LON[,IDENT]")
     ap.add_argument("--approach", action="store_true")
+    ap.add_argument("--from-follow-log", default=None, metavar="LOG",
+                    help="cut a held-placeholder fixture from the follow "
+                    "job's pos lines (with --utc A..B, --pack-kinds, --out)")
+    ap.add_argument("--utc", default=None, metavar="A..B")
+    ap.add_argument("--pack-kinds", default=None, metavar="JSON",
+                    help="{tile name: kind} of the World pack then")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--held", action="store_true",
+                    help="FIXTURE is a held-placeholder fixture (#2142)")
+    ap.add_argument("--predrape", action="store_true",
+                    help="with --held: part 1 ran (spawn set draped)")
     a = ap.parse_args(argv)
+    if a.from_follow_log:
+        lo, hi = a.utc.split("..")
+        with open(a.pack_kinds, encoding="utf-8") as f:
+            kinds = json.load(f)
+        cut = {"source": os.path.basename(a.from_follow_log), "utc": [lo, hi],
+               "kinds": kinds,
+               "pos": cut_follow_log(a.from_follow_log, lo, hi)}
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(cut, f, separators=(",", ":"))
+        print(f"{len(cut['pos'])} positions -> {a.out}")
+        return 0
+    if a.held:
+        with open(a.fixture, encoding="utf-8") as f:
+            fixture = json.load(f)
+        result = replay_held(fixture, a.build_s, a.capacity, a.cores,
+                             a.predrape)
+        if a.json:
+            print(json.dumps(result, indent=1))
+        else:
+            _print_held(result)
+        return 0 if held_ok(result) else 1
     with open(a.fixture, encoding="utf-8") as f:
         flight = json.load(f)
     with open(a.kit, encoding="utf-8") as f:

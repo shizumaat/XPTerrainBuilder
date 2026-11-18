@@ -43,7 +43,13 @@ Exit 0 only on PASS.  A round is judged where it worked and against its
 control: ``--site NAME=LAT,LON[,R]`` (repeat; R 150 m) judges only the
 sites within R (the rest are counted as ``elsewhere``), and ``--against
 BASE.json`` (the control's ``--json``) fails any site new or worse by more
-than ``MOVED_M`` -- a patch node by id, an object site by name.
+than ``MOVED_M``, joined by PLACE (a patch site by lat/lon, an object site
+by role + lat/lon at 6 dp; a row with no way id -- stack, split_level, join,
+mouth, probe -- by name): way and node ids are minted per emit and shift
+when a pass re-rings one way.  Several rows on one place compare worst
+|delta| and FAIL count; a FAIL at a place the control lacks is new only
+when no control FAIL of its role, claiming its object row, within
+``CLUSTER_M`` was as bad.
 
 ``build_airport.py --tile`` runs it on its own products after every tile
 build (``<tag>.drawn.json``, ``result["drawn_gate"]``, a ``DRAWN`` line in
@@ -273,7 +279,7 @@ def gate(args):
     sites = [parse_site(t) for t in getattr(args, "site", None) or ()]
     if sites:
         import O4_File_Names as FNAMES
-        from drawn_roads import ROAD_STEP_M, claimed_mouths, floor_rings, road_layer
+        from drawn_roads import ROAD_STEP_M, claimed_mouths, floor_rings, road_layer, wall_rings
         step = getattr(args, "road_step", None)
         try:
             side = json.load(open(patch + ".axes.json", encoding="utf-8"))
@@ -281,8 +287,30 @@ def gate(args):
             side = {}
         rep["roads"] = road_layer(sites, lambda x, y: DC.mesh_z(sampler, x, y),
                                   FNAMES.OSM_dir, ROAD_STEP_M if step is None else step,
-                                  mouths=claimed_mouths(side), floors=floor_rings(side))
+                                  mouths=claimed_mouths(side), floors=floor_rings(side),
+                                  walls=wall_rings(side))
+        if getattr(args, "lidar_dev", False):
+            rep["lidar"] = _lidar(args, sites, sampler, patch, tile, side)
     return _verdict(rep, t0)
+
+
+def _lidar(args, sites, sampler, patch, tile, side):
+    """Layer 5 (#2128, ``tools/harness/drawn_lidar.py``): the drawn ground and
+    roads at each ``--site`` against the airport's cached inset."""
+    import numpy
+    import O4_File_Names as FNAMES
+    from drawn_lidar import Lidar, airside_pavement, deck_rings, inset_path, lidar_layer
+    path = inset_path(args.icao, int(tile[:3]), int(tile[3:]))
+    if path is None:
+        return {"verdict": "NOT MEASURED", "why": "no cached inset names the airport"}
+
+    def many(lats, lons):
+        got = sampler.sample_many(numpy.asarray(lats), numpy.asarray(lons))
+        return numpy.array([numpy.nan if g is None else g.elevation_metres for g in got])
+    rep = lidar_layer(sites, many, Lidar(path), deck_rings(side),
+                      airside_pavement(patch, args.icao), FNAMES.OSM_dir)
+    rep["inset"] = path
+    return rep
 
 
 def _objects(args, sampler, dsfs):
@@ -290,7 +318,7 @@ def _objects(args, sampler, dsfs):
     ns = argparse.Namespace(
         icao=args.icao, tile=getattr(args, "tile", None), tag=args.tag,
         out=getattr(args, "out", None), patches=getattr(args, "patches", None),
-        radius=15.0, tol=0.3, margin=0.012, plan=None, mesh=None,
+        radius=15.0, tol=0.3, margin=0.012, plan=getattr(args, "plan", None), mesh=None,
         sampler=sampler, sampler_dsfs=dsfs)
     try:
         rep = DC.run(ns)
@@ -365,14 +393,97 @@ def _near(row, sites):
     return False
 
 
-def _moved(rep, base):
-    """Sites new or worse than the control ``base`` (a gate ``--json``)."""
+# Rows without a way id: their name IS their identity.
+_NAMED_ROLES = frozenset(("stack", "split_level", "join", "mouth", "probe"))
+
+
+def _place(row):
+    """An object site's identity across two builds: ``(role, lat, lon)`` at
+    6 dp -- way ids are minted per emit and shift when an upstream pass
+    re-rings a way -- or the name of a row that carries no way id."""
+    name = str(row.get("site", ""))
+    role = name.split(" ", 1)[0]
+    if role in _NAMED_ROLES or row.get("lat") is None:
+        return name
+    return (role, round(row["lat"], 6), round(row["lon"], 6))
+
+
+def _by_place(rows):
+    out = {}
+    for r in rows:
+        out.setdefault(_place(r), []).append(r)
+    return out
+
+
+def _fails(rows):
+    """``(FAIL count, worst |delta| of the FAILs or None, a site name)``."""
+    bad = [r for r in rows if r.get("verdict") == "FAIL"]
+    deltas = [abs(r["delta"]) for r in bad if r.get("delta") is not None]
+    return len(bad), (max(deltas) if deltas else None), (bad or rows)[0]["site"]
+
+
+def _metres(a, b):
+    kx = DC.M_PER_DEG * math.cos(math.radians(a["lat"]))
+    return math.hypot((a["lon"] - b["lon"]) * kx, (a["lat"] - b["lat"]) * DC.M_PER_DEG)
+
+
+def _held_by_control(row, base_fails):
+    """A FAIL at a place the control lacks is not new when a control FAIL of
+    the same role, claiming the same object row, within ``CLUSTER_M``, was
+    at least as bad (less ``MOVED_M``): the same defect read one node over."""
+    role = str(row["site"]).split(" ", 1)[0]
+    claims = {o.get("row") for o in row.get("objects") or ()} - {None}
+    worst = abs(row["delta"]) if row.get("delta") is not None else None
+    for b in base_fails:
+        if str(b["site"]).split(" ", 1)[0] != role or _metres(row, b) > CLUSTER_M:
+            continue
+        theirs = {o.get("row") for o in b.get("objects") or ()} - {None}
+        if (claims or theirs) and not claims & theirs:
+            continue
+        if worst is None or (b.get("delta") is not None
+                             and abs(b["delta"]) >= worst - MOVED_M):
+            return b
+    return None
+
+
+def _moved_objects(rows, base_rows):
     out = []
-    was = {s["node"]: s for s in base.get("patch_to_drawn", {}).get("sites", [])}
+    was = _by_place(base_rows)
+    base_fails = [r for r in base_rows if r.get("verdict") == "FAIL"]
+    for key, here in _by_place(rows).items():
+        n, worst, name = _fails(here)
+        if not n:
+            continue
+        b = was.get(key)
+        if b is None:
+            if any(_held_by_control(r, base_fails) is None
+                   for r in here if r.get("verdict") == "FAIL"):
+                out.append(f"objects {name}: new -> FAIL"
+                           + (f" {worst:.2f}" if worst is not None else ""))
+            continue
+        bn, bworst, bname = _fails(b)
+        ctl = f"objects {name} (control {bname})"
+        if not bn:
+            out.append(f"{ctl}: {b[0].get('verdict')} -> FAIL")
+        elif n > bn:
+            out.append(f"{ctl}: {bn} -> {n} FAIL rows")
+        elif worst is not None and bworst is not None and worst > bworst + MOVED_M:
+            out.append(f"{ctl}: FAIL |{bworst:.2f}| -> |{worst:.2f}|")
+    return out
+
+
+def _moved(rep, base):
+    """Sites new or worse than the control ``base`` (a gate ``--json``),
+    joined by PLACE: a patch site by (lat, lon), an object site by
+    ``_place`` -- never by an id the emit mints."""
+    out = []
+    was = {(round(s["lat"], 6), round(s["lon"], 6)): s
+           for s in base.get("patch_to_drawn", {}).get("sites", [])}
     for s in rep.get("patch_to_drawn", {}).get("sites", []):
-        b = was.get(s["node"])
+        b = was.get((round(s["lat"], 6), round(s["lon"], 6)))
         if b is None or abs(s["delta"]) > abs(b["delta"]) + MOVED_M:
-            out.append(f"patch->drawn node {s['node']} @{s['lat']},{s['lon']}: "
+            ctl = "" if b is None else f" (control node {b['node']})"
+            out.append(f"patch->drawn node {s['node']}{ctl} @{s['lat']},{s['lon']}: "
                        f"{'new' if b is None else b['delta']} -> {s['delta']:+.2f}")
     was = {r["site"]: r for r in base.get("roads", {}).get("sites", [])}
     for r in rep.get("roads", {}).get("sites", []):
@@ -381,17 +492,8 @@ def _moved(rep, base):
                                            r["max_step_m"] > b["max_step_m"] + MOVED_M):
             out.append(f"roads {r['site']}: {'new' if b is None else b.get('max_step_m')} "
                        f"-> {r['max_step_m']:.2f} m step")
-    was = {r["site"]: r for r in base.get("objects", {}).get("sites", [])}
-    for r in rep.get("objects", {}).get("sites", []):
-        if r.get("verdict") != "FAIL":
-            continue
-        b = was.get(r["site"])
-        if b is None or b.get("verdict") != "FAIL":
-            out.append(f"objects {r['site']}: {b.get('verdict') if b else 'new'} -> FAIL")
-        elif (r.get("delta") is not None and b.get("delta") is not None
-              and abs(r["delta"]) > abs(b["delta"]) + MOVED_M):
-            out.append(f"objects {r['site']}: FAIL {b['delta']:+.2f} -> {r['delta']:+.2f}")
-    return out
+    return out + _moved_objects(rep.get("objects", {}).get("sites", []),
+                                base.get("objects", {}).get("sites", []))
 
 
 def judge(rep, sites=(), base=None):
@@ -416,7 +518,8 @@ def judge(rep, sites=(), base=None):
     if base is not None:
         rep["moved"] = _moved(rep, base)
     layers = [rep["mesh"]["verdict"], rep["patch_to_drawn"]["verdict"],
-              rep["objects"]["verdict"]] + ([rep["roads"]["verdict"]] if "roads" in rep else [])
+              rep["objects"]["verdict"]] + ([rep["roads"]["verdict"]] if "roads" in rep else []) \
+        + ([rep["lidar"]["verdict"]] if "lidar" in rep else [])
     rep["verdict"] = ("FAIL" if "FAIL" in layers or rep.get("moved") else
                       "INCOMPLETE" if "NOT MEASURED" in layers or rep["incomplete"]
                       else "PASS")
@@ -446,7 +549,9 @@ def summary_line(rep):
             f"({p2d.get('over_bar', '-')} of {p2d.get('nodes', '-')} nodes over the "
             f"bars, {len(p2d.get('sites', []))} sites); objects {obj.get('verdict')}"
             + tail + (f"; roads {rep['roads']['verdict']} ({rep['roads']['failed']} "
-                      f"site(s) over {rep['roads']['bar_m']} m)" if rep.get("roads") else ""))
+                      f"site(s) over {rep['roads']['bar_m']} m)" if rep.get("roads") else "")
+            + (f"; lidar {rep['lidar']['verdict']} ({rep['lidar'].get('failed', '-')} "
+               f"site(s))" if rep.get("lidar") else ""))
 
 
 def print_gate(rep, top=20):
@@ -487,6 +592,18 @@ def print_gate(rep, top=20):
             for f in r.get("mouth_faces", [])[:3]:
                 print(f"       mouth face (not judged) way {f['way']} {f['step_m']} m "
                       f"@{f['lat']},{f['lon']}")
+    lid = rep.get("lidar")
+    if lid:
+        print(f"  lidar {lid['verdict']}: " + (lid.get("why") or (
+              f"{lid['failed']} site(s) over {lid['share_bar_pct']} % of the ground "
+              f"{lid['dev_m']} m off the survey, or a road {lid['road_dev_m']} m off it "
+              f"farther than {lid['deck_edge_m']} m from a deck")))
+        for r in lid.get("sites", []):
+            print(f"     {r['verdict']} {r['site']}: |drawn-lidar|>{lid['dev_m']} m "
+                  f"{r['share_pct']} % of {r['samples']} (above {r['above_pct']} %, below "
+                  f"{r['below_pct']} %); roads worst {r.get('road_dev_m')} m"
+                  + (f" @{r['road_at'][0]},{r['road_at'][1]} way {r['road_way']} "
+                     f"({r['road_delta']:+.2f})" if r.get("road_at") else ""))
     if rep.get("judged_sites"):
         where = ", ".join(f"{n} {r:.0f} m" for n, _a, _o, r in rep["judged_sites"])
         print(f"  judged within {where}"
@@ -537,8 +654,17 @@ def main(argv=None):
     ap.add_argument("--road-step", type=float, default=None, metavar="M",
                     help="the roads layer's bar: FAIL a --site whose mapped roads step "
                          "more than M between 1 m drawn samples (default 0.5)")
+    ap.add_argument("--lidar-dev", action="store_true",
+                    help="the lidar layer (#2128): at each --site, the share of drawn "
+                         "ground off the airport's inset by > 2 m outside deck rings and "
+                         "airside pavement (bar 2 %%), and mapped roads > 25 m from a deck "
+                         "within 0.5 m of it")
     ap.add_argument("--against", default=None, metavar="BASE.json",
                     help="the control's --json: fail any site new or worse")
+    ap.add_argument("--plan", default=None, metavar="PLAN.json",
+                    help="the objects layer reads a pack COPY's written plan "
+                         "(v2_rebake_replay.py plan --write-pack COPY --plan-out PLAN; "
+                         "pass --custom-scenery holding the copy)")
     ap.add_argument("--json", default=None, help="write the full report here")
     ap.add_argument("--top", type=int, default=20, help="sites printed per layer")
     args = ap.parse_args(argv)

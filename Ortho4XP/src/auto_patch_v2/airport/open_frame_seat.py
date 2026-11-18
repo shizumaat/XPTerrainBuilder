@@ -34,12 +34,15 @@ import dataclasses as _dc
 import typing as _t
 
 from .adapted_riders import ADAPTED_SRC, ADAPTED_ZERO_REASON
+from .cut_portal_seat import CUT_BRIDGE_PLATE
 
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "frame_lifts", "carried_lift",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
+           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "UNIT_FREE_PLATES",
+           "plate_led",
+           "WALLED_SRC",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -466,22 +469,42 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
     for rs in comp.values():
         if len(rs) < 2:
             continue
-        air = sorted(r for r in rs if group_key(r, fid) in airside)
-        n_joined += len(air) > 1
-        keep = (max(air, key=lambda r: _feet_read(airside, group_key(r, fid))) if air
-                else max(sorted(rs), key=lambda r: size.get(r, 0)))
+        n_joined += sum(1 for r in rs if group_key(r, fid) in airside) > 1
+        keep = _group_keep(rs, fid, airside, size)
         for r in rs:
             if r != keep:
                 out[r] = keep
+    out = _resolved(out)
+    if counts is not None and n_joined:
+        k = "unchained_airside_joined"
+        counts[k] = counts.get(k, 0) + n_joined
+    return out
+
+
+def _group_keep(rs: _t.Iterable[str], fid: str, airside: _t.Any,
+               size: _t.Mapping[str, int]) -> str:
+    """The root a group of connected units ``rs`` (one frame ``fid``)
+    moves with — the ONE rule every within-frame join reads (23e): its
+    AIRSIDE-SEATED unit (``airside``: ``group_key`` -> ``(zero, feet
+    read)``) whose floor the most stand-side feet read; with none, its
+    largest unit (``size``: parts per root), ties by name."""
+    rs = sorted(rs)
+    air = [r for r in rs if group_key(r, fid) in airside]
+    if air:
+        return max(air, key=lambda r: _feet_read(airside, group_key(r, fid)))
+    return max(rs, key=lambda r: size.get(r, 0))
+
+
+def _resolved(links: _t.Mapping[str, str]) -> dict[str, str]:
+    """``links`` (root -> the root it moves with) followed to the end of
+    each chain, so every root names its group's final root."""
+    out = dict(links)
     for r in list(out):
         t, seen = out[r], {r}
         while t in out and t not in seen:
             seen.add(t)
             t = out[t]
         out[r] = t
-    if counts is not None and n_joined:
-        k = "unchained_airside_joined"
-        counts[k] = counts.get(k, 0) + n_joined
     return out
 
 
@@ -600,7 +623,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     ``cut_order`` writes carriers first — is not moved either."""
     if adapted_zero is not None:
         record = _loose_to(record, m, adapted_zero, tol_m, counts)
-    lead = walled_lead(record, m)
+    lead = walled_lead(record, m, surface)
     if lead is not None:
         # #1201 (owner sim read 2026-10-28, KSEA 16L): A WALLED PLATE'S DATUM
         # LEADS ITS GROUP — every body of its origin set rides the plate,
@@ -611,8 +634,10 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                for b in record.bodies):
             counts["walled_plate_led_groups"] = counts.get("walled_plate_led_groups", 0) + 1
             return frame_zero(record, m, lead,
-                              f"{GROUP_REASON} led by its walled plate's datum at "
-                              f"{lead:.2f} (RULINGS 2026-10-27u, #1201)")
+                              f"{GROUP_REASON} led by its {m.plate_kind} plate's datum at "
+                              f"{lead:.2f} (RULINGS "
+                              + ("2026-10-27u, #1201)" if m.plate_kind == "walled"
+                                 else "2026-11-16d, #1934)"))
         return record
     if not plan_wide or not zeros:
         return record
@@ -755,22 +780,47 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
                     f"{zero:.2f} (#1726, RULINGS 2026-10-22o)")
 
 
-def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
-    """The zero of a RUNWAY-END WALLED PLATE's datum body (#1201, RULINGS
-    2026-10-27u: the plate sits flush with the safety area and every body of
-    its origin set rides it): the first body seated on its datum, for a
-    member marked ``plate_kind == "walled"``; ``None`` otherwise."""
-    if getattr(m, "plate_kind", "") != "walled":
+#: the plate kinds whose datum LEADS its §16g unit and its connected group:
+#: a runway-end walled plate (#1201, RULINGS 2026-10-27u) and a retaining
+#: wall's upper ground (#1934 R3, RULINGS 2026-11-16d; ``airport/retaining_seat``)
+#: and a bridge over a portal's cut's deck end (#2120 S; ``airport/cut_bridge``)
+LEAD_PLATES = frozenset({"walled", "retaining", CUT_BRIDGE_PLATE})
+
+#: the leading plates that stay OUT of every §16g unit (#2120 R2 W5; 16k,
+#: 14a (2)): a retaining wall's -- a wall never chains a building and its
+#: plate is never another frame's zero; only a runway-end WALLED plate
+#: leads a unit (#1977, :func:`walled_unit_zero`)
+UNIT_FREE_PLATES = LEAD_PLATES - {"walled"}
+
+
+def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | None":
+    """The zero of a LEADING PLATE's datum (:data:`LEAD_PLATES`; #1201,
+    RULINGS 2026-10-27u: the plate sits flush with the safety area and every
+    body of its origin set rides it): the first body seated on its datum,
+    else -- a body the §16g unit pass re-anchored -- the plate's own datum on
+    ``surface`` (:func:`walled_unit_zero`); ``None`` for any other member.
+    #1934 R3: KLAX ``Fence_Terminal_1.obj``'s unit pass and group stood its
+    footing on the ground under its plan, 3.2 m over the apron it retains."""
+    if getattr(m, "plate_kind", "") not in LEAD_PLATES:
         return None
     for b in record.bodies:
         a = b.anchor
         if a.surface_z is not None and getattr(a, "datum", False):
             return float(a.surface_z) - float(a.y_zero)
-    return None
+    return None if surface is None else walled_unit_zero((m,), surface)
 
 
 #: the §16g unit datum source of a unit holding a walled plate
 WALLED_SRC = "walled_plate"
+
+
+def plate_led(m: _t.Any) -> bool:
+    """Whether member ``m`` carries a LEADING plate (:data:`LEAD_PLATES`):
+    its record rides the plate's datum (:func:`walled_lead`) whatever else
+    seats it -- an airside or open-frame record too (#2120: KATL's
+    ``katl127_wall``, chained to the control tower beside the apron, stood
+    on the tower's pad 10 m over its datum)."""
+    return getattr(m, "plate_kind", "") in LEAD_PLATES
 
 
 def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":
@@ -781,12 +831,15 @@ def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | 
     the plate instead of their walls' feet (KCRW 05's overrun deck stood
     38.6 m over the runway end on its 46 m wall's foot); ``None`` when no
     member is one or no station reads a surface."""
-    import statistics
     for m in members:
-        if getattr(m, "plate_kind", "") != "walled" or getattr(m, "plate_y", None) is None:
+        if getattr(m, "plate_kind", "") not in LEAD_PLATES or getattr(m, "plate_y", None) is None:
             continue
         zs = [surface(float(q[0]), float(q[1])) for q in (getattr(m, "plate_stations", ()) or ())]
         zs = [float(z) for z in zs if z is not None]
         if zs:
-            return statistics.median(zs) - float(m.plate_y)
+            # the station ``anchor_rule._datum_anchor`` anchors the plate's
+            # own body at (the upper median of an even count): one plate,
+            # one reading (#2120 S: a mean of the middle two split KATL's
+            # cut bridge 0.17 m from its own plate body)
+            return sorted(zs)[len(zs) // 2] - float(m.plate_y)
     return None

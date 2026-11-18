@@ -130,6 +130,16 @@
   "reason": "one tile's pack dump: the build reaches it through fresh_pack_dumps (#1645, every tile the airport touches) via _pack_dump_naming_its_pack; kept public for the single-tile dump twins (test_dsf_dump_atomic, test_tile_failures)"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "CutResult",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "Dropped",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/airport/bridge_end_state.py",
   "name": "standing_plan",
   "reason": "test seam for Obstacles.standing on placed faces; pinned by test_free_bridge_seat / test_bridge_stack2065 (#2065)"
@@ -140,9 +150,14 @@
   "reason": "new public helper of a merged lane (batch 10) used by its module and its twin; kept public as the module's documented reading"
  },
  {
-  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_riders.py",
-  "name": "end_tops",
-  "reason": "test seam for deck-top-at-end reads; pinned by test_deck_riders2086"
+  "path": "Ortho4XP/src/auto_patch_v2/airport/dsf_poly_clip.py",
+  "name": "ClipReport",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/hung_wall_seat.py",
+  "name": "HungWedge",
+  "reason": "return type of the module's public reader (NamedTuple/dataclass callers unpack, never name); listed in __all__ (#2099 P5b)"
  },
  {
   "path": "Ortho4XP/src/auto_patch_v2/airport/line_object.py",
@@ -160,9 +175,54 @@
   "reason": "reached as a package attribute (`_ph.objects.remove(...)` in airport/dsf_write.py and auto_patch/object_rebake.py), which the name scan does not follow"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/cut_portal.py",
+  "name": "CutPortal",
+  "reason": "return type of the module's public reader attach_cut_portals (callers read its fields, never name it); listed in __all__ (#2120 R2 P)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/ramp_wing.py",
+  "name": "RampJoin",
+  "reason": "return type of the module's public reader (NamedTuple/dataclass callers unpack, never name); listed in __all__ (#2099 G4)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/zero_level_seat.py",
+  "name": "pile_unit_zero",
+  "reason": "one of the module's two \u00a716g unit-zero readers (#2118, spec: rim + pile), composed by unit_zero; public beside rim_unit_zero, which anchor_rule names"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/zero_level_seat.py",
+  "name": "walls_below_zero",
+  "reason": "#2118 public reader of the walls a zero-level seat stands below, composed by unit_zero in the same module; named in the module docstring contract"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "base_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "census_touching_steps",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "group_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "touching_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/planar/__main__.py",
   "name": "main",
   "reason": "entry point: `python -m auto_patch_v2.planar ICAO --stage ...` (the dry structures replay, tools/INDEX.md)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/end_barriers.py",
+  "name": "Barrier",
+  "reason": "return type of the module's public reader (NamedTuple/dataclass callers unpack, never name); listed in __all__ (#2111 R2)"
  },
  {
   "path": "Ortho4XP/src/elevation_access/strategies/aoi_zip_download.py",
@@ -363,5 +423,90 @@
   "path": "Ortho4XP/src/patch_library/index.py",
   "name": "main",
   "reason": "entry point: `python -m patch_library.index` \u2014 the patch library repository's GitHub Actions workflow (library_template/.github/workflows/index.yml) runs it from a sparse checkout"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_skin.py",
+  "name": "PageArt",
+  "reason": "return type of the module's public reader page_art (generated_pack reads its fields, never names it); listed in __all__ (#2132)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/road_bridge_ground.py",
+  "name": "ClearanceGround",
+  "reason": "return type of the module's public clearance reader (callers read its fields, never name it); listed in __all__ (#2141 lessa4, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/road_bridge_clear.py",
+  "name": "ClearancePlan",
+  "reason": "return type of clearance_plan (callers read its fields, never name it); listed in __all__ (#2141 lessa4, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/road_wall_witness.py",
+  "name": "RoadWitness",
+  "reason": "return type of road_witness (planar/road_shadow reads it, never names it); listed in __all__ (lshadow, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap.py",
+  "name": "Frame",
+  "reason": "#2145: the metres frame airport_regions returns with each region (its public return type); the stage passes it through without naming it"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap_choice.py",
+  "name": "kept_rows",
+  "reason": "#2145/#2144: the winning pack's overlapping rows, the input the overlay re-seat (#2144, lane l2144) reads to fit the kept structures to the terrain; that caller lands on its own branch"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/sunk_frame.py",
+  "name": "SunkReading",
+  "reason": "return type of the module's public reader sunk_wall (wall_class reads its fields, never names it); listed in __all__ (lkatlWF2, ldeck3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Airport_Approach_Cover.py",
+  "name": "eye_corridor_length_m",
+  "reason": "integration test-558: the eye rule's corridor length (RULINGS 2026-11-18a Balanced = half the eye rule); the module's own cover reads it and its twin pins the number"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "Reservation",
+  "reason": "integration test-558: the record type reserve() returns (module doc, lmemshare); callers hold it via reserve(), its name is the ledger's API contract"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "Snapshot",
+  "reason": "integration test-558: the reading snapshot() returns (lmemshare); world_yield and the waits read its fields, the type name is the ledger's API"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "ledger_dir",
+  "reason": "integration test-558: the ledger directory resolver (ENV_DIR / per-user path); the conftest isolation and twins read it, production goes through snapshot/reserve"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "role",
+  "reason": "integration test-558: the session role (app/lane/cli) the admission law reads; public for the twins that set ENV_ROLE and check it"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Sea_Leak_Guard.py",
+  "name": "SeaLeak",
+  "reason": "integration test-558: the guard's refusal (lflood sea-leak guard); raised by its check and caught by the tile driver's failure catalogue by type"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Sea_Leak_Guard.py",
+  "name": "leaked_sea",
+  "reason": "integration test-558: the sea-leak measure (lflood); the guard's own check reads it, its twin pins the triangle census"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_family.py",
+  "name": "shared_lead",
+  "reason": "integration test-558: pack-family name rule (#2145 l2145d, RULINGS 2026-11-17s); the family test reads it, the module's own grouping is its production user"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_family.py",
+  "name": "words",
+  "reason": "integration test-558: pack-family name words (#2145 l2145d); the module's grouping reads it, the twin pins the ordering-mark skip"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/world_yield.py",
+  "name": "reason",
+  "reason": "integration test-558: why the World job's spawn window waits (RULINGS 2026-11-17v); wait()'s default why=, the twins read it directly"
  }
 ]

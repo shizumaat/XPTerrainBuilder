@@ -558,6 +558,15 @@ class Placement:
     #: share of them (a lone post of a building stays with its group)
     free_column_min_count: int = 0
     free_column_min_share: float = 0.0
+    #: #2110 R3 (owner RULINGS 2026-11-16k/u/v; ``airport/touch_seat``):
+    #: two final bodies of one frame TOUCH where a non-line part ring of
+    #: one comes within this of the other's; touching buildings seat as one
+    #: group at the lower.  0 disarms the pass
+    touch_gap_m: float = 0.0
+    #: ... and a building under this share of its group's building
+    #: footprint, alone at the group's lowest level, keeps its seat and
+    #: does not vote (a shed beside a terminal)
+    touch_seat_min_share: float = 0.0
     #: #1884 round 2 (A, ``airport/terrain_base``): a walled body nothing
     #: carries whose RIGID base would clear our ground by more than
     #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS
@@ -608,6 +617,27 @@ class Deck:
     shear: bool = True
     #: §49 (5): a deck steeper than this is not sheared (fallback (6)).
     shear_max_grade: float = 0.10
+    #: #2144 P2 (owner 2026-11-17T20:43Z "a pier foot may stretch by at
+    #: most 3 m"): after a deck warp, a ground-contact foot floating over
+    #: ``[placement] split_tol_m`` has its foot vertices lowered to the
+    #: ground by at most this; the rest is reported.  0 disarms.
+    pier_foot_stretch_max_m: float = 3.0
+    #: #2144 (owner 2026-11-18T00:32Z, RULINGS 2026-11-17t (3)): between
+    #: its nodes a warped deck's track BENDS to follow the ground under
+    #: the rail cap, its grade changing by at most 1/R per metre along it
+    #: (a vertical curve of this radius).  0 = the straight grade between
+    #: nodes.
+    track_vertical_radius_m: float = 1000.0
+    #: AN ELEVATED DECK CARRIES NOTHING AT GRADE (#2127 item 4; owner
+    #: RULINGS 2026-11-16u): a pack hard deck over the pack's cut whose
+    #: authored top, at the zero its frame or touching group already gave
+    #: it, stands more than this (one storey) over the solved surface at
+    #: BOTH its end lines is not driven onto from that surface — it is no
+    #: deck the 26d cut-deck seat makes flush (``airport/cut_deck_seat``).
+    #: LGAV ``Train4`` (the station's concourse, top y +14.4) stood 12.6 m
+    #: over its end lines and was pulled 12.6 m out of its group.  0
+    #: disarms.
+    elevated_over_ends_m: float = 3.0
 
 
 @_dc.dataclass(frozen=True)

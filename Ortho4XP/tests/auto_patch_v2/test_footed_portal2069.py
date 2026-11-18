@@ -127,3 +127,32 @@ def test_the_mouth_stands_at_the_back_of_the_roof():
     over = _sbox(-8.0, -10.0, 8.0, 6.0)                  # reaches over the bore
     moved, d = SM.roof_back_mouth(axis, inward, over)
     assert abs(d - 6.0) < 1e-9 and moved.coords[0] == (0.0, 6.0)
+
+
+def test_a_footed_portal_states_its_opening_wall_to_wall(tmp_path):
+    """#2122 (NZWN bore -199 east, owner sim read 2026-11-16): the ramp
+    spans the mouth, never the mapped road's 7 m inside a 16 m portal --
+    the part states its roof's extent across the bore over its end, edges
+    either side of the end, as a roofed portal does."""
+    got, refused = _read([_placed(_portal(tmp_path), (-8.0, -21.0, 8.0, 1.0))])
+    assert len(got) == 1, refused
+    p = got[0]
+    assert abs(p.opening_m - 16.0) < 0.6
+    xs = sorted(e[0] for e in p.opening_xy)
+    assert xs[0] < -7.5 and xs[1] > 7.5
+
+
+def test_a_footed_portal_up_the_open_road_opens_over_its_own_roof(tmp_path):
+    """Up the open road the opening is the roof within the end's own reach
+    of it -- the part's own width, not a span to the mapped end."""
+    got, _r = _read([_placed(_portal(tmp_path, z0=40.0), (-8.0, -61.0, 8.0, 1.0))])
+    assert len(got) == 1 and abs(got[0].opening_m - 16.0) < 0.6
+
+
+def test_a_footed_opening_under_one_lane_states_none(tmp_path):
+    """RULINGS 2026-11-16a: an opening under one road lane is a misread --
+    the mapped road's width stands, never a sub-lane slot."""
+    narrow = _write(tmp_path / "narrow.obj", [_box(-1.5, 0.0, 3.0, 40.0, FOOT, ROOF)])
+    got, refused = _read([_placed(narrow, (-1.5, -41.0, 1.5, 1.0))])
+    assert len(got) == 1, refused
+    assert got[0].opening_m == 0.0 and got[0].opening_xy == ()

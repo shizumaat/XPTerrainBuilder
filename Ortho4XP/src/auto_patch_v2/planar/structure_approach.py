@@ -28,9 +28,9 @@ from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
 from ..classify.roles import Cell
 from ..geom.union_find import find_root
 from ..airport.dem import dem_z_at
-from ..airport.road_ways import mapped_width_m
 from ..airport.wall_mouth import WallField
 from ..geom.vector import unit_vector
+from ..model.road_clearance import carriageway_width_m, design_clearance_m
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -59,14 +59,6 @@ def is_tunnel(w: OsmWay,
 def is_bridge(w: OsmWay) -> bool:
     """One predicate with the deck signature's (``airport/deck_signature``)."""
     return is_bridge_way(w.tags)
-
-
-def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
-    """The way's stated ``width``, else ``lanes × lane_width_m`` (a
-    railway counts as ``default_lanes``) — ``airport/road_ways.
-    mapped_width_m`` at the ``[tunnel]`` lane law."""
-    tn = law.tables.structures.tunnel
-    return mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
 
 
 def pavement_half_widths(axis_fn, ss: _t.Sequence[float], cells, polys, law: Law,
@@ -492,6 +484,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.deck_objects = {i for d in decks for i in d.members}
     from .deck_bridge import deck_polygon
     region.deck_polys = [deck_polygon(d) for d in decks]
+    from .deck_generated import is_generated
+    region.generated_decks = [d for d in decks if is_generated(d)]
     region.portal_ends = [(tuple(p.end_xy), p.object_id, p.resource) for p in portals]
     region.grade_ends = list(grade_ends)
     region.airside = list(airside)
@@ -798,7 +792,7 @@ def _unwitnessed(bore: Bore, end: XY, path, law: Law, fence, witness) -> str | N
     # a mapped way comes out of the end: the approach walked one (``approach``
     # appends a lone straight extension where none continues)
     kind = needs_witness(bore, end, law, fence, surfaces=len(path) > 2)
-    if kind is None or witness.at(end, path):
+    if kind is None or witness.over(bore) or witness.at(end, path, bore.line):
         return None
     ids = "+".join(str(w.id) for w in bore.ways)
     return (f"bore {ids}: its {kind} end at {end[0]:.0f},{end[1]:.0f} has no portal "
@@ -846,11 +840,19 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         on_field.not_terrain = []
     out: list[Mouth] = []
     dropped: list[tuple[str, XY, float]] = []
-    from .bore_continuation import continues_underground, tunnel_ends
+    from .bore_continuation import (
+        bridge_ends,
+        continues_on_deck,
+        continues_underground,
+        tunnel_ends,
+    )
     t_ends = tunnel_ends(osm, law.tables.structures.tunnel.admitted_values)
+    d_ends = bridge_ends(osm, law.tables.structures.tunnel.admitted_values)
     no_portal: list[str] = []
+    under_ends: set[tuple[int, int]] = set()      # 2026-11-16h: (id(bore), end) going on below
     if on_field is not None:
         on_field.no_portal = no_portal     # #1028: named by the structures line
+        on_field.under_ends = under_ends
     # RULINGS 2026-11-03b (6): rail, deep and fenced service ends need a
     # portal witness AT THE END (``planar/end_witness``)
     fence = witness = None
@@ -863,16 +865,19 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         wids = tuple(w.id for w in b.ways)
         cand: list[tuple[Mouth, bool, float]] = []
         unseen: dict[int, str | None] = {}
-        for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
+        for k, (end, nxt) in enumerate(((b.points[0], b.points[1]),
+                                        (b.points[-1], b.points[-2]))):
             inward = unit(end, nxt)
             path = approach(end, inward, osm, reach_m,
                             law.tables.structures.tunnel.admitted_values,
                             law.tables.structures.tunnel.approach_turn_max_deg)
             m = Mouth(b, end, inward, width, path, wids)
-            why = None if _at_deck(on_field, end, law) else \
-                continues_underground(b, inward, path, t_ends, law, reach_m)
+            why = continues_on_deck(b, end, d_ends) or (
+                None if _at_deck(on_field, end, law) else
+                continues_underground(b, inward, path, t_ends, law, reach_m))
             if why is not None:
                 no_portal.append(why)
+                under_ends.add((id(b), k))
                 continue
             # asked AFTER the bore is admitted (below): (a)/(e)/the fence
             # name a bore that is no tunnel first

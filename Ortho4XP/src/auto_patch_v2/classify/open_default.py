@@ -1,10 +1,13 @@
 """THE OPEN-PAVEMENT DEFAULT (RULINGS 2026-09-04u): open pavement is
-NEVER apron by default.  A face the slice scored ``apron`` keeps that
-role only on APRON EVIDENCE — a 1300 startup on the face or its source
-polygon, a taxi centreline on the source (``cells.min_shared_m`` of it),
-the source named an apron (apt.dat description, ``lot.apron_name_tokens``)
-or covered by OSM ``aeroway=apron`` — else it is groundside, and
-:func:`unclassified_groundside_role` names which groundside role.
+NEVER apron by default.  :func:`apron_witness` is THE ONE READER of apron
+evidence (#2134 §4.2): it names the strongest RUNG a face carries — ``A1``
+a stand on it, ``A2`` a parking lobe with OSM apron over the cell's
+majority or an authored apron name, ``A3`` anything weaker (a taxi
+centreline, a startup or cover on the source page, partial cover, a
+name), which proves AIRSIDE and never APRON (owner Q1 2026-11-17T14:33Z).
+``apron_gate`` turns the rungs into verdicts; a face with no witness at
+all is groundside, and :func:`unclassified_groundside_role` names which
+groundside role.
 
 §110 UNCLASSIFIED GROUNDSIDE PAVEMENT IS A PARKING LOT (owner remark
 RULINGS 2026-09-30b, issue #110).  That naming is THE ONE DERIVATION
@@ -38,33 +41,74 @@ from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from ..model.frame import rectangle_axes
+from .evidence import apron_named, is_library_path
 from .rules import Rules
 from .sources import SourceRecord
 
-__all__ = ["apron_evidence", "narrow_road", "open_pavement_role", "road_ribbon",
+__all__ = ["A1", "A2", "A3", "apron_witness", "has_lobe",
+           "narrow_road", "open_pavement_role", "road_ribbon",
            "unclassified_groundside_role"]
 
 
-def apron_evidence(face: Polygon, src: SourceRecord | None,
-                   evid: _t.Mapping[str, float | str], start_tree: STRtree | None,
-                   rules: Rules) -> str | None:
-    """The first apron evidence this face carries, or ``None``."""
-    if float(evid.get("n_taxi", 0) or 0) > 0:
-        return "taxi centreline touches the face"
+#: THE WITNESS RUNGS (#2134 spec §4.1, owner 2026-11-17T14:12Z: "The more
+#: strict the grade requirements, the more strict and certain we need to be
+#: about classifying pavement").  ``A1`` CERTAIN: a stand on the cell.
+#: ``A2`` STRONG: a parking LOBE and an independent apron witness on the
+#: cell itself (the contiguity half of A2 is ``apron_gate``'s fixpoint).
+#: ``A3`` WEAK: something on the page, near it or beside it — it proves
+#: AIRSIDE, never APRON (owner Q1 14:33Z).
+A1, A2, A3 = "A1", "A2", "A3"
+
+
+def has_lobe(face: Polygon, width_m: float) -> bool:
+    """``face`` is somewhere at least ``width_m`` wide: its erosion by half
+    that width is not empty (the §43 / :func:`narrow_road` reading)."""
+    return not face.buffer(-width_m / 2.0).is_empty
+
+
+def _authored_apron_name(src: SourceRecord | None, rules: Rules) -> bool:
+    """The source page is an apron by its AUTHOR'S word: an apt.dat
+    description naming an apron and no taxiway.  A library path's words
+    are never this rung (owner Q5 14:38Z: "little weight")."""
+    if src is None or src.taxi_name or is_library_path(src.description):
+        return False
+    return apron_named(src.description, rules)
+
+
+def apron_witness(face: Polygon, src: SourceRecord | None,
+                  evid: _t.Mapping[str, float | str], start_tree: STRtree | None,
+                  cell_cover: float, rules: Rules) -> tuple[str | None, str | None]:
+    """``(rung, why)`` — THE ONE READER of apron evidence (#2134 §4.2):
+    the strongest rung this face carries on its own, or ``(None, None)``.
+
+    ``cell_cover`` is the fraction of THIS CELL under OSM ``aeroway=apron``
+    (``roles._apron_cover``).  Two thresholds read the answer and nothing
+    else decides "apron": any rung is AIRSIDE evidence (the 11ac demotion,
+    the 04u open default); only ``A1`` / ``A2`` (or ``apron_gate``'s body
+    contiguity) may make the face ``apron``."""
     if start_tree is not None and len(start_tree.query(face, predicate="contains")) > 0:
-        return "startup on the face"
+        return A1, "startup on the face"
+    lot = rules.lot
+    if has_lobe(face, rules.corridor.max_width_m):
+        if cell_cover >= lot.parking_cover_fraction:
+            return A2, f"lobe + aeroway=apron covers {cell_cover:.0%} of the cell"
+        if _authored_apron_name(src, rules):
+            return A2, "lobe + apron by name"
+    if float(evid.get("n_taxi", 0) or 0) > 0:
+        return A3, "taxi centreline touches the face"
+    if cell_cover >= lot.apron_cover_fraction:
+        return A3, f"aeroway=apron covers {cell_cover:.0%} of the cell"
     if src is None:
-        return None
+        return None, None
     if src.startups > 0:
-        return f"{src.startups} startup(s) on the source"
+        return A3, f"{src.startups} startup(s) on the source"
     if src.taxi_m >= rules.cells.min_shared_m:
-        return f"taxi centreline {src.taxi_m:.0f} m on the source"
-    d = src.description.lower()
-    if any(t in d for t in rules.lot.apron_name_tokens):
-        return "apron by name"
-    if src.apron_cover >= rules.lot.apron_cover_fraction:
-        return f"aeroway=apron covers {src.apron_cover:.0%}"
-    return None
+        return A3, f"taxi centreline {src.taxi_m:.0f} m on the source"
+    if apron_named(src.description, rules):
+        return A3, "apron by name"
+    if src.apron_cover >= lot.apron_cover_fraction:
+        return A3, f"aeroway=apron covers {src.apron_cover:.0%} of the source"
+    return None, None
 
 
 def road_ribbon(face: Polygon, rules: Rules) -> tuple[bool, float, float]:
@@ -160,15 +204,14 @@ def unclassified_groundside_role(face: Polygon, rules: Rules, *,
                                     f"{aspect:.1f}, width {width_m:.1f} m"))
 
 
-def open_pavement_role(face: Polygon, src: SourceRecord | None,
-                       evid: _t.Mapping[str, float | str], start_tree: STRtree | None,
-                       road_reached: bool, rules: Rules
+def open_pavement_role(face: Polygon, road_reached: bool, rules: Rules,
+                       evid: _t.Mapping[str, float | str], why: str
                        ) -> tuple[str, dict[str, float | str]]:
-    """``(role, evidence)`` for a face the slice scored apron."""
-    why = apron_evidence(face, src, evid, start_tree, rules)
-    if why is not None:
-        return "apron", dict(evid, apron_evidence=why)
+    """``(role, evidence)`` for a face the slice scored apron that may not
+    be apron (``apron_gate``) and touches no taxiway: §110's groundside
+    verdict, then §27 judges its edges.  ``why`` is what the witness
+    ladder found (or ``"none"``)."""
     role, why_role = unclassified_groundside_role(face, rules,
                                                   road_reached=road_reached)
     return role, dict(evid, open_default=1.0, **why_role,
-                      apron_evidence="none (04u: open pavement is never apron by default)")
+                      apron_evidence=f"{why} (04u / #2134: not an apron witness)")

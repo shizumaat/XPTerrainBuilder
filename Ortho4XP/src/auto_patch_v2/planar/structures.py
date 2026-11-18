@@ -114,7 +114,8 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
 from .unframed_ramp import (BEND_CAP, MAX_OVERLAP_PASSES, bend_note as _bend_note,
                             cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
-from .structure_overlap import deck_partner, resolve_overlaps, run_group, run_side, run_stop_s
+from .structure_overlap import (deck_partner, resolve_overlaps, run_group, run_side, run_stop_s,
+                                walled_ramp)
 from ..airport.portal_objects import portal_of
 from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
                               road_over_mouth)
@@ -125,7 +126,7 @@ from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, mouth_ve
                          survey_design_grade, survey_mouth,
                          survey_mouth_note, survey_mouth_refusal, survey_trench,
                          under_airside_pavement)
-from .dual_width import compose_half_fn, dual_half_fn
+from .dual_width import compose_half_fn, dual_half_fn, widened_half_fn
 from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, roof_back_mouth, strip_keepout)
@@ -133,6 +134,8 @@ from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
+from ..model.deck_bank import deck_bank_slope
+from .deck_generated import is_generated
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -145,11 +148,13 @@ from .front_band import front_halves, halves_fn, lateral_fit
 from .ramp_carry import DeckReads, carry_of
 from .storey_floor import shell_level_s
 from .structure_stats import StructureStats
+from .short_bore import bore_end, short_bore_refusal
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
                              host_blade,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
 from .survey_cut import cutting_of
+from .survey_deck_cut import deck_survey_mouth
 from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_stations,
                               sheared_ring, survey_floor, under_deck_band, under_deck_blade)
 from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_bores,
@@ -195,7 +200,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      trenches: _t.Sequence = (), deck_bridges: _t.Sequence = (),
                      runs: _t.Mapping | None = None, level_b: float | None = None,
                      object_floors: _t.Sequence = (), grade_ends: _t.Sequence = (),
-                     level_seeds: _t.Sequence = (), shells: _t.Sequence = ()
+                     level_seeds: _t.Sequence = (), shells: _t.Sequence = (),
+                     survey_deck: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -271,7 +277,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # 2026-10-30a (2) / 30f (1): a hard deck bores the road under it
         # that nothing else bores (``planar/deck_bores``)
         d_ways, d_parents, d_notes = deck_bores(deck_bridges, bore_roads(airport, law, rail=True),
-                                                tunnel_ways, law, UNDERPASS_TAG)
+                                                tunnel_ways, law, UNDERPASS_TAG, airport)
         tunnel_ways += d_ways
         up_parents.update(d_parents)
         stats.hard_decks.extend(d_notes)
@@ -329,6 +335,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     mouth_list, stats.plate_mouths = apply_plates(mouth_list, plates,
                                                   list(airport.osm_ways), law, reach)
     stats.mouths_off_field = len(dropped)
+    admitted_ends = {bore_end(m) for m in mouth_list}     # 2026-11-16h
     (stats.mouths_off_field_nearest, stats.mouths_on_approach,
      stats.mouths_on_approach_named) = mouth_reports(on_field, mouth_list,
                                                      dropped)
@@ -382,6 +389,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                              f"stand")
         mouth_list = kept
     stats.mouths = len(mouth_list)
+    # 2026-11-16h: the bore ends a pack object took open the bore there
+    taken_ends = admitted_ends - {bore_end(m) for m in mouth_list}
     # an EDGE BRIDGE pins the mouths whose line crosses its back, and the
     # carriageways one back stops are ONE cut (owner RULINGS 2026-10-28d
     # Q214; ``planar/bridge_span``)
@@ -416,7 +425,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               lambda x, y: dem_z_at(airport, (x, y)), tn.wall_gap_m,
                               deck_of[id(m)].depth_m / tn.ramp_grade,
                               law.tables.emit.chords.station_spacing_m, deck_bridges,
-                              deck_paved)
+                              deck_paved, law)
             for m in mouth_list if deck_of.get(id(m)) is not None},
         float(law.tables.emit.cockpit.visual_m))
 
@@ -518,6 +527,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     skirt_of: dict[str, list] = {}       # 2026-11-06c (3): an entrance face's skirt pieces
 
     seen_ids: dict[str, int] = {}
+    group_of: dict[str, Group] = {}      # 2026-11-16h: each built tunnel's group
+    pad_ends: dict[tuple[int, int], str] = {}   # 2026-11-16h: bore ends refused at a pad
     osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
     under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
     for g in groups:
@@ -639,6 +650,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         road_rd = None if c is not None or pin is not None else survey_mouth(
             airport, law, members, portal_fn, width, credible, rim_off,
             under_airside_pavement(members, cells, cell_tree, law, odecks))
+        if deck is not None and survey_deck:
+            # #2128 R1 (RULINGS 2026-11-17a (1)): a deck whose survey cut is
+            # kept builds its mouth as a KEPT mouth at the lane's floor F
+            # (``planar/survey_deck_cut``), never the ladder's
+            road_rd = deck_survey_mouth(survey_deck, deck, members, law) or road_rd
         # #1939 R1 / R2: a CLASS-K mouth (a surveyed underpass of one deck,
         # KEPT) stands on the covered extent's edge along the deck, its ring
         # sheared onto it, its floor the survey (``underpass_mouth``)
@@ -692,7 +708,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # #1938 N1 (RULINGS 2026-11-13h): a KEPT mouth is still a mouth --
         # built at the surveyed road (``extra`` 0), nothing cut under it
         road_f = None if road_rd is None else road_rd.floor if k_floor is None else k_floor[0]
-        face_in = 0.0 if road_rd is None or k_sk is not None else kept_face_shift(
+        face_in = 0.0 if road_rd is None or k_sk is not None or deck is not None \
+            else kept_face_shift(
             airport, law, road_rd, tuple(axis_ln.coords[0]), inward, rim_off)
         if face_in > 0.0:
             # #1938 round 3: its cap at the top of the face it stands on, so
@@ -976,6 +993,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         edge_covers: tuple = ()
         edge_floor: tuple = ()
         level_to = None       # the open stretch between two bridges: level to here
+        ramp_walled = deck is not None and walled_ramp(deck, members[0].xy, law)
         if deck is not None:
             # 2026-10-30a (2): the floor is level under the whole deck at its
             # bottom and climbs beyond its edge — or stays at the floors to
@@ -991,10 +1009,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if deck_air is None:
                 deck_air = unary_union([p for p, c in zip(polys, cells, strict=False)
                                         if c.ref in air_refs])
+            # #2099 G3 A: a corridor its group's walls line and climb along
+            # is a ramp to their end, never run through to a further deck
+            partner = None if ramp_walled else \
+                rt.partner_deck if rt is not None and rt.partner_deck is not None \
+                else deck_partner(deck, axis_ln, deck_bridges, deck_air, half + rim_off + gap)
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
-                deck, axis_ln, rt.partner_deck if rt is not None and rt.partner_deck is not None
-                else deck_partner(deck, axis_ln, deck_bridges, deck_air,
-                                  half + rim_off + gap), gap)
+                deck, axis_ln, partner, gap)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the
@@ -1015,7 +1036,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             edge_covers = tuple(tuple(p.exterior.coords) for b in met
                                 for p in getattr(b.cover, "geoms", [b.cover])
                                 if p.geom_type == "Polygon")
-        if rt is not None and c is None and level_to is None:
+        if rt is not None and c is None and level_to is None \
+                and not (ramp_walled and rt.partner_deck is not None):
             # 2026-11-03b Q340 a: the road stays down to its run line
             level_to = run_stop_s(axis_ln, rt, 0.5 * gap)
             if level_to is not None:
@@ -1190,6 +1212,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if dual_fn is not half_fn and sheared_ring(k_sk, c, axis_fn, ss, half, rim_off,
                                                        inward, grid, g, dual_fn) is not None:
                 half_fn = dual_fn
+        if deck is not None and is_generated(deck):
+            # #2131 THE CUT CARRIES THE DRAWN ROAD'S SHOULDERS: a generated
+            # deck's ramps run ``[deck_gen] shoulder_m`` wider each side, as
+            # its floor does (``deck_generated.cut_reach``)
+            shoulder = float(law.tables.structures.deck_gen.shoulder_m)
+            half_fn = widened_half_fn(half_fn, half, shoulder)
+            half += shoulder
         # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
         def _ring(ss_try):
             return sheared_ring(k_sk, c, axis_fn, ss_try, half, rim_off, inward, grid, g,
@@ -1281,6 +1310,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stats.refused.append(
                     f"{tid}: the mouth stands against "
                     f"{'building pad' if hit in pad_refs else 'pavement'} {hit}")
+                if hit in pad_refs:
+                    pad_ends.update({bore_end(m): str(hit) for m in members})
                 geom = None
                 break
             ss = ss[:-1]
@@ -1370,7 +1401,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
                                                  ()), lane_of.get(id(members[0]), 0))
-            d_run = deck.depth_m / float(law.tables.emit.design.bank_slope)
+            # the FLOOR FACE stops at the toe of a generated deck's 1:1.5
+            # bank (``model/deck_bank``); a pack deck's floor face keeps
+            # the 1:3 run -- its 1:1.5 bank (RULINGS 2026-11-17p) is the
+            # span rows' (``constraints/edge_deck``), at the floor's level
+            # beyond its toe.  MEASURED KIAH (lkiah capture): the pack
+            # floor face widened to the 1:1.5 toe solved obj24614's deck
+            # 1.86 m and its taxiway 1.95 m lower than the control; at the
+            # 1:3 run they stand within 0.03 m of it
+            d_run = deck.depth_m / (deck_bank_slope(law) if is_generated(deck)
+                                    else float(law.tables.emit.design.bank_slope))
             # the airside the cut does not take: the runway no deck carries,
             # the pavement a dead end stops at (#2072 A2), the deck's own
             # airside edge band (#2072: the trench never touches airside) and
@@ -1678,6 +1718,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               (cap_mid[0], cap_mid[2]) if cap_mid else None,
                               cap_mid[1] if cap_mid else None, design_grade=design_grade,
                               pinched=pinched, **extra))
+        group_of[tid] = g
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap
@@ -1731,6 +1772,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # sibling was refused would stand open against the ground there (the
     # measured OTHH tile: a 12.2 m demotion at Qatar_DutyFree_003@1/b)
     built_ids = {t.id for t in tunnels}
+    opened_ends = taken_ends | {bore_end(m) for tid in built_ids
+                                if tid not in overlap_refused
+                                for m in getattr(group_of.get(tid), "members", ())}
     for i, t in enumerate(tunnels):
         if t.id in overlap_refused:
             keep[i] = False
@@ -1741,6 +1785,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             keep[i] = False
             stats.refused.append(f"{t.id}: its sibling half {sib} was refused — a level corridor "
                                  f"is built whole or not at all (Law C)")
+            continue
+        # A ONE-MOUTHED SHORT BORE IS NOT BUILT (owner RULINGS 2026-11-16h,
+        # #2079): it cannot climb from its mouth floor to its unopened end
+        # at the cap, and the road leaves that end at grade
+        short = short_bore_refusal(t, group_of.get(t.id), law, airport.osm_ways, opened_ends,
+                                   dropped, getattr(on_field, "no_portal", ()), stats.refused,
+                                   getattr(on_field, "under_ends", ()), pad_ends)
+        if short:
+            keep[i] = False
+            stats.refused.append(short)
     runs_before = dict(runs)
     new_limits, new_cap, released = resolve_overlaps(
         tunnels, footprints, keep, siblings, run_limits, at_cap, overlap_refused, law, gap,
@@ -1762,13 +1816,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                 edge_bridges=edge_bridges, trenches=trenches,
                                 deck_bridges=deck_bridges, runs=runs, level_b=level_b,
                                 object_floors=object_floors, grade_ends=grade_ends,
-                                level_seeds=level_seeds, shells=shells)
+                                level_seeds=level_seeds, shells=shells,
+                                survey_deck=survey_deck)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]
         footprints = [f for f, k in zip(footprints, keep) if k]
         keepouts = [f for f, k in zip(keepouts, keep) if k]
     stats.tunnels = len(tunnels)
+    # #2128 R1: the survey's cut beside a kept hard deck (C) keeps out too
+    survey_cuts.extend(q for r in survey_deck or () if r.region is not None
+                       for q in _parts(r.region) if q.area > 0.25)
     stats.survey_cuts = len(survey_cuts)
     keepouts.extend(survey_cuts)
     # 2026-11-06c (3): a kept entrance's skirt cuts what it covers and keeps the zones off

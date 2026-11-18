@@ -47,6 +47,7 @@ from shapely.ops import split, unary_union
 from shapely.strtree import STRtree
 
 from ..airport.line_solidity import ON_TOP, kind_of
+from ..geom.valid_area import valid_area
 from ..law import Law
 from ..law.tables import role_side
 from .evidence import polygon_parts
@@ -229,13 +230,16 @@ def _extended(line: LineString, d: float) -> LineString:
 
 def _fold_small(pieces: list[Polygon], floor: float) -> list[Polygon]:
     """``pieces`` with each one under ``floor`` m2 unioned into the big
-    piece it shares the longest boundary with."""
+    piece it shares the longest boundary with.  The union keeps only its
+    area: a fold meeting its host along a collapsed edge comes back a
+    GeometryCollection with a line, whose boundary is None (MEASURED KHXD,
+    a 0.03 m2 sliver: the airport built no patch)."""
     big = [p for p in pieces if p.area >= floor]
     if len(big) < 2:
         return big
     for p in (q for q in pieces if q.area < floor):
         k = max(range(len(big)), key=lambda j: big[j].boundary.intersection(p.boundary).length)
-        big[k] = big[k].union(p)
+        big[k] = valid_area(big[k].union(p))
     return big
 
 

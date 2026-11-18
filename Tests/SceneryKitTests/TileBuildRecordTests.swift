@@ -75,6 +75,14 @@ import Foundation
         }
     }
 
+    @Test func jobOfLine() {   // #2148, twin of test_tile_build_log
+        #expect(TileBuildLogs.jobOfLine("[job:world]    Downloading x") == "world")
+        #expect(TileBuildLogs.jobOfLine("[+47-123] Step 1 done") == nil)
+        #expect(TileBuildLogs.jobOfLine("[job:World] x") == nil)
+        #expect(TileBuildLogs.jobOfLine("[job:world]x") == nil)
+        #expect(TileBuildLogs.jobOfLine("[job:] x") == nil)
+    }
+
     @Test func dateRanges() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let t = now.timeIntervalSince1970

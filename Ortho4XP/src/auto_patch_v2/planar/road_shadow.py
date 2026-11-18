@@ -19,7 +19,14 @@ a SUBSTITUTION, never a lift: the value written is the DEM there, above or
 below.  Precedent: ``planar/covered_ground`` (#714) writes a substituted
 ground into ``Vertex.dem_z`` at the same site of ``planar/build``.  The
 caller hands in the band vertices off every road face: a welded kerb vertex
-(zone 1) is the road's and keeps its own DEM."""
+(zone 1) is the road's and keeps its own DEM.
+
+ONLY WHERE A WALL LINES THE ROAD (owner 2026-11-17T12:53Z, #2122 item 3,
+option (a)): a vertex is substituted only when ``witness``
+(``planar/road_wall_witness``) finds a pack wall or fence, a mapped
+retaining wall or a mapped cut between it and the road's axis; elsewhere
+the bank beside the road is natural and the band follows its own ground
+down to the road (the vertex keeps its own DEM)."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -40,24 +47,28 @@ class RoadShadow:
     yields: int = 0
     vertices: int = 0
     max_shift_m: float = 0.0
+    #: vertices within a probe that no wall witness lines (#2122 item 3)
+    unwalled: int = 0
 
     def line(self) -> str:
         return (f"road shadow (19ad, #951): {self.vertices} band vertices beside "
                 f"{self.yields} zone-2 road cuts read the DEM past the cut "
-                f"(max |shift| {self.max_shift_m:.2f} m)")
+                f"(max |shift| {self.max_shift_m:.2f} m); {self.unwalled} beside "
+                f"no wall witness follow their own ground (#2122)")
 
 
 def road_shadow(dem, law: Law, yields: _t.Sequence, band_vertices: _t.Iterable[int],
-                xs: np.ndarray, ys: np.ndarray, zs: np.ndarray
+                xs: np.ndarray, ys: np.ndarray, zs: np.ndarray, witness
                 ) -> tuple[np.ndarray, RoadShadow]:
     """``zs`` with every vertex of ``band_vertices`` within a yield's probe
-    substituted by the DEM at the probe (module docstring)."""
+    that ``witness`` (``road_wall_witness.RoadWitness``) walls substituted
+    by the DEM at the probe (module docstring)."""
     rep = RoadShadow(yields=len(yields))
     band_vertices = sorted(band_vertices)
     if dem is None or not yields or not band_vertices:
         return zs, rep
     probe = _probes(dem, law, yields)
-    picks = _probe_points(yields, probe, band_vertices, xs, ys)
+    picks = _probe_points(yields, probe, band_vertices, xs, ys, witness, rep)
     out = zs.copy()
     if not picks:
         return out, rep
@@ -81,11 +92,12 @@ def _probes(dem, law: Law, yields) -> list[float]:
             for y in yields]
 
 
-def _probe_points(yields, probe, band_vertices, xs, ys
+def _probe_points(yields, probe, band_vertices, xs, ys, witness, rep: RoadShadow
                   ) -> list[tuple[int, float, float]]:
     """``(vertex, x, y)`` of the probe point of every band vertex within a
-    yield's probe — the nearest yield's, on the vertex's own side — unless
-    that point lies within another yield's probe."""
+    yield's probe — the nearest yield's, on the vertex's own side — that a
+    wall witness lines, unless that point lies within another yield's
+    probe."""
     from shapely import Point
     from shapely.strtree import STRtree
     axes = [y.axis for y in yields]
@@ -104,6 +116,9 @@ def _probe_points(yields, probe, band_vertices, xs, ys
             continue
         k, d = best
         foot = axes[k].interpolate(axes[k].project(p))
+        if not witness.lines(foot, p):
+            rep.unwalled += 1
+            continue
         qx = foot.x + (p.x - foot.x) / d * probe[k]
         qy = foot.y + (p.y - foot.y) / d * probe[k]
         q = Point(qx, qy)

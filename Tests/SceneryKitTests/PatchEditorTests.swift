@@ -36,6 +36,11 @@ struct PatchEditorTests {
         #expect(dem.readout == "61.2 m (DEM)" && dem.pending)
         let none = try reply(#"{"elevation_m": null, "source": null, "pending": true}"#)
         #expect(none.readout == nil)
+        // #2119: the base elevation the build reads, named, beside the mesh
+        let base = try reply(#"{"elevation_m": 162.97, "source": "mesh", "pending": false, "mesh_m": 162.97, "base_m": 160.068, "base_label": "lidar 1 m", "base_built": true, "base_pending": false}"#)
+        #expect(base.readout == "160.1 m (lidar 1 m), mesh 163.0 m" && !base.isPending)
+        let unbuilt = try reply(#"{"elevation_m": 189.0, "source": "dem", "pending": false, "mesh_m": null, "base_m": 189.0, "base_label": "DEM 90 m", "base_built": false, "base_pending": true}"#)
+        #expect(unbuilt.readout == "189.0 m (DEM 90 m)" && unbuilt.isPending)
     }
 
     /// #1314 (protocol 1.17): the replies the Python twin

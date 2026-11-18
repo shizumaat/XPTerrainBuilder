@@ -225,6 +225,47 @@ def test_judge_against_the_control():
     assert DG.parse_site("m=45.5,10.5") == ("m", 45.5, 10.5, DG.SITE_RADIUS_M)
 
 
+def _trench(wid, lat, delta, verdict="FAIL", row=7):
+    return {"site": f"tunnel_trench {wid}", "lat": lat, "lon": 10.5, "verdict": verdict,
+            "delta": delta, "fails": ["bottom-floor"] if verdict == "FAIL" else [],
+            "objects": [{"row": row}]}
+
+
+def test_against_joins_object_sites_by_place_not_way_id():
+    """#2099 P5b: a re-ringed way shifts every later way id by 0/+1/+2; the
+    same sites read under new names are not MOVED.  A real +0.2 m at one
+    place is; a FAIL at a new place is."""
+    lats = [45.5 + k * 1e-3 for k in range(4)]
+    base = _rep([], [_trench(-100 - k, la, 1.0 + k) for k, la in enumerate(lats)])
+    shifted = _rep([], [_trench(-102 - k, la, 1.0 + k) for k, la in enumerate(lats)])
+    assert DG.judge(shifted, (), base)["moved"] == []
+    worse = _rep([], [_trench(-102 - k, la, 1.0 + k + (0.2 if k == 1 else 0.0))
+                      for k, la in enumerate(lats)])
+    moved = DG.judge(worse, (), base)["moved"]
+    assert len(moved) == 1 and "control tunnel_trench -101" in moved[0]
+    fresh = _rep([], [_trench(-102 - k, la, 1.0 + k) for k, la in enumerate(lats)]
+                 + [_trench(-200, 45.6, 0.5, row=9)])
+    moved = DG.judge(fresh, (), base)["moved"]
+    assert len(moved) == 1 and "new -> FAIL" in moved[0]
+
+
+def test_against_a_fail_one_node_over_on_the_same_row_is_held():
+    base = _rep([], [_trench(-100, 45.5, 1.0)])
+    nudged = _rep([], [_trench(-101, 45.5 + 3e-5, 1.02)])      # ~3 m over, same row
+    assert DG.judge(nudged, (), base)["moved"] == []
+    other_row = _rep([], [_trench(-101, 45.5 + 3e-5, 1.02, row=8)])
+    assert len(DG.judge(other_row, (), base)["moved"]) == 1
+
+
+def test_against_joins_patch_sites_by_place_not_node_id():
+    base = _rep([SITE_A], [])
+    renamed = _rep([dict(SITE_A, node="-77")], [])
+    assert DG.judge(renamed, (), base)["moved"] == []
+    worse = _rep([dict(SITE_A, node="-77", delta=0.6)], [])
+    moved = DG.judge(worse, (), base)["moved"]
+    assert len(moved) == 1 and "control node -1" in moved[0]
+
+
 def test_no_claim_read_at_a_cut_site_is_not_a_pass(monkeypatch):
     """LOWS +47+013 closing build: its two mouths are claimed by +47+012's
     entrance object, which a one-tile build never writes -- 0 of 0 claimed
@@ -408,3 +449,93 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                         lambda root, la, lo, r, b=None: [(-3, "primary", short, False)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
                          floors=floors)["verdict"] == "FAIL"
+
+
+def test_a_cut_portal_mouth_is_a_claimed_mouth():
+    """#2120 R2: a mouth a portal in a cut walls (sidecar
+    ``cut_portal_mouths``) is claimed like a pinned portal's mouth."""
+    import drawn_roads as DR
+    side = {"cut_portal_mouths": [{"ways": [-2188, -10693], "mouth_ll": [33.62, -84.43],
+                                   "portal": "dsf:obj1"}]}
+    assert DR.claimed_mouths(side) == [(frozenset({-2188, -10693}), 33.62, -84.43)]
+
+
+def test_the_lidar_layer_reads_drawn_ground_against_the_survey(monkeypatch):
+    """#2128 R2 step 1: the drawn ground inside a site's radius against the
+    airport's inset -- the share off by more than 2 m outside the deck rings
+    and the airside pavement, and every mapped road farther than 25 m from a
+    deck within 0.5 m of it."""
+    import drawn_lidar as DL
+    import numpy as np
+    lat0, lon0 = 45.5, 10.5
+    kx = DL._M_PER_DEG * math.cos(math.radians(lat0))
+    # a flat survey at 20 m on a 1 m-ish grid round the site
+    gt = (lon0 - 200.0 / kx, 1.0 / kx, 0.0, lat0 + 200.0 / DL._M_PER_DEG, 0.0,
+          -1.0 / DL._M_PER_DEG)
+    lidar = DL.Lidar(array=np.full((400, 400), 20.0), geotransform=gt)
+
+    def box(x0, x1, y0, y1):            # metres east / north of the site
+        return [(lat0 + y / DL._M_PER_DEG, lon0 + x / kx)
+                for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0))]
+    slab = box(-20.0, 20.0, -20.0, 20.0)     # 40 x 40 m held 7 m over the survey
+
+    def drawn(lats, lons):
+        x, y = (np.asarray(lons) - lon0) * kx, (np.asarray(lats) - lat0) * DL._M_PER_DEG
+        return np.where((np.abs(x) <= 20.0) & (np.abs(y) <= 20.0), 27.0, 20.0)
+    site = [("s", lat0, lon0, 50.0)]
+    rep = DL.lidar_layer(site, drawn, lidar)
+    row = rep["sites"][0]
+    # the 40 m slab: 39-41 grid rows a side of the ~7,850 samples in 50 m
+    assert rep["verdict"] == "FAIL" and 1521 <= row["share_pct"] * row["samples"] / 100.0 \
+        <= 1681 and row["below_pct"] == 0.0
+    # the slab is a deck ring (or kept airside pavement): not read
+    assert DL.lidar_layer(site, drawn, lidar, decks=[slab])["verdict"] == "PASS"
+    assert DL.lidar_layer(site, drawn, lidar, paved=[slab])["sites"][0]["share_pct"] == 0.0
+    # roads: one across the slab, a deck ring at its middle -- a road
+    # sample within 25 m of the deck is its trench's, farther it is judged
+    road = [(lat0, lon0 - 49.0 / kx), (lat0, lon0 + 49.0 / kx)]
+    import drawn_roads as DR
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None:
+                        [(-1, "primary", road, False)])
+    deck = box(-5.0, 5.0, -5.0, 5.0)
+    got = DL.lidar_layer(site, drawn, lidar, decks=[deck], paved=[slab], osm_root="/x")
+    assert got["sites"][0]["road_dev_m"] == pytest.approx(0.0) and got["verdict"] == "PASS"
+    far = DL.lidar_layer(site, drawn, lidar, decks=[box(40.0, 45.0, 40.0, 45.0)],
+                         paved=[slab], osm_root="/x")
+    assert far["verdict"] == "FAIL" and far["sites"][0]["road_dev_m"] == pytest.approx(7.0)
+    # the deck ring as drawn: the hull of its end lines' stations
+    side = {"deck_anchors": [{"object": "o", "stations": [[0.0, 0.0], [0.0, 1.0]]},
+                             {"object": "o", "stations": [[1.0, 0.0], [1.0, 1.0]]},
+                             {"object": "p", "stations": [[5.0, 5.0]]}]}
+    rings = DL.deck_rings(side)
+    assert len(rings) == 1 and len(rings[0]) == 5
+
+
+def test_a_road_inside_a_published_wall_ring_is_not_read(monkeypatch):
+    """2120-W3 G1: a sample inside a retaining wall's footprint (sidecar
+    ``retaining_walls[].outline_ll``) is never read -- the mesh there is the
+    wall's fill or slot -- and the pair across its ring is that wall's face,
+    reported as ``wall_faces``, never judged; with no ring it is judged."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    kx = DR._M_PER_DEG * math.cos(math.radians(lat0))
+    d = 1.0 / DR._M_PER_DEG
+    road = [(lat0 - 100.0 * d, lon0), (lat0 + 100.0 * d, lon0)]
+
+    def filled(lon, lat):                   # the fill 10 m up from 20 to 30 m north
+        return 100.0 + (10.0 if 20.0 < (lat - lat0) * DR._M_PER_DEG < 30.0 else 0.0)
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [(-4, "service", road)])
+    ring = [(lat0 + 19.5 * d, lon0 - 5.0 / kx), (lat0 + 19.5 * d, lon0 + 5.0 / kx),
+            (lat0 + 30.5 * d, lon0 + 5.0 / kx), (lat0 + 30.5 * d, lon0 - 5.0 / kx)]
+    side = {"retaining_walls": [{"resource": "objects/katl126_wall.obj", "outline_ll": [ring]}]}
+    walls = DR.wall_rings(side)
+    assert len(walls) == 1
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], filled, "/nowhere", 0.5)["verdict"] == "FAIL"
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], filled, "/nowhere", 0.5, walls=walls)
+    assert rep["verdict"] == "PASS" and "wall_faces" not in rep["sites"][0]
+
+    def stepped(lon, lat):                  # the low road 5 m under the far side
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 25.0 else 0.0)
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5, walls=walls)
+    row = rep["sites"][0]
+    assert rep["verdict"] == "PASS" and row["wall_faces"][0]["step_m"] == pytest.approx(5.0)

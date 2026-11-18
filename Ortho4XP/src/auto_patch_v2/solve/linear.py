@@ -15,7 +15,7 @@ from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 
 from .rows import _Rows
 
-__all__ = ["METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
+__all__ = ["METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK", "RowBlocks"]
 
 
 #: The linear solvers the round may use.  ``normal`` factorises the normal
@@ -163,18 +163,97 @@ def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
     return np.asarray(x, float)
 
 
+class RowBlocks:
+    """``A @ x`` for a TALL sparse matrix, its rows cut into blocks and the
+    blocks multiplied on threads (#1951).  Every row is multiplied by the
+    same SciPy kernel over the same entries in the same order, so the product
+    is the plain ``A @ x`` bit for bit; SciPy's kernel releases the GIL, so
+    the blocks run at once.  KMCI's one-sided stack is 18 M rows, read three
+    times per QP round over 2,773 rounds; a matrix under ``min_rows`` is
+    multiplied whole."""
+
+    def __init__(self, A: sp.csr_matrix, workers: int = 4,
+                 min_rows: int = 1_000_000) -> None:
+        self.A = A
+        n = int(A.shape[0])
+        k = max(1, min(int(workers), n // max(1, int(min_rows)) or 1))
+        if n < min_rows:
+            k = 1
+        cuts = np.linspace(0, n, k + 1).astype(np.int64)
+        self.blocks = [A[int(a):int(b)] for a, b in zip(cuts[:-1], cuts[1:], strict=True)]
+        self._pool = None
+        self._spans = self._cuts()
+        if k > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            self._pool = ThreadPoolExecutor(k)
+
+    def __matmul__(self, x: np.ndarray) -> np.ndarray:
+        if self._pool is None:
+            return self.A @ x
+        return np.concatenate(list(self._pool.map(lambda B: B @ x, self.blocks)))
+
+    def _cuts(self) -> list[tuple[int, int]]:
+        out, a = [], 0
+        for B in self.blocks:
+            out.append((a, a + int(B.shape[0])))
+            a += int(B.shape[0])
+        return out
+
+    def penalty(self, x: np.ndarray, bb: np.ndarray, w: np.ndarray
+                ) -> tuple[np.ndarray, np.ndarray]:
+        """``(A @ x, w · max(A @ x − bb, 0)²)`` — the one-sided rows'
+        product and their penalty terms, each element by the expression
+        :func:`_objective` writes, block by block on the threads."""
+        if self._pool is None:
+            r = self.A @ x
+            return r, w * np.maximum(r - bb, 0.0) ** 2
+        r = np.empty(self.A.shape[0])
+        pen = np.empty(self.A.shape[0])
+
+        def one(k: int) -> None:
+            a, b = self._spans[k]
+            r[a:b] = self.blocks[k] @ x
+            pen[a:b] = w[a:b] * np.maximum(r[a:b] - bb[a:b], 0.0) ** 2
+        list(self._pool.map(one, range(len(self.blocks))))
+        return r, pen
+
+    def above(self, r: np.ndarray, bb: np.ndarray, tol: float) -> np.ndarray:
+        """``np.flatnonzero(r − bb > tol)``, block by block."""
+        if self._pool is None:
+            return np.flatnonzero(r - bb > tol)
+        parts = list(self._pool.map(
+            lambda ab: np.flatnonzero(r[ab[0]:ab[1]] - bb[ab[0]:ab[1]] > tol) + ab[0],
+            self._spans))
+        return np.concatenate(parts).astype(np.int64, copy=False)
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+            self._pool = None
+
+
 def _objective(A0: sp.csr_matrix, b0: np.ndarray, A1: sp.csr_matrix,
                b1: np.ndarray, w_row: np.ndarray, shift: np.ndarray,
                x: np.ndarray, U: sp.csr_matrix | None = None,
-               c: np.ndarray | None = None) -> float:
+               c: np.ndarray | None = None, *, bb: np.ndarray | None = None,
+               a1x: np.ndarray | None = None, pen: np.ndarray | None = None) -> float:
     """The TRUE objective at ``x``: the always-on rows' squared residual plus
     the PER-BODY DATUM's (the low-rank term ``U`` — held out of the
     factorisation, never out of the objective the line search descends) plus
     every one-sided row's ``w · max(0, violation)²`` at ITS OWN weight (the
     law's for a target, ``hard_weight`` for a runway constraint) against its
-    shifted target (the augmented Lagrangian's ``b − μ/ρ``)."""
-    viol = np.maximum(A1 @ x - (b1 - shift), 0.0)
-    f = float(np.sum((A0 @ x - b0) ** 2) + float(np.sum(w_row * viol ** 2)))
+    shifted target (the augmented Lagrangian's ``b − μ/ρ``).
+
+    ``bb`` is ``b1 − shift`` and ``a1x`` is ``A1 @ x`` when the caller holds
+    them already (#1951: ``A1`` carries a row per one-sided side — 18 M at
+    KMCI — and the QP reads ``F`` and the active set at every iterate); the
+    value is the same array either way; ``pen`` is :meth:`RowBlocks.penalty`'s
+    ``w · viol²``, the same elements."""
+    if pen is None:
+        viol = np.maximum((A1 @ x if a1x is None else a1x)
+                          - ((b1 - shift) if bb is None else bb), 0.0)
+        pen = w_row * viol ** 2
+    f = float(np.sum((A0 @ x - b0) ** 2) + float(np.sum(pen)))
     if U is not None and c is not None:
         f += float(np.sum((U @ x - c) ** 2))
     return f

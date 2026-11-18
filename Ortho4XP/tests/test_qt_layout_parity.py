@@ -204,6 +204,24 @@ PATCH_EDIT_MENU = (
     ("duplicateShapeTitle", "O4_Qt_Patch_Editor", "DUPLICATE_SHAPE_TITLE"),
 )
 
+#: The shape inspector's own-elevation rows and the sloping rectangle's
+#: label editor (#2137): (Swift ``PatchShapeAltitudeBox`` static let, Qt
+#: ``O4_Qt_Patch_Shape_Alt`` constant), and each app's home for them.
+PATCH_SHAPE_ALT = (
+    ("levelTitle", "LEVEL_TITLE"),
+    ("meanOffsetTitle", "MEAN_OFFSET_TITLE"),
+    ("groundOffsetTitle", "GROUND_OFFSET_TITLE"),
+    ("slopeTitle", "SLOPE_TITLE"),
+    ("highTitle", "HIGH_TITLE"),
+    ("lowTitle", "LOW_TITLE"),
+)
+PATCH_SHAPE_ALT_HOMES = (
+    ("PatchShapeInspector.swift", "PatchShapeAltitudeBox(model:",
+     "O4_Qt_Patch_Panel", "ShapeAltBox("),
+    ("PatchOverlay.swift", "PatchSlopeLabels(model:",
+     "O4_Qt_Patch_Overlay", "SlopeLayer(self)"),
+)
+
 #: The patch library's homes (#1699 phase 2), each in both apps:
 #: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
 #: list sits in the Airports card under the airport list; the "Patch
@@ -432,6 +450,23 @@ def test_the_patch_edit_menus_are_the_manifest(qapp):
     menu.addAction("Show in Finder")
     PatchEditor.add_to_menu(NS(model=model), menu)
     assert [a.text() for a in menu.actions()][:len(titles)] == titles
+
+
+def test_the_shape_elevation_rows_are_the_manifest():
+    """#2137: both apps show a shape's own elevation with the same words,
+    in the shape inspector and as the map's slope labels."""
+    import importlib
+
+    import O4_Qt_Patch_Shape_Alt as QTSHAPEALT
+
+    swift = (SWIFT / "PatchShapeAltitudeBox.swift").read_text(encoding="utf-8")
+    for name, constant in PATCH_SHAPE_ALT:
+        said = re.search(r'static let %s = "([^"]+)"' % name, swift)
+        assert said, name
+        assert said.group(1) == getattr(QTSHAPEALT, constant), name
+    for swift_file, marker, module, qt_marker in PATCH_SHAPE_ALT_HOMES:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), swift_file
+        assert qt_marker in inspect.getsource(importlib.import_module(module)), module
 
 
 def test_mac_plan_panel_closes_the_build_box():

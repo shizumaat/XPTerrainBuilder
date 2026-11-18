@@ -77,6 +77,7 @@ from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
+from ..geom.wall_lines import project_span
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
@@ -85,8 +86,9 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "deck_ground",
-           "DECK_GROUND_REF", "across_dir",
+           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
+           "is_walled",
+           "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
@@ -553,8 +555,11 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
     the same open cut — LFPG's A1 under ``H18r``, mapped as one 325 m tunnel
     under runway 09R/27L and its strips): the deck states the crossing.  No
     farther than ``far_reach`` (a deep tunnel is never opened, Q345 a), and
-    only under a deck that CARRIES THE RUNWAY FAMILY (``carries_runway``;
-    every other deck keeps the bore-end reach)."""
+    only under a deck that CARRIES THE RUNWAY FAMILY (``carries_runway``)
+    or a GENERATED deck the bore runs under (``deck_generated.covers_bore``,
+    #2131: the generator spans a road only where its whole cover is the
+    deck's); every other deck keeps the bore-end reach."""
+    from .deck_generated import covers_bore
     from .structure_overlap import paved_over
     from .structure_underpass import UNDERPASS_TAG
     stated = all(UNDERPASS_TAG in (w.tags or {}) for w in getattr(mouth.bore, "ways", ()) or ())
@@ -567,8 +572,8 @@ def deck_under(mouth, decks: _t.Sequence[DeckBridge], reach: float,
         if x.length <= 1.0:
             continue
         d = 0.0 if poly.contains(pt) else poly.exterior.distance(pt)
-        far = paved is not None and d <= far_reach and carries_runway is not None \
-            and carries_runway(db)
+        far = paved is not None and d <= far_reach and (
+            covers_bore(db, line) or (carries_runway is not None and carries_runway(db)))
         if not (d <= reach or stated) and far:
             s_end = line.project(pt)
             s_x = [line.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords]
@@ -597,12 +602,6 @@ def across_dir(db: DeckBridge) -> XY:
     """The unit direction from end A to end B — across the road."""
     rx, ry = _road_dir(db)
     return (ry, -rx)
-
-
-def project_span(ring, r: XY) -> tuple[float, float]:
-    """``(least, greatest)`` of the ring's points projected on ``r``."""
-    vals = [q[0] * r[0] + q[1] * r[1] for q in ring]
-    return min(vals), max(vals)
 
 
 def mid_line(db: DeckBridge) -> tuple[XY, float]:
@@ -769,6 +768,12 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
     return None if banks.is_empty or banks.area <= 0.0 else banks
 
 
+def is_walled(db: DeckBridge, inset: float) -> bool:
+    """Whether ``db`` is a WALLED deck: walls on both sides of its road
+    (:func:`_walled_trench`; RULINGS 2026-10-30f (3))."""
+    return _walled_trench(db, inset) is not None
+
+
 def _bank_floor(db: DeckBridge, inset: float, bank_run: float) -> "Polygon | None":
     """THE FLOOR A WALL-LESS DECK'S CUT TAKES (#2072 C): :func:`_floor_under`
     over the ring ``inset`` inside its edge.  The banks round it are the
@@ -863,7 +868,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law) -> tuple:
+def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -873,18 +878,30 @@ def deck_ground(classification, tunnels, law) -> tuple:
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped: a deck no corridor runs under mints no
-    ground."""
+    ground.  A BANKED deck's reach (``model/deck_bank``: no wall under it,
+    pack or generated, RULINGS 2026-11-17p) runs ``bank_past_m`` past its
+    ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank under it
+    "needs to extend about 1m past the bridge edges"): its bank stands on
+    that ground (``constraints/edge_deck``)."""
+    from ..model.deck_bank import bank_past_m, banked
+    past = bank_past_m(law)
+    gen = {d.object_id for d in decks if banked(d)}
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
         reach = MultiPoint(pts).convex_hull if pts is not None else None
         if reach is not None and reach.geom_type == "Polygon":
+            if t.deck_bridge in gen and past > 0.0:
+                reach = reach.union(Polygon(t.deck_ring).buffer(past, join_style="mitre"))
+                reach = reach if reach.geom_type == "Polygon" else reach.convex_hull
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
     cells, notes = list(classification.cells), []
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
-    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys]
+                            + ([q for q in getattr(keep_out, "geoms", [keep_out])
+                                if q.geom_type == "Polygon"] if keep_out is not None else []))
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     out: list = []
     for (oid, _ring), deck in sorted(rings.items(), key=lambda kv: kv[0]):
@@ -919,13 +936,13 @@ def deck_pin(db: DeckBridge, mouth, law=None):
     (``wall_reach_m``) and their feet's least-squares slope (``foot_grade``)
     -- the walls the ramp is planned on (``planar/structures``' walled path)."""
     from ..airport.portal_objects import Portal
-    reach, grade = (0.0, 0.0) if law is None else _group_reach(db, tuple(mouth.xy), law)
+    reach, grade = (0.0, 0.0) if law is None else group_reach(db, tuple(mouth.xy), law)
     return Portal(db.object_id, db.resource, tuple(mouth.xy),
                   int(mouth.ways[0]) if mouth.ways else 0, db.depth_m, 0.0,
                   tuple(mouth.xy), False, db.ring, (), wall_reach_m=reach, foot_grade=grade)
 
 
-def _group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
+def group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
     """``(reach, foot slope)`` of the deck's group walls along the approach
     out of the mouth at ``xy`` (away from the deck): the stations chained
     from the mouth, no gap over two ``wall_sample_m``, and the least-squares

@@ -26,6 +26,11 @@ ours read, keeps its imagery sharp around the airports the user
 installed.  General: no airport is named here.
 
 * :func:`airport_points` -- ``[(icao, lat, lon), ...]`` of a tile.
+  With ``neighbours``, those of its eight neighbours too: a core ring
+  is 5.2 S (40 km at 37 N) and crosses tile edges, so an airport near
+  an edge keeps the neighbour's squares sharp as well (#2109: KMMH's
+  ring covered 40 km of the on-demand tile west of it, whose build
+  marked no core because the airport is not on it).
 * :func:`custom_points` -- the custom airport packs' airports of a tile.
 * :func:`base_zoom` -- the tile's own zoom level (its imagery record).
 * :func:`boundary_names` -- the squares inside an airport boundary
@@ -79,12 +84,36 @@ def custom_points(lat: int, lon: int, scenery_dir: "str | None" = None
 
 
 def airport_points(lat: int, lon: int, patch_dir: "str | None" = None,
-                   scenery_dir: "str | None" = None
+                   scenery_dir: "str | None" = None, *,
+                   neighbours: bool = False
                    ) -> "list[tuple[str, float, float]]":
     """``(icao, lat, lon)`` of every airport graded for tile ``(lat,
     lon)`` (its patch folder, or ``patch_dir``; an unreadable surface is
     skipped), then each custom airport pack's airport on it
-    (:func:`custom_points`) that no graded surface already names."""
+    (:func:`custom_points`) that no graded surface already names.  With
+    ``neighbours``: then those of the eight tiles around it (their own
+    patch folders), each airport once -- every airport whose core ring
+    can reach the tile (``core_tier`` keeps only the squares inside)."""
+    points = _tile_points(lat, lon, patch_dir, scenery_dir)
+    if not neighbours:
+        return points
+    seen = {p[0] for p in points}
+    for dlat in (-1, 0, 1):
+        for dlon in (-1, 0, 1):
+            if not (dlat or dlon):
+                continue
+            for point in _tile_points(int(lat) + dlat, int(lon) + dlon,
+                                      None, scenery_dir):
+                if point[0] not in seen:
+                    seen.add(point[0])
+                    points.append(point)
+    return points
+
+
+def _tile_points(lat: int, lon: int, patch_dir: "str | None",
+                 scenery_dir: "str | None"
+                 ) -> "list[tuple[str, float, float]]":
+    """The graded airports of one tile, then its custom packs' others."""
     points = _graded_points(lat, lon, patch_dir)
     graded = {icao for icao, _la, _lo in points}
     return points + [p for p in custom_points(lat, lon, scenery_dir)

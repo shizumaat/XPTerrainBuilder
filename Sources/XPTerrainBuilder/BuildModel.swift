@@ -354,7 +354,6 @@ final class BuildModel: ObservableObject {
 
     @Published var selected: Set<TileCoord> = [] {
         didSet {
-            persistSelection()
             refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
             if selected != oldValue {
@@ -372,7 +371,6 @@ final class BuildModel: ObservableObject {
             // A tile imposes no zoom until its info says so (#1539).
             zoom.adopt(nil)
             adopt(imageryAdoption.select(activeTile, info: activeTile.flatMap { built[$0] }))
-            persistSelection()
             refreshBuiltByIfMissing()
         }
     }
@@ -408,33 +406,6 @@ final class BuildModel: ObservableObject {
         imageryAdoption.userPicked()
         objectWillChange.send()
         buildProvider = code
-    }
-
-    /// Both selection keys, rewritten whole on every change. A selection is
-    /// hand-sized (the user clicks tiles), so there is nothing to debounce.
-    private func persistSelection() {
-        let defaults = UserDefaults.standard
-        defaults.set(selected.sorted().map(\.key), forKey: PrefKeys.selectedTiles)
-        defaults.set(activeTile?.key ?? "", forKey: PrefKeys.activeTile)
-    }
-
-    /// The selection outlives the app: last session's selected set and
-    /// active tile come back on launch, the same doctrine as the
-    /// built/installed squares. Runs AFTER loadCachedTileStates so the
-    /// active tile's config adoption sees `built` exactly as it does on a
-    /// user click. Keys that no longer parse are dropped silently, and an
-    /// active tile outside the restored set falls back to the set's first
-    /// tile — the deselect path's rule.
-    private func restoreSelection() {
-        let defaults = UserDefaults.standard
-        let stored = defaults.stringArray(forKey: PrefKeys.selectedTiles) ?? []
-        selected = Set(stored.compactMap(TileMath.parse)
-            .map { TileCoord(lat: $0.lat, lon: $0.lon) })
-        let active = defaults.string(forKey: PrefKeys.activeTile)
-            .flatMap(TileMath.parse)
-            .map { TileCoord(lat: $0.lat, lon: $0.lon) }
-        activeTile = active.flatMap { selected.contains($0) ? $0 : nil }
-            ?? selected.sorted().first
     }
 
     // MARK: Run state
@@ -517,7 +488,8 @@ final class BuildModel: ObservableObject {
         reloadEngine()
         loadCachedTileStates()
         loadCachedGlobalAirports()
-        restoreSelection()
+        // The selection starts empty (owner 2026-11-17, LaunchSelection).
+        LaunchSelection.start()
     }
 
     /// Optimistic launch for the build map: last session's built/installed
@@ -1312,6 +1284,8 @@ final class BuildModel: ObservableObject {
             packAdjust(adjust)
         case .gatewayAirports(let offer):
             gatewayAirports(offer)
+        case .packOverlaps(let offer):
+            packOverlaps(offer)
         case .packPackage(let shipped):
             packPackage(shipped)
         case .engineError(let fatal, let text):
@@ -2399,6 +2373,39 @@ final class BuildModel: ObservableObject {
         } else {
             gatewayAirportsQueue.append(offer)
         }
+    }
+
+    /// The overlapping-packs question to present, or nil (#2145).
+    @Published var packOverlapsPrompt: O4PackOverlaps?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packOverlapsQueue: [O4PackOverlaps] = []
+    /// Every question already asked this session (one per tile and pair set).
+    private var packOverlapsSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_overlaps`).
+    /// A question with a pair in it asks once per tile and pair set (the
+    /// report asks again); an outcome asks nothing (the engine's log line
+    /// says what was hidden).
+    private func packOverlaps(_ offer: O4PackOverlaps) {
+        if offer.state == "ask" { packOverlapsSeen.remove(offer.id) }
+        guard offer.asks, !packOverlapsSeen.contains(offer.id) else { return }
+        packOverlapsSeen.insert(offer.id)
+        if packOverlapsPrompt == nil {
+            packOverlapsPrompt = offer
+        } else {
+            packOverlapsQueue.append(offer)
+        }
+    }
+
+    /// The user's answer to the question on screen: `winners` (Apply,
+    /// `[pair key: pack or "both"]`) sends `pack_overlaps` "choose"; nil
+    /// (Not now) sends nothing.
+    func answerPackOverlapsPrompt(winners: [String: String]?) {
+        if let offer = packOverlapsPrompt, let winners {
+            client?.packOverlaps(action: "choose", lat: offer.lat, lon: offer.lon,
+                                 winners: winners)
+        }
+        packOverlapsPrompt = packOverlapsQueue.isEmpty ? nil : packOverlapsQueue.removeFirst()
     }
 
     /// Packages already noticed this session (one per package and state).

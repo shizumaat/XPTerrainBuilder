@@ -737,6 +737,13 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         # pieces were also written — the same file
         # ``tools/obj8_split_report.py`` is pointed at.
         _place_graded_surface(task, res.paths, icao)
+        # #2129: ... and its piece for every tile that builds no patch of it
+        for name in _install_neighbour_pieces(task, icao, pieces, (lat, lon)):
+            log_lines.append(
+                f"[v2] {icao}: patch piece for tile {name}" if " NOT " in name
+                else f"[v2] {icao}: patch piece for tile {name} laid in that "
+                     f"tile's Patches (it builds no {icao} patch of its own); "
+                     f"its terrain takes the piece at its next build")
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "write", "engine": ENGINE_V2,
                 "error": f"[v2] {exc}", "auto_patch_file": task["auto_patch_file"],
@@ -790,6 +797,41 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                    "report": os.path.join(scratch, icao + ".report.json"),
                    "rebake_plan": rebake_plan_path,
                    "tiles": sorted(f"{a:+03d}{b:+04d}" for a, b in pieces)}}
+
+
+def _install_neighbour_pieces(task: dict, icao: str, pieces, here) -> list[str]:
+    """A TILE THAT BUILDS NO PATCH OF THE AIRPORT GETS ITS PIECE (#2129).
+
+    The one solve (#1645) emits one piece per tile the airport's surface
+    touches (``emit/osm_adapter.render_tile_pieces``), each at that tile's
+    own ``Patches`` path.  A tile with a runway threshold of the airport
+    builds it and places its own piece (above); a tile with none never
+    selects it (``selection.select_patch_airports``), so its piece was
+    rendered and never laid anywhere — EDDH's ``+53+010`` mesh carried no
+    grading east of 10°E.  Every such piece is copied into that tile's
+    ``Patches`` here.  ``task["threshold_tiles"]`` names the tiles that
+    build it; a task without it lays nothing.  Returns the tiles laid."""
+    import shutil
+
+    import O4_File_Names as FNAMES
+    home = {(int(a), int(b)) for a, b in task.get("threshold_tiles") or ()}
+    if not home or not pieces:
+        return []
+    laid = []
+    for (a, b), src in sorted(pieces.items()):
+        if (a, b) == tuple(here) or (a, b) in home:
+            continue
+        dest = os.path.join(FNAMES.patch_dir(a, b), f"{icao}_auto.patch.osm")
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            for s, d in ((src.patch, dest), (src.sidecar, dest + ".axes.json")):
+                shutil.copyfile(str(s), d + ".tmp")
+                os.replace(d + ".tmp", d)
+        except OSError as exc:         # never costs the airport its own tile
+            laid.append(f"{FNAMES.short_latlon(a, b)} NOT laid ({exc})")
+            continue
+        laid.append(FNAMES.short_latlon(a, b))
+    return laid
 
 
 def _place_graded_surface(task: dict, paths, icao: str) -> str | None:

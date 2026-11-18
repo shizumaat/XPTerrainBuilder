@@ -82,6 +82,7 @@ from ..geom import author_ground as _ag
 from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from ..model import structures as _ms
+from ..model.floor_ground import has_footprint, owns_ground  # noqa: F401  (re-exported)
 from . import floor_rim as _floor_rim
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -164,6 +165,10 @@ class ObjectFloor:
     #: frame's top along the cut's rim, metres over ``zero_z``
     #: (``airport/floor_rim``): where the ground and the pavement meet it
     rim_tops: tuple = ()
+    #: #1949 R2: ``rim_tops`` are a walled pit's OPEN EDGES -- a wall lower
+    #: than the ground behind it -- each the crest of a bank
+    #: (``planar/pit_bank``); a flush or proud rim states none
+    rim_banks: bool = False
     #: #1971 (spec interchange-levels v2 §3.1): how far the cut stands under
     #: this floor; ``None`` is the law's ``[tunnel.object] floor_clearance_m``
     #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have
@@ -200,19 +205,8 @@ class FloorDeck:
     top_b: float
 
 
-def owns_ground(f: "ObjectFloor") -> bool:
-    """Does ``f`` own any ground — cut cells, pins, portal and mouth seats
-    (A4: a shallower surface inside a deeper one owns none; 2026-11-06d (1):
-    a HIDDEN shell owns none, it leaves the terrain solve)?"""
-    return not f.hidden and has_footprint(f)
-
-
-def has_footprint(f: "ObjectFloor") -> bool:
-    """Does ``f`` state a cut's extent — its footprint, read as a WITNESS
-    even when hidden (2026-11-06d (1): the deck pieces over it, the cut ring
-    the object stage seats them by)?"""
-    fp = f.footprint
-    return fp is not None and not fp.is_empty and fp.area > 0.0
+# owns_ground / has_footprint live in ``model/floor_ground`` (constraints
+# ask them too); re-exported here for the airport-layer readers
 
 
 #: the ring's sampling step for :func:`_walled_share` (metres): the share
@@ -489,7 +483,8 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                        taken: _t.AbstractSet[str] = frozenset(),
                        shells: _t.Mapping[str, str] | None = None,
                        ground: "_t.Callable | None" = None,
-                       scale: tuple[float, float] = (1.0, 1.0)
+                       scale: tuple[float, float] = (1.0, 1.0),
+                       bores: _t.Sequence = ()
                        ) -> tuple[list[ObjectFloor], list[str]]:
     """Every FLOOR OBJECT (module doc) as an :class:`ObjectFloor`, and one
     note per floor read or refused.  ``taken`` are placement ids another
@@ -501,7 +496,9 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     SHELL (module doc) is read whole, its frame every co-placed placement.
     ``ground(xs, ys)`` is the design ground (the DEM) A7 reads the rim
     against; ``scale`` the frame's metres per OBJ metre
-    (``model.frame.xplane_metre_scale``).  A
+    (``model.frame.xplane_metre_scale``); ``bores`` the mapped bores'
+    axes (frame ``LineString``s), the evidence an open-hollow pit is a
+    tunnel's trench (:func:`_walled_pit`).  A
     shared-datum pack co-places everything (LGAV ``Trench_0x``, one
     anchor), so co-placement alone is no tunnel
     evidence: a floor object's cover must also stand its walls ON the
@@ -529,6 +526,29 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                           notes)
         if got is not None:
             out.append(got)
+    # #1949 OMDB ``duong_2``: a trench authored as ONE open hollow (its
+    # floor, ramps and side walls in one object, its portal walls co-placed)
+    # whose floor a mapped bore runs into is read the same way, after the
+    # plate pits and outside their frames
+    pitted = {pid for f in out for pid, _r, _z in f.seats}
+    hollows: dict[str, bool] = {}
+    bore_tree = STRtree(list(bores)) if len(bores) else None
+    for o in placed:
+        if bore_tree is None:
+            break
+        bb = getattr(o, "plan_bbox", None)
+        if o.id in taken or o.id in floored or o.id in pitted \
+                or (bb is not None and not len(bore_tree.query(bb, predicate="intersects"))):
+            continue
+        got = _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, pit_walls,
+                          notes, hollows)
+        if got is not None and not len(bore_tree.query(got.footprint, predicate="intersects")):
+            notes.append(f"{o.id} {_base(o.path)}: an open hollow walled round its floor, but "
+                         f"no mapped bore runs into it: no tunnel's trench")
+            got = None
+        if got is not None:
+            out.append(got)
+            pitted.update(pid for pid, _r, _z in got.seats)
     # a walled pit's frame stands under its rim: none of it is the author's
     # ground any other floor is read against (#1949: hamnen's floor, 0.31
     # over a 1.70 DEM, was the "ground" duong_ray_FACE stood 11.43 m over)
@@ -628,19 +648,42 @@ class _CoPlaced:
                 if p.id != o.id and _co_placed(o, p, self.tol)]
 
 
-def _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, walls, notes):
+def _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, walls, notes,
+                hollows: "dict[str, bool] | None" = None):
     """#1949 (``airport/walled_pit``): ``o`` read as a walled pit's floor
-    when it is a plate object with a co-placed mate that is not."""
+    when it is a plate object with a co-placed mate that is not.  With
+    ``hollows`` (the second pass, a cache by resource) the floor object is
+    instead one that is NO plate but an OPEN HOLLOW (:func:`_open_hollow`):
+    its own walls round its floor, the co-placed mate's walls still the
+    pit's."""
     ob = law.tables.structures.tunnel.object
     g = cache.geometry(o.resolved)
-    if g is None or not len(g.solid) or _mate_share(o, cache, law, shares) \
-            < ob.floor_object_min_share:
+    if g is None or not len(g.solid):
+        return None
+    plate = _mate_share(o, cache, law, shares) >= ob.floor_object_min_share
+    if plate == (hollows is not None):
         return None
     mates = near(o)
     if not any(_mate_share(p, cache, law, shares) < ob.floor_object_min_share for p in mates):
         return None
+    if hollows is not None and not _open_hollow(o.resolved, g, law, hollows):
+        return None
     return _wp.read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls,
-                               lambda p: _mate_share(p, cache, law, shares), notes)
+                               lambda p: _mate_share(p, cache, law, shares), notes,
+                               own_walls=hollows is not None)
+
+
+def _open_hollow(res: str, g: "_obj8.ObjGeometry", law, memo: dict[str, bool]) -> bool:
+    """Is the OBJ ``g`` (resource ``res``, read once per resource into
+    ``memo``) an OPEN-TOP HOLLOW in its own frame -- ``geom/shape_class``
+    CONCAVE, the class ``tools/drawn_site`` shares: its top surface
+    ``hollow_m`` under its own rim over ``shell_hollow_min_share`` of its
+    inner plan?  A trench's floor and walls in one object are; a roofed
+    building is covered, a solid block convex."""
+    if res not in memo:
+        F = g.vertices[g.solid][:, :, [0, 2, 1]]
+        memo[res] = bool(len(F)) and _shape_of(F, law)[0]["class"] == _shape.CONCAVE
+    return memo[res]
 
 
 def _concave(o, g, msl, law, mates, ground, notes: list[str],

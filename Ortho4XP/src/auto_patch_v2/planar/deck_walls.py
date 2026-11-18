@@ -23,10 +23,11 @@ bottom).  Nothing here names a pack, a resource or an airport.
 from __future__ import annotations
 
 import math
-import typing as _t
 
 import numpy as np
 from shapely.geometry import Polygon
+
+from ..geom.wall_lines import inner_faces
 
 __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 
@@ -34,17 +35,11 @@ __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 _VERTICAL_NY = 0.3
 #: a face runs ALONG the road when its plan segment is within this of it
 _ALONG_DEG = 20.0
-#: face lines closer than this across the road are one line (metres)
-_LINE_BIN_M = 0.5
-#: a face line is a wall when it covers this share of the stretch asked
-_COVER_MIN = 0.5
 #: a face rises from the bottom when it starts within this share of the
 #: depth over the frame's bottom, and is a wall when it rises this share
 _REACH_FRAC = 0.25
 _HEIGHT_FRAC = 0.5
 
-#: one wall face: ``(u across the road, s0, s1 along it)`` (frame metres)
-Face = tuple[float, float, float]
 
 
 def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray] | None":
@@ -124,32 +119,6 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> list:
             out.append(max(((pts[i], pts[j]) for i, j in ((0, 1), (0, 2), (1, 2))),
                            key=lambda e: math.dist(*e)))
     return out
-
-
-def _covered(faces: _t.Sequence[Face], s0: float, s1: float) -> float:
-    """The share of ``[s0, s1]`` the faces' along-road spans cover."""
-    iv = sorted((max(s0, a), min(s1, b)) for _u, a, b in faces if b > s0 and a < s1)
-    got, end = 0.0, s0
-    for a, b in iv:
-        if b > end:
-            got += b - max(a, end)
-            end = b
-    return got / (s1 - s0) if s1 > s0 else 0.0
-
-
-def inner_faces(faces: _t.Sequence[Face], s0: float, s1: float, u_mid: float
-                ) -> tuple["float | None", "float | None"]:
-    """``(u_a, u_b)``: the inner face on each side of ``u_mid`` over the
-    stretch ``[s0, s1]`` — the face line nearest the middle covering
-    :data:`_COVER_MIN` of it — or ``None`` on a side with none."""
-    lines: dict[int, list[Face]] = {}
-    for f in faces:
-        lines.setdefault(int(round(f[0] / _LINE_BIN_M)), []).append(f)
-    walls = [(sum(f[0] for f in fs) / len(fs)) for fs in lines.values()
-             if _covered(fs, s0, s1) >= _COVER_MIN]
-    a = [u for u in walls if u < u_mid]
-    b = [u for u in walls if u > u_mid]
-    return (max(a) if a else None), (min(b) if b else None)
 
 
 def wall_strip(r: tuple[float, float], n: tuple[float, float], u0: float, u1: float,

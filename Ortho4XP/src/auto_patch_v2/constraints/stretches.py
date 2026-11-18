@@ -61,6 +61,7 @@ from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family
 from ..model.planar import PlanarMap
+from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE
 from .geometry import project_to_chain
 from .precedence import taxi_cap_for
 
@@ -72,6 +73,13 @@ __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
 #: spec's ``role_family == "apron"`` names no table family); a pad
 #: (``building``) is rigid and no route passes through it.
 APRON_ROLE = "apron"
+
+#: THE CUT UNDER A DECK (#2127, LGAV item 1): a centreline edge bounded by
+#: these faces alone runs OVER a structure's cut -- its floor and wall
+#: void -- on the deck that carries the route; the route's ground is the
+#: deck, whose end lines hold it (``constraints/edge_deck``), never the
+#: floor under it.
+CUT_ROLES = frozenset({CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, "tunnel_ramp"})
 
 XY = tuple[float, float]
 
@@ -205,9 +213,13 @@ def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
     every governed non-taxi, NON-APRON face it bounds (a route through an
     apron keeps the taxiway law, RULINGS 2026-09-06t); an edge on no
     stretch (a road centreline, a plain edge) reads the strictest
-    bounding face, apron included."""
+    bounding face, apron included; ``None`` (no law edge) where the edge
+    is bounded by a structure's cut alone (:data:`CUT_ROLES`, #2127)."""
     e = pm.edges[eid]
     sid = st.by_edge.get(eid)
+    sides = [pm.faces[f].role for f in (e.left_face, e.right_face) if f is not None]
+    if sides and all(r in CUT_ROLES for r in sides):
+        return None     # carried over a cut: the deck states the level (CUT_ROLES)
     bounding = [(f, face_caps.get(f)) for f in (e.left_face, e.right_face)
                 if f is not None and face_caps.get(f) is not None]
     if sid is None:

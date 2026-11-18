@@ -150,6 +150,7 @@ struct MapMainView: View {
         .modifier(PackAdjustPrompt(buildModel: buildModel))
         // Graded airports X-Plane flattens (capability gateway_airports, #1989).
         .modifier(GatewayAirportsPrompt(buildModel: buildModel))
+        .modifier(PackOverlapsPrompt(buildModel: buildModel))
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

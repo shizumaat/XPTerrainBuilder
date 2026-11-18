@@ -468,3 +468,34 @@ def test_conflict_marker_detector_twin():
     assert [n for n, _ in conflict_marker_lines("a\n<<<<<<< HEAD\nb")] == [2]
     # JSONL: fences are not honoured
     assert [n for n, _ in conflict_marker_lines("```\n<<<<<<< x\n", fenced=False)] == [2]
+
+
+def test_frames_prune_deletes_moves_and_keeps(tmp_path):
+    import frames_prune
+    root, clone, tier = tmp_path / "a", tmp_path / "b", tmp_path / "tier"
+    for r in (root, clone):
+        for lane in ("old_dead", "old_cited", "fresh"):
+            (r / lane).mkdir(parents=True)
+            (r / lane / "x.pkl").write_bytes(b"0" * 10)
+        for lane in ("old_dead", "old_cited"):
+            os.utime(r / lane, (1_000_000.0, 1_000_000.0))
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "spec.md").write_text("see /x/.harness/frames/old_cited/x.pkl",
+        encoding="utf-8", newline="\n")
+    (repo / "docs" / "frames.jsonl").write_text('{"path": "/x/.harness/frames/old_dead/x"}',
+        encoding="utf-8", newline="\n")
+    keep = frames_prune.cited_lanes(str(repo), str(repo / "docs" / "frames.jsonl"),
+                                    str(tmp_path / "none"))
+    assert keep == {"old_cited"}
+    assert frames_prune.latest_lanes([{"icao": "K", "kind": "capture",
+                                       "path": "/d/.harness/frames/l1/p"}]) == {"l1"}
+    items = frames_prune.plan([str(root), str(clone)], 7, keep)
+    assert sorted((a, os.path.basename(p)) for a, p, _ in items) == [
+        ("delete", "old_dead"), ("delete", "old_dead"),
+        ("move", "old_cited"), ("move", "old_cited")]
+    frames_prune.apply(items, str(tier))
+    for r in (root, clone):
+        assert not (r / "old_dead").exists() and (r / "fresh").is_dir()
+        assert (r / "old_cited").is_symlink() and (r / "old_cited" / "x.pkl").exists()
+    assert frames_prune.plan([str(root)], 7, keep) == []

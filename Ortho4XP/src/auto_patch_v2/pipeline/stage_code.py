@@ -1148,6 +1148,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.authored_landing",
         "auto_patch_v2.airport.authored_seat",
         "auto_patch_v2.airport.backup_state",
+        "auto_patch_v2.airport.band_run",
         "auto_patch_v2.airport.basin_ring",
         "auto_patch_v2.airport.basin_witness",
         "auto_patch_v2.airport.below_grade_witness",
@@ -1402,6 +1403,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.road_clearance",
+        "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.storey_shell",
         "auto_patch_v2.model.structures",
@@ -2995,6 +2997,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.road_bridge_ceiling model.road_clearance
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.band_run
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
     planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim
     planar.basins planar.channel_claims planar.channel_ramp planar.covered_cut

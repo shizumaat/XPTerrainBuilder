@@ -765,7 +765,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     upper: _t.Mapping[int, float] | None = None,
                     upper_cap: float | None = None,
                     route_caps: _t.Mapping[int, float] | None = None,
-                    shared: _t.Mapping[int, tuple[int, float]] | None = None
+                    shared: _t.Mapping[int, tuple[int, float]] | None = None,
+                    kerb_ground: _t.Mapping[int, float] | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -855,7 +856,16 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       ``pav25``'s level, its own ceiling stood 3.4 m under the shared node
       0.5 m away, and the relaxed hard set moved the apron 0.47 m.
 
+    * THE KERB OF A ROAD LEAVING ITS BAND RUN (owner RULINGS 2026-11-18b,
+      #2152): ``kerb_ground`` is ``{band-kerb vertex: its ground}`` on a
+      route with a band run (``airport/band_run``).  A kerb carries no
+      §37 (6) target, so on the bare exit it reads its ground as the
+      target the exit descends to -- the road's edge descends with the
+      road, never left to the objective (MEASURED KEGE ``small_roads:-311``:
+      the kerbs past the run hung 0.6-1.0 m off the ramp).
+
     Returns ``{v: target}`` for every vertex it governs and the report."""
+    kerb_ground = kerb_ground or {}
     foot = terrace.get("foot") or {}
     rim = terrace.get("rim") or {}
     upper = upper or {}
@@ -971,7 +981,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 out[v] = z_e
                 rep["pad_held"] += 1
                 continue
-            fl = anchors.get(v, floor.get(v))   # a join's level is its pin's
+            fl = anchors.get(v, floor.get(v, kerb_ground.get(v)))  # a join's: its pin's
             if fl is None:
                 continue
             bare.setdefault((r, i == 0), (z_e, []))[1].append((d, v, float(fl)))
@@ -1057,6 +1067,21 @@ def _steep_route_caps(planar: PlanarMap, law: Law,
     return out
 
 
+def _run_kerb_ground(planar: PlanarMap, terr: _t.Mapping[str, _t.Mapping]
+                     ) -> dict[int, float]:
+    """``{band-kerb vertex: DEM}`` on the routes with a band run (owner
+    RULINGS 2026-11-18b; :func:`terrace_profile`'s ``kerb_ground``)."""
+    station = terr.get("station") or {}
+    routes = {station[v][0] for v in terr.get("band_run") or {} if v in station}
+    out: dict[int, float] = {}
+    for v in terr.get("kerb") or {}:
+        dz = planar.vertices[v].dem_z if v in planar.vertices else None
+        if v in station and station[v][0] in routes and dz is not None \
+                and math.isfinite(float(dz)):
+            out[v] = float(dz)
+    return out
+
+
 def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                     levels: _t.Mapping[int, float]
                     ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
@@ -1124,7 +1149,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
         upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade),
         route_caps=_steep_route_caps(planar, law, terr["station"]),
-        shared=terr.get("shared") or {})
+        shared=terr.get("shared") or {}, kerb_ground=_run_kerb_ground(planar, terr))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —

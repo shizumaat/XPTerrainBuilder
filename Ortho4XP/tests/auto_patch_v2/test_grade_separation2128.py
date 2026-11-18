@@ -132,10 +132,13 @@ def test_no_seed_or_ramp_inside_the_surveyed_cut(law):
     got = rr.road_ramp_targets(_dc.replace(pm, survey_cuts=((ring, ()),)), law, airport)
     assert got.report["survey_cut_vertices"] > 0
     assert got.report["mouths"] < base.report["mouths"]
+    # #2152: the zone band's kerb on the bank is no mouth, so the road
+    # leaves the apron on its own clamp outside the cut too (it lifted the
+    # base arm 1 m and more off its DEM before); inside, never over it
     inside = [v for v in base.targets if -25.0 <= _local(pm, v)[0] <= 90.0]
-    assert inside and all(got.targets[v] < base.targets[v] - 1.0 for v in inside)
-    assert max(z - pm.vertices[v].dem_z for v, z in got.targets.items()) < \
-        max(z - pm.vertices[v].dem_z for v, z in base.targets.items()) - 1.0
+    assert inside and all(got.targets[v] <= base.targets[v] + 1e-9 for v in inside)
+    assert max(z - pm.vertices[v].dem_z for v, z in got.targets.items()) <= \
+        max(z - pm.vertices[v].dem_z for v, z in base.targets.items()) + 1e-9
 
 
 def test_crossing_record_sides():

@@ -175,8 +175,10 @@ def _hop(z_p: float, p: int, u: int, e: float, grade: float, cap: float,
     contact's first hop, NEVER HIGHER OVER THE ROAD'S FLOOR THAN IT STOOD
     AT ``p`` (RULINGS 2026-10-09d (2): a ramp does not stand on fill over
     ground the road can follow).  Where the floor falls away faster than
-    the grade the ramp follows that fall, at the cap at most, instead of
-    opening a growing embankment over the hillside."""
+    the grade the ramp follows that fall, at ``cap`` at most, instead of
+    opening a growing embankment over the hillside.  ``cap`` here is the
+    FOLLOW cap (:func:`descend`'s ``follow``): on ground steeper than the
+    road cap that is the steep-ground cap (RULINGS 2026-11-17, #2122)."""
     z = z_p - grade * e
     if p != m and p in floors and u in floors:
         z = max(min(z, floors[u] + (z_p - floors[p])), z_p - cap * e)
@@ -186,7 +188,7 @@ def _hop(z_p: float, p: int, u: int, e: float, grade: float, cap: float,
 def _run(adj: Adjacency, m: int, z_m: float, design: float, cap: float,
          level: Level, floors: _t.Mapping[int, float], lane: float,
          mouths: _t.Mapping[int, float], meets: _t.Mapping[int, float],
-         end_of: EndOf) -> _Run:
+         end_of: EndOf, follow: float) -> _Run:
     """Contact ``m``'s ramp, EACH RUN AT ITS OWN GRADE (§37 (6a) (ii)).
     The design-grade cone is walked to its first meet; an END of the
     road it arrives over — the road's own end, the next contact — asks
@@ -208,7 +210,7 @@ def _run(adj: Adjacency, m: int, z_m: float, design: float, cap: float,
         order.append(u)
         if u != m:
             p = pred[u]
-            at[u] = _hop(at[p], p, u, d - dist[p], design, cap, m, floors)
+            at[u] = _hop(at[p], p, u, d - dist[p], design, follow, m, floors)
         z = at[u]
         if u == m or z > meets.get(u, -math.inf) + 1e-9:
             for w, e in adj.get(u, ()):
@@ -243,7 +245,8 @@ def _run(adj: Adjacency, m: int, z_m: float, design: float, cap: float,
 def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
             floors: _t.Mapping[int, float], design: float, cap: float,
             lane: float, end_of: EndOf, stand: float = STAND_M,
-            end_of_for: "_t.Mapping[int, EndOf] | None" = None) -> Descent:
+            end_of_for: "_t.Mapping[int, EndOf] | None" = None,
+            follow: float | None = None) -> Descent:
     """THE HIGHER ENVELOPE OF THE MOUTHS, each ramp at the grade it is
     built at.  ``level(v)`` is what stands at a vertex — a contact's own
     level, a road vertex's floor (``floors``), ``None`` where nothing is
@@ -251,7 +254,11 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
     builds NO ramp (:func:`_forced`); a ramp ENDS at its first meet with
     the floor; ``stand`` is the height over its floor from which a
     vertex counts as standing on a ramp.  ``end_of_for`` (#2090 B7) gives
-    a mouth its own reader of the road's end in place of ``end_of``."""
+    a mouth its own reader of the road's end in place of ``end_of``.
+    ``follow`` -- the steepest the ramp FOLLOWS ITS FLOOR's fall at
+    (:func:`_hop`; default ``cap``): the steep-ground cap where the
+    caller's roads may climb with their ground (RULINGS 2026-11-17)."""
+    follow = cap if follow is None else max(float(follow), cap)
     if not mouths:
         return Descent({}, {}, [])
     end_of_for = end_of_for or {}
@@ -266,14 +273,14 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
         if not _forced(adj, m, z_m, cap, meets, floors, stand):
             continue
         run = runs[m] = _run(adj, m, z_m, design, cap, level, floors, lane, mouths,
-                             meets, end_of_for.get(m, end_of))
+                             meets, end_of_for.get(m, end_of), follow)
         own: dict[int, float] = {m: z_m}
         for u in run.order[1:]:
             p = run.pred[u]
             if p not in own or (p != m and own[p] <= meets.get(p, -math.inf) + 1e-9):
                 continue                      # the ramp met its floor before here
             g = run.steep.get(u, design)
-            own[u] = _hop(own[p], p, u, run.dist[u] - run.dist[p], g, cap, m, floors)
+            own[u] = _hop(own[p], p, u, run.dist[u] - run.dist[p], g, follow, m, floors)
             if own[u] > lab.get(u, -math.inf) + 1e-9:
                 lab[u], walked[u], src[u], grade_at[u] = own[u], run.dist[u], m, g
     length: dict[int, float] = {}
@@ -295,7 +302,8 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
 
 def climb(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
           floors: _t.Mapping[int, float], design: float, cap: float,
-          lane: float, stand: float = STAND_M) -> Descent:
+          lane: float, stand: float = STAND_M, follow: float | None = None,
+          end_of: "EndOf | None" = None) -> Descent:
     """THE LOWER ENVELOPE OF THE CUT RAMPS (the mirror of :func:`descend`,
     #1531): the road leaving a contact that stands under its floor climbs
     out at the design grade.  It IS :func:`descend` on negated levels;
@@ -307,13 +315,19 @@ def climb(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
     required to reach between pads, lots, or airside that can't move"):
     its runs end at the NEXT CONTACT only — the road's own end is no run
     (``end_of`` answers ``None``), so a climb is never steepened just to
-    shorten its cut."""
+    shorten its cut.
+
+    ``end_of`` -- THE ROAD'S END WHERE IT MEETS ITS OWN GROUND (owner sim
+    read 2026-11-17T22:34Z, #2122: "It should smoothly climb to meet the
+    DEM at the end"): given, the road's own end is a run as in
+    :func:`descend` -- the cut steepens (to the cap at most) so the road
+    is up on its floor where it ends, never a step down into a pit."""
     def neg(v: int) -> "float | None":
         z = level(v)
         return None if z is None else -z
     d = descend(adj, {m: -z for m, z in mouths.items()}, neg,
                 {v: -z for v, z in floors.items()}, design, cap, lane,
-                lambda _v: None, stand)
+                end_of or (lambda _v: None), stand, follow=follow)
     return Descent({v: -z for v, z in d.label.items()}, d.walked, d.ramps)
 
 

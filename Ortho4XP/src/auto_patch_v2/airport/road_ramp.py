@@ -88,6 +88,7 @@ from ..law.tables import (
     family,
     is_structure_role,
     is_value_role,
+    road_terrain_cap,
     role_cap,
     role_side,
     senior_role,
@@ -399,9 +400,31 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
 def _only_agp_ground(pm: PlanarMap, law: Law, v: int) -> bool:
     """#2090 C3b: every airside-side face at ``v`` is an AGP plate or bank."""
     from ..model.planar import is_agp_ground_ref
+    return _airside_all(pm, law, v, is_agp_ground_ref)
+
+
+def _only_band_ground(pm: PlanarMap, law: Law, v: int) -> bool:
+    """#2152: every airside-side face at ``v`` is a runway / taxi ZONE BAND
+    (an ``adjacent_ground`` graded strip).  A band carries no level of its
+    own -- it grades from its pavement's edge to whatever it meets -- so a
+    road vertex on its kerb is no mouth: no ramp seed, no cut source, and
+    it never stands in for the road END's contact with the pavement past
+    the band (:func:`reach_contacts`).  MEASURED KEGE (39.6428, -106.9000;
+    owner sim read 2026-11-18T00:38Z): the 25 kerb vertices a service road
+    shares with taxiway pol93's band were mouths at their DEM; seven stood
+    0.4-1.9 m over it and cut the road up to 4.2 m into the hill (5.7 m on
+    1.0.557), and the three at the road's end hid the taxiway 2.6 m away,
+    so the road left it 4.8 m under its edge."""
+    from ..model.road_yield import is_band_zone_ref
+    return _airside_all(pm, law, v, is_band_zone_ref)
+
+
+def _airside_all(pm: PlanarMap, law: Law, v: int, is_ref) -> bool:
+    """``v`` carries an airside-side face and ``is_ref`` holds for every
+    one's ref."""
     air = [pm.faces[f] for f in pm.vertices[v].incident_faces
            if f in pm.faces and role_side(law, pm.faces[f].role) == "airside"]
-    return bool(air) and all(is_agp_ground_ref(f.ref) for f in air)
+    return bool(air) and all(is_ref(f.ref) for f in air)
 
 
 def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
@@ -812,6 +835,21 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
                                 r["why"]) for r in worst[:8]]}
 
 
+def _route_cap(items: _t.Sequence[tuple[float, int]], floor_of: _t.Mapping[int, float],
+               cap: float, follow: float) -> float:
+    """The grade a route's CUT labels are lifted onto it at (§37 (8)): the
+    road cap, or ``follow`` (the steep-ground cap, RULINGS 2026-11-17) on a
+    route whose own floor somewhere runs steeper than the road cap -- there
+    a cut follows its floor's rise (:func:`road_descent.climb`'s
+    ``follow``), and the lower envelope must not cut those labels back to
+    the cap.  ``items`` the route's sorted ``(station, vertex)``."""
+    pts = [(s_, floor_of[v]) for s_, v in items if v in floor_of]
+    for (s0, z0), (s1, z1) in zip(pts, pts[1:], strict=False):
+        if s1 - s0 >= 1.0 and abs(z1 - z0) > cap * (s1 - s0) + 1e-9:
+            return max(follow, cap)
+    return cap
+
+
 def _carried_on_end(adj, frame, route_end, by_route, lane: float):
     """#2090 B7: the road's-end reader of a DECK END's ramp — ``route_end``,
     but ``None`` (no end) where any vertex of that route end's group (the
@@ -925,10 +963,14 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
+    # #2152: a zone band's kerb is no mouth (:func:`_only_band_ground`); it
+    # stays a node of the road's walk, so a ramp passes through it
+    kerb = frozenset(v for v in mouths if _only_band_ground(pm, law, v))
+    mouths = {v: z for v, z in mouths.items() if v not in kerb}
     # #2128 R2 spec R4: INSIDE THE SURVEYED CUT beside a kept hard deck no
     # road-ramp seed, ramp or cut ceiling applies -- the target is the
     # road's own profile there, and no level walks through it
-    in_cut = _in_cuts(pm, set(owned) | set(mouths))
+    in_cut = _in_cuts(pm, set(owned) | set(mouths) | kerb)
     mouths = {v: z for v, z in mouths.items() if v not in in_cut}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
     # predicted level, never its DEM — the road reaches the high side, and
@@ -1005,7 +1047,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     other, x_vs = other_side(crossings), crossing_vertices(crossings)
     rep["grade_separated_crossings"] = len(crossings)
     rep["grade_separated_vertices"] = len(x_vs)
-    adj = _graph(pm, (set(owned) | set(mouths)) - in_cut, x_vs)
+    adj = _graph(pm, (set(owned) | set(mouths) | kerb) - in_cut, x_vs)
     junctions: list = []
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
@@ -1040,7 +1082,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
     by_route: dict[int, list[tuple[float, int]]] = {}
-    for v in set(owned) | set(mouths):
+    for v in set(owned) | set(mouths) | kerb:
         f_ = frame.get(v)
         if f_ is not None:
             by_route.setdefault(f_[0], []).append((f_[1], v))
@@ -1104,9 +1146,23 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # envelope a ceiling on the target.  The mouths' own seeds carry no
     # cone of their own (a contact the road can follow its floor from
     # builds none), so only the vertices a cut reached are lifted.
+    # owner sim read 2026-11-17T22:34Z (#2122): a cut is up on the road's
+    # floor where the road ENDS -- its far end, never the end it leaves from
+    # and (RULINGS 2026-11-17, steep ground) it follows its floor up ground
+    # steeper than the road cap at up to the steep-ground cap -- a cut
+    # climbing a hill never sinks deeper under the road's ground than it
+    # stood after leaving its contact
+    follow = road_terrain_cap(law)
+    from_ends = {_route_end(m) for m in cut_from} - {None}
+
+    def _far_end(v: int):
+        e = _route_end(v)
+        return None if e in from_ends else e
+
     cut_lab, _cw, cut_ramps, _cs = climb(adj, cut_from,
                                     lambda v: cut_from[v] if v in cut_from else floor_of.get(v),
-                                    floor_of, design, cap, lane)
+                                    floor_of, design, cap, lane, follow=follow,
+                                    end_of=_far_end)
     cut_fig = _ramp_figures(cut_ramps, design, cap)
     rep.update({"cuts": cut_fig["ramps"], "cuts_steepened": cut_fig["ramps_steepened"],
                 "cuts_at_cap": cut_fig["ramps_at_cap"], "cut_total_m": cut_fig["ramp_total_m"],
@@ -1125,10 +1181,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         far = other.get(road_key(ways[r].ref), frozenset()) if r in ways else frozenset()
         # the cap-Lipschitz envelope; the LOWER one for the cut ramps'
         # ceilings (#1531, the mirror)
-        env[r] = grade_envelope(ss, [-math.inf if v in far else g.get(v, -math.inf)
-                                     for _s, v in items], cap)
-        env_c[r] = grade_envelope(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
-                              for _s, v in items], cap, lower=True)
+        up = [-math.inf if v in far else g.get(v, -math.inf) for _s, v in items]
+        lo = [cut_lab.get(v, math.inf) if v not in mouths else math.inf for _s, v in items]
+        env[r] = grade_envelope(ss, up, cap)
+        env_c[r] = grade_envelope(ss, lo, _route_cap(items, floor_of, cap, follow), lower=True)
     targets: dict[int, float] = {}
     rep["_deck_ramp"] = {}
     for v in sorted(owned):
@@ -1506,6 +1562,11 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:
         return out
+    # owner RULINGS 2026-11-18b (#2152): a road running ALONG inside a taxi
+    # band grades with the band -- it takes the band's pavement level with
+    # no shared node; where it leaves the run it is bare and descends
+    from .band_run import band_runs, ramp_banks
+    out["band_run"] = band_runs(pm, law, vs, kerb, frame, feet)
     # THE MEET: a road vertex within one lane width of a GROUNDSIDE VALUE
     # face that is not a road — a lot, a groundside pavement page — which is
     # outside this rule and grades on its own target, so the road must
@@ -1600,6 +1661,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             out["below_wall"][v] = True
             continue
         shared = touch.get(v, frozenset())
+        if v in out["band_run"]:
+            shared = shared | {out["band_run"][v]}
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1 and ref in shared),
                      key=lambda t: (t[0], t[1]))
@@ -1620,6 +1683,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    # 18b: the band beside the road where it leaves its run comes down to it
+    out["bank"] = ramp_banks(pm, law, out["band_run"], out["station"])
     out["shared"] = _shared_stations(pm, _shared_refs(pm, stage1), ribbon_v,
                                      frame, set(vs))
     return out

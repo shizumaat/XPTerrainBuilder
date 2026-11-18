@@ -18,6 +18,7 @@ import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
 import O4_Mesh_Pins as MESH_PINS
+import O4_Patch_Voids as PATCH_VOIDS
 import O4_Triangle_IO as TRI_IO
 import O4_Triangle_Binary as TRI_BIN
 import O4_Proj_Runtime as PROJRT
@@ -1991,7 +1992,9 @@ def patch_coverage_polygon(tile):
     The rings are the ``PATCH_RING_MARKER`` segments of the input
     ``.poly`` — the exact marker ``include_patches`` stamps on a closed
     patch way and nothing else wears — polygonized into the faces of
-    their own arrangement and unioned.  That reconstructs
+    their own arrangement and unioned, less the faces in an uncovered
+    hole's void (``O4_Patch_Voids``: the hole ring is constrained, its
+    void keeps the DEM).  That reconstructs
     ``include_patches``' ``patches_area`` from the artifact the mesh step
     already reads, rather than inventing a second construction of it or a
     new file across the step boundary (the ONE BAND CONSTRUCTION
@@ -2016,8 +2019,14 @@ def patch_coverage_polygon(tile):
         ]
         if not rings:
             return (geometry.Polygon(), None)
-        coverage = ops.unary_union(
-            list(ops.polygonize(ops.unary_union(rings))))
+        # An uncovered hole ring is a patch ring too, but the cells of its
+        # void are not coverage: the vector step recorded them
+        # (O4_Patch_Voids; no sidecar = no void, or a pre-void .poly
+        # whose holes were seeded and so ARE its coverage).
+        cells = PATCH_VOIDS.drop_void_cells(
+            ops.polygonize(ops.unary_union(rings)),
+            PATCH_VOIDS.read(FNAMES.input_poly_file(tile)))
+        coverage = ops.unary_union(cells)
         if coverage.is_empty:
             return (coverage, None)
         return (coverage, prep(coverage))

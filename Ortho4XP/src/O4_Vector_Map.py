@@ -3269,12 +3269,11 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
             seed_area, witness, tile.lat, tile.lon)
         COAST_VET.refuse_mostly_sea_highland(
             seed_area, getattr(tile, "dem", None), tile.lat, tile.lon)
-        for polygon in seed_area.geoms:
-            seed = numpy.array(polygon.representative_point().coords[0])
-            if "SEA" in vector_map.seeds:
-                vector_map.seeds["SEA"].append(seed)
-            else:
-                vector_map.seeds["SEA"] = [seed]
+        # Rule 4: every seed clear of its polygon's edge, no sliver seed.
+        seeds, _slivers = COAST_VET.sea_seed_points(
+            seed_area, tile.lat, tile.lon)
+        if seeds:
+            vector_map.seeds.setdefault("SEA", []).extend(seeds)
         # Seawall along the pavement/sea edge (see SEAWALL_MARKER).  The
         # cutter is ``seed_area``, not the raw ``sea_area``: it is exactly
         # where the SEA attribute will live, so it is exactly where the

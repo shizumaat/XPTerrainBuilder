@@ -23,6 +23,12 @@ Three rules, each general (no tile or airport is named anywhere):
    still come out mostly sea while its whole DEM stands above sea level
    fails loudly (:class:`ImplausibleSeaTile`) instead of writing a sea
    tile.
+4. :func:`sea_seed_points` — a seed stands at least
+   :data:`SEED_CLEARANCE_M` inside its sea polygon, so no node move the
+   vector map makes later (a crossing resolved to a node within the
+   10 mm split radius, the vertex-on-edge noding) can put it on the
+   land side of the coastline.  A sliver too thin to hold one gets no
+   seed.
 
 Everything dropped or withheld is said out loud with its coordinates, so
 the user can fix the OSM data.
@@ -42,6 +48,7 @@ __all__ = [
     "SEA_FLOOR_MAX_M", "MOSTLY_SEA_FRACTION", "ImplausibleSeaTile",
     "dem_sampler", "tile_sea_witness", "vet_coastline",
     "withhold_highland_seeds", "refuse_mostly_sea_highland",
+    "SEED_CLEARANCE_M", "sea_seed_points",
 ]
 
 #: A component shorter than this needs a witness.  A real islet this small
@@ -70,6 +77,19 @@ SEA_FLOOR_MAX_M = 100.0
 
 #: "Mostly sea": more than half the tile frame.
 MOSTLY_SEA_FRACTION = 0.5
+
+#: How far inside its sea polygon a seed must stand.  MEASURED (+53+009,
+#: app 1.0.557, owner 2026-11-17 "EDDH ... is sitting in the ocean"): the
+#: Elbe's sea minus its tidal polygons left a sliver about 1 mm wide at
+#: 53.63795, 9.51629; its representative point stood 0.5 mm from the
+#: coastline, and a grid crossing there that resolved to a node 1.3 mm
+#: away (the 10 mm crossing identity, ``Vector_Map._node_near``) moved
+#: the coastline across it.  Triangle4XP then dropped that seed on the
+#: land side and the SEA attribute flooded 2.45 M of the tile's 2.94 M
+#: triangles, the airport included.  One metre is a hundred times the
+#: largest move any vector-map pass makes, and narrower than any water
+#: a mesh shows.
+SEED_CLEARANCE_M = 1.0
 
 #: Grid used to read a polygon's interior floor: 256 x 256 over the 1 deg
 #: tile, ~430 m spacing — fine enough that any sea polygon wider than a
@@ -309,3 +329,34 @@ def refuse_mostly_sea_highland(seed_area, dem, lat: int, lon: int) -> None:
             "not written.".format(lat, lon, fraction, floor))
         UI.loud_warning(message)
         raise ImplausibleSeaTile(message)
+
+
+def sea_seed_points(seed_area, lat: int, lon: int):
+    """Rule 4: the SEA seeds of ``seed_area`` (tile-relative MultiPolygon),
+    each at least :data:`SEED_CLEARANCE_M` inside its polygon.
+
+    A polygon's own representative point is kept when it is clear (every
+    ordinary sea polygon: its seed does not move).  Otherwise each part
+    of the polygon shrunk by the clearance gets its own point, and a
+    polygon nothing is left of is a sliver: no seed, said once.  Returns
+    ``(points, slivers)``, ``points`` a list of ``numpy`` ``(x, y)``.
+    """
+    clear = SEED_CLEARANCE_M / (_LAT_TO_M * numpy.cos(numpy.radians(
+        lat + 0.5)))
+    points, slivers = [], []
+    for polygon in getattr(seed_area, "geoms", []):
+        point = polygon.representative_point()
+        if polygon.boundary.distance(point) >= clear:
+            points.append(numpy.array(point.coords[0]))
+            continue
+        core = polygon.buffer(-clear)
+        parts = [g for g in getattr(core, "geoms", [core]) if not g.is_empty]
+        if not parts:
+            slivers.append(point)
+        points.extend(numpy.array(part.representative_point().coords[0])
+                      for part in parts)
+    for point in slivers:
+        UI.vprint(1, "    * Sea seed withheld at {:.6f}, {:.6f}: its sea "
+                  "polygon is a sliver under {:.0f} m wide.".format(
+                      point.y + lat, point.x + lon, 2 * SEED_CLEARANCE_M))
+    return points, len(slivers)

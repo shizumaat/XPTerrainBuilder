@@ -476,6 +476,7 @@ EXCEPTION_CODES = {
     # mesh
     "BankAnnulusCollapse": "mesh_refused",
     "InterpAltLeak": "mesh_refused",
+    "SeaLeak": "mesh_refused",
     "UnsealedInterpAltSeed": "mesh_refused",
     # a malformed or truncated .mesh / Triangle exchange file (O4_Mesh_IO, O4_Triangle_IO)
     "MeshFormatError": "mesh_failed",

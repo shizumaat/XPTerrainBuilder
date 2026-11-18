@@ -207,6 +207,7 @@ SETTINGS_OUTSIDE_CONFIG: frozenset[str] = frozenset({
     # the mesh and vector steps
     "O4_BANK_ANNULUS_BAR", "O4_BANK_BLEND_DUMP", "O4_HAIRLINE_PREFLIGHT",
     "O4_INTERP_ALT_LEAK", "O4_INTERP_ALT_SEAL", "O4_SEAWALL_OFFSET_M",
+    "O4_SEA_LEAK",
     "O4_VECTOR_SPLIT_M", "O4_VECTOR_WELD_M",
     # the census law (``tools/harness/law_support``)
     "O4_APRON_BODY_CHORD_MAX_M", "O4_APRON_CHORD_ANCHOR_TARGET",

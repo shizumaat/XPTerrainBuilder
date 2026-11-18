@@ -21,6 +21,7 @@ import O4_Mesh_Pins as MESH_PINS
 import O4_Triangle_IO as TRI_IO
 import O4_Triangle_Binary as TRI_BIN
 import O4_Proj_Runtime as PROJRT
+import O4_Sea_Leak_Guard as SEA_LEAK
 import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
 import O4_Version
@@ -2127,6 +2128,12 @@ def post_process_nodes_altitudes(tile):
     corners = elements.triangles - 1
     (attrs, integral) = TRI_IO.triangle_attributes(
         elements.attributes[:, 0], dico_attributes["DUMMY"])
+    # THE MESH'S SEA STAYS IN THE COASTLINE'S SEA (lflood, +53+009): a
+    # seed region that leaked onto land is refused here, before anything
+    # is levelled to sea or written (O4_Sea_Leak_Guard).
+    SEA_LEAK.audit_sea_extent(
+        tile, vertices.reshape(-1, 6)[:, :2], corners[integral],
+        attrs[integral])
     degenerate = numpy.flatnonzero(~integral)
     degenerate_attr_nbr = len(degenerate)
     degenerate_attr_sample = [

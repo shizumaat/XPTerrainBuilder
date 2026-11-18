@@ -186,6 +186,26 @@ def test_hide_rows_drops_objects_and_facades_by_anchor():
     assert H.hide_rows(text, []) == (text, 0)
 
 
+def test_a_hidden_placement_the_object_stage_split_is_hidden_as_its_bodies():
+    """#2167 (KJFK 1.0.560): the faked cut under a generated deck was
+    written as its split body (own file, own anchor) and the hide, naming
+    the pristine row, matched nothing."""
+    from auto_patch_v2.airport import generated_pack as gen
+    from auto_patch_v2.model.placement import Anchor, Body, PlacementRef, Split
+    body = Body("b0", "deck", (0,), Anchor(55.1004, 25.1003, 10.0), "foot", "pit__b0_x.obj")
+    split = Split(PlacementRef(7, "pit.obj", 55.1, 25.1, 10.0), (body,))
+    other = Split(PlacementRef(8, "pit.obj", 55.3, 25.3, 0.0),
+                  (Body("b0", "deck", (0,), Anchor(55.3, 25.3, 0.0), "foot", "pit__b0_y.obj"),))
+    text = "\n".join(_dump(objects=[("pit__b0_x.obj", 55.1004, 25.1003),
+                                    ("pit__b0_y.obj", 55.3, 25.3), ("o.obj", 55.2, 25.2)]))
+    rec = {"hides": [{"resource": "pit.obj", "lon": 55.1, "lat": 25.1}]}
+    assert gen.apply_text(text, rec)[1]["hidden"] == 0
+    out, counts = gen.apply_text(text, rec, splits=(split, other))
+    assert counts["hidden"] == 1
+    assert "55.100400000" not in out and "55.300000000" in out and "55.200000000" in out
+    assert H.through_splits([], (split,)) == []
+
+
 @pytest.fixture
 def stores(tmp_path, monkeypatch):
     monkeypatch.setattr(PC, "store_path", lambda name: str(tmp_path / "prefs" / name))

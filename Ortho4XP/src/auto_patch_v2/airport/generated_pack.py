@@ -168,10 +168,12 @@ def regions_of(rec: _t.Mapping) -> list[Polygon]:
     return [_wkt.loads(w) for w in (rec or {}).get("regions") or ()]
 
 
-def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, dict]:
+def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
+               splits: _t.Sequence = ()) -> tuple[str, dict]:
     """The DSF dump ``text`` with the recipe applied (module doc): pages
-    clipped by every region, every deck placed, every chain added.
-    Returns ``(text, counts)``."""
+    clipped by every region, every deck placed, every chain added, every
+    hidden placement dropped -- as its bodies where ``splits`` (the plan's
+    ``Split`` rows) wrote it split (#2167).  Returns ``(text, counts)``."""
     from . import dsf_additions as _add
     from . import dsf_poly_clip as _clip
     counts = {"pages_cut": 0, "lines_cut": 0, "area_removed_m2": 0.0, "decks": 0,
@@ -190,11 +192,12 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
         counts["area_removed_m2"] += rep.area_removed_m2
     hides = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()]
     if hides:
-        text, counts["hidden"] = _hide.hide_rows(text, hides)
+        text, counts["hidden"] = _hide.hide_rows(text, _hide.through_splits(hides, splits))
     if rec.get("overlap_hides"):
         # #2145: the structures another pack also draws, the user's answer
         # (``pack_overlap_choice.overlap_hides``)
-        text, counts["overlap_hidden"] = _hide.hide_rows(text, rec["overlap_hides"])
+        text, counts["overlap_hidden"] = _hide.hide_rows(
+            text, _hide.through_splits(rec["overlap_hides"], splits))
     for d in rec.get("decks") or ():
         text, _idx = _add.add_object(text, d["resource"], float(d["lon"]), float(d["lat"]),
                                      float(d["msl"]), float(d["hdg"]))

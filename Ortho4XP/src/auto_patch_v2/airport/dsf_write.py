@@ -1517,7 +1517,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                          optimise, pack_root)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # spec 2123: the generated decks and road bridges, last
-        edited, gen_counts = _gen.apply_text(edited, gen_recipe)
+        edited, gen_counts = _gen.apply_text(edited, gen_recipe, splits=composed.splits)
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
         # ... and a seat is stored at its nearest quantum, never floored

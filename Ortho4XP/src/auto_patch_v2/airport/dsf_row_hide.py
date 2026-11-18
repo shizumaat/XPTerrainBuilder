@@ -4,6 +4,11 @@ overlapping structures the user hid, #2145 ``pack_overlap_choice``).
 
 A row is named by its resource and its anchor within ``tol_deg``: an
 ``OBJECT*`` row's position, or a polygon's (facade's) FIRST point.  The
+rows name the PRISTINE placements; one the object stage split is written
+as its bodies (their own files and anchors), so :func:`through_splits`
+names those too (#2167, MEASURED KJFK 1.0.560: the four faked-cut
+placements under the generated decks were split, and the hide matched
+none of them).  The
 definition stays declared (the write drops an unused one).  One pass over
 the text for any number of rows.
 """
@@ -11,7 +16,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["TOL_DEG", "hide_rows"]
+__all__ = ["TOL_DEG", "hide_rows", "through_splits"]
 
 #: how close an anchor must be to name a row (degrees, ~0.2 m)
 TOL_DEG = 2e-6
@@ -29,6 +34,25 @@ def _wanted(defs: _t.Sequence[str], rows) -> dict[str, list[tuple[float, float]]
 
 def _hit(anchors, lon: float, lat: float, tol: float) -> bool:
     return any(abs(lon - a) <= tol and abs(lat - b) <= tol for a, b in anchors)
+
+
+def through_splits(rows: _t.Iterable[_t.Sequence], splits: _t.Iterable,
+                   tol_deg: float = TOL_DEG) -> list[tuple]:
+    """``rows`` (each ``(resource, lon, lat)``) plus the row of every body
+    of each split (``model.placement.Split``) whose original placement one
+    of them names."""
+    rows = [tuple(r) for r in rows]
+    if not rows:
+        return rows
+    by_res: dict[str, list[tuple[float, float]]] = {}
+    for res, lon, lat in rows:
+        by_res.setdefault(str(res), []).append((float(lon), float(lat)))
+    out = list(rows)
+    for sp in splits:
+        p = sp.placement
+        if _hit(by_res.get(str(p.resource), ()), float(p.lon), float(p.lat), tol_deg):
+            out += [(b.new_resource, b.anchor.lon, b.anchor.lat) for b in sp.bodies]
+    return out
 
 
 def hide_rows(text: str, rows: _t.Iterable[_t.Sequence], tol_deg: float = TOL_DEG

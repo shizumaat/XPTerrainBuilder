@@ -39,7 +39,8 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "PREVIEW_CLEARS", "PREVIEW_THEN", "PREVIEW_CACHES",
            "PREVIEW_IMAGERY", "PREVIEW_AIRPORTS", "PREVIEW_FAVORITES",
            "PREVIEW_REBUILD", "PREVIEW_AIRPORTS_KEPT", "end_labels", "UPDATING",
-           "range_notice", "bar_parts", "preview_text"]
+           "range_notice", "bar_parts", "preview_text",
+           "BUDGET_RECALCULATING", "reflects"]
 
 #: The help of the "Caches" and "Your tiles and patches" rows.
 CACHES_HELP = ("Files in the app's own data folder that builds download or "
@@ -65,6 +66,8 @@ BUDGET_HELP = ("More space keeps downloads and rebuild data, so tiles rebuild "
                "cleared data moves there instead.")
 BUDGET_FIELD = "Budget (GB)"
 BUDGET_USE_DEFAULT = "Use Default"
+#: A budget just set, while the usage figures are measured again (#2162).
+BUDGET_RECALCULATING = "Recalculating usage…"
 #: Unconfirmed (RULINGS 2026-11-11h (1)): the default is sized to the
 #: current install; Confirm records it as the budget.
 BUDGET_HELD = ("Until you confirm a budget, the default holds everything "
@@ -184,6 +187,13 @@ def held_line(budget: Mapping) -> str:
 def needs_downgrade(budget: Mapping, new_bytes: int) -> bool:
     """A budget of ``new_bytes`` is below what is in use: ask first."""
     return int(new_bytes) < int(budget.get("used_bytes") or 0)
+
+
+def reflects(budget: Mapping, gigabytes: float) -> bool:
+    """The scan's ``budget`` was measured with ``gigabytes`` set (0: the
+    default): the apps stop showing the chosen value over it (#2162)."""
+    chosen = int(gigabytes * 1e9) if gigabytes > 0 else 0
+    return abs(int(budget.get("chosen_bytes") or 0) - chosen) < 10**6
 
 
 def downgrade_text(budget: Mapping, new_bytes: int) -> str:

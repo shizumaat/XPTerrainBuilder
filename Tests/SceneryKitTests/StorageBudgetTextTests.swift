@@ -49,4 +49,21 @@ struct StorageBudgetTextTests {
         #expect(O4StorageText.previewText(b, 280_000_000_000)
                 == "Frees about 48.00 GB: caches go first, then distant imagery goes back to low res. Airports keep full resolution.")
     }
+
+    /// #2162: a scan shows the chosen budget once it was measured with it.
+    @Test func aScanReflectsTheChosenBudget() throws {
+        let b = try Self.budget(set: true)          // chosen 900 GB
+        #expect(O4StorageText.reflects(b, gigabytes: 900))
+        #expect(!O4StorageText.reflects(b, gigabytes: 350))
+        #expect(!O4StorageText.reflects(b, gigabytes: 0))
+    }
+
+    /// #2162: a burst of budget changes measures the data folder once.
+    @MainActor @Test func aBurstSettlesIntoOneRun() async throws {
+        let settle = O4Settle(seconds: 0.1)
+        var runs = 0
+        for _ in 0..<5 { settle.run { runs += 1 } }
+        try await Task.sleep(for: .seconds(0.4))
+        #expect(runs == 1)
+    }
 }

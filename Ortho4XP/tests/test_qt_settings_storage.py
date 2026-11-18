@@ -162,3 +162,40 @@ def test_the_budget_slider_spans_the_range_and_previews(app, monkeypatch):
         assert applied == [250.0]
     finally:
         section.deleteLater()
+
+
+def test_a_budget_is_saved_at_once_and_a_burst_scans_once(app, monkeypatch):
+    """#2162: the setting is written before any scan, the box shows the
+    chosen value with "Recalculating usage…" until a scan reflects it
+    (an older scan does not undo it), and a burst of changes runs one
+    scan after the controls are still."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
+    import O4_Settings_Model as SM
+    import O4_Storage_Text as TEXT
+    section = QTSTORE.StorageSection()
+    box = QTLIBSTORE.DiskBudgetBox(section)
+    written, scans = [], []
+    monkeypatch.setattr(SM, "write_global", written.append)
+    monkeypatch.setattr(section, "refresh", lambda: scans.append(len(written)))
+    budget = {"budget_bytes": 300e9, "budget_set": True, "chosen_bytes": 300e9,
+              "used_bytes": 100e9, "minimum_bytes": 25e9, "maximum_bytes": 400e9,
+              "low_water": 0.9}
+    try:
+        section.set_scan(dict(SCAN, budget=budget))
+        for gigabytes in (310, 320, 350):
+            box.budget_edit.setText(str(gigabytes))
+            box.submit()
+        assert written[-1] == {QTSTORE.BUDGET_SETTING: "350.0"} and scans == []
+        assert box.budget_edit.text() == "350" and not box.recalc_label.isHidden()
+        assert box.recalc_label.text() == TEXT.BUDGET_RECALCULATING
+        section.set_scan(dict(SCAN, budget=budget))          # an older scan
+        assert box.budget_edit.text() == "350"
+        assert box.settle.isActive()
+        box.settle.timeout.emit()                             # still for 1.5 s
+        box.settle.stop()
+        assert scans == [3]                                   # one, after the writes
+        section.set_scan(dict(SCAN, budget=dict(budget, budget_bytes=350e9,
+                                                chosen_bytes=350e9)))
+        assert box.chosen is None and box.recalc_label.isHidden()
+    finally:
+        section.deleteLater()

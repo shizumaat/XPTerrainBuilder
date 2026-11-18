@@ -1106,8 +1106,10 @@ def build_custom_pre_mask(til_x, til_y, sea_level, tile, extent_code):
 ################################################################################
 #: The orthophoto's opacity over the SEA at the shoreline (1.0 = the
 #: historic fully opaque start); the sea fade (``blur_mask``) is scaled by
-#: it, so its reach (``masks_width``) is unchanged.
-SEA_SHORE_OPACITY = 0.65
+#: it, so its reach (``masks_width``) is unchanged.  Owner 2026-11-18T13:24Z
+#: (0.65 was "too transparent"): about 30 % more opaque at the shore, still
+#: fading out to zero.
+SEA_SHORE_OPACITY = 0.85
 
 
 def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,

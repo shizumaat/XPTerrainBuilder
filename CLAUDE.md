@@ -1,308 +1,120 @@
 # XPTerrainBuilder
 
-macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
+macOS Swift app + vendored Python engine building X-Plane ortho scenery.
+Rules in force only; history and precedents: `docs/CLAUDE-history.md` — read
+on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
 
-- `Sources/` — SwiftPM targets: `SceneryKit` (engine client + models),
-  `XPTerrainBuilder` (app). Build: `swift build`; app bundle:
-  `./scripts/make_app.sh`; bundled engine: `./scripts/make_engine.sh`.
-- `Ortho4XP/` — the Python engine. It has its own `CLAUDE.md`, and
-  `src/auto_patch/` another; read them before engine work (the hard
-  build-time law lives there). Python is `Ortho4XP/venv/bin/python`
-  (no system python; `venv/bin/pip` is broken — use `python -m pip`).
+- `Sources/`: SwiftPM `SceneryKit` (engine client) + `XPTerrainBuilder` (app).
+  `swift build`; `./scripts/make_app.sh`; engine `./scripts/make_engine.sh`.
+- `Ortho4XP/`: the engine; read `Ortho4XP/CLAUDE.md` and
+  `src/auto_patch/CLAUDE.md` first. Python is `Ortho4XP/venv/bin/python`
+  (no system python; `python -m pip`).
 
-## Lanes (owner standing 2026-09-03)
+## Master and lanes
 
-The session is the project manager (the model the owner set for the
-session — Opus 5.5 since 2026-10-12; never switched by the session). Work is
-dispatched to subagents via the project definitions in `.claude/agents/`
-(default effort medium). EFFORT (owner ruling 2026-10-20, RULINGS
-2026-10-20a): lane effort is set per task at launch: low for landing,
-rebases, ratchets, census/replay runs and cleanup; medium for fixes with
-a spec; high for geometry/solver design and spec writing; xhigh only for
-architecture work (e.g. #412 cold patch). The definitions are: `lane` (implementation, all tools) and `scout`
-(read-only research). MODEL (owner standing 2026-10-13, RULINGS 13c;
-replaces the 2026-09-03 evening amendment): lanes and scouts run on
-**Opus** (`model: "opus"`) — implementation, measurement, attribution,
-audits, specs and review alike. **Fable 5.1 (`model: "fable"`) is launched
-only after the owner has approved THAT launch in chat**: the master names
-the brief and why Opus is not enough, and waits for the yes. "The brief
-needs judgement" is not a reason; a brief with law in it is still an Opus
-brief. The approved launch's prompt carries the line
-`OWNER-APPROVED-FABLE: <date> "<the owner's words>"`, without which the
-hook refuses it. ONE-MISS CAP (owner 2026-11-11, RULINGS 2026-11-11c; replaces the
-two-round cap of 2026-10-20b): the FIRST time an Opus round on a task
-fails to deliver, the master stops that lane and launches a Fable 5.1
-reviewer at once — `subagent_type: "scout"` (read-only), prompt carrying
-`TWO-ROUND-CAP-REVIEW: <issue> <the failed round(s)>` (the hook's marker
-keeps its old name) — that reviews the failed round and writes a new
-spec; it NEVER implements. Opus never retries a missed round on its own.
-A fresh Opus lane then runs the next round from that spec; if that round
-also misses, the task goes to the owner (park / ship / redesign) — never
-another attempt (owner 2026-11-03, RULINGS 2026-11-03d).
-This is the only Fable use that needs no per-launch yes. A Fable lane is
-never resumed (`SendMessage`) for a new
-piece of work — each round re-reads its whole context at Fable price; its
-follow-up goes to a fresh Opus lane on its branch. The master reads
-`get_usage` (Weekly · Fable) at session start and before asking for a
-Fable launch, and reports the figure with the request. Precedent: on
-2026-10-12/13 nine of 32 lanes were launched on Fable for implementation
-briefs and used 50 % of the weekly Fable allowance in under a day.
-EFFICIENCY (owner 2026-11-03, RULINGS 2026-11-03d): at most 8 lanes run
-at once (builds compete for CPU); the worktree cap is 16 and a new lane
-reuses a merged worktree (`lane_worktree.sh up`); anything that needs a
-permission (close, delete, a public create) is asked in the owner's own
-thread, not relayed; each morning starts a fresh master from a short
-handoff note; every lane report ends with a "Process" line when friction
-cost time or usage; a sim read is diagnosed only after checking the app
-version in its build log, and a test app is handed over as "quit the app
-and open XPTerrainBuilder-<v>.app".
-Every `Agent` launch passes the model explicitly and one of those
-`subagent_type`s — the PreToolUse hook `.claude/hooks/agent_guard.py`
-refuses anything else (built-in types inherit the session's high
-effort; definitions load at session start).
-Lanes iterate synthetic-first on `tools/v2_solve_replay.py` captures and
-stage replays (`--capture`, `--replay --from STAGE`, `--why-hard`,
-`--probe-site`, `--emit`, `--verify`; the v1 `repro_cut.py` / `solve_cut.py`
-were retired with the v1 engine, stage B 2026-09-17), build ONE
-representative airport once as
-the closing test, and never run the five-airport sweep (orchestrator,
-once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
-spawner owns the merge. Current plan of record:
-`Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
-
-**Time (owner standing 2026-10-17), for managing subagents:** Time matters
-here: do not spend time that can be avoided, and the earlier a correct
-result is obtained, the better.
-
-## Lane cap, cleanup and disk (owner HARD RULE 2026-11-06)
-
-The disk filled (ENOSPC) on 2026-11-06: the master told lanes to raise
-the worktree cap (41 trees against 16) and ran many tile builds at once,
-and every session stalled until the owner cleaned up by hand. Never again:
-
-- At most 16 lane worktrees and about 8 running lanes. Never raise the cap
-  (`lane_worktree.sh` now ignores an `O4_LANE_CAP` above 16). When it
-  refuses, the master cleans up first.
-- The moment a lane reports, the master pushes its branch, then removes
-  its worktree and deletes its scratch builds (tile dirs, pack copies).
-- Before launching a lane that builds, check `df -h` (30 GB free or more).
-  At most 4 builds run at once (owner 2026-11-06T05:06Z). `build_airport.py` refuses a tile
-  build under 30 GB free and a patch build under 5 GB, with no override.
-- Every lane brief says: "never raise the lane cap; delete your scratch
+- ONE master talks to the owner, dispatches, measures, merges, records
+  rulings (2026-10-02). Lanes report only to it (cloud: PR body, briefs in
+  `docs/cloud-briefs/<date>/`); never comment on issues, merge, create
+  routines or notify the owner. Permission asks go in the owner's thread.
+- Master: one message (PushNotification) per owner decision or ready build;
+  each morning a fresh master from a short handoff (memory + RULINGS + issues).
+- Landing: ≤ ~10 PRs on one integration branch; CI + landing check once
+  (`tests/auto_patch_v2`, closure/registry twins, `test_v1_retired`, each
+  PR's site gate on one merged build); bisect red. `Fixes #N` in the merge;
+  closing by hand, comment the site numbers first.
+- `Agent` launches pass `model` and `subagent_type` `lane`|`scout` (hook
+  `.claude/hooks/agent_guard.py`). Effort (RULINGS 2026-10-20a): low =
+  landing/rebase/ratchets/census/cleanup; medium = fix with spec; high =
+  geometry/solver design, specs; xhigh = architecture.
+- MODEL (owner 2026-11-17T21:23Z, RULINGS 2026-11-17q; replaces 13c's
+  per-launch yes and the 11-13 standing yes): goal = best result, shortest
+  clock time, least usage. Opus for all work, specs and reviews included.
+  Fable (`scout`, never implementation, never resumed) only (a) after an
+  Opus round misses (one-miss cap below), or (b) for an especially complex
+  design: new architecture, or a new cross-cutting region/law that needs a
+  consumer census. The master names which in the launch, with `get_usage`
+  Weekly·Fable; the prompt carries
+  `OWNER-APPROVED-FABLE: 2026-11-17 "use fable only for especially complex tasks or when an opus round has failed"`.
+- ONE-MISS CAP (RULINGS 2026-11-11c): an Opus round misses → stop it, launch
+  a Fable `scout` with `TWO-ROUND-CAP-REVIEW: <issue> <the failed round(s)>`
+  to write a new spec (never implements; no per-launch yes); a fresh Opus
+  lane runs it; a second miss goes to the owner.
+- HARD RULE 2026-11-06: ≤ 8 running lanes, ≤ 16 worktrees (reuse via
+  `lane_worktree.sh up`); never raise `O4_LANE_CAP`. `df -h` ≥ 30 GB before
+  a build. Builds share memory machine-wide and yield to the owner's app
+  build and X-Plane; never a fixed one-build limit (owner 2026-11-17T22:50Z).
+  Dev processes run below running apps (owner 2026-11-18T01:01Z): the dev venv
+  sets nice 15 at start (`venv/.../site-packages/o4_dev_nice.pth`;
+  `O4_DEV_NICE=0` only for a timed run).
+  On report: push, remove the worktree, delete
+  scratch builds. Briefs say "never raise the lane cap; delete your scratch
   builds when you report".
+- Lanes iterate synthetic-first and STOP at replay/capture evidence: no
+  closing tile build (RULINGS 2026-11-17r). The integration builds each
+  touched airport ONCE on the merged code and runs the drawn gate there at
+  every lane's `--site`s; never the five-airport sweep; the spawner merges. Reports
+  give net lines ± and new public symbols, plus a "Process" line on friction.
+- Sim reads: check the app version in the build log; hand over as "quit the
+  app and open XPTerrainBuilder-<v>.app". Time matters: earliest correct result.
+- Plan of record: `Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
 
-## Single master (owner standing 2026-10-02)
+## Issues and beta gate
 
-ONE session is the project master: it alone talks to the owner, dispatches,
-measures, merges and records rulings. Lanes — local (`Agent`, needs the
-corpus) and cloud (`RemoteTrigger` routines, code + twins only; briefs live
-in `docs/cloud-briefs/<date>/` and the trigger prompt just points at the
-file) — report ONLY to the master: a local lane through its final report, a
-cloud lane through its PR body. Lanes NEVER comment on issues, NEVER merge,
-NEVER create a routine/trigger or follow-up, NEVER notify the owner. The
-master lands PRs in batches (owner standing 2026-10-20T00:34:25Z: "If we
-did say 10 at a time, we would only need to revert and test one at a time
-if something failed"): it merges up to ~10 ready PRs onto one integration
-branch from main and runs CI and the landing check ONCE on the batch (all
-of `tests/auto_patch_v2`, the closure and registry twins, `test_v1_retired`,
-and each PR's own site gate on one merged build). Green lands the batch;
-red is bisected and only the PR that broke it is dropped. It posts the one
-evidence comment per issue, and messages the owner once per decision or
-ready build (PushNotification when Remote Control is on). Handoff between
-master sessions is the memory checkpoint + `Ortho4XP/docs/RULINGS.md` + the
-issue tracker.
+- GitHub Issues `shizumaat/XPTerrainBuilder` (PUBLIC) is the tracker; start
+  with `gh issue list --label blocker` / `--milestone "Beta 2"`.
+- A lane fixes bugs it finds in its PR and lists them (RULINGS 2026-11-03c);
+  issue only if it needs the owner, sits in another lane's files, or is too
+  large. Owner-mentioned bugs get an issue that turn: `bug`/`feature`,
+  `area:*`, `blocker`/`regression`/`performance`/`needs-owner`/
+  `needs-sim-read`; sites as `lat, lon` in the title. Rulings, specs,
+  internal follow-ups and private notes are files, not issues.
+- Release cuts first run `bash scripts/check_beta_blockers.sh` (CI:
+  `scripts/check_tag_version.sh`). `docs/BETA2-BLOCKERS.md` rows are never
+  deleted; only the owner closes/waives; lanes cite the row ID and update it.
 
-## Beta 2 gate (owner standing 2026-09-18)
+## Code rules
 
-`docs/BETA2-BLOCKERS.md` is the beta 1 feedback list (23 rows). ANY attempt
-to cut beta 2 — tag, release notes, app build for release — first runs
-`bash scripts/check_beta_blockers.sh` and stops on a refusal; the release
-workflow enforces the same through `scripts/check_tag_version.sh`. Rows are
-never deleted; only the owner moves a row to `CLOSED` (sim read) or
-`WAIVED` (ruling). Lanes working a row cite its ID and update its
-Status/Notes in the same commit as the evidence.
+- Before editing `Ortho4XP/src/` or `Sources/`: `tools/blast.py <file>`.
+  Before adding code: `tools/blast.py --find <kw>` / `--map [<pkg>]`; extend
+  the `[shared N]` one; a new family member is a new file in its package.
+- GATES (may fall, never rise; RULINGS 2026-10-04): duplicates
+  (`tools/ratchets.py dupes --near`), unused defs (`tools/ratchets.py unused`,
+  allowlist `tools/unused_allowlist.json`); `ratchets.py layers`. 1,000 lines
+  is a guide, not a gate; split by responsibility.
+- No airport-specific code (RULINGS 05e/05g): no ICAO literal, per-airport
+  table, pack name, coordinate window or tuned threshold; gate
+  `Ortho4XP/tests/test_no_airport_specific_code.py` (RECORDED set empty).
+- Two UIs (#1244): the Mac app is the layout authority; the Qt window
+  (`Ortho4XP/src/O4_Qt_*.py`) mirrors toolbar/build box/Settings in the same
+  PR or records an owner exception in `tests/test_qt_layout_parity.py`.
+- Wire protocol: `o4_engine/events.py` class names ARE the JSONL wire names
+  matched as literals in `Sources/SceneryKit/OrthoEngineClient.swift`; a
+  rename on either side breaks silently.
+- `docs/HANDOVER.md`/`docs/PITFALLS.md` describe the retired XPSceneryDoctor
+  (gotchas valid, file maps wrong). `Ortho4XP/STATUS.md`: top block only.
 
-## Issue tracker (owner 2026-09-18)
-
-GitHub Issues on `shizumaat/XPTerrainBuilder` is THE tracker for bugs and
-features (`gh issue list`, `gh issue view N`). It is PUBLIC.
-
-- Start of session: `gh issue list --label blocker` and
-  `gh issue list --milestone "Beta 2"` — before trusting a memory note.
-- A lane FIXES a bug it finds in its own PR and lists it in its report
-  (owner 2026-11-03, RULINGS 2026-11-03c). It gets an issue only when it needs
-  an owner decision or review, lies in files another running lane is
-  changing, or is too large for that change.
-- A bug or feature the owner mentions, or a defect that falls under one of
-  those three, gets an issue the same turn: labels `bug`/`feature`, one or more
-  `area:*`, plus `blocker` / `regression` / `performance` / `needs-owner` /
-  `needs-sim-read` as they apply; owner sites as `lat, lon` in the title.
-- A merge that fixes one says `Fixes #N` in its merge commit (closes on push);
-  comment the measured result (site numbers first) when closing by hand.
-- NOT issues: owner rulings and law (`Ortho4XP/docs/RULINGS.md` stays canonical
-  — issues LINK to the ruling), specs and findings (files; the issue links them),
-  internal follow-ups (spec-author reviews of lane deviations, harness controls,
-  `docs/DEFERRED_VERIFICATION.md`), and anything private (half-formed ideas,
-  licensing questions) — those stay in `docs/`.
-- `docs/BETA2-BLOCKERS.md` rows were migrated (#1–#20); the gate is now
-  "milestone Beta 2 has no open `blocker`".
-
-## Blast-radius index (check before editing)
-
-Before editing anything under `Ortho4XP/src/` or `Sources/`, run:
-
-    Ortho4XP/venv/bin/python tools/blast.py <file>
-
-~100-token answer: direct importers, tests to run, role-literal / env-flag /
-wire-protocol hazards, co-change neighbors. Self-rebuilds when stale (~2 s).
-`tools/blast.py --audit` verifies index recall against grep ground truth.
-
-Before ADDING a function, class or module, look for the existing one:
-
-    Ortho4XP/venv/bin/python tools/blast.py --find <keyword> [<keyword>…]
-    Ortho4XP/venv/bin/python tools/blast.py --map [<package>]
-
-`--find` answers "does it exist?" (`name(args)`, `file:line`; `[shared N]`
-marks the one N other modules already use — extend that one). `--map` is one
-line per module of a package, or one line per package with no argument. The
-map is generated from docstrings and `__all__`, never hand-written;
-`tools/brief_pack.py --map <package>` puts it in a lane's brief.
-`tools/ratchets.py layers` gates `auto_patch_v2`'s package order.
-
-## Reuse and readable modules (owner RULINGS 2026-10-04 "FILE SIZE…" a/b/c)
-
-The goal is clean, human-readable code that the next session can fix and add
-to cheaply: small modules with one responsibility, and no second
-implementation of a thing that exists. Extend what is there; a new family
-member (provider, constraint, emit adapter) is a new file in its package,
-never an append. 1,000 lines is a GUIDE and a warning, never a gate:
-`tools/ratchets.py` reports long and growing files (and long functions) for
-the master to read at merge. Split because a file holds two
-responsibilities — never fold comments or cut a file at 999 to make a number.
-What IS gated: the identical-duplicate count, the near-duplicate count
-(`tools/ratchets.py dupes --near`) and the unused-definition count
-(`tools/ratchets.py unused`, #740; dynamic use goes in
-`tools/unused_allowlist.json` with a reason) may fall, never rise.
-Every lane report carries net lines added/removed and new public symbols.
-
-## No airport-specific code (owner standing 2026-10-05, RULINGS 05e)
-
-An airport is a TEST CASE. It shows a defect; the fix is a GENERAL rule that
-every airport is read by. No engine, app or law-table code may ask which
-airport it is building: no ICAO literal, no table or key named for an
-airport, no pack name, no coordinate window, no threshold tuned so that one
-named airport passes. If no witness in the geometry or the map separates two
-cases, that is a finding for the owner — never a switch. Briefs name an
-airport as the place a defect was found and as the closing test, never as
-the scope of the fix. `Ortho4XP/tests/test_no_airport_specific_code.py`
-gates it; its RECORDED set is empty since RULINGS 2026-10-05g and may never
-rise.
-
-## Two UIs, one layout (owner 2026-10-22, #1244)
-
-The Mac app (`Sources/XPTerrainBuilder`) is the layout authority; the Qt
-window (`Ortho4XP/src/O4_Qt_*.py`, what Windows and Linux users run)
-mirrors it. A change to either app's toolbar, build box or Settings lands
-in BOTH in the same PR, or records an owner-ruled exception in the
-manifest of `Ortho4XP/tests/test_qt_layout_parity.py`, which fails when
-the two differ. A spec that adds a control names its home in both apps.
-
-## Cross-language wire protocol (silent-break hazard)
-
-`Ortho4XP/src/o4_engine/events.py` class names ARE the JSONL wire names
-(`type(self).__name__`); `Sources/SceneryKit/OrthoEngineClient.swift` matches
-them as string literals. Renaming either side breaks the other silently —
-the string never appears in Python source. `blast.py` reports drift.
-
-## Doc landmines
-
-- `docs/HANDOVER.md` and `docs/PITFALLS.md` describe the retired
-  XPSceneryDoctor app: their file maps are wrong; the numbered gotcha
-  lore is still valid.
-- `Ortho4XP/STATUS.md`: only the TOP dated block is current; the rest is
-  history. Never load it whole (~90k tokens).
-
-## The standard test harness (build and measure ONLY through this)
-
-Five entries, run from `Ortho4XP/`. They are THE way to build and measure;
-a lane-private build or census wrapper is a **defect**, not a shortcut.
+## Harness (build and measure ONLY through it; from `Ortho4XP/`)
 
     venv/bin/python tools/harness/build_airport.py ICAO [--tile LAT LON] [--dem M]
-    venv/bin/python tools/harness/census.py PATCH.osm [PATCH.osm ...]
+    venv/bin/python tools/harness/census.py PATCH.osm [...]
     venv/bin/python tools/harness/oracle.py ICAO
     venv/bin/python tools/harness/drawn_gate.py ICAO --tag T [--site NAME=LAT,LON[,R]] [--against BASE.json]
-    tools/harness/lane_worktree.sh {up|check|down} NAME [REF]
-    tools/harness/lane_worktree.sh data          # who is on which corpus
+    tools/harness/lane_worktree.sh {up|check|down|data} NAME [REF]
 
-**Drawn gate (owner 2026-11-13T03:17Z, RULINGS 2026-11-13g, #1903).** A
-lane's closing tile build runs with `--pack-copy`, and its closing bar is
-`drawn_gate.py` PASS at the round's `--site`s and `--against` the control
-(no MOVED): the gate reads the mesh, patch and objects as X-Plane draws
-them. `build_airport.py --tile` runs it and writes `<tag>.drawn.json`. A
-replay or census pass alone is not a lane pass (LOWS/LGAV/KIAH/KLAX passed
-those bars while the drawn objects were unchanged). A one-tile build cannot
-measure claims that live on the neighbour tile: build both, or say so.
-
-Why: two lanes each wrote their own census wrapper. One dropped
-`terrace_joints_ll` (lawful declared terraces reported as violations); the
-other dropped `ruleset` (an FAA airport judged under ICAO law) and
-hand-enumerated 12 of the 21 law families, reporting 9 — HEAZ came out 100
-where the harness censuses 110. Both wrappers looked right.
-
-`check_grade.py` is the harness library — `LAW_FAMILIES`,
-`law_context_from_sidecar`, `run_checks(family_out=...)`,
-`run_checks_law_true`, `row_side`. Its CLI, the census and the pytest
-fixtures share one code path; `Ortho4XP/tests/test_harness.py` twin-asserts
-that they do. Adding a check to `run_checks` without registering it in
-`LAW_FAMILIES` fails there.
-
-**One shared data repo (owner ruling, RULINGS `e9daef5`).**
-`/Users/noah/XPTerrainBuilderData` is THE data repo — DEM + insets, OSM
-extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
-orthophotos. Every lane MOUNTS it through the ritual; a private cache is a
-second corpus that warms on its own schedule, and two lanes on two corpora
-do not measure the same thing. Downloads and cache regenerations are
-EXPLICIT, locked, hash-stamped events — `build_airport.py --refresh-data
-<scope>`, recorded in `<repo>/.harness/refresh_ledger.jsonl` — never a
-build side effect. The precedent: a KCLT road-feed refresh ran inside a
-tile build on 2026-08-05 01:47–01:55 and silently changed campaign hashes.
-Lane *products* (`Patches`, `Tiles`, `Previews`, `tmp`) stay lane-local —
-every tile build writes its emitted patches into `Patches/`, so sharing it
-would put one lane's geometry into another lane's build.
-
-**Consumer census before cross-cutting geometry law (owner ruling,
-RULINGS 2026-08-30l).** A change introducing a new shape class,
-exemption, or region into the layout (a deck, mask, claim, protected
-union) starts AT SPEC TIME with a census of EVERY pass that reads the
-affected geometry — grep the region's accessors and roles/refs, seam-
-probe where static reading isn't decisive — and rules each interaction
-in ONE table before any consumer is edited. Prefer trimming a region
-at its single derivation site over per-consumer vetoes. Precedent: the
-bridge deck's vertical exemption was discovered against five consumers
-one ~27-min build at a time (~8 rounds) when one table was 1–2 rounds.
-The spec author also checks the model is emittable in a heightfield
-mesh before seeking ratification.
-
-**Tool discipline (owner ruling, RULINGS `7e90032`).** Consult
-`tools/INDEX.md` BEFORE writing any script that builds, measures or audits —
-a tool absent from the index is treated as absent, and every new tool lands
-with its index entry in the same commit. Extend a near-fit (a parameter, a
-subcommand); never fork it. The second use of a lane scratchpad script is
-the signal to promote it into `tools/` with an index entry and a twin. A
-slightly-different duplicate is a defect: the census-wrapper precedent above
-is what that costs.
-
-### Traps the harness now makes impossible (stop hand-checking these)
-
-The list (wrong cwd, cold DEM, missing sidecar, private corpus, implicit
-downloads, suite writes, Qt under xdist, network in tests, unbounded
-waiters) lives in `Ortho4XP/tools/harness/CLAUDE.md`. Each is a refusal
-that names itself; read that file when one fires.
-
-### Traps still on you
-
-- Single-run wall times swing ±25%: never A/B one run per side (use the
-  build-time checker's `--runs N`), and never let a timing run through the
-  ledger (`build_airport.py --no-ledger`).
-- Background / `nohup` builds inherit nice 5 and land on efficiency cores:
-  foreground only for anything timed.
+- A private build/census wrapper is a defect. `check_grade.py` is the library
+  (`LAW_FAMILIES`, `run_checks`, `run_checks_law_true`, …); new checks
+  register in `LAW_FAMILIES` (`tests/test_harness.py`).
+- Drawn gate (RULINGS 2026-11-13g, run at integration per 17r): tile build with `--pack-copy`;
+  bar = `drawn_gate.py` PASS at the `--site`s `--against` the control (no
+  MOVED). Replay/census alone is not a pass; neighbour-tile claims need both tiles.
+- Data repo `/Users/noah/XPTerrainBuilderData` (RULINGS `e9daef5`), mounted
+  by the ritual; refresh only via `build_airport.py --refresh-data <scope>`.
+  `Patches`/`Tiles`/`Previews`/`tmp` stay lane-local.
+- Consumer census (RULINGS 2026-08-30l): a new region/exemption starts with
+  ONE table of every pass reading it; trim at the derivation site; check
+  heightfield emittability.
+- Tools (RULINGS `7e90032`): consult `tools/INDEX.md` first; extend near-fits;
+  new tools land with their index row; a scratch script's 2nd use → promote.
+- Refusals: `Ortho4XP/tools/harness/CLAUDE.md`. Still on you: wall times
+  swing ±25 % (`--runs N`, `--no-ledger`); time in the foreground only
+  (background builds are niced onto efficiency cores).

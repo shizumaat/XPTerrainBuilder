@@ -550,6 +550,13 @@ class DeckBridge:
     #: off them are no ground once hidden (``planar/deck_pack_cover.
     #: hidden_cells_off``)
     hidden_plans: tuple = ()
+    #: owner RULINGS 2026-11-18i: a deck piece cut to ONE SPAN of a pack
+    #: deck lying at grade elsewhere on the airport's pavement
+    #: (``geom/deck_spans``, ``planar/deck_span_cut``): ``(a, b, spans)``
+    #: -- the source piece's axis (frame xy) and every span ``(s_a, s_b)``
+    #: along it; the object stage keeps those bands of the frame and drops
+    #: the rest.  ``()`` for every other deck
+    span_cut: tuple = ()
 
     @property
     def depth_a(self) -> float:

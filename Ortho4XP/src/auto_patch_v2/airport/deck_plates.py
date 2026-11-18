@@ -132,6 +132,13 @@ class _FramePlates:
     origin: tuple[float, float]
     heading: float
     stations: tuple[tuple[float, float], ...]
+    #: per band, whether it is KEPT (owner RULINGS 2026-11-18i: a deck cut to
+    #: its spans keeps its span bands and drops the at-grade rest); ``()``
+    #: keeps every band (#2112)
+    keep: tuple[bool, ...] = ()
+
+    def kept(self, k: int) -> bool:
+        return not self.keep or bool(self.keep[k])
 
     def to_frame(self, lat: float, lon: float) -> tuple[float, float]:
         """``(x, z)`` of a world point in the deck's authored frame
@@ -173,11 +180,13 @@ def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
     if len(decks) != 1 or reach_m <= 0.0:
         return None
     m = decks[0]
+    o = getattr(m, "origin", None)
+    st = _stations(m)
+    if getattr(m, "deck_spans", ()) and o is not None and st:
+        return _span_plates(m, (float(o[0]), float(o[1])), st, counts)
     p = _plates_of(str(getattr(m, "authored_path", "") or ""), reach_m)
     if p is None:
         return None
-    o = getattr(m, "origin", None)
-    st = _stations(m)
     if o is None or not st:
         counts["deck_plates_no_stations"] = counts.get("deck_plates_no_stations", 0) + 1
         return None
@@ -186,6 +195,41 @@ def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
     if len({fp.band_of_ll(*q) for q in st}) < len(p):
         counts["deck_plates_unseated"] = counts.get("deck_plates_unseated", 0) + 1
         return None
+    return fp
+
+
+#: how far a kept span band reaches past its abutment line, metres
+SPAN_SEAT_M = 0.5
+
+
+def _span_plates(m: _t.Any, origin: tuple[float, float],
+                 st: tuple[tuple[float, float], ...], counts: dict) -> "_FramePlates | None":
+    """The frame's bands of a deck CUT TO ITS SPANS (owner RULINGS
+    2026-11-18i, ``Member.deck_spans``): a band line across the axis at
+    each abutment, the span bands kept, the at-grade bands between and
+    beyond dropped; ``None`` where a span band holds no seat station."""
+    a, b, spans = m.deck_spans
+    fp0 = _FramePlates(str(getattr(m, "id", "")), _Plates((1.0, 0.0), ((0.0, 0.0),), (), ()),
+                       origin, float(getattr(m, "heading_deg", 0.0) or 0.0), st)
+    ax, az = fp0.to_frame(*a)
+    bx, bz = fp0.to_frame(*b)
+    L = math.hypot(bx - ax, bz - az)
+    if L <= 0.0 or not spans:
+        return None
+    ux, uz = (bx - ax) / L, (bz - az) / L
+    s0 = ux * ax + uz * az
+    # each span band reaches SPAN_SEAT_M past its abutments, so the seat
+    # stations on its end lines stand inside it
+    cuts = tuple(s0 + float(q) for sa, sb in spans
+                 for q in (sa - SPAN_SEAT_M, sb + SPAN_SEAT_M))
+    edges = (-math.inf, *cuts, math.inf)
+    p = _Plates((ux, uz), tuple(zip(edges[:-1], edges[1:], strict=True)), cuts, ())
+    keep = tuple(k % 2 == 1 for k in range(len(cuts) + 1))
+    fp = _dc.replace(fp0, plates=p, keep=keep)
+    if any(keep[k] and not any(fp.band_of_ll(*q) == k for q in st) for k in range(len(keep))):
+        counts["deck_spans_unseated"] = counts.get("deck_spans_unseated", 0) + 1
+        return None
+    counts["deck_span_frames"] = counts.get("deck_span_frames", 0) + 1
     return fp
 
 
@@ -199,9 +243,14 @@ def _band_seats(fp: _FramePlates, surface: _t.Any
     if not read:
         return None
     mean_all = sum(r[2] for r in read) / len(read)
+    # the frame zero (``airside_deck_seat._plate_zero``) is the mean over
+    # every station; a dropped band holds none (RULINGS 2026-11-18i)
     out = []
     for k in range(len(fp.plates)):
         mine = [r for r in read if fp.band_of_ll(r[0], r[1]) == k]
+        if not fp.kept(k):
+            out.append((0.0, None))
+            continue
         if not mine:
             return None
         cla = sum(r[0] for r in mine) / len(mine)
@@ -240,7 +289,12 @@ def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
             out.append(b)
             continue
         zero = float(a.surface_z) - float(a.y_zero)
-        for k, (dk, (la, lo, sz)) in enumerate(seats):
+        first = True
+        for k, (dk, seat) in enumerate(seats):
+            if seat is None:
+                counts["deck_span_bands_dropped"] = counts.get("deck_span_bands_dropped", 0) + 1
+                continue
+            la, lo, sz = seat
             y0 = float(sz) - (zero + dk)
             a2 = _dc.replace(
                 a, lat=la, lon=lo, surface_z=float(sz), y_zero=y0,
@@ -248,8 +302,9 @@ def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
                 reason=(f"deck plate {k + 1}/{len(seats)} on its own end lines: zero "
                         f"{zero + dk:.2f} ({dk:+.2f} off the frame's {zero:.2f}; #2112)"
                         f"; was: {a.reason}"))
-            bid = b.body_id if k == 0 else next_id
-            next_id += 1 if k else 0
+            bid = b.body_id if first else next_id
+            next_id += 0 if first else 1
+            first = False
             out.append(named_body(m, b, body_id=bid, anchor=a2, band=fp.plates.band(k),
                                   feet=_in_band(fp, k, b.feet),
                                   geom_pts=_in_band(fp, k, b.geom_pts)))

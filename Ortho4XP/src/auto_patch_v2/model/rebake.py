@@ -148,6 +148,15 @@ class Part:
     scatter: bool = False
 
 
+def _spans_of(raw: _t.Any) -> tuple:
+    """A plan's ``deck_spans`` read back (``Member.deck_spans``)."""
+    if not raw:
+        return ()
+    a, b, spans = raw
+    return ((float(a[0]), float(a[1])), (float(b[0]), float(b[1])),
+            tuple((float(x), float(y)) for x, y in spans))
+
+
 @_dc.dataclass(frozen=True)
 class Member:
     """One resource of a unit.  ``authored_path`` is what was read
@@ -219,6 +228,12 @@ class Member:
     #: predicted and graded its ends to (``rebake_plan.with_kept``; the seat
     #: where every end was graded, ``bridge_approach.approach_seat``).
     #: ``None`` for every other member and in every older plan.
+    #: owner RULINGS 2026-11-18i: a pack deck cut to its SPANS
+    #: (``planar/deck_span_cut``): ``(a, b, ((s_a, s_b), ...))`` -- the
+    #: source piece's axis ends ``(lat, lon)`` and each span in metres from
+    #: ``a``; the frame keeps those bands and drops the at-grade rest
+    #: (``airport/deck_plates``).  Empty for every other member
+    deck_spans: tuple = ()
     anchor_zero: float | None = None
     #: #2065 S2: a FREE BRIDGE's deck (``plate_kind == "free"``,
     #: ``planar/free_bridge``): its bridge's id, the driven layer's top at
@@ -483,6 +498,9 @@ class RebakePlan:
                     "plate_clearance_m": m.plate_clearance_m,
                     "plate_kind": m.plate_kind,
                     "anchor_zero": m.anchor_zero,
+                    **({"deck_spans": [list(m.deck_spans[0]), list(m.deck_spans[1]),
+                                       [list(q) for q in m.deck_spans[2]]]}
+                       if m.deck_spans else {}),
                     "free_bridge": m.free_bridge,
                     "deck_end_tops": list(m.deck_end_tops),
                     "deck_end_land": list(m.deck_end_land),
@@ -599,6 +617,7 @@ class RebakePlan:
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
                 plate_kind=str(m.get("plate_kind") or ""),
                 anchor_zero=None if m.get("anchor_zero") is None else float(m["anchor_zero"]),
+                deck_spans=_spans_of(m.get("deck_spans")),
                 free_bridge=str(m.get("free_bridge") or ""),
                 deck_end_tops=tuple(float(x) for x in m.get("deck_end_tops") or ()),
                 deck_end_land=tuple(bool(x) for x in m.get("deck_end_land") or ()),

@@ -275,6 +275,11 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     held = [a for a in getattr(pm, "deck_anchors", ()) or () if a.object_id == oid]
     if held and len(rest) < 3:
         rest = [*rest, held[0].z_m - held[0].top_y - bottom]
+    cut = next((e.deck.span_cut for e in es if getattr(e.deck, "span_cut", ())), ())
+    if cut and len(rest) == 3:
+        # owner RULINGS 2026-11-18i: the deck was cut to its spans
+        # (``planar/deck_span_cut``) -- the object stage keeps those bands
+        rest = [*rest, cut]
     by_pt = tops.setdefault(oid, {})
     for e in es:
         pts = [tuple(pm.vertices[v].xy) for v, _w in e.terms]

@@ -334,9 +334,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                          f"object states its walls — they define the cut (Q-A as ruled)")
             continue
         mine: list[DeckBridge] = []
-        for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
-            if piece.geom_type != "Polygon" or piece.area < 1.0:
-                continue
+        for piece, span in _span_pieces(u, airport, law, roles, notes, d):
             ring_ll = [to_ll(x, y) for x, y in piece.exterior.coords[:-1]]
             pairs = facing_contacts(ring_ll, surface, step, every=True)
             where = f"{d.id} {str(d.path).rsplit('/', 1)[-1]} piece {piece.area:,.0f} m2"
@@ -367,7 +365,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
-                                   family=fam, route=route, route_ref=ref))
+                                   family=fam, route=route, route_ref=ref, span_cut=span))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
@@ -384,6 +382,28 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                         0.5 * (db.top_a + db.top_b), r, n)))
     return tuple(out), notes
+
+
+def _span_pieces(u, airport, law, roles, notes: list[str], d):
+    """``(piece, span_cut)`` per deck piece of the union ``u``, largest
+    first; a piece lying at grade on the airport's pavement is cut to its
+    spans (owner RULINGS 2026-11-18i, ``planar/deck_span_cut``), each span
+    carrying ``(a, b, spans)``; every other piece is itself with ``()``."""
+    from .deck_span_cut import span_split
+    for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
+        if piece.geom_type != "Polygon" or piece.area < 1.0:
+            continue
+        got = span_split(piece, airport, law, roles)
+        if got is None:
+            yield piece, ()
+            continue
+        cut, parts = got
+        notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: lies at grade on the "
+                     f"airport's pavement -- cut to its {len(parts)} span(s) "
+                     + ", ".join(f"{a:.0f}-{b:.0f} m" for a, b in cut.spans)
+                     + f" of {cut.length:.0f} m (RULINGS 2026-11-18i)")
+        for p in parts:
+            yield p, (tuple(cut.a), tuple(cut.b), tuple(cut.spans))
 
 
 def _roads_under(airport, law, ring: Polygon) -> "XY | None":

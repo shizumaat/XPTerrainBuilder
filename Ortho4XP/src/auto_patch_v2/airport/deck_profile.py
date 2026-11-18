@@ -730,14 +730,11 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         return la0 + y / ml, lo0 + x / mo
     table: list = []
     changed: set[int] = set()
-    groups = _groups(pieces, law.walled_m)
-    grouped = {k for ks in groups.values() for k in ks}
-    for gid, ks in sorted(groups.items()):
+    for gid, ks in sorted(_groups(pieces, law.walled_m).items()):
         if not _is_long(pieces, ks, xy):
             continue
         z0 = float(np.median([pieces[k].zero for k in ks]))
         nodes, riders = _nodes(pieces, ks, xy, law)
-        riders = [c for c in riders if c not in grouped]   # warped by its own group
         nodes = nodes + _crossing_nodes(pieces, ks, xy)
         feet = (_end_nodes(pieces, ks, xy, surface, z0, law.walled_m)
                 if surface is not None else [])

@@ -134,7 +134,7 @@ def test_runways_reader_abstains_without_an_install():
 def test_presets_carry_the_corridor():
     import O4_Settings_Presets as PRESETS
     got = {p.key: p.as_dict()["cover_approach_ft"] for p in PRESETS.PRESETS}
-    assert got == {"light_on_disk": "0", "balanced": "500",
+    assert got == {"light_on_disk": "0", "balanced": str(COVER.HALF_EYE_RULE_FT),
                    "sharper_airports": str(COVER.EYE_RULE_FT)}
 
 
@@ -170,3 +170,11 @@ def test_eye_rule_sets_the_corridor_and_nothing_rings_round_it(monkeypatch):
     assert not hasattr(COVER, "RING_COVER_REACH_M")
     assert GEO.wgs84_to_orthogrid(*_ll(1200, 1200 + 9000), 18) not in eye
     assert _squares(monkeypatch, cover_extent=0.0, approach_ft=1000) < eye
+
+
+@pytest.mark.parametrize("lat", [37.74, 61.0])
+def test_balanced_half_eye_is_half_the_sharper_length(lat):
+    import O4_Settings_Presets as PRESETS
+    ft = {p.key: int(p.as_dict()["cover_approach_ft"]) for p in PRESETS.PRESETS}
+    assert COVER._corridor_length_m(ft["balanced"], lat) == pytest.approx(
+        COVER._corridor_length_m(ft["sharper_airports"], lat) / 2)

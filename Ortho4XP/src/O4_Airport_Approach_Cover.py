@@ -46,6 +46,7 @@ from shapely.geometry import Polygon, box
 from shapely.prepared import prep
 
 __all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "EYE_RULE_FT",
+           "HALF_EYE_RULE_FT",
            "eye_corridor_length_m", "region_squares", "square_bounds",
            "tile_cover_squares"]
 
@@ -56,6 +57,10 @@ CORRIDOR_FAR_WIDTH_M = 1000.0
 #: ``cover_approach_ft`` value that sets the corridor length by the eye
 #: rule (RULINGS 2026-11-17u) instead of a height in feet.
 EYE_RULE_FT = -1
+#: ... half the eye rule's length (the Balanced preset; owner 2026-11-18).
+HALF_EYE_RULE_FT = -2
+#: each eye-rule sentinel's fraction of the eye rule's length.
+_EYE_FRACTION = {EYE_RULE_FT: 1.0, HALF_EYE_RULE_FT: 0.5}
 _FT_TO_M = 0.3048
 
 
@@ -73,9 +78,11 @@ def _corridor_length_m(height_ft: float, lat: float = 0.0,
                        base_zl: int = 16) -> float:
     """How far from the threshold a 3 degree glide path is ``height_ft``
     above it (1,000 ft is about 5.8 km, 500 ft about 2.9 km), or the eye
-    rule's length at ``lat`` for :data:`EYE_RULE_FT`."""
-    if float(height_ft) == EYE_RULE_FT:
-        return eye_corridor_length_m(lat, base_zl)
+    rule's length at ``lat`` for :data:`EYE_RULE_FT` (half of it for
+    :data:`HALF_EYE_RULE_FT`)."""
+    fraction = _EYE_FRACTION.get(int(height_ft)) if float(height_ft) < 0 else None
+    if fraction is not None:
+        return fraction * eye_corridor_length_m(lat, base_zl)
     height_m = max(float(height_ft), 0.0) * _FT_TO_M
     return height_m / math.tan(math.radians(GLIDE_PATH_DEG))
 
@@ -192,12 +199,12 @@ def tile_cover_squares(tile, dico_airports: dict, airports: Iterable,
                        xplane_root: Optional[str] = None) -> set:
     """Every ``tile.cover_zl`` texture square the ``airports`` of
     ``dico_airports`` cover: boundary (+ ``tile.cover_extent`` km) and,
-    with ``tile.cover_approach_ft`` above 0 (or :data:`EYE_RULE_FT`,
+    with ``tile.cover_approach_ft`` above 0 (or an eye-rule sentinel,
     read against the tile's ``default_zl``), their approach corridors."""
     approach_ft = float(getattr(tile, "cover_approach_ft", 0) or 0)
     extent_km = float(getattr(tile, "cover_extent", 0) or 0)
     base_zl = int(getattr(tile, "default_zl", 16) or 16)
-    corridors = approach_ft > 0 or approach_ft == EYE_RULE_FT
+    corridors = approach_ft > 0 or int(approach_ft) in _EYE_FRACTION
     if corridors and xplane_root is None:
         xplane_root = INSETS._xplane_root_for_package_footprints()
     squares = set()

@@ -181,7 +181,7 @@ _LAYOUT: list = [
         ("cover_approach_ft",
          "How far along the approaches (ft on a 3° glide path)?", "tile", False,
          "1,000 ft is about 5.8 km past each runway end; 0 covers the airport only; "
-         "-1 goes as far as the eye resolves the base zoom (about 6.3 km)."),
+         "-1 goes as far as the eye resolves the base zoom (about 6.3 km), -2 half as far."),
         ("sea_nodata_fill", "Repair blank spots in imagery over the sea?", "tile", False,
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,

@@ -122,9 +122,11 @@ PRESETS = (
     Preset(
         "balanced", "Balanced",
         "ZL16, and ZL18 imagery and the best elevation at airports with "
-        "ICAO codes.",
+        "ICAO codes, half way along their approaches.",
         "About 1.6–3.1 GB of imagery per tile, plus the sharper airports.",
-        _values(16, "0.0", "auto", "auto", "off", 500),
+        # RULINGS 2026-11-18a (owner, amends 17u): half the eye rule
+        # (O4_Airport_Approach_Cover.HALF_EYE_RULE_FT).
+        _values(16, "0.0", "auto", "auto", "off", -2),
     ),
     Preset(
         "sharper_airports", "Sharper airports",

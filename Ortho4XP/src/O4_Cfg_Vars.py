@@ -1002,7 +1002,7 @@ cfg_tile_vars = {
             "runway width to 1 km.  -1 (the default) = as far as the eye "
             "on that glide path still resolves the base zoom's full "
             "detail: about 6.3 km at 40 degrees latitude, 8 km at the "
-            "equator."
+            "equator.  -2 = half that (Balanced)."
         ),
     },
     "cover_zl": {

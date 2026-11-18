@@ -70,6 +70,9 @@ RULING = "roads.edge bridge deck level with the airside abeam"
 #: a corridor's wall face's ref (``constraints/structures.WALL_REF``; not
 #: imported: its closure is not this generator's stage key)
 _WALL_REF = "tunnel_wall"
+#: the inputs label of a bank-blend CEILING (:func:`_blend_rows`): a cap,
+#: never a level -- :func:`release_governed` keeps the vertex's own datum
+BLEND = "bank blend"
 RIGID = ("structures.hard-deck bridge: one zero, flush at both end lines "
          "(RULINGS 2026-10-30a (1))")
 
@@ -273,6 +276,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
               if banked(d) and tuple(d.ring) not in mine_rings]
     others_in = prep(unary_union(others)) if others else None
     src = Source(GEN, RULING, (oid, oid, "deck span"))
+    blend = Source(GEN, RULING, (oid, oid, BLEND))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
     seats = set(seat_vs) | set(near_vs)
@@ -289,8 +293,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             if wide is not None and v not in air and v not in done and wide.contains(p) \
                     and _open_ground(planar, vx, walls=True):
-                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src, kerb,
-                                        rim))
+                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, blend,
+                                        kerb, rim))
             continue
         x, y = vx.xy
         a = min(near_vs, key=lambda s: sq(planar.vertices[s].xy[0] - x)
@@ -667,10 +671,14 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
     airside abeam; ``constraints/wing_cut``'s to its wings' feet, #2099 R2)
     sheds the one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or
     a one-term ``Linear`` — that held it at the DEM or at a road's ramp.
-    Pair rows (grades, steps) are kept: they bind it to its neighbours."""
+    Pair rows (grades, steps) are kept: they bind it to its neighbours.  A
+    bank-blend CEILING (:data:`BLEND`) governs nothing: it caps the ground
+    beside a deck and the vertex keeps its own datum (#2141: MEASURED KIAH,
+    a corridor's wall rim beside obj24551 capped and released fell to 0.00,
+    28.3 m under its DEM)."""
     gov = {r.terms[0][0] for r in rows
            if isinstance(r, Linear) and r.source.generator == gen and r.terms[0][1] > 0.0
-           and r.source.ruling != RIGID}
+           and r.source.ruling != RIGID and r.source.inputs[-1:] != (BLEND,)}
     if not gov:
         return rows
     out: list[Row] = []

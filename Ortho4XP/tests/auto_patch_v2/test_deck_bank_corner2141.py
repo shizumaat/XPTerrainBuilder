@@ -108,3 +108,16 @@ def test_a_walled_deck_mints_no_skirt():
     import dataclasses
     walled = dataclasses.replace(walled, walls=walls)
     assert deck_skirt_pieces([walled], [], [], 0.6, 0.2, 5.0, LAW) == []
+
+
+def test_a_bank_blend_ceiling_releases_no_datum():
+    """A blend row caps the ground beside a deck; it is no level, so the
+    vertex keeps its own DEM row (MEASURED KIAH: a wall rim capped and
+    released fell to 0.00, 28.3 m under its DEM)."""
+    from auto_patch_v2.constraints.edge_deck import BLEND, GEN, RULING, release_governed
+    from auto_patch_v2.model.constraints import Linear, Pin, Source
+    dem = Pin(7, 28.3, Source("structures", "rim", ("tunnel_wall",)))
+    cap = Linear(((7, 1.0), (1, -1.0)), None, -2.0, Source(GEN, RULING, ("o", "o", BLEND)))
+    assert dem in release_governed([dem, cap])
+    pair = Linear(((7, 1.0), (1, -1.0)), None, -2.0, Source(GEN, RULING, ("o", "o", "deck span")))
+    assert dem not in release_governed([dem, pair])

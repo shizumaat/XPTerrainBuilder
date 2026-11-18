@@ -1266,3 +1266,33 @@ def test_both_activity_rows_show_a_memory_wait():
     source = inspect.getsource(GUI.MainWindow._paint_row_state)
     assert "self._memory_waits.get(tile" in source
     assert GUI.MainWindow._on_memory_wait
+
+
+def test_both_fit_switches_ask_before_fitting_custom_patches(window, monkeypatch):
+    """RULINGS 2026-11-18l (#2172): turning fitting on for tiles with a
+    custom patch asks the engine's question, Cancel the default and the
+    box staying off; the card's ``fit_buildings`` is the switch's default
+    (off on a tile a custom patch is new to).  The Mac card asks the same
+    ``fitConfirm`` with Cancel as its default action."""
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert "card?.fitConfirm" in swift and ".keyboardShortcut(.defaultAction)" in swift
+    card = window.airports_card
+    answers = []
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit",
+                        lambda _parent, question: answers.append(question) or False)
+    card.overrides.clear()
+    monkeypatch.setattr(card, "on_card_changed", None, raising=False)
+    card._on_ready((card._generation, {
+        "airports": [], "packs": [{"name": "KASE", "objects": 3}],
+        "total_s": [0, 0], "custom_patches": ["KASE"], "fit_buildings": False,
+        "fit_confirm": "Custom patches are installed for KASE. Continue?"}, ""))
+    assert not card.chk_fit.isChecked()            # the card's default
+    card.chk_fit.setChecked(True)
+    assert answers and "KASE" in answers[0]
+    assert not card.chk_fit.isChecked() and QTAIRPORTS.FIT_KEY not in card.overrides
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit", lambda *_a: True)
+    card.chk_fit.setChecked(True)
+    assert card.overrides == {QTAIRPORTS.FIT_KEY: True}
+    card.take_overrides()

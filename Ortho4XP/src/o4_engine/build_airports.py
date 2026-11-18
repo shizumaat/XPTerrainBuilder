@@ -25,6 +25,8 @@ import os
 import threading
 import typing as _t
 
+import O4_Custom_Patches as CUSTOM_PATCHES
+
 #: An object probe stops after this many directory entries per pack (the
 #: Mac app's ``PackObjectProbe`` cap): payware airports run to ~10k
 #: files, and a mis-tagged multi-gigabyte pack must not stall the card.
@@ -169,9 +171,29 @@ def build_airports(cells, custom_build_dir: str = "",
             raise Superseded("superseded by a newer selection")
     total = [round(sum(a["estimate_s"][0] for a in airports), 1),
              round(sum(a["estimate_s"][1] for a in airports), 1)]
+    (custom, fit) = _custom_patch_fit(cells, custom_build_dir)
     return {"airports": airports,
             "packs": airport_packs(cells, scenery_dir),
-            "total_s": total}
+            "total_s": total,
+            "custom_patches": custom, "fit_buildings": fit,
+            "fit_confirm": CUSTOM_PATCHES.fit_confirm_text(custom)}
+
+
+def _custom_patch_fit(cells, custom_build_dir: str = "") -> tuple:
+    """``(ICAOs, fit)`` for the card (owner RULINGS 2026-11-18l, #2172):
+    the airports a custom patch covers in ``cells`` — the switch asks
+    before it turns on for them — and whether the next build fits (off on
+    any tile a custom patch is new to, or whose own setting is off)."""
+    import O4_Config_Utils as CFG
+
+    (custom, fit) = (set(), True)
+    for (lat, lon) in sorted({(int(c[0]), int(c[1])) for c in cells}):
+        tile = CFG.Tile(lat, lon, custom_build_dir)
+        tile.read_from_config()
+        (icaos, tile_fit) = CUSTOM_PATCHES.fit_state(tile)
+        custom.update(icaos)
+        fit = fit and tile_fit
+    return (sorted(custom), fit)
 
 
 #: The newest card asked for (``start_build_airports``).

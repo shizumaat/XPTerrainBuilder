@@ -23,6 +23,11 @@ struct BuildAirportsCard: View {
     /// card shows the switches and the list, and the "i" the why.
     @State private var showingGradeInfo = false
     @State private var showingFitInfo = false
+    /// The engine's custom-patch question, while it waits (#2172).
+    @State private var fitQuestion: String?
+
+    /// The confirmation's yes (Cancel is the default; RULINGS 2026-11-18l).
+    static let continueButton = "Continue"
 
     static let gradeSentence = "Runways, taxiways and aprons are reshaped to meet FAA (USA) or ICAO slope and smoothness rules, so you don't get bumpy runways or cliffs at the apron edge. Without this, airports drape over the raw elevation data."
     static let fitSentence = "Moves the 3-D buildings, jetways and roads of these custom airports onto the reshaped ground so nothing floats or sinks."
@@ -45,7 +50,13 @@ struct BuildAirportsCard: View {
                 HStack(spacing: 4) {
                     Toggle(O4Glossary.term("fit_buildings"), isOn: Binding(
                         get: { buildModel.fitBuildings },
-                        set: { buildModel.setFitBuildings($0) }))
+                        set: { enable in
+                            if enable, let question = card?.fitConfirm, !question.isEmpty {
+                                fitQuestion = question
+                            } else {
+                                buildModel.setFitBuildings(enable)
+                            }
+                        }))
                         .disabled(fitDisabledReason != nil)
                         .help(fitDisabledReason ?? "For this build only. The default is in Settings.")
                     infoButton($showingFitInfo)
@@ -59,6 +70,15 @@ struct BuildAirportsCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(2)
+            .alert(O4Glossary.term("fit_buildings"),
+                   isPresented: Binding(get: { fitQuestion != nil },
+                                        set: { if !$0 { fitQuestion = nil } })) {
+                Button(Self.continueButton) { buildModel.setFitBuildings(true) }
+                Button("Cancel", role: .cancel) {}
+                    .keyboardShortcut(.defaultAction)
+            } message: {
+                Text(fitQuestion ?? "")
+            }
         } label: {
             Label("Airports", systemImage: "airplane")
                 .scaledFont(.callout, weight: .semibold)

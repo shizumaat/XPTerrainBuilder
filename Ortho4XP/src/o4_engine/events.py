@@ -1139,7 +1139,12 @@ class BuildAirportsReady(EngineEvent):
     ``packs``: the enabled custom airport packs with an airport in the
     tiles and 3-D objects of their own —
     ``{"name", "path", "airports": [icao, ...], "objects": int}``.
-    ``total_s`` is ``[low, high]`` summed over ``airports``.  ``request``
+    ``total_s`` is ``[low, high]`` summed over ``airports``.
+    ``custom_patches``: the ICAOs a custom patch covers in the tiles;
+    ``fit_buildings``: whether the next build fits ("Fit custom airport
+    buildings" — off on a tile a custom patch is new to); ``fit_confirm``:
+    the question both apps ask before that switch is turned on, "" when
+    there is no custom patch (owner RULINGS 2026-11-18l, #2172).  ``request``
     is the ``id`` of the command it answers; ``error`` the failure text.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
@@ -1150,6 +1155,9 @@ class BuildAirportsReady(EngineEvent):
     airports: list = field(default_factory=list)
     packs: list = field(default_factory=list)
     total_s: list = field(default_factory=list)
+    custom_patches: list = field(default_factory=list)
+    fit_buildings: Any = None
+    fit_confirm: str = ""
     error: str = ""
 
 

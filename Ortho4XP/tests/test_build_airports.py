@@ -159,6 +159,7 @@ def test_the_card_totals_its_airports(monkeypatch):
     monkeypatch.setattr(CARD, "tile_airports",
                         lambda lat, lon, _dir="": rows.get((lat, lon), []))
     monkeypatch.setattr(CARD, "airport_packs", lambda cells, _dir=None: [])
+    monkeypatch.setattr(CARD, "_custom_patch_fit", lambda cells, _dir="": ([], True))
     card = CARD.build_airports([(48, -123), (47, -123), (47, -123)])
     assert [a["icao"] for a in card["airports"]] == ["KAAA", "KBBB", "KCCC"]
     assert card["total_s"] == [120.0, 300.0]

@@ -30,11 +30,24 @@ public struct O4BuildAirports: Sendable, Equatable {
     public let airports: [Airport]
     public let packs: [Pack]
     public let totalSeconds: ClosedRange<Double>
+    /// The airports a custom patch covers in the tiles (owner RULINGS
+    /// 2026-11-18l, #2172).
+    public let customPatches: [String]
+    /// Whether the next build fits custom airport buildings: off on a
+    /// tile a custom patch is new to; nil from an engine that predates it.
+    public let fitBuildings: Bool?
+    /// The engine's question before the fit switch turns on; "" = none.
+    public let fitConfirm: String
 
-    public init(airports: [Airport], packs: [Pack], totalSeconds: ClosedRange<Double>) {
+    public init(airports: [Airport], packs: [Pack], totalSeconds: ClosedRange<Double>,
+                customPatches: [String] = [], fitBuildings: Bool? = nil,
+                fitConfirm: String = "") {
         self.airports = airports
         self.packs = packs
         self.totalSeconds = totalSeconds
+        self.customPatches = customPatches
+        self.fitBuildings = fitBuildings
+        self.fitConfirm = fitConfirm
     }
 
     /// A `[low, high]` wire pair, ordered; nil when absent or malformed.
@@ -73,7 +86,10 @@ public struct O4BuildAirports: Sendable, Equatable {
         }
         return .success(O4BuildAirports(
             airports: airports, packs: packs,
-            totalSeconds: range(event["total_s"]) ?? 0...0))
+            totalSeconds: range(event["total_s"]) ?? 0...0,
+            customPatches: event["custom_patches"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+            fitBuildings: event["fit_buildings"]?.boolValue,
+            fitConfirm: event["fit_confirm"]?.stringValue ?? ""))
     }
 }
 

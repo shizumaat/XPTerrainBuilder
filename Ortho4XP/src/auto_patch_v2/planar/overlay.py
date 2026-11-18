@@ -475,8 +475,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             _sk_notes: list[str] = []
             for ref, g in deck_skirt_pieces(
                     decks, regions,
-                    [Polygon(c.ring, c.holes) for c in ribbon_cells]
-                    + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+                    [Polygon(k) for k in classification.keepouts if len(k) >= 3],
                     law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
                     2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
                     law, notes=_sk_notes):

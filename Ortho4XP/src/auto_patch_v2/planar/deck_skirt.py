@@ -24,9 +24,9 @@ slope, then a metre more for the daylight line) -- a zone region's family,
 no zone class, the form of ``planar/pit_bank``.  The ground's own datum
 holds it on the DEM (``solve/design_ground``: ground reaching the patch's
 edge); the deck's blend holds it under the bank's face (a ceiling).  Each
-piece welds to the zone bands and to the deck's own corridor (its ground,
-walls and floor), stands off every other cell, road ribbon and keep-out and
-the airside pavement by its frontage.  No airport is named
+piece welds to the zone bands, the keep-outs and the deck's own corridor
+(its ground, walls and floor), stands off every other cell and the airside
+pavement by its frontage.  No airport is named
 (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
@@ -65,13 +65,17 @@ def skirt_region(db, law):
         depth / slope + _MARGIN_M if slope > 0.0 else _MARGIN_M)
 
 
-def deck_skirt_pieces(decks: _t.Sequence, regions: _t.Sequence, apart: _t.Sequence,
+def deck_skirt_pieces(decks: _t.Sequence, regions: _t.Sequence, keepouts: _t.Sequence,
                       cut_m: float, hairline_m: float, vertex_m: float, law,
                       notes: "list | None" = None) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per skirt piece (module doc): ``regions`` the
     arrangement's regions so far (zone bands and the corridor's own cells
     met, the airside stood off by its frontage, the rest by ``cut_m``),
-    ``apart`` the road ribbons and keep-outs (stood off by ``cut_m``)."""
+    ``keepouts`` met, never entered: a corridor's keep-out is its rim's
+    outline, and a skirt stood off it left the rim on the wall's face alone,
+    3.8 m over the skirt 1 m away (MEASURED ESSA o4gen_44525b99).  The road
+    ribbons claim their own footprint at the face claim (``planar/overlay``),
+    as round a pit's bank."""
     from ..model.deck_bank import banked
     plan = [(db, skirt_region(db, law)) for db in decks
             if banked(db) and len(getattr(db, "ring", ()) or ()) >= 3]
@@ -83,7 +87,7 @@ def deck_skirt_pieces(decks: _t.Sequence, regions: _t.Sequence, apart: _t.Sequen
     other = [r.polygon for r in regions
              if r.source != "zone" and r.role not in _MET and r.side != "airside"]
     reach = shapely.union_all([g for _db, g in plan])
-    knife, _rib = knives(reach, taken, list(other) + list(apart), air, (), cut_m, law)
+    knife, _rib = knives(reach, taken + list(keepouts), other, air, (), cut_m, law)
     out: list[tuple[str, _t.Any]] = []
     claimed = None
     for db, g in sorted(plan, key=lambda t: t[0].object_id):

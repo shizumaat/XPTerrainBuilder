@@ -35,7 +35,8 @@ group is EVERY overpass deck body of the placement (the deck and its pier
 bodies, which the overpass seat put at the one zero), with what rides them
 (``merged_into``) and every other body of its frame the same seat placed
 that touches the deck -- the rails and pieces of a sibling placement at the
-same anchor; before, each deck body was a group of its own, and the piers,
+same anchor, a ring-less one by its plan box; before, each deck body was
+a group of its own, and the piers,
 the rails over them and the loose rail pieces kept the unwarped zero
 (KDEN ``Train_Bridge_1`` b4 / ``_Tracks`` b21 stood +3.3 m over the warped
 rails of b0 / b17 at 39.839152,-104.674323).
@@ -422,6 +423,10 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
                 or (m and (m in rides or unit_root(m) in rides))):
             continue
         polys = _polys_of(pc, xy)
+        if (over and not polys and pc.frame == frame and _overpass_seated(pc)
+                and _box_near(pc, xy, tree, law.reach_m)):
+            riders.append(c)               # a ring-less piece the seat put on it
+            continue
         if not any(dbox.intersects(g) for g, _p in polys):
             continue
         if pc.frame == frame and (_root(pc.body.anchor.reason) in own
@@ -559,6 +564,18 @@ def _walk(dist: np.ndarray, pred: np.ndarray, heap: list, rc: dict, h: float) ->
                     if w < dist[j]:
                         dist[j], pred[j] = w, i
                         heapq.heappush(heap, (w, j))
+
+
+def _box_near(pc: _Piece, xy: _t.Callable, tree: _t.Any, reach_m: float) -> bool:
+    """Whether a ring-less piece's plan box (``geom_box``) lies within
+    ``reach_m`` of a deck part in plan."""
+    from shapely.geometry import box as _box
+    g = getattr(pc.body, "geom_box", None)
+    if not g or len(g) < 4:
+        return False
+    (x0, y0), (x1, y1) = xy(float(g[0]), float(g[1])), xy(float(g[2]), float(g[3]))
+    q = _box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    return bool(len(tree.query(q, predicate="dwithin", distance=reach_m)))
 
 
 def _crossing_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],

@@ -233,9 +233,10 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
     becomes the closest one that does not (:func:`smooth_grade_changes`),
     standing no more than ``allow`` off ``dem`` at the ``judged`` stations
     -- under ``caps_of(cap_eff)`` first; the curve needs room the gentlest
-    cap may not leave, so then under ``caps_of(cap_top)``, then with the
-    junctions let go, last without ``allow``.  ``curve`` is ``None`` (nothing to do), ``"held"`` or
-    ``"infeasible"`` (``prof`` stands).
+    cap may not leave, so then under ``caps_of(cap_top)``, then past
+    ``allow``, then with the junctions let go.  ``curve`` is ``None`` (nothing to do), ``"held"``,
+    ``"free_ends"`` (held inside, the junctions let go) or ``"infeasible"``
+    (``prof`` stands).
     """
     s = numpy.asarray(s, dtype=numpy.float64)
     ss, zz = s, numpy.asarray(prof, dtype=numpy.float64)
@@ -255,7 +256,8 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
     ends_given = lead is not None or tail is not None
     tried = set()
     for c, ends, bounded in ((cap_eff, True, True), (cap_top, True, True),
-                             (cap_top, False, True), (cap_top, False, False)):
+                             (cap_top, True, False), (cap_top, False, True),
+                             (cap_top, False, False)):
         ends = ends and ends_given
         bounded = bounded and lower is not None
         if (c, ends, bounded) in tried:
@@ -267,5 +269,5 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
                                   lower if bounded else None,
                                   upper if bounded else None)
         if sm is not None:
-            return sm, c, "held"
+            return sm, c, ("held" if ends or not ends_given else "free_ends")
     return prof, cap_eff, "infeasible"

@@ -2118,6 +2118,34 @@ def _window_frame(i0, i1, n, s, z, out, ours, trig):
     return j0, j1, pins, lead, tail
 
 
+def _solve_window(i0, i1, s, z, out, ours, trig, cap_class, cap_inside,
+                  cap_ceiling, budget_m, rate):
+    """One DEM-wrong window solved alone: ``(slice, profile, pin report,
+    record)``, or ``None`` when it spans no segment."""
+    j0, j1, pins, lead, tail = _window_frame(i0, i1, len(z), s, z, out, ours,
+                                             trig)
+    if j1 - j0 < 1:
+        return None
+    sl = slice(j0, j1 + 1)
+    prof, rep, record = _solve_run(
+        s[sl] - s[j0], z[sl], numpy.zeros(j1 - j0 + 1, dtype=bool),
+        [k for k, _v in pins], [v for _k, v in pins], cap_class, cap_inside,
+        cap_ceiling, budget_m, rate, lead, tail)
+    return sl, prof, rep, record
+
+
+def _grown(i0, i1, s, taken, runout_m):
+    """``[i0, i1]`` grown by ``runout_m`` of arclength each way over
+    stations no run or window holds."""
+    g0, g1 = i0, i1
+    while g0 > 0 and not taken[g0 - 1] and s[i0] - s[g0 - 1] <= runout_m:
+        g0 -= 1
+    while g1 < len(s) - 1 and not taken[g1 + 1] \
+            and s[g1 + 1] - s[i1] <= runout_m:
+        g1 += 1
+    return g0, g1
+
+
 def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
                                cap_inside, runout_m, budget_m, cap_ceiling,
                                pin_idx=None, pin_val=None, in_area=None,
@@ -2235,18 +2263,28 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
         wins, trig = ROADGRADE.steep_windows(s, z, area, ours, cap_ceiling,
                                              runout_m)
         kept = []
+        taken = ours.copy()
+        for (a, b) in wins:
+            taken[a:b + 1] = True
         for (i0, i1) in wins:
-            j0, j1, pins, lead, tail = _window_frame(i0, i1, n, s, z, out,
-                                                     ours, trig)
-            if j1 - j0 < 1:
+            solved = _solve_window(i0, i1, s, z, out, ours, trig, cap_class,
+                                   cap_inside, cap_ceiling, budget_m, rate)
+            if solved is None:
                 continue
-            sl = slice(j0, j1 + 1)
-            p_idx = [k for k, _v in pins]
-            p_val = [v for _k, v in pins]
-            prof, rep, record = _solve_run(
-                s[sl] - s[j0], z[sl], numpy.zeros(j1 - j0 + 1, dtype=bool),
-                p_idx, p_val, cap_class, cap_inside, cap_ceiling, budget_m,
-                rate, lead, tail)
+            if solved[3].get("curve") == "free_ends":
+                # the curve had no room to meet the ground: the window grows
+                # by ``runout_m`` over free DEM stations, once
+                g0, g1 = _grown(i0, i1, s, taken, runout_m)
+                if (g0, g1) != (i0, i1):
+                    grown = _solve_window(g0, g1, s, z, out, ours, trig,
+                                          cap_class, cap_inside, cap_ceiling,
+                                          budget_m, rate)
+                    if grown is not None and grown[3].get("curve") in (
+                            "held", None) and not (grown[2] or {}).get(
+                                "refused"):
+                        taken[g0:g1 + 1] = True
+                        i0, i1, solved = g0, g1, grown
+            sl, prof, rep, record = solved
             if (rep or {}).get("refused") or record.get("curve") == \
                     "infeasible":
                 kept.append({"i0": int(i0), "i1": int(i1),

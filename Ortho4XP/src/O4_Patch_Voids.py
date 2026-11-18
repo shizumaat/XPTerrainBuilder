@@ -17,13 +17,14 @@ of a drainage valley (up to +15.5 m over the lidar, a -4.8 m step).  The
 tile carried 148 such holes (1.76 km2), KAPA 36, KBKF 3.
 
 THE RULE: the hole ring stays a constrained ``PATCH_RING_MARKER`` edge (it
-bounds the host's INTERP_ALT flood and holds the ring heights), but its
-interior is subtracted from the HOST's polygon, so it is not in
-``patches_area``, takes no INTERP_ALT seed, and the vector step records the
-voids for the mesh step (:func:`write`), whose patch coverage
+bounds the host's INTERP_ALT flood and holds the ring heights), but it
+covers nothing, and its VOID (:func:`voids`: the hole minus the faces
+inside it) is taken out of ``patches_area`` — so it takes no INTERP_ALT
+seed — and recorded for the mesh step (:func:`write`), whose patch coverage
 (``O4_Mesh_Utils.patch_coverage_polygon``) drops the arrangement cells that
 lie in one (:func:`drop_void_cells`).  A face inside the hole is its own
-closed way and stays covered.
+closed way and stays covered.  A hole the emitter did NOT write (covered,
+hairline, or edge-coincident) stays filled, as before.
 """
 from __future__ import annotations
 
@@ -40,58 +41,39 @@ def is_hole(wtags) -> bool:
     return (wtags or {}).get("o4_feature") == HOLE_FEATURE
 
 
-def host_key(wtags):
-    """The host face a ring belongs to: its ``shapeID`` (a hole carries its
-    host's), or ``None`` for a ring with no ``shapeID`` or a feature ring
-    other than a hole (a structure rim or a bank foot is never a host)."""
-    wtags = wtags or {}
-    if wtags.get("o4_feature") not in (None, HOLE_FEATURE):
-        return None
-    return wtags.get("shapeID")
+def voids(hole_polygons, cover_polygons):
+    """The ground no patch describes: each hole minus the faces INSIDE it
+    — a cover polygon no larger than the hole whose interior point lies in
+    it (the emitter's own test, ``osm_adapter._hole_cover``) — unioned.
 
-
-def holes_by_host(ways) -> dict:
-    """``{shapeID: [hole polygon, ...]}`` of ``ways`` — ``(wtags, polygon)``
-    pairs of ONE patch file (``shapeID`` is per file).  Invalid or empty
-    hole polygons are left out: a ring that is not a polygon removes no
-    coverage."""
-    out: dict = {}
-    for (wtags, polygon) in ways:
-        if not is_hole(wtags) or polygon is None:
-            continue
-        key = host_key(wtags)
-        if key is None or not polygon.is_valid or polygon.is_empty:
-            continue
-        out.setdefault(key, []).append(polygon)
-    return out
-
-
-def subtract_holes(polygon, holes):
-    """The host ``polygon`` minus its ``holes``; the polygon itself when it
-    has none or the difference fails (a hole is a refinement: losing it
-    costs the void, never the host)."""
-    if not holes:
-        return polygon
-    try:
-        from shapely import ops
-        covered = polygon.difference(ops.unary_union(holes))
-    except Exception:
-        return polygon
-    return polygon if covered.is_empty else covered
-
-
-def voids(hole_polygons, patches_area):
-    """The union of the holes minus everything the patches cover (the faces
-    inside the holes, another patch's rings) — the ground no patch
-    describes.  An empty polygon when there is none."""
+    Judged per hole, never as "the holes minus everything covered": a face
+    whose OWN hole the emitter suppressed (its ring edges are another
+    face's ring, RULINGS 2026-09-14g item 5) still writes that hole FILLED,
+    and at KDEN that is how the void above stayed covered — ``pav2``
+    ``cross_connector`` #351's 457,176 m2 hole IS ``adjacent_ground:taxi:F:
+    zone1#32``'s ring, so it ships no way, and #351's filled ring covered
+    the void of #32's emitted hole.  An emitted hole is the patch saying
+    "void here" whatever encloses it.  An empty polygon when there is none."""
     from shapely import geometry, ops
+    from shapely.strtree import STRtree
     if not hole_polygons:
         return geometry.Polygon()
+    covers = [p for p in cover_polygons if p is not None and not p.is_empty]
+    tree = STRtree(covers) if covers else None
+    out = []
+    for hole in hole_polygons:
+        try:
+            inside = [] if tree is None else [
+                covers[int(j)] for j in tree.query(hole)
+                if covers[int(j)].area <= hole.area * 1.001
+                and hole.contains(covers[int(j)].representative_point())]
+            void = hole.difference(ops.unary_union(inside)) if inside else hole
+        except Exception:
+            continue        # a refinement: losing it costs that void only
+        if not void.is_empty:
+            out.append(void)
     try:
-        out = ops.unary_union(hole_polygons)
-        if patches_area is not None and not patches_area.is_empty:
-            out = out.difference(patches_area)
-        return out
+        return ops.unary_union(out) if out else geometry.Polygon()
     except Exception:
         return geometry.Polygon()
 

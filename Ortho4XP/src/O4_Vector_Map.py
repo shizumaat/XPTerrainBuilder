@@ -4075,8 +4075,7 @@ def include_patches(vector_map, tile):
     # per planar FACE after all patch files are read (see below).
     interp_alt_patch_polygons = []
     # The UNCOVERED HOLE rings of every patch (``O4_Patch_Voids``): each is
-    # constrained, and subtracted from its host's polygon above, so its
-    # void is not coverage and takes no INTERP_ALT seed.
+    # constrained, but its void is not coverage and takes no INTERP_ALT seed.
     hole_polygons = []
     # RULINGS 2026-09-13cp: how many OPEN load-bearing runs took the
     # patch-ring marker (a report figure — the 1.0.329 defect was 105 of
@@ -4187,12 +4186,6 @@ def include_patches(vector_map, tile):
         waylist = tuple(df["w"].intersection(dt["w"])) + tuple(
             df["w"].difference(dt["w"])
         )
-        file_holes = PATCH_VOIDS.holes_by_host(
-            (dt["w"][wayid], _closed_way_polygon(dn, dw[wayid], tile))
-            for wayid in waylist
-            if PATCH_VOIDS.is_hole(dt["w"].get(wayid)))
-        for holes in file_holes.values():
-            hole_polygons.extend(holes)
         for wayid in waylist:
             way = numpy.array(
                 [dn[nodeid] for nodeid in dw[wayid]], dtype=float
@@ -4356,13 +4349,13 @@ def include_patches(vector_map, tile):
                 try:
                     pol = geometry.Polygon(way)
                     if pol.is_valid and pol.area:
-                        # An uncovered hole ring covers nothing, and a host
-                        # covers its ring minus its holes (O4_Patch_Voids).
+                        # An uncovered hole ring covers nothing; its void
+                        # leaves the coverage below (O4_Patch_Voids).
                         wtags = dt["w"].get(wayid, {})
-                        cover = (None if PATCH_VOIDS.is_hole(wtags) else
-                                 PATCH_VOIDS.subtract_holes(
-                                     pol, file_holes.get(
-                                         PATCH_VOIDS.host_key(wtags))))
+                        cover = pol
+                        if PATCH_VOIDS.is_hole(wtags):
+                            hole_polygons.append(pol)
+                            cover = None
                         if cover is not None:
                             patches_area_polys.append(cover)
                         # R17-3: role-scoped seawall admission.  The role
@@ -4451,6 +4444,15 @@ def include_patches(vector_map, tile):
                     patches_area = patches_area.union(pol)
                 except Exception:
                     UI.vprint(2, "     Skipping invalid patch polygon.")
+    patch_voids = PATCH_VOIDS.voids(hole_polygons, patches_area_polys)
+    if not patch_voids.is_empty:
+        try:
+            patches_area = patches_area.difference(patch_voids)
+            graded_area = graded_area.difference(patch_voids)
+        except Exception:
+            UI.vprint(1, "     Patch voids could not be taken out of the "
+                         "coverage — the holes stay covered this tile.")
+            patch_voids = geometry.Polygon()
     # Seed every planar FACE of the patch coverage, not one point per ring.
     # Triangle4XP spreads a regional attribute by plague, and the flood is
     # blocked by ANY segment carrying the same attribute bit (see the
@@ -4464,9 +4466,13 @@ def include_patches(vector_map, tile):
         try:
             interp_alt_seeds = []
             covered = prep(patches_area)
+            # The hole rings cut the faces too: they are patch-ring edges
+            # the flood stops at, so a host's ring outside its hole is a
+            # face of its own (O4_Patch_Voids).
             for face in ops.polygonize(
                 ops.unary_union(
-                    [pol.boundary for pol in interp_alt_patch_polygons]
+                    [pol.boundary for pol in
+                     interp_alt_patch_polygons + hole_polygons]
                 )
             ):
                 # A face with no room holds no mesh vertex and cannot be
@@ -4522,7 +4528,7 @@ def include_patches(vector_map, tile):
                     tile,
                 )
             )
-    vector_map.patch_voids = PATCH_VOIDS.voids(hole_polygons, patches_area)
+    vector_map.patch_voids = patch_voids
     if hole_polygons:
         UI.vprint(
             1,
@@ -4531,18 +4537,6 @@ def include_patches(vector_map, tile):
             f"({_tile_area_m2(vector_map.patch_voids, tile):,.0f} m2) is not "
             "patch coverage and keeps the DEM.")
     return (patches_area, patches_list, graded_area)
-
-
-def _closed_way_polygon(dn, node_ids, tile):
-    """The tile-relative polygon of a closed patch way, or ``None``."""
-    if len(node_ids) < 4 or node_ids[0] != node_ids[-1]:
-        return None
-    try:
-        return geometry.Polygon(
-            [(dn[nid][0] - tile.lon, dn[nid][1] - tile.lat)
-             for nid in node_ids])
-    except Exception:
-        return None
 
 
 def _tile_area_m2(polygon, tile):

@@ -33,6 +33,10 @@ LAT, LON = 30, 30
 HOST = [(0.0010, 0.0010), (0.0090, 0.0010), (0.0090, 0.0090), (0.0010, 0.0090)]
 HOLE = [(0.0030, 0.0030), (0.0070, 0.0030), (0.0070, 0.0070), (0.0030, 0.0070)]
 INNER = [(0.0030, 0.0030), (0.0045, 0.0030), (0.0045, 0.0045), (0.0030, 0.0045)]
+# A face whose own hole IS the host's ring: the emitter writes no way for that
+# hole (its edges are ring edges, RULINGS 2026-09-14g item 5), so the outer
+# ring ships FILLED over the host — KDEN pav2 #351 around zone1#32.
+OUTER = [(0.0000, 0.0000), (0.0100, 0.0000), (0.0100, 0.0100), (0.0000, 0.0100)]
 P_HOST = (0.0020, 0.0020)       # the host's annulus: covered
 P_VOID = (0.0060, 0.0060)       # in the hole, outside the inner face: void
 P_INNER = (0.0037, 0.0037)      # the face inside the hole: covered
@@ -51,11 +55,11 @@ class _Tile:
         self.dem = _DEM()
 
 
-def _write_patch(patch_dir):
+def _write_patch(patch_dir, outer=False):
     lines = ["<?xml version='1.0' encoding='UTF-8'?>",
              "<osm version='0.6' upload='false' generator='test'>"]
     node_ids = {}
-    for ring in (HOST, HOLE, INNER):
+    for ring in (HOST, HOLE, INNER, OUTER):
         for (x, y) in ring:
             if (x, y) not in node_ids:
                 node_ids[(x, y)] = -(len(node_ids) + 1)
@@ -66,7 +70,11 @@ def _write_patch(patch_dir):
             (-100, HOST, (("role", "graded_strip"), ("shapeID", "7"))),
             (-101, HOLE, (("o4_feature", "gap_interior_ring"),
                           ("shapeID", "7"))),
-            (-102, INNER, (("role", "graded_strip"), ("shapeID", "8")))):
+            (-102, INNER, (("role", "graded_strip"), ("shapeID", "8"))),
+            (-103, OUTER if outer else None,
+             (("role", "cross_connector"), ("shapeID", "6")))):
+        if ring is None:
+            continue
         lines.append(f"  <way id='{way_id}'>")
         for point in ring + [ring[0]]:
             lines.append(f"    <nd ref='{node_ids[point]}' />")
@@ -78,11 +86,11 @@ def _write_patch(patch_dir):
                                              encoding="utf-8")
 
 
-@pytest.fixture
-def included(tmp_path, monkeypatch):
+@pytest.fixture(params=[False, True], ids=["host", "nested"])
+def included(request, tmp_path, monkeypatch):
     patch_dir = tmp_path / "patches"
     patch_dir.mkdir()
-    _write_patch(patch_dir)
+    _write_patch(patch_dir, outer=request.param)
     monkeypatch.setattr(VMAP.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
     vector_map = VECT.Vector_Map()

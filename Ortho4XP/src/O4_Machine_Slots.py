@@ -246,6 +246,19 @@ class Held:
     def count(self) -> int:
         return len(self._fds)
 
+    def settle(self, per_gb: float) -> None:
+        """Lower the reservation to ``per_gb`` a slot once the processes it
+        covers were measured at their working size (never raises it): the
+        flat ``worker_gb`` is a guess made before a worker exists, and a
+        pool of 16 kept 48 GB booked while its workers held a third of it
+        (owner 2026-11-18, "waiting for memory" with 60 GB free)."""
+        if self._reservation is None or not self._fds:
+            return
+        per = max(0.0, float(per_gb))
+        if per < self.gb:
+            self._reservation.settle(per * len(self._fds))
+            self.gb = per
+
     def release(self) -> None:
         fds, self._fds = self._fds, []
         reservation, self._reservation = self._reservation, None

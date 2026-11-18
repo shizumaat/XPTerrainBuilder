@@ -18,8 +18,8 @@ by the steps already running.
 Each wait also carries what the front ends show on the tile's row
 (``events.MemoryWait``): the projection, the memory free now, and whose
 memory it waits for — the machine's (another application holds it) or
-the run's own: either its running steps fill the budget (the row says how
-much they hold of how much), or an older held step reserves the room
+the run's own: either its running steps have booked memory they do not
+yet use (the row says how much, owner 2026-11-18), or an older held step reserves the room
 (the row names that step: "Waiting behind ...", lane lmemwait 2026-11-17
 — the owner saw "needs about 0 GB, 36 GB free" with no cause).  The words
 are written here, once, for both apps; the wire shape is unchanged.
@@ -41,17 +41,18 @@ REASON_RUN = "run"
 
 @dataclass(frozen=True)
 class _Wait:
-    """One held step: its projection, the memory free when last checked
+    """One held step: its need, the memory free when last checked
     (gigabytes), the reason code, and for a ``REASON_RUN`` wait what holds
-    it — ``behind`` (the reserving step, "+25+055 vector") or the run's
-    committed ``in_use_gb`` of its ``budget_gb``."""
+    it — ``behind`` (the reserving step, "+25+055 vector") or the
+    ``booked_gb`` the run's running steps booked and do not yet use, with
+    the ``kept_gb`` the machine keeps free."""
 
     needed_gb: float
     free_gb: float
     reason: str
     behind: str = ""
-    in_use_gb: float = 0.0
-    budget_gb: float = 0.0
+    booked_gb: float = 0.0
+    kept_gb: float = 0.0
 
 
 def _gb(gigabytes: float) -> str:
@@ -61,8 +62,8 @@ def _gb(gigabytes: float) -> str:
 
 
 def wait_message(needed_gb: float, free_gb: float, reason: str,
-                 behind: str = "", in_use_gb: float = 0.0,
-                 budget_gb: float = 0.0) -> str:
+                 behind: str = "", booked_gb: float = 0.0,
+                 kept_gb: float = 0.0) -> str:
     """The sentence a tile's row shows while its step waits."""
     if reason == REASON_RUN and behind:
         return ("Waiting behind %s, which needs its memory first (this"
@@ -75,10 +76,11 @@ def wait_message(needed_gb: float, free_gb: float, reason: str,
     if reason == REASON_MACHINE:
         return head + (" Quitting X-Plane or another large application"
                        " frees memory.")
-    if budget_gb > 0.0:
-        return head + (" This build's running steps hold %s of the %s GB"
-                       " it may use; it starts when one of them finishes."
-                       % (_gb(in_use_gb), _gb(budget_gb)))
+    if booked_gb > 0.0:
+        return head + (" This build's running steps have booked %s GB"
+                       " they do not use yet, and %s GB is kept free; it"
+                       " starts as they finish or the memory frees."
+                       % (_gb(booked_gb), _gb(kept_gb)))
     return head + " It starts when this build's running steps finish."
 
 
@@ -89,11 +91,11 @@ class MemoryWaits:
         self._waits: dict = {}     # insertion order = first refusal
 
     def note(self, key, needed_gb, free_gb, reason, behind="",
-             in_use_gb=0.0, budget_gb=0.0) -> bool:
+             booked_gb=0.0, kept_gb=0.0) -> bool:
         """Record (or refresh) a refusal; True when the step is new here."""
         new = key not in self._waits
         self._waits[key] = _Wait(float(needed_gb), float(free_gb), reason,
-                                 behind, float(in_use_gb), float(budget_gb))
+                                 behind, float(booked_gb), float(kept_gb))
         return new
 
     def clear(self, key) -> bool:

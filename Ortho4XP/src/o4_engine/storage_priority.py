@@ -184,6 +184,13 @@ def _protected(tiles: dict, now: float) -> set:
     return session_tiles() | {p for p, t in tiles.items() if t.last_used >= recent}
 
 
+def _held() -> set:
+    """The tiles a live build holds, on the whole machine: every input
+    they read stays (``storage_hold``, never mid-build)."""
+    from .storage_hold import held_tiles
+    return set(held_tiles())
+
+
 def _protected_inputs(pairs) -> set:
     """Every input the builds of ``pairs`` read, normalised."""
     from tile_bundle import inputs as INPUTS
@@ -256,7 +263,7 @@ def clear(over_by: int, sweep, now: float) -> int:
     from . import storage_packages as PACKAGES
     shared, tiles = _survey(now)
     protected = _protected(tiles, now)
-    keep = _protected_inputs(protected)
+    keep = _protected_inputs(protected | _held())
     freed = 0
     recent = now - RECENT_DAYS * _DAY
     for tier in SHARED_TIERS:
@@ -305,7 +312,7 @@ def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
         raise ValueError("offload moves only: a tier_only sweep")
     shared, tiles = _survey(now)
     session = session_tiles()
-    keep = _protected_inputs(keep_tiles)
+    keep = _protected_inputs(set(keep_tiles) | _held())
     protected = _protected(tiles, now)
     freed = 0
     for tier in SHARED_TIERS:

@@ -213,12 +213,15 @@ def test_a_selected_rows_bar_fill_is_the_selection_text_colour(window):
     bar_a = window._tile_rows[A][2].findChild(QProgressBar)
     bar_b = window._tile_rows[B][2].findChild(QProgressBar)
     assert bar_a.property("emphasized") is True
-    assert bar_a.palette().color(QPalette.Active, QPalette.Highlight) == (
-        window._tile_rows[A][2].palette().color(QPalette.Active,
-                                                QPalette.HighlightedText))
-    assert not bar_b.property("emphasized")
+    # Owner 2026-11-18: the track contrasts too (the macOS style drew it
+    # in the selection colour): a dark translucent track, a light fill.
+    text = window._tile_rows[A][2].palette().color(QPalette.Active,
+                                                   QPalette.HighlightedText)
+    assert "rgba(0, 0, 0, 72)" in bar_a.styleSheet()
+    assert text.name() in bar_a.styleSheet()
+    assert not bar_b.property("emphasized") and not bar_b.styleSheet()
     window.map.set_selection([B])
-    assert not bar_a.property("emphasized")
+    assert not bar_a.property("emphasized") and not bar_a.styleSheet()
     assert bar_b.property("emphasized") is True
 
 

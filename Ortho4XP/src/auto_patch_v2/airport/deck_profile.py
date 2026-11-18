@@ -19,6 +19,17 @@ and counted: a deck holding a class-A airside hard deck (22n: flush, banded
 by #2112), a deck-plate band or a basin.  A member whose seat tilt is baked
 or whose file holds an ``ANIM`` block is left out of the warp (counted).
 
+A ROAD OVERPASS deck (lkden5, owner KDEN 2026-11-18T01:11Z "seat the rail
+bridge object a little lower so the end here didn't float"): a ``deck``
+body the overpass seat put on the road beneath (RULINGS 2026-10-30f (5)) is
+a deck of its own -- no 22o group seats it, and it is no class-A airside
+hard deck though its seat reason reads "airside deck" -- whose CROSSING is a
+node at ``D = 0`` over the road-beneath stations (``plate_stations``: the
+clearance the seat read stays), and whose LANDING ENDS grade as below.
+MEASURED at KDEN ``Train_Bridge_1`` b0 (a 500 m rail deck seated flush at
+1630.20 over its road): its NE end line read +1.89 m over the drawn ground
+(39.839766,-104.674007); warped it reads +0.09, grade 3.5 %.
+
 NODES.  BUILDING CONTACT (owner RULINGS 2026-11-17t: "a deck touching two
 buildings at different zeros follows both", whichever frame or 22o group
 the building stands in -- of a frame whose zero relates to the deck's: one
@@ -116,6 +127,9 @@ DECK_ELONGATION = 3.0
 _REFUSED_CLASSES = ("basin",)
 #: a class-A airside hard deck's reason (22n: flush; ``airside_deck_seat``)
 _AIRSIDE = "airside deck"
+#: a ROAD OVERPASS's (RULINGS 2026-10-30f (5)): the same seat's reason, its
+#: zero on the road beneath -- no airside deck, a deck held over a crossing
+_OVERPASS = "the road beneath the overpass"
 
 
 @_dc.dataclass(frozen=True)
@@ -239,14 +253,25 @@ def _elevated(pc: _Piece, walled_m: float) -> bool:
     return sum(1 for q in g if float(q[2]) >= walled_m) * 2 > len(g)   # authored y over zero
 
 
+def _is_overpass(pc: _Piece) -> bool:
+    """A deck body the overpass seat put on the road beneath (10-30f (5))."""
+    return (pc.body.body_class == "deck"
+            and _OVERPASS in str(pc.body.anchor.reason).split("; was:", 1)[0]
+            and bool(getattr(pc.member, "plate_stations", ())))
+
+
 def _groups(pieces: _t.Sequence[_Piece], walled_m: float) -> dict[str, list[int]]:
     """``{frame|22o root: piece indices}`` -- each group's ELEVATED members
-    and, carried through ``merged_into`` (in its frame), what rides them."""
+    and, carried through ``merged_into`` (in its frame), what rides them; a
+    ROAD OVERPASS deck is a group of its own (``frame|overpass:<file>``:
+    held over the road it spans, its landing ends graded, lkden5)."""
     groups: dict[str, list[int]] = {}
     for k, pc in enumerate(pieces):
         r = _root(pc.body.anchor.reason)
         if r and _elevated(pc, walled_m):
             groups.setdefault(f"{pc.frame}|{r}", []).append(k)
+        elif _is_overpass(pc):
+            groups.setdefault(f"{pc.frame}|overpass:{pc.name}", []).append(k)
     by_file = {(pc.frame, pc.name): k for k, pc in enumerate(pieces)}
     owner = {k: g for g, ks in groups.items() for k in ks}
     grew = True
@@ -284,7 +309,8 @@ def _refusal(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int]) -> str:
         b = pieces[k].body
         if b.body_class in _REFUSED_CLASSES:
             return "basin"
-        if _AIRSIDE in str(b.anchor.reason).split("; was:", 1)[0]:
+        head = str(b.anchor.reason).split("; was:", 1)[0]
+        if _AIRSIDE in head and _OVERPASS not in head:
             return "airside_deck"
         if getattr(b, "band", None) is not None:
             return "plate_band"
@@ -516,6 +542,23 @@ def _walk(dist: np.ndarray, pred: np.ndarray, heap: list, rc: dict, h: float) ->
                         heapq.heappush(heap, (w, j))
 
 
+def _crossing_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],
+                    xy: _t.Callable) -> list:
+    """An overpass deck's CROSSING: ``(0, the road-beneath stations, -1)`` --
+    the deck holds the zero the overpass seat read there (10-30f (5): its
+    clearance over the road), so its landing ends grade away from it."""
+    from shapely.geometry import MultiPoint
+    out = []
+    for k in ks:
+        if not _is_overpass(pieces[k]):
+            continue
+        st = [xy(float(la), float(lo)) for la, lo, *_z in pieces[k].member.plate_stations]
+        if st:
+            out.append((pieces[k].zero - float(np.median([pieces[j].zero for j in ks])),
+                        MultiPoint(st).convex_hull.buffer(GRID_M), -1))
+    return out
+
+
 def _station_span(line: _t.Any, g: _t.Any, plan: _t.Any) -> tuple[float, float]:
     """The stretch of the centreline a node's footprint covers: its part
     over the deck's plan (else its own) projected on the line."""
@@ -655,6 +698,7 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
             continue
         z0 = float(np.median([pieces[k].zero for k in ks]))
         nodes, riders = _nodes(pieces, ks, xy, law)
+        nodes = nodes + _crossing_nodes(pieces, ks, xy)
         feet = (_end_nodes(pieces, ks, xy, surface, z0, law.walled_m)
                 if surface is not None else [])
         ds = [d for d, _g, _c in nodes + feet]

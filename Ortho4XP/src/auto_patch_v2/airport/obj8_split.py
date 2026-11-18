@@ -279,10 +279,10 @@ class BodyCut:
     #: geometry band by band.  None (the default) is the pre-band cut.
     band: "tuple[float, float, float, float] | None" = None
     #: #2144 THE DECK WARP (``deck_profile``; ``obj8_warp``): the field's
-    #: nodes ``(D, rings)`` in the authored plan -- every static vertex,
+    #: track and pier feet in the authored plan -- every static vertex,
     #: line vertex and light rises by ``D(x, z)``.  Empty (the default) is
     #: no warp; never baked together with a tilt.
-    warp: "tuple[_warp.Node, ...]" = ()
+    warp: "tuple[_t.Any, ...]" = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -349,7 +349,7 @@ def tilt_matrix(tilt: _t.Sequence[float]) -> np.ndarray:
 
 def offset_tag(offset: _t.Sequence[float],
                tilt: _t.Sequence[float] = NO_TILT,
-               warp: "_t.Sequence[_warp.Node]" = ()) -> str:
+               warp: "_t.Sequence[_t.Any]" = ()) -> str:
     """THE BAKED TRANSFORM, AS EIGHT HEX CHARACTERS (RULINGS 2026-09-14at;
     the seat tilt added by 2026-10-01k Q1).
 
@@ -374,7 +374,7 @@ def offset_tag(offset: _t.Sequence[float],
     x, y, z = (float(v) for v in offset)
     gx, gz = float(tilt[0]), float(tilt[1])
     if warp:
-        # #2144: a warped body's file is named by its nodes too
+        # #2144: a warped body's file is named by its warp too
         return hashlib.blake2s(struct.pack("<5d", x, y, z, gx, gz)
                                + _warp.warp_digest(warp), digest_size=4).hexdigest()
     if (gx, gz) == (0.0, 0.0):
@@ -387,7 +387,7 @@ def offset_tag(offset: _t.Sequence[float],
 def body_resource_name(resource: str, k: int,
                        offset: "_t.Sequence[float] | None" = None,
                        tilt: _t.Sequence[float] = NO_TILT,
-                       warp: "_t.Sequence[_warp.Node]" = ()) -> str:
+                       warp: "_t.Sequence[_t.Any]" = ()) -> str:
     """``objects/<stem>__b<k>_<tag>.obj`` beside the original (§4.5).
 
     THE FILE IS KEYED ON WHAT IT CONTAINS (owner RULINGS 2026-09-14at;

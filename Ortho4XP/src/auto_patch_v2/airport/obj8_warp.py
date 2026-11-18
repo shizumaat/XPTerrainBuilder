@@ -5,18 +5,18 @@ A warped body is written with every static vertex, line vertex and light
 moved straight up by one displacement FIELD over the authored plan,
 ``y' = y + D(x, z)``: x and z never move, so piers stay vertical, the plan
 footprint is the authored one and two triangles sharing a vertex move it
-alike (the mesh stays closed with no clip).  The field is given by its
-NODES -- ``(D_k, rings)``, each ring a plan polygon ``((x, z), ...)`` in the
-placement's authored frame -- and is the inverse-distance blend
-
-    D(p) = sum(D_k / d_k(p)) / sum(1 / d_k(p))
-
-with ``d_k`` the plan distance from ``p`` to node k's polygons: exactly
-``D_k`` inside node k, the straight grade between two nodes.  A normal is
-carried by the inverse transpose of the shear ``[[1,0,0],[Dx,1,Dz],[0,0,1]]``
-(``n' = (nx - Dx ny, ny, nz - Dz ny)``, renormalised).  ``ANIM`` geometry is
-never displaced (the split writer refuses the warp for a body owning a
-block, as it refuses the seat tilt).
+alike (the mesh stays closed with no clip).  The field is given by the
+deck's TRACK (owner 2026-11-17T23:33Z: "if the rail is being sloped,
+shouldn't the piers never need to be much taller?"), :data:`Track`
+``("track", ((x, z, D), ...))``: the deck's centreline in the placement's
+authored frame with the displacement at each vertex.  A point takes the
+station of its nearest point on the centreline, and ``D`` there is linear
+in distance ALONG the track between two vertices -- so the deck follows the
+straight grade between its nodes and a pier under it stands near its
+authored height.  A normal is carried by the inverse transpose of the shear
+``[[1,0,0],[Dx,1,Dz],[0,0,1]]`` (``n' = (nx - Dx ny, ny, nz - Dz ny)``,
+renormalised).  ``ANIM`` geometry is never displaced (the split writer
+refuses the warp for a body owning a block, as it refuses the seat tilt).
 
 A PIER FOOT (owner 2026-11-17T20:43Z: "a pier foot may stretch by at
 most 3 m") is a second kind of item in the same list, :data:`Foot`
@@ -25,7 +25,7 @@ most 3 m") is a second kind of item in the same list, :data:`Foot`
 (the foot's bottom band) is lowered a further ``drop``, so the pier
 lengthens down to the ground while its top stays with the deck.
 
-With no node every function here is the identity, so an unwarped body's
+With no track and no foot every function here is the identity, so an unwarped body's
 file is byte-identical to the pre-warp writer's.
 """
 from __future__ import annotations
@@ -36,11 +36,10 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Node", "Foot", "FOOT_REACH_M", "Field", "warp_digest", "warp_rows"]
+__all__ = ["Track", "Foot", "FOOT_REACH_M", "Field", "warp_digest", "warp_rows"]
 
-#: one node: ``(D, rings)`` -- the displacement and the plan polygons,
-#: authored ``(x, z)``, inside which the field is exactly ``D``
-Node = tuple[float, tuple[tuple[tuple[float, float], ...], ...]]
+#: the deck's track: ``("track", ((x, z, D), ...))`` (module doc)
+Track = tuple[str, tuple[tuple[float, float, float], ...]]
 
 #: one pier foot: ``("foot", x, z, y_max, drop)`` (module doc)
 Foot = tuple[str, float, float, float, float]
@@ -53,34 +52,33 @@ def _is_foot(item: _t.Any) -> bool:
     return len(item) == 5 and item[0] == "foot"
 
 
+def _is_track(item: _t.Any) -> bool:
+    return len(item) == 2 and item[0] == "track"
+
+
 #: the finite-difference step of the field's gradient, metres
 GRAD_STEP_M = 0.25
 
 
 class Field:
-    """The displacement field of a body's nodes (module doc)."""
+    """The displacement field of a body's track and feet (module doc)."""
 
     def __init__(self, items: _t.Sequence[_t.Any]) -> None:
         import shapely
-        nodes = [n for n in items if not _is_foot(n)]
         self.feet = np.asarray([[float(v) for v in f[1:]] for f in items if _is_foot(f)],
                                float).reshape(-1, 4)
-        self.values = np.asarray([float(n[0]) for n in nodes], float)
-        polys, segs = [], []
-        for _d, rings in nodes:
-            ps = [shapely.Polygon(r) for r in rings if len(r) >= 3]
-            polys.append(shapely.union_all([p if p.is_valid else p.buffer(0.0) for p in ps]))
-            e = []
-            for r in rings:
-                a = np.asarray(r, float)
-                if a.shape[0] >= 2:
-                    e.append(np.concatenate([a, np.roll(a, -1, axis=0)], axis=1))
-            segs.append(np.concatenate(e) if e else np.zeros((0, 4)))
-        self._polys = polys
-        self._segs = segs
+        pts = [np.asarray(t[1], float).reshape(-1, 3) for t in items if _is_track(t)]
+        pts = [p for p in pts if p.shape[0] >= 2]
+        self._line = None
+        if pts:
+            p = pts[0]
+            self._line = shapely.LineString(p[:, :2])
+            self._station = np.concatenate(
+                [[0.0], np.cumsum(np.hypot(*np.diff(p[:, :2], axis=0).T))])
+            self._d = p[:, 2]
 
     def __bool__(self) -> bool:
-        return bool(self._polys) or bool(self.feet.shape[0])
+        return self._line is not None or bool(self.feet.shape[0])
 
     def drop(self, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
         """The further lowering of each point by the pier feet: the largest
@@ -92,39 +90,16 @@ class Field:
             out[hit] = np.maximum(out[hit], d)
         return out
 
-    def _distance(self, k: int, x: np.ndarray, z: np.ndarray) -> np.ndarray:
-        """Plan distance from the points to node k (0 inside it): the
-        nearest ring edge, by segments, in chunks."""
-        import shapely
-        s = self._segs[k]
-        out = np.full(x.shape, np.inf)
-        for c in range(0, s.shape[0], 64):
-            e = s[c:c + 64]
-            ax, az, bx, bz = (e[:, i][None, :] for i in range(4))
-            dx, dz = bx - ax, bz - az
-            ll = dx * dx + dz * dz
-            t = np.clip(((x[:, None] - ax) * dx + (z[:, None] - az) * dz)
-                        / np.where(ll > 0, ll, 1.0), 0.0, 1.0)
-            d = np.hypot(x[:, None] - (ax + t * dx), z[:, None] - (az + t * dz))
-            out = np.minimum(out, d.min(axis=1))
-        out[shapely.contains_xy(self._polys[k], x, z)] = 0.0
-        return out
-
     def at(self, x: np.ndarray, z: np.ndarray) -> np.ndarray:
-        """``D`` at the authored plan points ``(x, z)``."""
+        """``D`` at the authored plan points ``(x, z)``: linear along the
+        track at each point's nearest station."""
+        import shapely
         x = np.atleast_1d(np.asarray(x, float))
         z = np.atleast_1d(np.asarray(z, float))
-        if not self._polys:
+        if self._line is None:
             return np.zeros_like(x)
-        d = np.stack([self._distance(k, x, z) for k in range(len(self._polys))], axis=1)
-        inside = d <= 1e-9
-        w = 1.0 / np.where(inside, 1.0, d)
-        out = (w * self.values).sum(axis=1) / w.sum(axis=1)
-        hit = inside.any(axis=1)
-        if hit.any():
-            iv = inside[hit].astype(float)
-            out[hit] = (iv * self.values).sum(axis=1) / iv.sum(axis=1)
-        return out
+        st = shapely.line_locate_point(self._line, shapely.points(x, z))
+        return np.interp(st, self._station, self._d)
 
     def grad(self, x: np.ndarray, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """``(dD/dx, dD/dz)`` by central differences of :data:`GRAD_STEP_M`."""
@@ -136,21 +111,17 @@ class Field:
         return gx, gz
 
 
-def warp_digest(nodes: _t.Sequence[Node]) -> bytes:
-    """The node list as bytes (mm-rounded), for the file name's hash: two
+def warp_digest(items: _t.Sequence[_t.Any]) -> bytes:
+    """The warp items as bytes (mm-rounded), for the file name's hash: two
     placements whose warps differ never share a file."""
     h = hashlib.blake2s(digest_size=8)
-    for item in nodes:
+    for item in items:
         if _is_foot(item):
             h.update(b"F" + struct.pack("<4d", *(round(float(v), 3) for v in item[1:])))
-            continue
-        d, rings = item
-        h.update(struct.pack("<d", round(float(d), 3)))
-        for r in rings:
-            for x, z in r:
-                h.update(struct.pack("<2d", round(float(x), 3), round(float(z), 3)))
-            h.update(b"|")
-        h.update(b"#")
+        elif _is_track(item):
+            h.update(b"T")
+            for q in item[1]:
+                h.update(struct.pack("<3d", *(round(float(v), 3) for v in q)))
     return h.digest()
 
 

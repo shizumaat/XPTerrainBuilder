@@ -41,13 +41,16 @@ def _deck(tmp_path, anim: bool = False) -> str:
     return _write(tmp_path / ("deck_a.obj" if anim else "deck.obj"), v, t, anim)
 
 
-def _box(x0, x1):
-    return ((x0, -5.0), (x1, -5.0), (x1, 9.0), (x0, 9.0))
+def _track(d_east: float):
+    """The deck's track along its centreline z 2: flat at D 0 inside
+    building A (x <= -40), flat at ``d_east`` inside building B (x >= 40),
+    linear along the track between."""
+    return (("track", ((-60.0, 2.0, 0.0), (-40.0, 2.0, 0.0),
+                       (40.0, 2.0, d_east), (60.0, 2.0, d_east))),)
 
 
-#: building A covers x <= -40 at D 0; building B covers x >= 40, 0.4 m
-#: lower (a 0.4 m step over 80 m: 0.5 %)
-NODES = ((0.0, (_box(-60.0, -40.0),)), (-0.4, (_box(40.0, 60.0),)))
+#: building B 0.4 m lower than building A (a 0.4 m step over 80 m: 0.5 %)
+NODES = _track(-0.4)
 
 
 def _ys(text: str) -> dict:
@@ -59,7 +62,7 @@ def _ys(text: str) -> dict:
     return out
 
 
-def test_field_is_exact_inside_each_node_and_straight_between():
+def test_field_is_exact_inside_each_node_and_straight_along_the_track():
     f = OW.Field(NODES)
     d = f.at(np.asarray([-50.0, -40.0, 0.0, 40.0, 50.0]), np.zeros(5))
     assert abs(d[0]) < 1e-9 and abs(d[1]) < 1e-9
@@ -67,6 +70,17 @@ def test_field_is_exact_inside_each_node_and_straight_between():
     assert abs(d[2] + 0.2) < 1e-6          # the midpoint of two nodes
     gx, _gz = f.grad(np.asarray([0.0]), np.asarray([0.0]))
     assert abs(gx[0] + 0.4 / 80.0) < 1e-3
+    # off the line a point takes its nearest station's D (no bow sideways)
+    off = f.at(np.asarray([0.0, 0.0]), np.asarray([-30.0, 30.0]))
+    assert np.allclose(off, -0.2, atol=1e-9)
+
+
+def test_a_curving_track_is_linear_in_distance_along_it():
+    """Owner 2026-11-17T23:33Z: the field is linear in distance ALONG the
+    track between nodes, round a bend too (an L: 50 m east, 50 m north)."""
+    f = OW.Field((("track", ((0.0, 0.0, 0.0), (50.0, 0.0, -1.0), (50.0, 50.0, -2.0))),))
+    d = f.at(np.asarray([25.0, 50.0, 50.0]), np.asarray([0.0, 25.0, 50.0]))
+    assert np.allclose(d, [-0.5, -1.5, -2.0], atol=1e-9)
 
 
 def test_a_warped_deck_lands_on_both_buildings_within_a_centimetre(tmp_path):
@@ -98,7 +112,7 @@ def test_the_file_name_follows_the_warp():
     n0 = OS.body_resource_name("objects/deck.obj", 0, (0.0, 0.0, 0.0))
     n1 = OS.body_resource_name("objects/deck.obj", 0, (0.0, 0.0, 0.0), warp=NODES)
     n2 = OS.body_resource_name("objects/deck.obj", 0, (0.0, 0.0, 0.0),
-                               warp=((0.0, NODES[0][1]), (-0.3, NODES[1][1])))
+                               warp=_track(-0.3))
     assert len({n0, n1, n2}) == 3
 
 
@@ -144,3 +158,32 @@ def test_a_pier_foot_stretches_down_and_its_top_stays_with_the_deck(tmp_path):
     # a foot alone is still a warp; far from it nothing moves
     f = OW.Field((foot,))
     assert bool(f) and f.drop(np.asarray([10.0]), np.asarray([-10.0]), np.asarray([2.0]))[0] == 0.0
+
+
+def test_the_centreline_follows_a_curving_deck_across_a_gap():
+    """``deck_profile._centreline``: an L-shaped deck (100 m east, 80 m
+    north) cut by a 20 m gap where a station stands is ONE line along it,
+    and a side piece hanging off it is no part of it."""
+    from auto_patch_v2.airport import deck_profile as DP
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+    leg = LineString([(0.0, 0.0), (100.0, 0.0), (100.0, 80.0)]).buffer(5.0)
+    plan = unary_union([leg.difference(box(40.0, -10.0, 60.0, 10.0)),
+                        box(70.0, -40.0, 76.0, -20.0)])          # the side piece
+    line = DP._centreline(plan)
+    assert 160.0 < line.length < 195.0
+    c = np.asarray(line.coords)
+    assert c[:, 1].min() > -6.0                                   # never into the side piece
+    assert abs(c[0][1]) < 3.0 and abs(c[-1][0] - 100.0) < 3.0
+
+
+def test_the_knots_hold_each_node_flat_in_order_along_the_track():
+    """``deck_profile._knots``: flat over each node's stretch, in station
+    order; two overlapping stretches of different D part at the middle."""
+    from auto_patch_v2.airport import deck_profile as DP
+    k = DP._knots([(100.0, 120.0, -1.0), (0.0, 10.0, 0.0), (115.0, 140.0, -2.0)], 0.05)
+    st = [q[0] for q in k]
+    assert st == sorted(st)
+    assert k[0] == (0.0, 0.0) and k[1] == (10.0, 0.0)
+    assert k[2] == (100.0, -1.0) and k[-1] == (140.0, -2.0)
+    assert k[3][0] < k[4][0] and k[3][1] == -1.0 and k[4][1] == -2.0

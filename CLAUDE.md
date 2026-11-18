@@ -43,6 +43,9 @@ on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
   `lane_worktree.sh up`); never raise `O4_LANE_CAP`. `df -h` ≥ 30 GB before
   a build. Builds share memory machine-wide and yield to the owner's app
   build and X-Plane; never a fixed one-build limit (owner 2026-11-17T22:50Z).
+  Dev processes run below running apps (owner 2026-11-18T01:01Z): the dev venv
+  sets nice 15 at start (`venv/.../site-packages/o4_dev_nice.pth`;
+  `O4_DEV_NICE=0` only for a timed run).
   On report: push, remove the worktree, delete
   scratch builds. Briefs say "never raise the lane cap; delete your scratch
   builds when you report".

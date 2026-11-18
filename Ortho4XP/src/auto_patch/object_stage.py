@@ -77,6 +77,11 @@ def mesh_placement_sampler(mesh_path: str,
     drawn triangles, ``guest_stage``) in place of reading ``mesh_path``."""
     import math
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
+    if sampler is None and mesh_path.lower().endswith(".dsf"):
+        # #2129: a tile whose .mesh is gone reads the DSF its build wrote
+        # (``guest_stage.own_ground``), as X-Plane draws it
+        from .guest_stage import _dsf_sampler
+        sampler = _dsf_sampler(mesh_path, bounds)
     if sampler is None:
         sampler = MeshElevationSampler(mesh_path, bounds)
 
@@ -1104,8 +1109,14 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
         if not os.path.isfile(mesh_path):
-            UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
-            return counts
+            from . import guest_stage as _guests
+            dsf = _guests.own_ground(tile, plans)
+            if not dsf:
+                UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
+                return counts
+            UI.vprint(0, f"  [v2 rebake] mesh not found at {mesh_path}; the tile's "
+                         f"built DSF is its ground ({dsf})")
+            mesh_path = dsf
         if not _mesh_is_newer_than_alt(tile, mesh_path):
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
                          "placement SKIPPED; rebuild the mesh after the elevation step")

@@ -174,3 +174,50 @@ def test_the_neighbours_ground_is_its_mesh_else_its_built_dsf_else_the_dem(
     assert GS.neighbour_marks(tile, (12.9, 47.7, 13.1, 47.8)) == {
         "+47+013": TR.mesh_mark(GS._mesh_digest(str(mesh)))}
     assert GS.neighbour_marks(tile, (12.1, 47.7, 12.9, 47.8)) == {}
+
+
+def test_a_tile_without_its_mesh_reads_its_built_dsf_only_when_it_postdates_the_plan(
+        tmp_path):
+    """EDDH 1.0.558 (lane leddh3): the storage offload moved +53+009's
+    .mesh away and +53+010's re-seat of the terminal skipped.  The tile's
+    built DSF is its ground then -- unless it predates the rebake plan
+    (this build's mesh vanished mid-build: the DSF is the last build's)."""
+    import os
+
+    from auto_patch import guest_stage as GS
+    tiles = tmp_path / "Tiles"
+    tile = types.SimpleNamespace(lat=53, lon=9, custom_build_dir=str(tiles) + "/")
+    plan = tmp_path / "o4_v2_rebake_EDDH.json"
+    plan.write_text("{}", encoding="utf-8", newline="\n")
+    assert GS.own_ground(tile, [str(plan)]) == ""          # no DSF at all
+    dsf = tiles / "zOrtho4XP_+53+009" / "Earth nav data" / "+50+000" / "+53+009.dsf"
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"dsf")
+    os.utime(plan, (1000.0, 1000.0))
+    os.utime(dsf, (2000.0, 2000.0))
+    assert GS.own_ground(tile, [str(plan)]) == str(dsf)     # built after the plan
+    os.utime(dsf, (500.0, 500.0))
+    assert GS.own_ground(tile, [str(plan)]) == ""           # the last build's DSF
+
+
+def test_the_placement_sampler_reads_a_dsf_as_drawn(monkeypatch):
+    """A ``.dsf`` handed to the placement sampler is read through the DSF's
+    drawn triangles (``guest_stage._dsf_sampler``), never as a .mesh."""
+    from auto_patch import guest_stage as GS
+    from auto_patch import object_stage as OS
+    asked = []
+
+    class _Stub:
+        def sample_at(self, lat, lon):
+            return types.SimpleNamespace(elevation_metres=12.5, is_water=False)
+
+        def sample_many(self, lats, lons):
+            return [self.sample_at(a, b) for a, b in zip(lats, lons, strict=True)]
+
+    monkeypatch.setattr(GS, "_dsf_sampler",
+                        lambda path, box: asked.append((path, box)) or _Stub())
+    box = (10.0, 53.6, 10.01, 53.64)
+    sample = OS.mesh_placement_sampler("/x/+53+010.dsf", box)
+    assert asked == [("/x/+53+010.dsf", box)]
+    assert sample(53.62, 10.005) == (12.5, False)
+    assert sample.many([53.62], [10.005]) == [(12.5, False)]

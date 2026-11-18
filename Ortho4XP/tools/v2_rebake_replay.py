@@ -721,6 +721,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print("  plan counts: %s   files %d"
           % (dict(last_plan.counts()), len(last_files)))
 
+    if args.write_pack and args.plan_out:
+        # #2129 (lane leddh3): the plan BEFORE the routed write moves the
+        # bodies standing on a neighbour tile into its guest rows -- the
+        # plan below keeps only this tile's (EDDH's whole terminal is guest)
+        whole = os.path.splitext(args.plan_out)[0] + ".whole.json"
+        with open(whole, "w") as fh:
+            fh.write(last_plan.to_json())
+        print("  plan before routing ->", whole)
     if args.write_pack:
         from auto_patch.dsf_reader import _dsftool_path
         # #1884 round 2 B2: the app's one routed write — this tile's DSF

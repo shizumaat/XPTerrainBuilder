@@ -363,7 +363,8 @@ def _grid_sized(layers: list, small: _t.Mapping[int, str]) -> list:
 
 def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
                   areas: _t.Sequence[Box], *,
-                  bounded: bool | _t.Sequence[bool] = False
+                  bounded: bool | _t.Sequence[bool] = False,
+                  shared: _t.Collection[str] = ()
                   ) -> tuple[MissingDef, ...]:
     """THE WITNESS over one pristine DSF dump (a path or its rows): when a
     draped orthophoto grid over one of ``areas`` passes the grid rule
@@ -371,13 +372,18 @@ def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
     tile (``pack_drape_grid.pack_photos``, RULINGS 2026-11-09a (10)), as
     the ``MissingDef`` rows the omission takes (``uses``: its polygons).  ``bounded``: the
     areas are the airports' authored boundaries (one flag, or one per
-    area)."""
+    area).  ``shared`` (#2129): the photo paths this witness hides on the
+    pack's OTHER tile DSFs -- a grid the tile edge cuts is one grid, and
+    its columns past the edge (too few tiles there to make a family of
+    their own) are its tiles: a photo layer of this dump drawing one of
+    them counts as hidden, and the whole-set rule follows."""
     from .pack_drape_grid import hidden_stacks, pack_photos
     if not areas:
         return ()
     pl = photo_layers(pack_root, source, areas)
-    hidden = pack_photos(pl.layers, pl.kin, hidden_stacks(
-        pl.layers, areas, bounded, pl.ground))
+    hidden = hidden_stacks(pl.layers, areas, bounded, pl.ground) | {
+        ly.index for ly in pl.layers if ly.path in set(shared)}
+    hidden = pack_photos(pl.layers, pl.kin, hidden)
     return tuple(MissingDef("polygon", i, pl.defs[i], len(pl.uses[i]))
                  for i in sorted(hidden))
 

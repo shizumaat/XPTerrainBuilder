@@ -141,3 +141,24 @@ def test_plates_are_the_followers_ground_floors(tmp_path):
     assert len(built) == 1 and built[0].level == pytest.approx(1638.71 - 9.0 + 0.15 - flush)
     assert built[0].area_m2 == pytest.approx(3600.0)
     assert [p.why.split(":")[0] for p in got if not p.built] == ["agp_plate_small"]
+
+
+def test_a_plate_under_the_seated_groups_feet_passes_the_lidar_gate():
+    """RULINGS 2026-11-18j: on credible lidar a plate further than
+    ``plate_max_off_m`` from the DEM is refused (16t) unless the member's own
+    contact feet stand on it — then the seated group sets its level and it is
+    built, listed ``agp_plate_seated``."""
+    import numpy as np
+    from auto_patch_v2.airport.agp_plates import _member_plates
+    flush = float(LAW.tables.structures.bridge.deck_flush_m)
+    tris = np.array([[(0, 0, 0.5), (60, 0, 0.5), (60, 60, 0.5)],
+                     [(0, 0, 0.5), (60, 60, 0.5), (0, 60, 0.5)]], float)
+    dem = types.SimpleNamespace(z_many=lambda xs, ys: np.full(len(xs), 1624.0))
+    agp = LAW.tables.structures.agp
+    feet = np.array([[(30.0, 30.0, 0.0)]])
+    away = np.array([[(300.0, 300.0, 0.0)]])
+    for f, built, why in ((None, False, "agp_plate_off_dem"), (away, False, "agp_plate_off_dem"),
+                          (feet, True, "agp_plate_seated")):
+        (p,) = _member_plates(_group(), "dsf:obj1", tris, dem, agp, flush, True, f)
+        assert (p.built, p.why.split(":")[0]) == (built, why)
+        assert p.level == pytest.approx(1638.71 - 9.0 + 0.5 - flush)

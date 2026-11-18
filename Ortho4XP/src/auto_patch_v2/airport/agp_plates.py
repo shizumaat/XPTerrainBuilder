@@ -18,7 +18,9 @@ member's own contact FEET (``agp_ground.member_feet``, within the ground band
 of the datum the group's lawful lift set, 14m (3)) stand on the part, its
 level is the seated group's, not a lidar-free guess — it is built at that
 seat however far it stands off the lidar and listed ``agp_plate_seated``;
-the ground meets the objects and the planar banks carry it back to the DEM.
+the ground meets the objects and the planar banks carry it back to the DEM;
+the rest of the member's footprint is a flat pad at its seat
+(``airport/agp_foot_pads``).
 ``AgpGroup.plates`` carries them;
 the planar stage grades them (``planar/agp_ground``) and the rows hold the
 ground at the floor (``constraints/agp_level``).
@@ -34,6 +36,7 @@ import typing as _t
 import numpy as np
 
 from ..model.agp_group import AgpGroup, AgpPlate
+from .agp_foot_pads import with_foot_pads
 from .agp_gap_plates import with_gap_plates
 
 __all__ = ["with_plates"]
@@ -171,10 +174,12 @@ def _read_plates(airport, law, groups: _t.Sequence[AgpGroup]
             mine = _member_plates(g, fm.row, tris, getattr(airport, "dem", None), agp, flush,
                                   lidar, feet)
             # #2116 R2 C1b: the open strips between two ground-floor parts
-            plates += with_gap_plates(mine, feet,
-                                      _floor_plan(m, lat0, lon0, memo, agp, airport),
-                                      g.zero_pred(fm.row), agp, flush,
-                                      getattr(airport, "dem", None), notes)
+            mine = with_gap_plates(mine, feet, _floor_plan(m, lat0, lon0, memo, agp, airport),
+                                   g.zero_pred(fm.row), agp, flush,
+                                   getattr(airport, "dem", None), notes)
+            # RULINGS 2026-11-18j (2): a flat pad under the rest of its footprint
+            plates += with_foot_pads(mine, feet, g.zero_pred(fm.row), agp, flush,
+                                     getattr(airport, "dem", None), notes)
         for p in plates:
             if p.built or p.area_m2 >= 10.0:
                 notes.append(f"{g.id} {p.member} plate#{p.k}: y {p.y:+.2f} L {p.level:.2f} "

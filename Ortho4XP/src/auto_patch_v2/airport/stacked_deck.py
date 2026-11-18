@@ -9,8 +9,11 @@ whatever the gap -- 16v's 1-2 m judgement band does not apply to it.
 
 THE WITNESS, read off the touch pass's nodes (``touch_graph``: one frame,
 one zero, so the authored relation of two of its bodies is their spans
-over the frame's one zero): a body DECK (class ``deck`` or flagged
-``elevated``) STANDS ON a BUILDING when one of its non-line parts P is
+over the frame's one zero): a DECK (the plan's class ``deck``; an elevated
+piece the carrier law already carries rides its carrier, and is not read
+again here -- HECA's material-split hangar pieces, ``metal_net`` /
+``metal_strip`` riding their own hosts, would otherwise be re-seated on a
+neighbour's wall top) STANDS ON a BUILDING when one of its non-line parts P is
 ELEVATED (its authored bottom at least ``walled_m`` over the zero: a slab,
 not a ramp on the ground) and a part Q of the building overlaps P in plan
 (their plan polygons share area) and rises from below P (Q's bottom at
@@ -35,10 +38,6 @@ import typing as _t
 __all__ = ["stacked_on", "unit_of"]
 
 
-def _is_deck(b: _t.Any) -> bool:
-    return b.body_class == "deck" or bool(getattr(b, "elevated", False))
-
-
 def _bears(n: _t.Any, s: _t.Any, xy: _t.Callable, walled_m: float, tol_m: float) -> bool:
     """Does an elevated part of node ``n`` rest on a part of node ``s``
     (module doc)?"""
@@ -57,6 +56,11 @@ def _bears(n: _t.Any, s: _t.Any, xy: _t.Callable, walled_m: float, tol_m: float)
     return False
 
 
+def _carried_by(b: _t.Any, s: _t.Any) -> bool:
+    """Is deck body ``b`` already carried by the node ``s`` (it rides it)?"""
+    return str(getattr(b, "merged_into", "") or "") == s.name
+
+
 def stacked_on(nodes: _t.Sequence[_t.Any], pairs: _t.Iterable[tuple[int, int]],
                body: _t.Callable[[_t.Any], _t.Any], *, walled_m: float,
                tol_m: float, kind_building: str) -> dict[int, int]:
@@ -73,8 +77,8 @@ def stacked_on(nodes: _t.Sequence[_t.Any], pairs: _t.Iterable[tuple[int, int]],
     for i, j in pairs:
         for d, s in ((i, j), (j, i)):
             D, B = nodes[d], nodes[s]
-            if (B.kind != kind_building or abs(D.zero - B.zero) <= tol_m
-                    or not _is_deck(body(D)) or B.fixed or D.fixed):
+            if (B.kind != kind_building or abs(D.zero - B.zero) <= tol_m or B.fixed
+                    or D.fixed or body(D).body_class != "deck" or _carried_by(body(D), B)):
                 continue
             if _bears(D, B, xy, walled_m, tol_m):
                 if d not in out or nodes[out[d]].zero > B.zero:

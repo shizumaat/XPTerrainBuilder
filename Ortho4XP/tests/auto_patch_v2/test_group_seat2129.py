@@ -45,7 +45,8 @@ def _tilted(lift: float = 0.0):
 def _untilt(splits, members):
     counts: dict = {}
     moved, rows = TF.untilt_floating(splits, members, _surface(), band_m=BAND_M,
-                                     contact_tol_m=TOL_M, tol_m=0.05, counts=counts)
+                                     contact_tol_m=TOL_M, tol_m=0.05, sink_max_m=1.0,
+                                     counts=counts)
     return moved, rows, counts
 
 
@@ -63,14 +64,14 @@ def test_a_tilt_re_zeroed_to_float_is_levelled_at_its_no_float_zero():
     splits, members = _tilted(lift=0.5)
     u, m = members["dsf:shelters"]
     tilted = splits[0].bodies[0]
-    worst = max(f[4] for f in TF.floats_as_written(tilted, u, m, _surface(), BAND_M, TOL_M))
+    worst = max(f[4] for f in TF._floats_as_written(tilted, u, m, _surface(), BAND_M, TOL_M))
     assert worst > 0.4
     _moved, rows, counts = _untilt(splits, members)
     b = splits[0].bodies[0]
     assert counts["seat_tilt_refused_floats"] == 1 and len(rows) == 1
     assert not b.seat.applied and "RULINGS 2026-11-18h (4)" in b.anchor.reason
     assert b.new_resource != tilted.new_resource       # the file bakes no tilt now
-    fs = TF.floats_as_written(b, u, m, _surface(), BAND_M, TOL_M)
+    fs = TF._floats_as_written(b, u, m, _surface(), BAND_M, TOL_M)
     assert -1e-6 < max(f[4] for f in fs) <= 1e-6     # the highest zero floating nothing
 
 

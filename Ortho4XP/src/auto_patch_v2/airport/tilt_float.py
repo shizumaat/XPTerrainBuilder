@@ -25,7 +25,12 @@ it, a rider tilted with its carrier: ``placement_seat_tilt.frame_tilts``
 / ``rider_seat``) -- are ONE rigid body: a foot of any of them floating
 undoes the tilt of all of them, and they take ONE level zero, the highest
 at which no ground-contact foot of the frame floats (``min(ground -
-authored y)``; the rest is buried, 16v "better than floating").  The other
+authored y)``; the rest is buried, 16v "better than floating") -- when
+that sink is at most ``sink_max_m`` (16v's "less than a meter", ``touch_seat.
+SEAT_MAX_M``).  A frame whose LEVEL seat floats more than that is no tilt
+problem: the tilt is not what floats it, and rule (1) keeps it exactly as
+it is (listed, ``unreached``; HECA's ``Hangar_Tower`` frame floats 11.2 m
+level at its 22o group zero, EDDH's fire station 2.1 m).  The other
 bodies of the connected group it was seated in (22o) are not moved here:
 the touch pass after it seats the bodies that TOUCH it (16u/v), so a
 group mate standing apart is not dragged down with it (EDDH
@@ -45,19 +50,16 @@ import numpy as np
 
 from . import obj8_split as _split
 from .placement_motion import foot_float, ground_contact_feet
+from .placement_targets import _zero
 
-__all__ = ["floats_as_written", "untilt_floating", "REASON"]
+__all__ = ["untilt_floating"]
 
 #: the levelled body's reason
-REASON = ("seat tilt REFUSED: it floated a foot {f:.2f} m (RULINGS 2026-11-18h (4)); "
+_REASON = ("seat tilt REFUSED: it floated a foot {f:.2f} m (RULINGS 2026-11-18h (4)); "
           "level at {z:.2f}")
 
 
-def _zero(b: _t.Any) -> float:
-    return float(b.anchor.surface_z) - float(b.anchor.y_zero)
-
-
-def floats_as_written(body: _t.Any, u: _t.Any, m: _t.Any, surface: _t.Any,
+def _floats_as_written(body: _t.Any, u: _t.Any, m: _t.Any, surface: _t.Any,
                       band_m: float, contact_tol_m: float) -> list[tuple]:
     """``[(lat, lon, authored y, level float, written float)]`` of
     ``body``'s ground-contact feet at its zero: LEVEL, and as WRITTEN --
@@ -91,7 +93,7 @@ def _level(body: _t.Any, m: _t.Any, z: float, worst: float) -> _t.Any:
     a = body.anchor
     y0 = float(a.surface_z) - z
     off = tuple(a.offset)
-    why = REASON.format(f=worst, z=z)
+    why = _REASON.format(f=worst, z=z)
     seat = body.seat
     if getattr(seat, "applied", False):
         seat = _dc.replace(seat, applied=False, grad=_split.NO_TILT, drop_m=0.0,
@@ -120,12 +122,13 @@ def _frames(splits: _t.Sequence[_t.Any], members: _t.Mapping) -> dict[tuple, lis
 
 def untilt_floating(splits: list, members: _t.Mapping, surface: _t.Any, *,
                     band_m: float, contact_tol_m: float, tol_m: float,
-                    counts: dict) -> tuple[dict, list]:
+                    sink_max_m: float, counts: dict) -> tuple[dict, list]:
     """Rule (4) over the final bodies, in place on ``splits``: every tilted
     frame floating a foot more than ``tol_m`` as written, written level at
-    its no-float zero.  Returns ``({(record, body): new zero}, listing)``,
-    one listing row per frame: ``(unit, worst float, old zero, new zero,
-    files)``."""
+    its no-float zero, unless that sinks it more than ``sink_max_m``.
+    Returns ``({(record, body): new zero}, listing)``, one listing row per
+    frame that floats: ``(unit, worst float, old zero, new zero | None
+    (unreached), files)``."""
     if surface is None:
         return {}, []
     moved: dict = {}
@@ -135,21 +138,26 @@ def untilt_floating(splits: list, members: _t.Mapping, surface: _t.Any, *,
         for ri, j in slots:
             u, m = members[splits[ri].placement_id]
             b = splits[ri].bodies[j]
-            rows.append((ri, j, b, m, floats_as_written(b, u, m, surface, band_m,
+            rows.append((ri, j, b, m, _floats_as_written(b, u, m, surface, band_m,
                                                        contact_tol_m)))
         worst = max((f[4] for *_r, fs in rows for f in fs), default=0.0)
         if worst <= tol_m:
             continue
-        lv = [f[3] for *_r, fs in rows for f in fs]
-        z_new = key[1] - max(lv) if lv else key[1]
+        sink = max(f[3] for *_r, fs in rows for f in fs)
+        files = [str(b.new_resource) for _ri, _j, b, _m, _f in rows]
+        if sink > sink_max_m:
+            listing.append((key[0], round(worst, 3), key[1], None, files))
+            counts["seat_tilt_float_unreached"] = (
+                counts.get("seat_tilt_float_unreached", 0) + 1)
+            continue
+        z_new = key[1] - sink
         for ri, j, b, m, _fs in rows:
             rec = splits[ri]
             bs = list(rec.bodies)
             bs[j] = _level(b, m, z_new, worst)
             splits[ri] = _dc.replace(rec, bodies=tuple(bs))
             moved[(ri, j)] = z_new
-        listing.append((key[0], round(worst, 3), key[1], round(z_new, 3),
-                        [str(b.new_resource) for _ri, _j, b, _m, _f in rows]))
+        listing.append((key[0], round(worst, 3), key[1], round(z_new, 3), files))
     if moved:
         counts["seat_tilt_refused_floats"] = (counts.get("seat_tilt_refused_floats", 0)
                                               + len(moved))

@@ -60,7 +60,7 @@ from . import touch_graph as _tg
 from .open_frame_seat import at_zero, group_key, unit_root
 from .placement_file import recut
 
-__all__ = ["Fixed", "law_of", "seat_touching", "REASON", "STACK_REASON",
+__all__ = ["Fixed", "law_of", "seat_touching", "REASON",
            "SEAT_MAX_M", "PADS_MIN_M", "LOW_BAND_M"]
 
 #: 16v: a spread under this seats the group at its lower member
@@ -72,9 +72,9 @@ LOW_BAND_M = 0.3
 #: the moved body's reason (``drawn_site_plan`` reads its ``fu:N:M``)
 REASON = "one touching group {root} at {z:.2f} (RULINGS 2026-11-16u/v)"
 #: rule (2)'s reason: a deck stacked on walls rides them
-STACK_REASON = "rides the walls {walls} it stands on at {z:.2f} (RULINGS 2026-11-18h (2))"
+_STACK_REASON = "rides the walls {walls} it stands on at {z:.2f} (RULINGS 2026-11-18h (2))"
 #: rule (4)'s, for a body riding a levelled tilted frame
-LEVEL_RIDER_REASON = "rides its carrier, levelled at {z:.2f} (RULINGS 2026-11-18h (4))"
+_LEVEL_RIDER_REASON = "rides its carrier, levelled at {z:.2f} (RULINGS 2026-11-18h (4))"
 
 
 @_dc.dataclass(frozen=True)
@@ -343,12 +343,12 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
               for r in splits]
     level, level_rows = _tf.untilt_floating(
         splits, members, surface, band_m=band_m, contact_tol_m=law.contact_tol_m,
-        tol_m=law.tol_m, counts=counts)
+        tol_m=law.tol_m, sink_max_m=SEAT_MAX_M, counts=counts)
     level_changed = {ri for ri, _j in level}
     if level:
         lr = _riders(before, frames, level, set(level), law.tol_m)
         level_changed |= _apply(splits, members, lr, {}, {
-            k: LEVEL_RIDER_REASON.format(z=z) for k, z in lr.items()})
+            k: _LEVEL_RIDER_REASON.format(z=z) for k, z in lr.items()})
     nodes = _tg.read_nodes(splits, members, plan_wide, law.walled_m)
     _mark_fixed(nodes, splits, members, fixed or Fixed())
     _tg.footprint_areas(nodes)
@@ -423,7 +423,7 @@ def _stack_moves(nodes: list, stack: _t.Mapping[int, int], units: _t.Mapping[int
             t = z + nodes[k].zero - nodes[d].zero
             if abs(t - nodes[k].zero) > 1e-6:
                 out[nodes[k].key] = t
-                whys[nodes[k].key] = STACK_REASON.format(walls=nodes[s].name, z=t)
+                whys[nodes[k].key] = _STACK_REASON.format(walls=nodes[s].name, z=t)
     return out, whys
 
 

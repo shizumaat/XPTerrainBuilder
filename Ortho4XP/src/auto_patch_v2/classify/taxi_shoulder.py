@@ -53,6 +53,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom.parts import line_parts
+from ..geom.valid_area import valid_area
 from .evidence import polygon_parts
 
 __all__ = ["join_taxi_shoulders", "SHOULDER_HOSTS"]
@@ -80,7 +81,7 @@ def _beside_road(evid: _t.Mapping, roads, narrow: float):
     strip, or when no road is mapped."""
     if not evid.get("arm_road") or roads is None:
         return None
-    return roads.buffer(narrow + float(evid.get("neck_width_m", narrow)))
+    return _valid(roads.buffer(narrow + float(evid.get("neck_width_m", narrow))))
 
 
 def _run_along(edge, axis: LineString) -> float:
@@ -135,6 +136,19 @@ def join_taxi_shoulders(final: list[list], taxi_family: tuple[str, ...],
     return stats
 
 
+def _valid(geom):
+    """``geom`` as an overlay operand GEOS can read: itself when valid
+    (no build that did not throw changes), else its ``valid_area``.
+
+    #2170 (KTUL objpav50 beside objpav238, KBHM): both cells valid, but the
+    host carries the classify snap grid (0.01 m) and GEOS's 1 m buffer of
+    its ring, snap-rounded on that grid, came back self-intersecting —
+    ``TopologyException: side location conflict`` and the airport lost its
+    patch.  Every operand this join builds is read through here, so one
+    bad cell never fails an airport."""
+    return geom if geom.is_valid else valid_area(geom)
+
+
 def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
                 roads, stats) -> int:
     """One pass of the join over ``final``; returns the strips joined."""
@@ -159,11 +173,12 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
             out.append(row)
             continue
         road_here = _beside_road(evid, roads, narrow)
+        face = _valid(face)
         best = None
         for j in taxi_tree.query(face.buffer(tol)):
             host = taxi[int(j)]
             hp: Polygon = host[2]
-            edge = face.boundary.intersection(hp.boundary.buffer(tol))
+            edge = face.boundary.intersection(_valid(hp.boundary.buffer(tol)))
             if edge.is_empty or edge.length < need:
                 continue
             # the cell's own centreline: the taxi axis nearest the shared
@@ -186,7 +201,7 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
             own = face if road_here is None else face.difference(road_here)
             if own.area > narrow * run:
                 continue
-            part = own.intersection(par.buffer(band_m, cap_style="flat"))
+            part = own.intersection(_valid(par.buffer(band_m, cap_style="flat")))
             if best is None or run > best[1]:
                 best = (host, run, part, own.area / run)
         joined = [] if best is None else \

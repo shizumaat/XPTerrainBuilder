@@ -37,11 +37,18 @@ from ..law import Law
 from ..airport.slab_faces import witness_faces
 from ..geom.base_slab import base_slabs
 from ..geom.proportions import road_proportioned
-from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m, zone_edge_offset_m
+from ..law.tables import (
+    base_slab_law,
+    family,
+    gap_standoff_m,
+    snap_margin_m,
+    zone_edge_offset_m,
+)
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
 from .gap_apron import Verdict, close_rim, fill_to_taxi, judge
+from .gap_band import attach, band_parts, road_split, runway_knife
 from .gap_stands import holds_stand, startup_tree
 from .rules import Rules
 
@@ -192,6 +199,7 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     sheet = (unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
              if sheets else Polygon())
     before_bands, geom = _cut(sheet)
+    sheet_free = before_bands             # the pack sheet's, for ``gap_band``
     if not band_knife.is_empty:
         stats["gap_band_trim_m2"] = float(before_bands.intersection(band_knife).area)
     to_ll = airport.frame.transformers()[1]
@@ -262,8 +270,16 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
             verdict[i] = Verdict(True, bool(v and v.road_evidence),
                                  None if v is None else v.airside_edge_m)
             stats["gap_pieces_stand"] = stats.get("gap_pieces_stand", 0) + 1
+    road_roles = set(family(law, "road_cross_section").roles)
+    roads = [q for c, q in polys if c.role in road_roles]
+    _band_ground(kept, verdict, band_parts(
+        sheet_free, band_knife, runway_knife(cells, law, airport, off), grid),
+        lambda q, a: road_split(q, sheets, a, roads, stand + weld_m),
+        lambda q: _shared_m(q, apron_tree, aprons, weld_m) if apron_tree else 0.0,
+        lambda q: q.area >= lw.object_pavement_min_m2 and not q.buffer(-0.5 * lane).is_empty,
+        grid, min_edge, stats)
     taxi_fill = _taxi_fill(cells, polys, airport, law, sheet, flush, off,
-                           stand) if judged else None
+                           stand) if judged or stats.get("gap_band_pieces") else None
     j = 0
     for k, (part, apron_m, touches) in enumerate(kept):
         v = verdict.get(k)
@@ -328,7 +344,6 @@ def _taxi_fill(cells, polys, airport, law: Law, sheet, flush, off, stand):
     RUNWAY band (strip area is never apron population, 2026-08-21d), the
     other pieces.  ``None`` with no taxi face."""
     from .roles import TAXI_FAMILY
-    from .ribbon_mint import ribbon_extent
     taxi = [(c, q) for c, q in polys if c.role in TAXI_FAMILY]
     if not taxi or sheet.is_empty:
         return None
@@ -338,13 +353,45 @@ def _taxi_fill(cells, polys, airport, law: Law, sheet, flush, off, stand):
     standing = unary_union(flush + taxis + [
         off(q) for c, q in polys if c.role not in TAXI_FAMILY
         and not (c.role == "apron" or is_osm_ribbon_ref(c.ref))])
-    runway = ribbon_extent([c for c in cells if c.role not in TAXI_FAMILY], law,
-                           Polygon(), getattr(airport, "runways", ()))
-    runway_knife = off(runway) if not runway.is_empty else Polygon()
+    rknife = runway_knife(cells, law, airport, off)
     tree = STRtree(taxis)
 
     def args(part, others):
         box = part.buffer(2.0 * max(reaches)).envelope
-        return taxis, reaches, tree, [box.difference(sheet), standing, runway_knife,
+        return taxis, reaches, tree, [box.difference(sheet), standing, rknife,
                                       *others]
     return args
+
+
+def _band_ground(kept: list, verdict: dict, parts: list, cut_off, contact_m,
+                 floor, grid: float, min_edge: float, stats: dict) -> None:
+    """THE BAND GROUND ON A GAP SHEET IS APRON (``classify/gap_band``,
+    #2113): each band ``part`` touching an apron piece joins it (``kept``
+    re-written in place); a part touching no piece is one more apron piece,
+    appended to ``kept`` with its ``verdict``, when it runs at least
+    ``min_edge`` along an apron cell (``contact_m``) or a road across its
+    page cut it off an apron piece (``cut_off(part, aprons)``), and clears
+    the mint's piece ``floor``.  No road judge: a road in the band is a standing ribbon cell,
+    so no part holds one."""
+    if not parts:
+        return
+    pieces = [q if verdict.get(i) is not None and verdict[i].apron else None
+              for i, (q, _m, _t) in enumerate(kept)]
+    taken, loose = attach(parts, pieces, grid)
+    for i, more in taken.items():
+        q, m, t = kept[i]
+        kept[i] = (shapely.set_precision(unary_union([q, *more]), grid), m, t)
+    grown = sum(p.area for ps in taken.values() for p in ps)
+    aprons = [kept[i][0] for i, q in enumerate(pieces) if q is not None]
+    n = 0
+    for p in loose:
+        if not floor(p):
+            continue
+        m = contact_m(p)
+        if m >= min_edge or cut_off(p, aprons):
+            verdict[len(kept)] = Verdict(True, False, None)
+            kept.append((p, m, True))
+            grown += p.area
+            n += 1
+    stats["gap_band_apron_m2"] = float(grown)
+    stats["gap_band_pieces"] = n

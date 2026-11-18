@@ -217,6 +217,7 @@ _SHARED: tuple[str, ...] = (
     "O4_OSM_Utils",
     "O4_Overlay_Pack",
     "O4_Parallel_Utils",
+    "O4_Patch_Voids",
     "O4_Process_Liveness",
     "O4_Proj_Runtime",
     "O4_Rebuild_Cache",

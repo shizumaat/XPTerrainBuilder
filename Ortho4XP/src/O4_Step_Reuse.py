@@ -456,9 +456,11 @@ def _output_files(tile, step: str, pack_dsfs=()) -> list:
         # the mesh step.  (``o4_unpatched_airports.json`` is not one: no
         # mesh code reads it, and the masks step writes it too.)  And the
         # z-provenance log a height-only patch edit replays (#1323).
+        import O4_Patch_Voids as PATCH_VOIDS
         import O4_ZProv as ZPROV
         node_file = FNAMES.input_node_file(tile)
         files = [node_file, FNAMES.input_poly_file(tile),
+                 PATCH_VOIDS.sidecar_path(FNAMES.input_poly_file(tile)),
                  FNAMES.apt_file(tile), FNAMES.alt_file(tile),
                  FNAMES.alt_unfill_file(tile),
                  ZPROV.zprov_file(node_file),
@@ -535,9 +537,12 @@ def bundle_absent_outputs(tile) -> tuple:
     — 464 MB of elevation grid on one tile — the z-provenance log and the
     levelled-roads sidecar).  Only a mesh step reads them, and a bundle's
     mesh step is already done."""
+    import O4_Patch_Voids as PATCH_VOIDS
     import O4_ZProv as ZPROV
     node_file = FNAMES.input_node_file(tile)
-    return (node_file, FNAMES.input_poly_file(tile), FNAMES.alt_file(tile),
+    return (node_file, FNAMES.input_poly_file(tile),
+            PATCH_VOIDS.sidecar_path(FNAMES.input_poly_file(tile)),
+            FNAMES.alt_file(tile),
             FNAMES.alt_unfill_file(tile), ZPROV.zprov_file(node_file),
             FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon))
 

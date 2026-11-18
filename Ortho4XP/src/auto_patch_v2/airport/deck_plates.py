@@ -181,13 +181,21 @@ def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
     with no seat station."""
     counts = {} if counts is None else counts
     decks = [m for m in members if str(getattr(m, "deck_kind", "") or "") in _DECK_KINDS]
-    if len(decks) != 1 or reach_m <= 0.0:
+    if not decks or reach_m <= 0.0:
         return None
     m = decks[0]
     o = getattr(m, "origin", None)
     st = _stations(m)
-    if getattr(m, "deck_spans", ()) and o is not None and st:
+    # RULINGS 2026-11-18i: a frame CUT TO ITS SPANS is cut whole, however
+    # many hard decks it holds -- every one carries the one cut (MEASURED
+    # frames/lkrdu: KRDU STH_TML obj140 and its bridge decks NewC2_RP obj142
+    # are two flag decks of one frame; read as "more than one deck", the
+    # frame was seated whole at one zero and no at-grade band dropped)
+    if getattr(m, "deck_spans", ()) and o is not None and st and all(
+            tuple(getattr(q, "deck_spans", ()) or ()) == tuple(m.deck_spans) for q in decks):
         return _span_plates(m, (float(o[0]), float(o[1])), st, counts)
+    if len(decks) != 1:
+        return None
     p = _plates_of(str(getattr(m, "authored_path", "") or ""), reach_m)
     if p is None:
         return None

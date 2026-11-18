@@ -14,7 +14,11 @@ Outside the member's plates, each part of it is a PAD at ``L = zero_pred +
 y_top - deck_flush_m`` (``y_top`` the highest contact foot on it, so no foot
 floats), built only where the DEM stands under ``L`` (the ground is raised
 to meet the objects, never cut: where the ground already stands at or over
-the seat the pad does not reach), listed ``agp_foot_pad``.  The planar
+the seat the pad does not reach), listed ``agp_foot_pad``.  A mapped
+at-grade road through the footprint keeps its own ground (RULINGS
+2026-11-14m (1): a road passing under the building stays on the ground):
+its ribbon, grown by the groundside cut-back every road receives, is no
+pad.  The planar
 stage grades it as any plate (``planar/agp_ground``) and banks it back to
 the DEM at the bank law.
 
@@ -30,7 +34,7 @@ import numpy as np
 
 from ..model.agp_group import AgpPlate
 
-__all__ = ["with_foot_pads"]
+__all__ = ["with_foot_pads", "road_corridors"]
 
 #: the DEM is read on a grid this fine over a footprint part (m)
 _GRID_M = 4.0
@@ -49,6 +53,19 @@ def _footprint(feet: np.ndarray, width: float):
         r, join_style="mitre", mitre_limit=2.0).buffer(-r, join_style="mitre", mitre_limit=2.0)
     return shapely.union_all([shapely.Polygon(p.exterior) for p in shapely.get_parts(u)
                               if p.geom_type == "Polygon"])
+
+
+def road_corridors(airport, law):
+    """The union of every mapped at-grade road's ribbon grown by the
+    groundside cut-back (``airport/road_ways``), or ``None``."""
+    import shapely
+
+    from .road_ways import ribbon_half_width_m, road_ways
+    ways = getattr(airport, "osm_ways_mapped", None) or getattr(airport, "osm_ways", ()) or ()
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    got = [ln.buffer(ribbon_half_width_m(w.tags or {}, law) + cut, cap_style="flat")
+           for w, ln in road_ways(ways)]
+    return shapely.union_all(got) if got else None
 
 
 def _under(part, level: float, dem):
@@ -73,10 +90,11 @@ def _under(part, level: float, dem):
 
 
 def with_foot_pads(plates: _t.Sequence[AgpPlate], feet: np.ndarray, zp: float | None, agp,
-                   flush: float, dem, notes: list[str]) -> list[AgpPlate]:
+                   flush: float, dem, notes: list[str], roads=None) -> list[AgpPlate]:
     """``plates`` (ONE member's) plus a pad per part of its footprint outside
     them where the DEM stands under the seat (module doc).  ``feet``
-    ``(k, 1, 3)`` its contact feet in the frame within the ground band."""
+    ``(k, 1, 3)`` its contact feet in the frame within the ground band;
+    ``roads`` the road corridors (:func:`road_corridors`) no pad takes."""
     import shapely
 
     from .dem import dem_z_many
@@ -86,6 +104,8 @@ def with_foot_pads(plates: _t.Sequence[AgpPlate], feet: np.ndarray, zp: float | 
     taken = shapely.union_all([shapely.Polygon(p.ring, p.holes) for p in plates
                                if p.built and len(p.ring) >= 3])
     rest = _footprint(feet, float(agp.plate_gap_max_m)).difference(taken)
+    if roads is not None:
+        rest = rest.difference(roads)
     k_next = 1 + max(p.k for p in plates)
     min_a = float(agp.floor_min_area_m2)
     for part in sorted(shapely.get_parts(rest), key=lambda p: -p.area):

@@ -162,3 +162,38 @@ def test_a_plate_under_the_seated_groups_feet_passes_the_lidar_gate():
         (p,) = _member_plates(_group(), "dsf:obj1", tris, dem, agp, flush, True, f)
         assert (p.built, p.why.split(":")[0]) == (built, why)
         assert p.level == pytest.approx(1638.71 - 9.0 + 0.5 - flush)
+
+
+def test_the_rest_of_a_seated_footprint_is_a_flat_pad_where_the_ground_is_low():
+    """RULINGS 2026-11-18j (2): outside a member's plates, its contact feet's
+    footprint (courts filled) is a pad at ``zero_pred + y_top - deck_flush_m``,
+    built only where the DEM stands under it (fill, never cut), and never on
+    a mapped road (14m (1))."""
+    import numpy as np
+    from auto_patch_v2.airport.agp_foot_pads import with_foot_pads
+    flush = float(LAW.tables.structures.bridge.deck_flush_m)
+    agp = LAW.tables.structures.agp
+    plate = _group().plates[0]
+    # a hall's walls east of the plate: a 60 x 60 m ring of feet, one at +0.3
+    s = np.arange(200.0, 261.0, 1.0)
+    ring = np.r_[np.c_[s, np.full_like(s, 0.0)], np.c_[s, np.full_like(s, 60.0)],
+                 np.c_[np.full_like(s, 200.0), s - 200.0], np.c_[np.full_like(s, 260.0), s - 200.0]]
+    y = np.zeros(len(ring))
+    y[0] = 0.3
+    feet = np.c_[ring, y][:, None, :]
+    zp = 1629.71
+    # the DEM: low (1627) west of x = 230, high (1640) east of it
+    dem = types.SimpleNamespace(z_many=lambda xs, ys: np.where(np.asarray(xs) < 230.0,
+                                                                1627.0, 1640.0))
+    got = with_foot_pads([plate], feet, zp, agp, flush, dem, [])
+    (pad,) = got[1:]
+    assert pad.built and pad.why.startswith("agp_foot_pad")
+    assert pad.level == pytest.approx(zp + 0.3 - flush)
+    xs = [x for x, _ in pad.ring]
+    assert min(xs) == pytest.approx(199.5, abs=0.6) and max(xs) <= 232.0
+    assert pad.area_m2 == pytest.approx(31 * 61, rel=0.1)
+    assert with_foot_pads([plate], feet, None, agp, flush, dem, []) == [plate]
+    road = shapely.box(210.0, -10.0, 216.0, 70.0)
+    cut = with_foot_pads([plate], feet, zp, agp, flush, dem, [], road)[1:]
+    assert cut and all(not shapely.Polygon(p.ring).intersects(road.buffer(-0.01)) for p in cut)
+    assert sum(p.area_m2 for p in cut) < pad.area_m2 - 300.0

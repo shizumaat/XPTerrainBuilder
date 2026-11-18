@@ -36,7 +36,7 @@ import typing as _t
 import numpy as np
 
 from ..model.agp_group import AgpGroup, AgpPlate
-from .agp_foot_pads import with_foot_pads
+from .agp_foot_pads import road_corridors, with_foot_pads
 from .agp_gap_plates import with_gap_plates
 
 __all__ = ["with_plates"]
@@ -156,6 +156,7 @@ def _read_plates(airport, law, groups: _t.Sequence[AgpGroup]
     # #2116 R2 G2: ONE reading of the inset's class (``law/inset_class``)
     from ..law.inset_class import lidar_credible
     lidar = lidar_credible(airport, law)
+    roads = road_corridors(airport, law)
     for g in groups:
         if g.governor is None:
             out.append(g)
@@ -179,7 +180,7 @@ def _read_plates(airport, law, groups: _t.Sequence[AgpGroup]
                                    getattr(airport, "dem", None), notes)
             # RULINGS 2026-11-18j (2): a flat pad under the rest of its footprint
             plates += with_foot_pads(mine, feet, g.zero_pred(fm.row), agp, flush,
-                                     getattr(airport, "dem", None), notes)
+                                     getattr(airport, "dem", None), notes, roads)
         for p in plates:
             if p.built or p.area_m2 >= 10.0:
                 notes.append(f"{g.id} {p.member} plate#{p.k}: y {p.y:+.2f} L {p.level:.2f} "

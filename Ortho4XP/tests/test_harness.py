@@ -1722,7 +1722,20 @@ def _osm_layer_fixture(tmp_path, monkeypatch, schema):
     monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
     cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
     _write_schema_stamped_layer(cache, schema)
+    # the tile's own small-roads feed is present and current, so it is
+    # not the cold feed #2073 derives (that case is its own test)
+    _write_current_small_roads(40, -4)
     return root, cache
+
+
+def _write_current_small_roads(lat, lon):
+    """Tile (lat, lon)'s ``airport_small_roads`` feed, schema-current."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import osm as _v2osm
+
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(lat, lon, "airport_small_roads")),
+        _v2osm.ROAD_CACHE_TAG_SCHEMA)
 
 
 def _mock_engine_fetch(monkeypatch, calls):
@@ -2489,6 +2502,7 @@ def test_an_osm_layers_refresh_COVERS_airport_small_roads(
     root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
     _write_schema_stamped_layer(
         Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    _write_current_small_roads(32, -97)        # its own feed is current
     nbr = Path(FNAMES.osm_cached(33, -98, "airport_small_roads"))
     _write_schema_stamped_layer(nbr, "2026-07-16")
 

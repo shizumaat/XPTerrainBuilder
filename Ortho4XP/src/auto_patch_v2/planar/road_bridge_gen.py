@@ -51,6 +51,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from .deck_generated import GLOBAL_OFFER, global_only
 from .road_bridge_clear import clearance_plan, span_cuts, witnessed
 from .structure_approach import carriageway_width_m
 
@@ -81,10 +82,10 @@ def _pages(airport) -> list[Polygon]:
 
 
 def _pack_ok(airport) -> bool:
+    """B1 (d): a pack DSF to write the chain into; a Global Airports entry
+    is read on (its bridges are the offer's candidates, #2169)."""
     pack = getattr(airport, "pack", None)
-    apt = str(getattr(pack, "apt_dat_path", "") or "").replace("\\", "/").lower()
-    return bool(pack is not None and getattr(pack, "dsf_paths", ())
-                and "global airports" not in apt)
+    return global_only(airport) or bool(pack is not None and getattr(pack, "dsf_paths", ()))
 
 
 def _cut_region(dem, line: LineString, reach: float, levels: tuple[float, float],
@@ -125,7 +126,10 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
              ) -> tuple[list[dict], list[str]]:
     rg = law.tables.structures.road_gen
     ways = [w for w in getattr(airport, "osm_ways", ()) or () if len(w.points) >= 2]
-    cands = [w for w in ways if _is_road_bridge(w.tags)]
+    # #2169: an airport over two tiles reads a way once per tile's extract
+    # (two ids, one line): one bridge per line
+    cands = list({tuple((round(x, 2), round(y, 2)) for x, y in w.points): w
+                  for w in reversed(ways) if _is_road_bridge(w.tags)}.values())[::-1]
     if not cands or not _pack_ok(airport):
         return [], []
     pages = _pages(airport)
@@ -187,6 +191,10 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
             notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
                          f"{', '.join(lower[:4])} -- REFUSED: {provided} (B1 (c), the pack "
                          f"always wins)")
+            continue
+        if global_only(airport):
+            notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
+                         f"{', '.join(lower[:4])} -- REFUSED: {GLOBAL_OFFER}")
             continue
         low = _cut_region(dem, line, float(rg.cut_reach_m), plan.levels, float(rg.cut_drop_m))
         if low is not None:

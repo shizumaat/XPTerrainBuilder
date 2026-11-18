@@ -11,7 +11,11 @@ is built to check if a newer version is available on the gateway."
 * :func:`_offers` — THE REPORT for a list of graded airports: every one
   X-Plane draws from its Global Airports entry (``apt_dat.
   select_apt_dat`` picks a :func:`apt_dat.global_candidates` file) whose
-  block carries ``1302 flatten 1`` (reason ``"flatten"``), and, with
+  block carries ``1302 flatten 1`` (reason ``"flatten"``), every one
+  whose patch published taxiway decks or road bridges its Global
+  Airports entry cannot carry (reason ``"bridges"``, #2169; RULINGS
+  2026-11-16y (2): "offer to install and modify it like we do with the
+  flatten removal"), and, with
   ``check_updates``, every Gateway pack the app installed whose Gateway
   recommendation moved on (reason ``"update"``).  An airport the user
   answered "never" for is not listed.
@@ -103,6 +107,26 @@ def _global_flatten(xplane_root: str, icao: str) -> dict | None:
     return _row(icao, _name_of(block), "flatten")
 
 
+def _global_bridges(xplane_root: str, icao: str, patch_dir: str) -> dict | None:
+    """The ``"bridges"`` row of ``icao``, or None: X-Plane draws it from
+    a Global Airports entry and its patch (``patch_dir``) published
+    generated decks / road bridges only a pack of its own can carry
+    (``generated_publication``'s ``"offer"``)."""
+    from auto_patch_v2.airport import apt_dat as _apt
+    from auto_patch_v2.model.rebake import graded_surface_path
+    if not patch_dir:
+        return None
+    chosen, block = _block(xplane_root, icao)
+    if not chosen or chosen not in _apt.global_candidates(xplane_root):
+        return None
+    try:
+        with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:
+            gen = (json.load(fh).get("provenance") or {}).get("generated") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    return _row(icao, _name_of(block), "bridges") if gen.get("offer") else None
+
+
 def _row(icao: str, name: str, reason: str, installed_id: int = 0,
          latest_id: int = 0, pack: str = "") -> dict:
     return {"icao": icao.upper(), "name": name, "reason": reason,
@@ -160,14 +184,16 @@ def _update_row(xplane_root: str, icao: str, fetch) -> dict | None:
 
 
 def _offers(xplane_root: str, codes: _t.Iterable[str], *,
-           check_updates: bool, fetch: _api.Fetch | None = None) -> list[dict]:
+           check_updates: bool, fetch: _api.Fetch | None = None,
+           patch_dir: str = "") -> list[dict]:
     """THE REPORT (module doc): one row per airport of ``codes`` to
     offer, in ``codes`` order."""
     out: list[dict] = []
     for icao in dict.fromkeys(str(c).upper() for c in codes if c):
         if STORE.choice(_choice_key(xplane_root, icao)) == "never":
             continue
-        row = _global_flatten(xplane_root, icao)
+        row = _global_flatten(xplane_root, icao) \
+            or _global_bridges(xplane_root, icao, patch_dir)
         if row is None and check_updates:
             row = _update_row(xplane_root, icao, fetch)
         if row is not None:
@@ -183,6 +209,14 @@ def _announce(lat: int, lon: int, state: str, items=(), error: str = "",
               "files": list(files)}
     UI.gateway_airports(**fields)
     return fields
+
+
+def _patch_dir(lat: int, lon: int) -> str:
+    import O4_File_Names as FNAMES
+    try:
+        return FNAMES.patch_dir(lat, lon)
+    except Exception:
+        return ""
 
 
 def _graded_codes(lat: int, lon: int) -> list[str]:
@@ -210,7 +244,8 @@ def gateway_stage(lat: int, lon: int, xplane_root: str | None,
         if codes is None:
             codes = _graded_codes(lat, lon)
         check = os.environ.get("O4_PACK_WRITES") is None
-        rows = _offers(xplane_root, codes, check_updates=check, fetch=fetch)
+        rows = _offers(xplane_root, codes, check_updates=check, fetch=fetch,
+                       patch_dir=_patch_dir(lat, lon))
         for r in rows:
             _say(0, f"  [gateway] {r['icao']}: "
                     + ("X-Plane flattens this Global Airports entry "
@@ -218,6 +253,10 @@ def gateway_stage(lat: int, lon: int, xplane_root: str | None,
                        "the sim draws; the app offers the Gateway's latest "
                        "version without the flag"
                        if r["reason"] == "flatten" else
+                       "its patch has taxiway decks / road bridges that X-Plane's "
+                       "Global Airports entry cannot carry; the app offers the "
+                       "Gateway's latest version as a pack it can modify"
+                       if r["reason"] == "bridges" else
                        f"the Gateway has a newer version "
                        f"({r['installed_id']} -> {r['latest_id']})"))
         if rows:
@@ -336,7 +375,8 @@ def gateway_choice(xplane_root: str | None, action: str,
             raise ValueError("no X-Plane install for this tile")
         if action == "ask":
             rows = _offers(xplane_root, _codes_of_tile(xplane_root, la, lo),
-                          check_updates=True, fetch=fetch)
+                          check_updates=True, fetch=fetch,
+                          patch_dir=_patch_dir(la, lo))
             state = "ask" if rows else "none"
         elif action == "never":
             for icao in seen:

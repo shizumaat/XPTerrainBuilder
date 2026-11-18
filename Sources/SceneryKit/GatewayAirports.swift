@@ -2,7 +2,8 @@ import Foundation
 
 /// One airport of a Gateway offer (engine `GatewayAirports.items`, issue
 /// #1989): `flatten` (X-Plane draws its Global Airports entry, which
-/// carries `1302 flatten 1`), `update` (the Gateway pack the app installed
+/// carries `1302 flatten 1`), `bridges` (its patch has taxiway decks or road
+/// bridges only a pack of its own can carry, #2169), `update` (the Gateway pack the app installed
 /// has a newer Gateway version) or, in an outcome, `installed`.
 public struct O4GatewayAirport: Sendable, Equatable, Identifiable {
     public let icao: String
@@ -63,7 +64,7 @@ public struct O4GatewayAirports: Sendable, Equatable, Identifiable {
 
     /// The rows to offer (each checked when the question opens).
     public var offers: [O4GatewayAirport] {
-        items.filter { $0.reason == "flatten" || $0.reason == "update" }
+        items.filter { ["flatten", "bridges", "update"].contains($0.reason) }
     }
     /// A question to ask: a build's or the report's, with a row in it.
     public var asks: Bool { (state == "found" || state == "ask") && !offers.isEmpty }
@@ -75,14 +76,17 @@ public struct O4GatewayAirports: Sendable, Equatable, Identifiable {
 public enum O4GatewayAirportsCopy {
     public static let title = "Install airports from the X-Plane Gateway?"
 
-    public static let body = "X-Plane flattens the ground under these "
-        + "airports, so it does not draw the graded ground this app builds. "
+    public static let body = "X-Plane draws these airports from its own "
+        + "files, which this app never changes: some flatten the graded "
+        + "ground, others cannot carry the bridges this app builds. "
         + "Choose the airports to install:"
 
     /// Per reason: its explanation.
     public static let reasonDetails: [String: String] = [
         "flatten": "Install the latest Gateway version without the flatten "
             + "tag.",
+        "bridges": "Install the latest Gateway version so the app can add "
+            + "its taxiway and road bridges.",
         "update": "A newer Gateway version is available ({installed} → "
             + "{latest}); it installs without the flatten tag.",
     ]

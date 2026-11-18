@@ -199,6 +199,10 @@ class LoadReport:
     #: #1957 (``airport/network_pages.py``): the network witness's line —
     #: the §60 pages taken as pavement sources, or why they stayed sheets
     network_pages_line: str = ""
+    #: #2169: one note per generated deck / road bridge refused only
+    #: because a Global Airports entry draws the airport (the Gateway
+    #: offer's candidates, ``planar/deck_generated.GLOBAL_OFFER``)
+    generated_offers: tuple[str, ...] = ()
     #: §42 (3) (RULINGS 2026-09-13cv): the pack's DRAPED OBJ8 ground
     #: polygons admitted as source polygons — bodies, m2, per resource,
     #: and every draped resource refused with its reason

@@ -65,7 +65,13 @@ from .structure_approach import carriageway_width_m, design_clearance_m, is_tunn
 from .structure_underpass import underpass_bores
 
 __all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
-           "carried_off", "covers_bore"]
+           "carried_off", "covers_bore", "GLOBAL_OFFER", "global_only"]
+
+#: the refusal of a structure the airport's Global Airports entry cannot
+#: carry: every note ending in it is an OFFER candidate (#2169; RULINGS
+#: 2026-11-16y (2)) that ``gateway_stage`` reads off the publication
+GLOBAL_OFFER = ("the airport is drawn by Global Airports alone: the app OFFERS to install "
+                "its Gateway pack and modify it (RULINGS 2026-11-16y (2))")
 
 #: where the object stage writes the generated decks in the pack
 GENERATED_DIR = "objects/o4_generated"
@@ -346,14 +352,21 @@ def _approach_run_m(law) -> float:
     return (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
 
 
+def global_only(airport) -> bool:
+    """X-Plane draws the airport from its Global Airports entry: the app
+    never writes there, it offers the Gateway pack (RULINGS 16y (2))."""
+    apt = str(getattr(getattr(airport, "pack", None), "apt_dat_path", "") or "")
+    return "global airports" in apt.replace("\\", "/").lower()
+
+
 def _pack_refusal(airport) -> str:
+    # #2169: a Global Airports entry is named FIRST, DSF or not -- its
+    # refusal is the offer's candidate, never "no pack DSF"
+    if global_only(airport):
+        return GLOBAL_OFFER
     pack = getattr(airport, "pack", None)
     if pack is None or not getattr(pack, "dsf_paths", ()):
         return "the airport has no pack DSF to write the deck into (A1 (5))"
-    apt = str(getattr(pack, "apt_dat_path", "") or "")
-    if "global airports" in apt.replace("\\", "/").lower():
-        return ("the airport is drawn by Global Airports alone: the app OFFERS to install "
-                "its Gateway pack and modify it (RULINGS 2026-11-16y (2)); no deck here")
     return ""
 
 

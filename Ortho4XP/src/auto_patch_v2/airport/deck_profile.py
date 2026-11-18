@@ -19,6 +19,12 @@ and counted: a deck holding a class-A airside hard deck (22n: flush, banded
 by #2112), a deck-plate band or a basin.  A member whose seat tilt is baked
 or whose file holds an ``ANIM`` block is left out of the warp (counted).
 
+A CONNECTOR between two separately seated buildings (owner RULINGS
+2026-11-18h (3): a sky bridge, a walkway, a connecting deck the touch pass
+found touching two building seats at different zeros) is a group of its
+own (``connector_warp``): its nodes one per building SEAT, no landing ends,
+its cap ``[deck] shear_max_grade`` (``connector_grade_max``).
+
 A ROAD OVERPASS deck (lkden5, owner KDEN 2026-11-18T01:11Z "seat the rail
 bridge object a little lower so the end here didn't float"): a ``deck``
 body the overpass seat put on the road beneath (RULINGS 2026-10-30f (5)) is

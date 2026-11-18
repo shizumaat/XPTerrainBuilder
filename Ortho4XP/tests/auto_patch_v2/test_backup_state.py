@@ -747,8 +747,9 @@ def test_the_session_reply_carries_restored_and_kept_changed(tmp_path):
     o = _obj(pack, "a.obj", OBJ)
     shutil.copy2(o, str(o) + ".anchor_bak")
     o.write_text("I\n800\nOBJ\nTHE USER'S OWN\n", encoding="utf-8", newline="")
-    reply = EngineSession.reanchor_restore(
-        object.__new__(EngineSession), str(pack))
+    session = object.__new__(EngineSession)
+    session._building = False           # no run live (#2168 pack_busy)
+    reply = EngineSession.reanchor_restore(session, str(pack))
     assert reply["restored"] == 0 and reply["kept_changed"] == 1
 
 

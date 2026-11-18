@@ -220,7 +220,8 @@ def test_build_selection_overrides_stale_tile_config(monkeypatch, tmp_path):
 
     seen.clear()
     sys.modules["O4_Config_Utils"].Tile = _OtherProviderTile
-    run_build(EngineSession(), [(10, 20)], tmp_path)
+    # a fresh build dir: the first run's step records would REUSE every step
+    run_build(EngineSession(), [(10, 20)], tmp_path / "second")
     assert seen["tile"].default_website == "BI"
     assert seen["tile"].default_zl == 16
 

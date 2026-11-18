@@ -37,7 +37,6 @@ def _fit(rows):
     return PST.fit(pts, rise, max_total_deg=1.5, foot_tol_m=0.3), pts, rise
 
 
-
 def test_the_cylw_hangar_tilt_sinks_its_zero_so_no_foot_floats_past_the_level_seat():
     seat, pts, rise = _fit(HANGAR_FEET)
     assert seat.applied
@@ -70,15 +69,3 @@ def test_sunk_lowers_the_zero_and_the_offset_together():
     assert abs(s.anchor.y_zero - (b.anchor.y_zero + 0.25)) < 1e-12
     assert abs(s.anchor.offset[1] - (b.anchor.offset[1] + 0.25)) < 1e-12
     assert PST._sunk(b, dc.replace(seat, applied=False)) is b
-
-
-def test_every_body_of_the_frame_sinks_by_its_one_drop():
-    seat = dc.replace(TG._seat(TG._walls()), drop_m=0.25)
-    att = PST.rider_seat(TG._rider(), TG._MR, {(0, 0): seat}, (0, 0), True)
-    far = PST.rider_seat(TG._rider(), TG._MR, {(0, 0): seat}, (0, 0), True,
-                         is_attached=False, counts={})
-    mate = PST.with_frame_seat(TG._body(TG._walls()), TG._M(), seat)
-    for b in (att, far, mate):
-        assert abs(b.anchor.y_zero - 0.25) < 1e-12
-    assert far.seat is None and att.seat is seat      # only the attached rider tilts
-    assert far.new_resource != TG._rider().new_resource   # the file bakes the new zero

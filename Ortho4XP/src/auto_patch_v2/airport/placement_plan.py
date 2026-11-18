@@ -172,20 +172,16 @@ def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.A
             or _cds.seat_under(body, seats, on_fraction) is not None)
 
 
-#: ``b``'s seat when its tilt is APPLIED (baked), else None (#2060 r2)
-_applied = _pst.applied_seat
-
-
 def _formed_bodies(st: _t.Any, u: _t.Any, decks: _t.Any, surface: _t.Any,
                    counts: dict[str, int], by_class: dict[str, int],
-                   tilt_shared: _t.AbstractSet[tuple[int, int]],
-                   frame_seats: _t.Mapping[tuple, _t.Any], *,
+                   tilt_shared: _t.AbstractSet[tuple[int, int]], *,
                    deck_on_fraction: float, deck_edge_m: float,
                    deck_under_m: float, seat_tilt_max_deg: float,
                    split_tol_m: float, foot_band_m: float) -> list:
     """A staged member's GROUP bodies — its carrier slots, in candidate
-    order — formed: grouped, deck-seated (§49) and seat-tilted (10-01k Q1,
-    14p (1)).  Pure; #2060 r3 (T1) forms every member's before any is cut."""
+    order — formed: grouped, deck-seated (§49) and seat-tilted (10-01k Q1;
+    a shared frame never, RULINGS 2026-11-18h).  Pure; #2060 r3 (T1)
+    forms every member's before any is cut."""
     m = st.m
     bodies = ([] if st.footless
               else _group_bodies(st.raw, st.groups, m, u, counts, by_class,
@@ -202,8 +198,7 @@ def _formed_bodies(st: _t.Any, u: _t.Any, decks: _t.Any, surface: _t.Any,
     return [_pst.seat_tilt(b, u, m, surface=surface,
                            max_total_deg=seat_tilt_max_deg,
                            foot_tol_m=split_tol_m, band_m=foot_band_m,
-                           counts=counts, shared=(st.mi, k) in tilt_shared,
-                           frame_seat=frame_seats.get(_pst.frame_key(b.anchor)))
+                           counts=counts, shared=(st.mi, k) in tilt_shared)
             for k, b in enumerate(bodies)]
 
 
@@ -257,9 +252,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # apron is seated by TILTING THE BODY, capped here
                  # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
                  seat_tilt_max_deg: float = 0.0,
-                 # RULINGS 2026-10-14p (1) (#708): a SHARED FRAME tilts as one
-                 # up to ``[placement] frame_tilt_max_deg``; 0 keeps it level
-                 frame_tilt_max_deg: float = 0.0,
                  # owner RULINGS 2026-10-14g (3): the pack DSF's rows (the
                  # authored kind and elevation of each placement) and
                  # ``[placement] authored_keep_tol_m`` — a placement whose
@@ -534,10 +526,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
     _gz_solo: set[str] = set()                           # #2060: one-member shares
     _gz_led: set[str] = set()      # #2060 r2: shares whose tilted frame kept its zero
-    # #2060 r2 (R4): the units of the written files baking an applied seat,
-    # and the units the unit-carried pieces ride -- what the counts read
-    _tilted_roots: set[str] = set()
-    _unit_riders: list[str] = []
     _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air,   # 22q: airside first
                       solo_out=_gz_solo)
     # #1949 (RULINGS 2026-11-11f): a rail group meeting a walled pit stays
@@ -1314,36 +1302,19 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
-        # #2060 round 2 (14p (1)): the seat each carrier slot was written
-        # with, beside its file -- what a body carried on it bakes too
-        seat_of: dict[tuple[int, int], _t.Any] = {}
-        # #708: the frames more than one body is written in, never tilted alone
+        # #708 / RULINGS 2026-11-18h: the frames more than one body is
+        # written in -- a building group's, never tilted
         tilt_shared = _pst.shared_frames(staged)
-        # 14p (1): ...but the whole frame tilts as one when gently enough
-        frame_seats = _pst.frame_tilts(
-            staged, u, surface, max_total_deg=seat_tilt_max_deg,
-            frame_max_deg=frame_tilt_max_deg, foot_tol_m=split_tol_m,
-            band_m=foot_band_m, counts=counts, shared=tilt_shared)
         # #2060 r3 (T1): every carrier SLOT is formed -- grouped, deck-
-        # seated, seat-tilted -- before any member is cut, so a rider cut
-        # before its carrier (a member cycle, or downstream of one) reads
-        # the seat its slot is formed with; the write refreshes it (R1)
+        # seated, seat-tilted -- before any member is cut
         formed: dict[int, list] = {}
-        slot_anchor: dict[tuple[int, int], _t.Any] = {}
         for st in staged:
             formed[st.mi] = _formed_bodies(
                 st, u, decks, surface, counts, by_class, tilt_shared,
-                frame_seats, deck_on_fraction=deck_on_fraction,
+                deck_on_fraction=deck_on_fraction,
                 deck_edge_m=deck_edge_m, deck_under_m=deck_under_m,
                 seat_tilt_max_deg=seat_tilt_max_deg, split_tol_m=split_tol_m,
                 foot_band_m=foot_band_m)
-            for _k, _b in enumerate(formed[st.mi]):
-                seat_of[(st.mi, _k)] = _applied(_b)
-                slot_anchor[(st.mi, _k)] = _b.anchor
-        # T3: the carried bodies' slots, and the slots' written bodies
-        rides: dict[tuple[int, int], tuple] = {}
-        slot_written: dict[tuple[int, int], _t.Any] = {}
-        unit_riders: list[tuple] = []
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
         # 14p (3) (#709): a one-body CARRIER whose row is more than
@@ -1454,20 +1425,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 cw = written_of.get(c.member, True)
                 _grp_of[len(bodies)] = grp
                 _carrier_of[len(bodies)] = (c.member, c.group)
-                # 14p (1): a body carried on a frame that tilts as one
-                # tilts with it -- its carrier's seat (#2060 r2), when it
-                # touches the carrier (r3, T2)
-                _att = _pst.attached(_pst.rider_boxes(st, grp), c)
-                rides[(st.mi, len(bodies))] = (
-                    (c.member, c.group), _att,
-                    c.member != st.mi and c.member not in written_of)
-                bodies.append(_pst.rider_seat(_carried_file(
+                bodies.append(_carried_file(
                     st.raw, grp, m, u, c, why,
                     (file_of.get((c.member, c.group), c.resource) if cw
                      else by_mi[c.member].m.resource), cw,
                     len(bodies), counts, by_class, st.part_boxes, st.bridge,
-                    st.geom_boxes), m, seat_of, (c.member, c.group), cw,
-                    is_attached=_att, counts=counts))
+                    st.geom_boxes))
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
@@ -1566,28 +1529,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 for _b in splits[-1].bodies:
                     if (st.mi, _b.body_id) in file_of:
                         file_of[(st.mi, _b.body_id)] = _b.new_resource
-                        seat_of[(st.mi, _b.body_id)] = _applied(_b)
-                        slot_written[(st.mi, _b.body_id)] = _b
-                    _ride = rides.get((st.mi, _b.body_id))
-                    if _ride is not None:
-                        unit_riders.append((_b, *_ride,
-                                            slot_anchor.get(_ride[0])))
                     _r = _body_root(_b, _pw or {}, _file_root)
                     if _r:
                         _file_root[_b.new_resource] = _r
-                    if _applied(_b) is not None and _r:
-                        _tilted_roots.add(_r)
-                _unit_ids = {uc.unit for _g, uc in st.unit_carried}
-                _unit_riders.extend(_ofs_unit_root(_b.merged_into)
-                                    for _b in splits[-1].bodies
-                                    if _b.merged_into in _unit_ids)
-        # T3: the rider census, read once the whole unit is cut
-        _pst.rider_census(unit_riders, slot_written, counts)
-    # #2060 round 2, count only: a piece carried by a UNIT whose written
-    # bodies tilt stays level on the unit's datum
-    _n = sum(1 for r in _unit_riders if r in _tilted_roots)
-    if _n:
-        counts["seat_tilt_level_unit_rider"] = _n
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v
     # §16 (3): why a candidate was refused the carry — reported, never
@@ -1600,9 +1544,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # #2110 R3 §1.1: ONE pass over the FINAL bodies
         from . import touch_seat as _ts
         splits, _touch = _ts.seat_touching(
-            splits, plan, _pw or {}, counts, law=touch_seat,
+            splits, plan, _pw or {}, counts,
+            law=_dc.replace(touch_seat, band_m=foot_band_m, contact_tol_m=split_tol_m),
             fixed=_ts.Fixed(_gated, frozenset(_afloat), frozenset(_gz_led)),
-            cut_log=_cut_log, write=write, unit_seats=_unit_seats)
+            cut_log=_cut_log, write=write, unit_seats=_unit_seats, surface=surface)
     if deck_warp is not None and splits:
         # #2144 P2: ONE pass over the final bodies, after the touch pass
         from . import deck_profile as _dpf

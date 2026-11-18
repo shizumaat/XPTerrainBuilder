@@ -122,7 +122,7 @@ def group_lines(table: _t.Mapping[str, _t.Any], top: int = 15) -> list[str]:
     bodies by reason, the small low members and the cross-frame pairs."""
     gs = list(table.get("groups", ()))
     out = ["   --- TOUCHING GROUPS (spec 2110-R3 §2) ---"]
-    for c in ("flat", "seat", "judge", "pads"):
+    for c in ("flat", "seat", "level", "judge", "pads"):
         cg = [g for g in gs if g["class"] == c]
         out.append(f"   {c:6s} {len(cg):5d} group(s)  {sum(g['bodies'] for g in cg):6d} bodies"
                    f"  moved {sum(g['moves'] for g in cg):5d}")

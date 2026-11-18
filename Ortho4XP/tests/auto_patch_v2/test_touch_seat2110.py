@@ -309,3 +309,65 @@ def test_a_shared_file_name_is_read_in_its_riders_frame():
     out, _t, _c = w.run()
     assert _zero(out[r]) == 433.6
     assert out[r].bodies[0].merged_into == "objects/b__b0.obj"
+
+
+# ── RULINGS 2026-11-18h (#2129): a building group is never tilted ──────
+
+def _tilted(w, i, drop=0.1):
+    """record ``i``'s body written seat-TILTED (an applied 10-01k Q1 seat
+    whose no-float sink lowered its zero by ``drop``)."""
+    import dataclasses as dc
+
+    from auto_patch_v2.airport import placement_seat_tilt as PST
+    rec = w.records[i]
+    b = rec.bodies[0]
+    a = b.anchor
+    seat = PST.SeatTilt(tilt_deg=0.4, total_deg=0.4, applied=True,
+                        grad=(0.0, 0.007), drop_m=drop, residual_before_m=0.5)
+    a2 = dc.replace(a, y_zero=a.y_zero + drop, offset=(0.0, a.y_zero + drop, 0.0))
+    w.records[i] = dc.replace(rec, bodies=(dc.replace(b, anchor=a2, seat=seat),))
+
+
+def _ground(la, lo):
+    """the ground falls 1 m west to east over the first 40 m"""
+    x = (lo - LO0) * 111320.0 * math.cos(math.radians(LA0))
+    return SURFACE - min(max(x, 0.0), 40.0) / 40.0
+
+
+def test_a_tilted_garage_and_its_stacked_deck_seat_level_where_no_foot_floats():
+    """EDDH's car park (53.625561, 10.006926): the walls seat-tilted, the
+    top deck 1.40 m higher on its own unit.  The walls are written level
+    again, and the group takes ONE zero -- the deck at its authored
+    height over the walls -- where its lowest foot meets the ground."""
+    import dataclasses as dc
+    w = _World()
+    walls = w.body("walls", (0, 0, 20, 20), 430.0)
+    deck = w.body("deck", (20.05, 0, 40, 20), 431.4, base=0.0)
+    _tilted(w, walls)
+    for i, xs in ((walls, (0.0, 20.0)), (deck, (20.05, 40.0))):
+        rec = w.records[i]
+        feet = tuple((*_ll(x, 10.0), 0.0) for x in xs)
+        w.records[i] = dc.replace(rec, bodies=(dc.replace(rec.bodies[0], feet=feet),))
+    law = dc.replace(LAW, band_m=1.0, contact_tol_m=0.3)
+    plan = types.SimpleNamespace(units=[
+        types.SimpleNamespace(id=k, members=tuple(v)) for k, v in w.units.items()])
+    members = {m.id: m for v in w.units.values() for m in v}
+    log = {i: (members[r.placement_id], True, frozenset(), None)
+           for i, r in enumerate(w.records)}
+    counts: dict = {}
+    out, table = TS.seat_touching(w.records, plan, {}, counts, law=law, cut_log=log,
+                                  write=False, surface=_ground)
+    z = round(SURFACE - 1.0, 3)              # the deck's far foot, the lowest ground
+    assert (_zero(out[walls]), _zero(out[deck])) == (z, z)
+    assert not out[walls].bodies[0].seat.applied and out[walls].bodies[0].seat.levelled
+    assert counts["touch_tilt_levelled"] == 1 and counts["touch_groups_level"] == 1
+    assert [g["class"] for g in table["groups"]] == ["level"]
+
+
+def test_a_tilted_body_touching_nothing_keeps_its_tilt():
+    w = _World()
+    a = w.body("a", (0, 0, 20, 20), 430.0)
+    w.body("b", (50, 0, 70, 20), 431.4)
+    _tilted(w, a)
+    out, _table, counts = w.run()
+    assert out[a].bodies[0].seat.applied and "touch_tilt_levelled" not in counts

@@ -31,6 +31,15 @@ votes), S = max - min:
   need under each member for the rigid group (the planar pad grammar
   grades between; R3 changes none of it).
 
+A BUILDING GROUP IS NEVER TILTED (owner RULINGS 2026-11-18h, #2129: "Why
+is the building tilted?  It should be flat").  A seat-tilted body found in
+a group is written level again (``placement_seat_tilt.levelled``), and a
+group holding a member the tilt would have rotated (``seat.levelled``)
+within :data:`PADS_MIN_M` is a LEVEL group: every member, a stacked deck
+included, takes ONE zero at its authored relative height, the highest at
+which no ground-contact foot of the group floats (:func:`_no_float_z`) —
+the group's lowest drawn edge meets the ground, the rest is buried.
+
 A rider of a moved body that is in no group moves by the same amount.  The
 moved records are CUT AGAIN (``placement_file.recut``) and every rider's
 ``merged_into`` follows its carrier's new file name.  No moved body: no
@@ -41,9 +50,11 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from . import placement_seat_tilt as _pst
 from . import touch_graph as _tg
 from .open_frame_seat import at_zero, group_key, unit_root
 from .placement_file import recut
+from .placement_motion import ground_contact_feet
 
 __all__ = ["Fixed", "law_of", "seat_touching", "REASON",
            "SEAT_MAX_M", "PADS_MIN_M", "LOW_BAND_M"]
@@ -68,6 +79,10 @@ class _TouchLaw:
     tol_m: float
     min_share: float
     walled_m: float
+    #: the feet a LEVEL group may not float (18h): ``[basin]
+    #: contact_band_m`` and ``[placement] split_tol_m``, set by the plan
+    band_m: float = 0.0
+    contact_tol_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -107,7 +122,6 @@ def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
         gate = fixed.frames.get(n.frame, "")
         n.fixed = (
             f"plate_{m.plate_kind}" if getattr(m, "plate_kind", "") else
-            "seat_tilt" if getattr(b.seat, "applied", False) else
             "afloat" if n.name in fixed.afloat else
             "walled_plate_led" if (n.key[0] in led_recs or
                                    group_key(n.unit, n.frame) in fixed.led) else
@@ -143,9 +157,11 @@ def _root(nodes: list, blds: list[int], g: list[int]) -> str:
     return nodes[blds[0]].name
 
 
-def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
+def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
+          level_z: "_t.Callable[[list[int]], float | None] | None" = None) -> dict:
     """One group's decision (§2.2): its class, ``Z``, the members that
-    move to it and the listings."""
+    move to it and the listings.  ``level_z``: the no-float zero of a
+    LEVEL group (18h), ``None`` for any other."""
     blds = [i for i in g if nodes[i].kind == _tg.BUILDING]
     low = min(nodes[i].zero for i in blds)
     near = [i for i in blds if nodes[i].zero <= low + LOW_BAND_M]
@@ -163,6 +179,12 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
            "kept_high": 0}
     out["class"] = ("flat" if s <= law.tol_m else "seat" if s <= SEAT_MAX_M
                     else "judge" if s <= PADS_MIN_M else "pads")
+    lz = level_z(g) if level_z is not None and s <= PADS_MIN_M else None
+    if lz is not None:
+        # 18h: ONE zero for every member, where no foot floats
+        out.update({"class": "level", "Z": round(lz, 3), "small_low": [],
+                    "moves": {i: lz for i in g if abs(nodes[i].zero - lz) > 1e-6}})
+        return out
     if out["class"] == "pads":
         out["pads"] = [(nodes[i].name, round(z + nodes[i].bottom(), 3)) for i in blds]
     if out["class"] != "seat":
@@ -295,11 +317,12 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
                   plan_wide: _t.Mapping[int, tuple], counts: dict, *,
                   law: _TouchLaw, fixed: "Fixed | None" = None,
                   cut_log: "_t.Mapping[int, tuple] | None" = None,
-                  write: bool = False, unit_seats: _t.Sequence[tuple] = ()
-                  ) -> tuple[list, dict]:
+                  write: bool = False, unit_seats: _t.Sequence[tuple] = (),
+                  surface: _t.Any = None) -> tuple[list, dict]:
     """``(splits, table)``: the touching groups of the final bodies seated
     (module doc).  ``cut_log`` is ``placement_file._cut_and_file``'s (each
-    written record's cut args by its index); ``write`` the stage's."""
+    written record's cut args by its index); ``write`` the stage's;
+    ``surface`` the ground a LEVEL group's feet are read on (18h)."""
     splits = list(splits)
     members = {m.id: (u, m) for u in plan.units for m in u.members}
     nodes = _tg.read_nodes(splits, members, plan_wide, law.walled_m)
@@ -310,7 +333,13 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     groups = _tg.groups_of(nodes, pairs, by_name)
     frames = [str(members[r.placement_id][0].id) if r.placement_id in members else ""
               for r in splits]
-    rows = [_seat(nodes, g, pairs, law) for g in groups]
+    level = _level_tilted(splits, members, nodes, groups, frames, counts)
+
+    def lz(g: list[int]) -> "float | None":
+        if not any(_levelled(splits, nodes[i]) for i in g):
+            return None
+        return _no_float_z(nodes, g, splits, surface, law)
+    rows = [_seat(nodes, g, pairs, law, lz) for g in groups]
     moves = {nodes[i].key: z for r in rows for i, z in r["moves"].items()}
     roots = {nodes[i].key: r["root"] for r in rows for i in r["moves"]}
     skip = {nodes[i].key for g in groups for i in g} | {n.key for n in nodes if n.fixed}
@@ -323,7 +352,7 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     targets = {**moves, **riders}
     node_t = {i: targets[n.key] for i, n in enumerate(nodes) if n.key in targets}
     before = list(splits)
-    changed = _apply(splits, members, targets, roots)
+    changed = _apply(splits, members, targets, roots) | level
     names = _recut(splits, frames, before, changed, cut_log or {}, write, counts)
     renamed = _renamed_riders(splits, frames, names)
     moved_units = {nodes[i].unit: z for i, z in node_t.items()
@@ -338,6 +367,57 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     if made:
         counts["touch_fixed_steps_made"] = counts.get("touch_fixed_steps_made", 0) + len(made)
     return splits, table
+
+
+def _levelled(splits: _t.Sequence[_t.Any], n: _t.Any) -> bool:
+    """Is ``n`` a member the seat tilt would have rotated (18h)?"""
+    seat = getattr(splits[n.key[0]].bodies[n.key[1]], "seat", None)
+    return bool(getattr(seat, "levelled", False))
+
+
+def _level_tilted(splits: list, members: _t.Mapping, nodes: list, groups: list,
+                  frames: _t.Sequence[str], counts: dict) -> set[int]:
+    """18h: every seat-TILTED member of a group written level again
+    (``placement_seat_tilt.levelled``), its node's zero updated and every
+    ``merged_into`` naming its old file renamed; the records changed."""
+    names: dict[tuple[str, str], str] = {}
+    changed: set[int] = set()
+    for i in (i for g in groups for i in g):
+        ri, j = nodes[i].key
+        rec = splits[ri]
+        b = rec.bodies[j]
+        if _pst.applied_seat(b) is None:
+            continue
+        nb = _pst.levelled(b, members[rec.placement_id][1])
+        splits[ri] = _dc.replace(rec, bodies=rec.bodies[:j] + (nb,) + rec.bodies[j + 1:])
+        nodes[i].zero = _zero_of(nb)
+        names[(frames[ri], str(b.new_resource))] = str(nb.new_resource)
+        changed.add(ri)
+    if changed:
+        counts["touch_tilt_levelled"] = counts.get("touch_tilt_levelled", 0) + len(names)
+        _renamed_riders(splits, frames, names)
+    return changed
+
+
+def _no_float_z(nodes: list, g: list[int], splits: _t.Sequence[_t.Any],
+                surface: _t.Any, law: _TouchLaw) -> "float | None":
+    """18h: the highest zero at which no ground-contact foot of a group's
+    footed members floats — ``min(ground - authored y)`` over them (a
+    foot renders at ``zero + y``, ``placement_motion.foot_float``); None
+    with no foot on the surface."""
+    if surface is None:
+        return None
+    best = None
+    for i in g:
+        b = splits[nodes[i].key[0]].bodies[nodes[i].key[1]]
+        if b.elevated:
+            continue
+        for f in ground_contact_feet(b.feet, law.band_m, law.contact_tol_m):
+            z = surface(float(f[0]), float(f[1]))
+            if z is not None:
+                c = float(z) - float(f[2])
+                best = c if best is None else min(best, c)
+    return best
 
 
 def _steps_made(nodes: list, pairs: _t.Mapping, targets: dict, tol_m: float) -> list:
@@ -359,7 +439,8 @@ def _inside_steps(nodes: list, pairs: _t.Mapping, groups: list, rows: list,
     """I2 / B4: the touching pairs left more than ``tol_m`` apart INSIDE a
     group the pass seated — a member it kept (a small low member, a far
     follower) against one it moved."""
-    of = {i: k for k, g in enumerate(groups) if rows[k]["class"] == "seat" for i in g}
+    of = {i: k for k, g in enumerate(groups) if rows[k]["class"] in ("seat", "level")
+          for i in g}
     out = []
     for i, j in pairs:
         if i in of and of.get(j) == of[i]:
@@ -397,7 +478,7 @@ def _count(counts: dict, nodes: list, rows: list, moves: dict, riders: dict,
     def add(k: str, v: int) -> None:
         if v:
             counts[k] = counts.get(k, 0) + v
-    for c in ("flat", "seat", "judge", "pads"):
+    for c in ("flat", "seat", "judge", "pads", "level"):
         add(f"touch_groups_{c}", sum(1 for r in rows if r["class"] == c))
     add("touch_bodies_moved", len(moves))
     add("touch_riders_moved", len(riders))

@@ -10,8 +10,12 @@ to take priority."
   (a runway of its own, ``drape_stage``'s scan), every other enabled
   pack with an overlay DSF on the tile is read for the large structures
   both draw within 1 km of the airport (``auto_patch_v2.airport.
-  pack_overlap``).  Each pair found is remembered
-  (``pack_overlap_choice.remember_found``) and becomes one row.
+  pack_overlap``).  A pair is asked about only when an airport pack is
+  one of the two and the two are not parts of one larger package (owner
+  2026-11-17T23:21Z, RULINGS 17s: two non-airport packs, or one family —
+  ``pack_family.same_family`` — are kept both, unasked).  Each pair
+  asked about is remembered (``pack_overlap_choice.remember_found``) and
+  becomes one row.
 * :func:`overlap_stage` — the build's call once a tile is built
   (``o4_engine.session``, on a thread of its own): the rows the user has
   not answered announced as ``PackOverlaps(state="found")`` (the report,
@@ -24,9 +28,15 @@ to take priority."
   ``dsf_write._with_overlap_hides``; its original stays the backup and
   Restore originals puts it back).
 
+Two packs that define the same airport are asked about by
+``duplicate_stage`` (owner 2026-11-17T23:37Z, RULINGS 17s: disable the
+lower one?) in the same event, rows of ``"kind": "duplicate"``, and are
+never also asked about here.
+
 A row: ``{"key", "packs": [a, b], "airport", "default", "winner",
 "count", "rows": [n_a, n_b], "summary"}`` — ``default`` is the airport
-pack, else the pack higher in the user's ``scenery_packs.ini`` (owner
+pack; when both are airport packs (the one case 17s leaves to the ini),
+the pack higher in the user's ``scenery_packs.ini`` (owner
 2026-11-17T20:24Z, RULINGS 17o; alphabetical only among packs the ini
 does not list) — the picker's pre-selection; ``winner`` the stored answer ("" when
 unanswered).  Nothing here names an airport or a pack.
@@ -101,13 +111,15 @@ def _context(xplane_root: str) -> dict:
                 law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))}
 
 
-def default_pack(scenery_dir: str, airport: str,
+def default_pack(scenery_dir: str, airports: _t.Collection[str],
                  packs: _t.Sequence[str]) -> str:
-    """The pre-selected winner of a pair: the airport pack, else the pack
-    X-Plane loads first (higher in ``scenery_packs.ini``); packs the ini
-    does not list rank after the listed ones, alphabetically (RULINGS 17o)."""
-    if airport in packs:
-        return airport
+    """The pre-selected winner of a pair: its one airport pack; when both
+    (or neither) are airport packs, the pack X-Plane loads first (higher in
+    ``scenery_packs.ini``); packs the ini does not list rank after the
+    listed ones, alphabetically (RULINGS 17o, 17s)."""
+    own = [p for p in packs if p in airports]
+    if len(own) == 1:
+        return own[0]
     import O4_Scenery_Packs as _SP
     ordered, _disabled = _SP.parse_ini(
         os.path.join(scenery_dir or "", _SP.INI_FILENAME))
@@ -116,20 +128,43 @@ def default_pack(scenery_dir: str, airport: str,
 
 
 def _row(key: str, airport: str, pair: _po.OverlapPair,
-         scenery_dir: str = "") -> dict:
+         scenery_dir: str = "", airports: _t.Collection[str] = ()) -> dict:
     return {"key": key, "packs": list(pair.packs), "airport": airport,
-            "default": default_pack(scenery_dir, airport, pair.packs),
+            "default": default_pack(scenery_dir, {airport, *airports},
+                                    pair.packs),
             "winner": _ovc.winner(key), "count": pair.count,
             "rows": [len(r) for r in pair.rows], "summary": pair.summary()}
+
+
+def _asked(scenery_dir: str, airports: _t.Collection[str],
+           skip: _t.Collection[frozenset] = ()):
+    """The test a found pair passes to become a row (RULINGS 17s): an
+    airport pack is one of the two, they are not one family, and they are
+    not a same-airport pair (``skip``: ``duplicate_stage`` asks about
+    those)."""
+    from .duplicate_stage import family
+    same, is_airport = family(scenery_dir, airports)
+
+    def asked(a: str, b: str) -> bool:
+        return (frozenset((a, b)) not in skip
+                and (is_airport(a) or is_airport(b)) and not same(a, b))
+    return asked
 
 
 def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
     """THE TILE'S READING (module doc): one row per pack pair."""
     from auto_patch_v2.airport import apt_flatten as _af
+
+    from . import duplicate_stage as _ds
+    from .drape_stage import _folder_packs
     airports, packs = _candidates(scenery_dir, lat, lon)
+    dups = _ds.rows(scenery_dir, [os.path.basename(os.path.normpath(p))
+                                  for p in _folder_packs(scenery_dir, lat, lon)])
     if not airports or len(packs) < 2:
-        return []
+        return dups
     ctx = _context(xplane_root)
+    anames = [os.path.basename(os.path.normpath(a)) for a in airports]
+    asked = _asked(scenery_dir, anames, {frozenset(r["packs"]) for r in dups})
     rows: dict[str, dict] = {}
     for ap in airports:
         aname = os.path.basename(os.path.normpath(ap))
@@ -138,11 +173,11 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
                        _structures(p, lat, lon, frame, region, ctx) for p in packs}
             for pair in _po.overlaps(by_pack):
                 key = _ovc.pair_key(scenery_dir, *pair.packs)
-                if key in rows:
+                if key in rows or not asked(*pair.packs):
                     continue
                 _ovc.remember_found(key, lat, lon, aname, pair.packs, pair.rows)
-                rows[key] = _row(key, aname, pair, scenery_dir)
-    return list(rows.values())
+                rows[key] = _row(key, aname, pair, scenery_dir, anames)
+    return dups + list(rows.values())
 
 
 def overlap_stage(lat: int, lon: int, xplane_root: str | None) -> list[dict]:
@@ -212,7 +247,10 @@ def _hidden(scenery: str, name: str, lat: int, lon: int) -> list:
 
 def _answer(scenery: str, action: str, items: _t.Sequence[_t.Mapping]) -> dict:
     """Store the answers of ``items`` and rewrite every pack whose hiding
-    changed (a pack whose rows stay is never written)."""
+    changed (a pack whose rows stay is never written); a same-airport
+    pair's answer is ``duplicate_stage.answer``'s."""
+    from . import duplicate_stage as _ds
+    dup = _ds.answer(action, items)
     found = [(str(it.get("key") or ""), it) for it in items]
     found = [(k, it, _ovc.found(k)) for k, it in found]
     found = [(k, it, d) for k, it, d in found if d.get("packs")]
@@ -233,4 +271,4 @@ def _answer(scenery: str, action: str, items: _t.Sequence[_t.Mapping]) -> dict:
                 + (f"keeping {r['winner']}'s structures, hiding the other's"
                    if r["winner"] not in ("", _ovc.BOTH) else "both packs drawn"))
     return {"state": "undone" if action == "undo" else "chosen",
-            "items": rows, "files": files}
+            "items": dup["items"] + rows, "files": dup["files"] + files}

@@ -7,7 +7,10 @@ its summary and a picker — either pack, or "Keep both" — set to the
 remembered answer, else the airport pack (owner 2026-11-17T19:15Z
 "Default would be to prefer the airport pack").  **Apply** sends
 ``pack_overlaps`` with ``action="choose"`` and ``items`` ``[{"key",
-"winner"}]``; **Not now** sends nothing.
+"winner"}]``; **Not now** sends nothing.  A row of ``"kind":
+"duplicate"`` is two packs defining the same airport (RULINGS 17s): its
+picker offers to disable the lower pack or keep both enabled, and a
+report row (a pack the ini does not list) has no picker.
 
 The COPY is identical to the macOS sheet
 (``Sources/SceneryKit/PackOverlaps.swift``); the twin
@@ -37,6 +40,17 @@ DETAIL = ("Only this app's rewrite of the pack's tile changes; Restore "
 APPLY_BUTTON = "Apply"
 NOT_NOW_BUTTON = "Not now"
 BOTH = "both"
+# two packs defining the same airport (RULINGS 17s, owner 2026-11-17T23:37Z)
+SAME_AIRPORT = ("Some packs define the same airport. X-Plane uses the "
+                "layout of the pack higher in scenery_packs.ini; the lower pack's "
+                "scenery may still overlap it.")
+DISABLE_PREFIX = "Disable "
+KEEP_ENABLED = "Keep both enabled"
+RESTART_NOTE = ("Disabling a pack changes only its line in "
+                "scenery_packs.ini; its files stay. Restart X-Plane to use the change.")
+DUPLICATE_KIND = "duplicate"
+DISABLE = "disable"
+KEEP = "keep"
 
 
 def offers(event) -> list[dict]:
@@ -45,8 +59,17 @@ def offers(event) -> list[dict]:
             if len(r.get("packs") or ()) == 2 and r.get("key")]
 
 
+def _same_airport(row) -> bool:
+    return row.get("kind") == DUPLICATE_KIND
+
+
 def _choices(row) -> list[tuple[str, str]]:
-    """The picker's ``(label, winner)`` entries: each pack, then both."""
+    """The picker's ``(label, winner)`` entries: each pack, then both; for
+    a same-airport pair, disable the lower pack or keep both enabled (none
+    for a report: a pack the ini does not list)."""
+    if _same_airport(row):
+        lower = row.get("lower") or ""
+        return [(DISABLE_PREFIX + lower, DISABLE), (KEEP_ENABLED, KEEP)] if lower else []
     return [(KEEP_PREFIX + p, p) for p in row["packs"]] + [(KEEP_BOTH, BOTH)]
 
 
@@ -59,6 +82,12 @@ def question_key(event) -> tuple:
     """One question per tile and pair set."""
     return (int(getattr(event, "lat", 0)), int(getattr(event, "lon", 0)),
             tuple(r["key"] for r in offers(event)))
+
+
+def _wrapped(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    return label
 
 
 class _PackOverlapsBox(ChoiceDialog):
@@ -75,20 +104,23 @@ class _PackOverlapsBox(ChoiceDialog):
         body = QLabel(BODY)
         body.setWordWrap(True)
         lay.addWidget(body)
+        same = any(_same_airport(r) for r in offers(event))
+        if same:
+            lay.addWidget(_wrapped(SAME_AIRPORT))
         self.pickers: dict[str, QComboBox] = {}
         for row in offers(event):
-            summary = QLabel(row.get("summary") or " / ".join(row["packs"]))
-            summary.setWordWrap(True)
+            lay.addWidget(_wrapped(row.get("summary") or " / ".join(row["packs"])))
+            if not _choices(row):
+                continue                    # a report: nothing to answer
             pick = QComboBox()
             for label, winner in _choices(row):
                 pick.addItem(label, winner)
             pick.setCurrentIndex(max(0, pick.findData(_preselected(row))))
             self.pickers[row["key"]] = pick
-            lay.addWidget(summary)
             lay.addWidget(pick)
-        note = QLabel(DETAIL)
-        note.setWordWrap(True)
-        lay.addWidget(note)
+        lay.addWidget(_wrapped(DETAIL))
+        if same:
+            lay.addWidget(_wrapped(RESTART_NOTE))
         self._buttons = QDialogButtonBox(self)
         self.apply = self._buttons.addButton(APPLY_BUTTON,
                                              QDialogButtonBox.AcceptRole)

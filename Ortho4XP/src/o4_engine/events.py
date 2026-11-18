@@ -978,7 +978,13 @@ class PackOverlaps(EngineEvent):
     "default", "winner", "count", "rows": [n_a, n_b], "summary"}`` per
     pack pair: ``default`` the airport pack (the picker's pre-selection),
     ``winner`` the remembered answer (``""`` none, ``"both"`` keep both).
-    ``state``:
+    A row with ``"kind": "duplicate"`` (RULINGS 17s, ``auto_patch.
+    duplicate_stage``) is two packs defining the same airport, ``packs``
+    upper first by ``scenery_packs.ini``, ``lower`` the pack offered to
+    be disabled: its ``winner`` is ``"disable"`` (that pack's ini row is
+    marked ``SCENERY_PACK_DISABLED``; X-Plane must restart), ``"keep"``
+    (never asked again) or ``""``; ``lower == ""`` is a report (a pack
+    the ini does not list), never answered.  ``state``:
 
     * ``"found"`` — (build) ask, one picker per pair: **Apply** sends
       ``pack_overlaps`` with ``action="choose"`` and ``items``

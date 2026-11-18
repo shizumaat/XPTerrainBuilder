@@ -770,7 +770,7 @@ reclaim)
     # python or engine process whose cwd is inside it IS the build.  Nested
     # chip worktrees (Ortho4XP/.claude/worktrees/*) are other trees.
     _enginephys=$( (cd "$ENGINE" && pwd -P) )
-    holders=$(lsof -a -d cwd -c python -c Python -c Ortho4XP -Fpn 2>/dev/null \
+    holders=$(lsof -a -d cwd -c python -c Python -c Ortho4XP -c XPTerrainBuilderEngine -Fpn 2>/dev/null \
               | awk -v e="$_enginephys" '
                   /^p/ { pid = substr($0, 2) }
                   /^n/ { d = substr($0, 2)

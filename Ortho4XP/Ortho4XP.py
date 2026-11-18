@@ -109,7 +109,7 @@ if __name__ == '__main__' and '--pool-selfcheck' in sys.argv:
     sys.exit(O4_Pool_Selfcheck.main(sys.argv))
 
 # THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3)): the elevation
-# inset fetcher spawns this executable as `Ortho4XP --lerc-decode IN OUT`
+# inset fetcher spawns this executable as `XPTerrainBuilderEngine --lerc-decode IN OUT`
 # to decode a LERC asset out of process (imagecodecs' LERC decoder and
 # the osgeo libraries abort a process that loads both).  From source it
 # spawns src/O4_LERC_Decode.py directly; the frozen binary has no

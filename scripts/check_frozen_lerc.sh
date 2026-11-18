@@ -10,7 +10,7 @@
 # codec fails THE BUILD, never a tile build.
 #
 # Usage: scripts/check_frozen_lerc.sh <frozen-binary> [python]
-#   <frozen-binary>  the frozen executable (mac engine `Ortho4XP`, or the
+#   <frozen-binary>  the frozen executable (mac engine `XPTerrainBuilderEngine`, or the
 #                    Windows/Linux Qt app `Ortho4XP_Qt[.exe]`)
 #   [python]         a Python with numpy + tifffile + imagecodecs, used to
 #                    WRITE the fixture and CHECK the result (default: python3;

@@ -41,7 +41,7 @@ def _repo(tmp_path):
     _git(root, "init", "-q")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "a")
-    frozen = tmp_path / "dist/Ortho4XP"
+    frozen = tmp_path / "dist/XPTerrainBuilderEngine"
     frozen.mkdir(parents=True)
     return root, frozen
 

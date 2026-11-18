@@ -97,7 +97,8 @@ def open_paths(tmp) -> list | None:
     if not shutil.which("lsof"):
         return None
     run = subprocess.run(["lsof", "-a", "-c", "python", "-c", "Python",
-                          "-c", "Ortho4XP", "-Fn", "+D", str(tmp)], capture_output=True,
+                          "-c", "Ortho4XP", "-c", "XPTerrainBuilderEngine",
+                          "-Fn", "+D", str(tmp)], capture_output=True,
                          text=True, check=False)
     return [os.path.realpath(ln[1:]) for ln in run.stdout.splitlines()
             if ln.startswith("n")]

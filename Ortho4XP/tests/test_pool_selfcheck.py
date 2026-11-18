@@ -278,7 +278,8 @@ def test_every_frozen_job_runs_the_pool_pass_and_the_probe_is_dispatch_only():
     with open(os.path.join(WORKFLOWS, "release.yml"), encoding="utf-8") as handle:
         release = handle.read()
     assert release.count("--pass pool") == 4
-    for binary in ("Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool",
+    mac = "Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine"
+    for binary in (mac + " --pass pool",
                    "Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --pass pool",
                    "Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt --pass pool",
                    '"$APPRUN" --pass pool'):

@@ -52,6 +52,6 @@ ENG="$APP/Contents/Resources/Engine"
 stamp=$(sed -n 's/^commit=//p' "$ENG/ENGINE_STAMP.txt" 2>/dev/null | head -1)
 [ "$stamp" = "$SHA" ] || die "engine stamp '$stamp' is not $SHA (stale engine)"
 grep -q '^dirty=0' "$ENG/ENGINE_STAMP.txt" || die "engine was built from a dirty tree"
-[ -n "$(find "$ENG/Ortho4XP" -mmin -120)" ] || die "engine binary is older than 2 h"
+[ -n "$(find "$ENG/XPTerrainBuilderEngine" -mmin -120)" ] || die "engine binary is older than 2 h"
 VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
 echo "TEST APP OK: $VER at $SHA, team $TEAM (was $PREV)"

@@ -14,12 +14,15 @@ public struct OrthoEngine: Sendable, Equatable {
     /// Python runtime in _internal/ — nothing for the user to install.
     public let isFrozen: Bool
 
-    /// The frozen engine's executable name (PyInstaller onedir output).
+    /// The frozen engine's executable name (PyInstaller onedir output,
+    /// `Ortho4XP.spec`). Every engine process (the jsonl engine, its
+    /// workers, the resource tracker) runs under this name, so it is what
+    /// Activity Monitor shows (owner 2026-11-18, #2164).
     public static var frozenExecutableName: String {
         #if os(Windows)
-        return "Ortho4XP.exe"
+        return "XPTerrainBuilderEngine.exe"
         #else
-        return "Ortho4XP"
+        return "XPTerrainBuilderEngine"
         #endif
     }
 

@@ -51,9 +51,9 @@ span pair to its nearest seat (:func:`_deck_span`).
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
+from ..geom.exact import dist, sq
 from ..law import Law
 from ..law.tables import family
 from ..model.airport import Airport
@@ -287,8 +287,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                 rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src, kerb))
             continue
         x, y = vx.xy
-        a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
-                + (planar.vertices[s].xy[1] - y) ** 2)
+        a = min(near_vs, key=lambda s: sq(planar.vertices[s].xy[0] - x)
+                + sq(planar.vertices[s].xy[1] - y))
         if v not in air and v in done:
             continue
         done.add(v)
@@ -415,8 +415,8 @@ def _blend_rows(planar: PlanarMap, v: int, p, es, ring_past, slope: float, near_
     if drop <= 0.0:
         return []
     x, y = p.x, p.y
-    a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
-            + (planar.vertices[s].xy[1] - y) ** 2)
+    a = min(near_vs, key=lambda s: sq(planar.vertices[s].xy[0] - x)
+            + sq(planar.vertices[s].xy[1] - y))
     return [Linear(((v, 1.0), (a, -1.0)), None, -drop, src)]
 
 
@@ -570,7 +570,7 @@ def _run_on(line, d: float) -> list:
     pts = [tuple(p) for p in line]
 
     def past(a, b):
-        n = math.dist(a, b)
+        n = dist(a, b)
         return b if n <= 1e-9 else (b[0] + (b[0] - a[0]) * d / n, b[1] + (b[1] - a[1]) * d / n)
     return [past(pts[1], pts[0]), *pts[1:-1], past(pts[-2], pts[-1])] if len(pts) > 2 else \
         [past(pts[1], pts[0]), past(pts[0], pts[1])]

@@ -57,14 +57,14 @@ from shapely.ops import linemerge, unary_union
 from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
-from ..model.structures import GENERATED_WITNESS, DeckBridge, generated_bank_slope, is_generated
+from ..model.structures import GENERATED_WITNESS, DeckBridge, is_generated
+from .deck_bank import deck_bank_slope
 from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_bank_slope",
-           "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
 #: where the object stage writes the generated decks in the pack
@@ -227,10 +227,11 @@ def _depth_m(law, roads) -> float:
 def _bank_run_m(law, roads) -> float:
     """The run of the bank under a generated deck: its floor's depth
     (:func:`_depth_m`) over the bank slope under a generated deck
-    (:func:`generated_bank_slope`) -- the bank ``planar/structures`` cuts
-    from each end line down to the floor (``deck_bridge.deck_cut``), so the
-    generator and the cut read one number."""
-    return _depth_m(law, roads) / generated_bank_slope(law)
+    (``planar/deck_bank.deck_bank_slope``, every bridge's, RULINGS
+    2026-11-17p) -- the bank ``planar/structures`` cuts from each end line
+    down to the floor (``deck_bridge.deck_cut``), so the generator and the
+    cut read one number."""
+    return _depth_m(law, roads) / deck_bank_slope(law)
 
 
 def _cut_reach(roads, law, depth: "_t.Mapping[str, float] | None" = None):
@@ -245,7 +246,7 @@ def _cut_reach(roads, law, depth: "_t.Mapping[str, float] | None" = None):
     where it shares a deck with a road needing more clearance
     (:func:`_shared_depths`), else its own (:func:`_depth_m`)."""
     sh = float(law.tables.structures.deck_gen.shoulder_m)
-    slope = generated_bank_slope(law)
+    slope = deck_bank_slope(law)
     return unary_union([r.line.buffer(
         r.half_m + sh + (depth or {}).get(r.id, _depth_m(law, (r,))) / slope, cap_style="flat")
         for r in roads])

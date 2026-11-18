@@ -131,6 +131,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
+    from ..planar.deck_bank import bank_past_m
     from .deck_lines import end_lines, plate_of
     flush = float(law.tables.structures.bridge.deck_flush_m)
     lines = end_lines(planar, law)
@@ -163,8 +164,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                 tg = _station_tops([ends[i] for i, q in enumerate(plates) if q == g])
                 tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es),
-                               float(law.tables.structures.deck_gen.bank_past_edge_m)))
+                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law)))
         held = _held_levels(planar, oid, es)
         for g in groups:
             idx = [i for i, q in enumerate(plates) if q == g]
@@ -221,7 +221,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     floor beside it followed and the stations moved.  ``plate_tops``
     (#2112): per seat, its PLATE's station tops -- an airside vertex under
     a deck in plates is read from its nearest seat's plate's zero.
-    ``bank`` (a GENERATED deck, :func:`_bank_slope`): the pair holds the
+    ``bank`` (a BANKED deck, :func:`_bank_slope`): the pair holds the
     vertex on the BANK instead of flush -- :func:`_bank_drop` under its
     seat -- and runs on ``past`` metres beyond the ring's edges on the
     bridge's own ground (owner sim read 2026-11-17T19:42Z: "that embankment
@@ -257,13 +257,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     hulls += [g if g.is_valid else g.buffer(0.0) for g in own if len(g.exterior.coords) >= 4]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
     in_cut = _in_cut(planar, tunnels)
-    # a vertex under ANOTHER generated deck's ring is that deck's bank, never
+    # a vertex under ANOTHER banked deck's ring is that deck's bank, never
     # this one's flush ground (MEASURED KJFK: two decks over one road 80 m
     # apart, the open stretch between them held db1cfe30's bank vertex
-    # 6.1 m up, flush with o4gen_0abbd35b's seat)
+    # 6.1 m up, flush with o4gen_0abbd35b's seat; RULINGS 2026-11-17p: a
+    # pack deck's bank too)
+    from ..planar.deck_bank import banked
     mine_rings = {tuple(d.ring) for d in decks}
     others = [Polygon(d.ring).buffer(-0.5) for d in getattr(planar, "decks", ()) or ()
-              if getattr(d, "witness", "") == "generated" and tuple(d.ring) not in mine_rings]
+              if banked(d) and tuple(d.ring) not in mine_rings]
     others_in = prep(unary_union(others)) if others else None
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
@@ -309,8 +311,11 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
 
 
 def _bank_slope(law: Law, es) -> "float | None":
-    """``[channel] bank_slope`` for a GENERATED deck's span, ``None`` (flush)
-    for a pack deck.  #2141 item 4 (owner sim read 2026-11-17: "little jags
+    """The bank under a BANKED deck's span (``planar/deck_bank``: no wall
+    under it, a pack deck's as a generated one's -- owner RULINGS
+    2026-11-17p "EVERY bridge ... shares the logic"), ``None`` (flush) for a
+    WALLED pack deck: the fill behind its walls stands at the deck (30f
+    (3)).  #2141 item 4 (owner sim read 2026-11-17: "little jags
     sticking up under the bridge preventing the cut from running smoothly
     under the deck"): a generated deck has no walls and stands on no ground
     between its end lines -- the ground its cut leaves under the ring is the
@@ -320,15 +325,15 @@ def _bank_slope(law: Law, es) -> "float | None":
     MEASURED ESSA (``v2_solve_replay`` capture on e7b8406f0): W 7 vertices of
     the bank's toe +6.0-7.0 m over the floor (a cliff, the bank a shelf at
     deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
-    if any(getattr(e.deck, "witness", "") != "generated" for e in es):
+    from ..planar.deck_bank import banked, deck_bank_slope
+    if not all(banked(e.deck) for e in es):
         return None
-    # the bank under a generated deck: the run the cut made (one reader)
-    from ..model.structures import generated_bank_slope
-    return generated_bank_slope(law)
+    # the bank under the deck: the run the cut made (one reader)
+    return deck_bank_slope(law)
 
 
 def _bank_drop(es, p, slope: float) -> float:
-    """How far under its seat a span vertex at ``p`` stands on a generated
+    """How far under its seat a span vertex at ``p`` stands on a banked
     deck's bank: ``slope`` x its distance from the nearest end line, at
     most that line's depth (its top over the frame's bottom, the floor) --
     the bank's head on the end line, its toe on the floor and the floor

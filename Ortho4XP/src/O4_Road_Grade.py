@@ -16,7 +16,7 @@ Pure numpy / LP pieces, so the core clamp
   within ``runout_m`` of arclength of a TRIGGER segment (DEM grade over the
   steep cap, in the airport area), outside the existing neighbourhood runs.
   The clamp solves each one like a run with no band.
-* :func:`smooth_grade_changes` -- THE VERTICAL CURVE: the profile closest
+* :func:`_smooth_grade_changes` -- THE VERTICAL CURVE: the profile closest
   (L1, arclength-weighted) to a capped profile that also holds
   ``|g[k+1] - g[k]| <= rate * (ds[k] + ds[k+1]) / 2`` between consecutive
   segments, the cap per segment and the pins; ``None`` when no such
@@ -29,8 +29,7 @@ import numpy
 from scipy import sparse
 from scipy.optimize import linprog
 
-__all__ = ["is_rail", "steep_limits", "grade_change_excess",
-           "steep_windows", "smooth_grade_changes", "hold_curve"]
+__all__ = ["is_rail", "steep_limits", "steep_windows", "hold_curve"]
 
 #: A grade change this far over the curve's allowance is rounding, not a
 #: kink.
@@ -59,7 +58,7 @@ def _grades(s, z):
     return g, ds
 
 
-def grade_change_excess(s, z, rate):
+def _grade_change_excess(s, z, rate):
     """The worst ``|Δgrade|`` over the vertical curve's allowance along
     ``(s, z)`` (``<= 0`` where the curve holds)."""
     s = numpy.asarray(s, dtype=numpy.float64)
@@ -141,7 +140,7 @@ def _curve_rows(ds, rate):
     return M, lim
 
 
-def smooth_grade_changes(s, target, caps, rate, pin_idx=(), pin_val=(),
+def _smooth_grade_changes(s, target, caps, rate, pin_idx=(), pin_val=(),
                          lead=None, tail=None, lower=None, upper=None):
     """THE VERTICAL CURVE (RULINGS 2026-11-18e): the profile closest to
     ``target`` (sum of ``|z - target|`` weighted by each station's share of
@@ -188,11 +187,11 @@ def smooth_grade_changes(s, target, caps, rate, pin_idx=(), pin_val=(),
     w[:-1] += 0.5 * ds
     w[1:] += 0.5 * ds
     w += 1e-3
-    I = sparse.identity(N, format="csr")
+    eye = sparse.identity(N, format="csr")
     D = sparse.diags([-numpy.ones(N - 1), numpy.ones(N - 1)], [0, 1],
                      shape=(N - 1, N), format="csr")
     fin = numpy.isfinite(cc)
-    blocks = [sparse.hstack([I, -I]), sparse.hstack([-I, -I])]
+    blocks = [sparse.hstack([eye, -eye]), sparse.hstack([-eye, -eye])]
     rhs = [tt, -tt]
     if fin.any():
         Df = D[fin]
@@ -230,7 +229,7 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
 
     Where the capped ``prof`` (with the fixed ``lead`` / ``tail`` stations
     beside it) changes grade faster than ``rate`` per metre, the profile
-    becomes the closest one that does not (:func:`smooth_grade_changes`),
+    becomes the closest one that does not (:func:`_smooth_grade_changes`),
     standing no more than ``allow`` off ``dem`` at the ``judged`` stations
     -- under ``caps_of(cap_eff)`` first; the curve needs room the gentlest
     cap may not leave, so then under ``caps_of(cap_top)``, then past
@@ -246,7 +245,7 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
     if tail is not None:
         ss = numpy.concatenate((ss, [s[-1] + tail[0]]))
         zz = numpy.concatenate((zz, [tail[1]]))
-    if grade_change_excess(ss, zz, rate) <= CURVE_TOL:
+    if _grade_change_excess(ss, zz, rate) <= CURVE_TOL:
         return prof, cap_eff, None
     lower = upper = None
     if allow is not None:
@@ -263,7 +262,7 @@ def hold_curve(s, prof, dem, judged, caps_of, cap_eff, cap_top, rate,
         if (c, ends, bounded) in tried:
             continue
         tried.add((c, ends, bounded))
-        sm = smooth_grade_changes(s, prof, caps_of(c), rate, pin_idx,
+        sm = _smooth_grade_changes(s, prof, caps_of(c), rate, pin_idx,
                                   pin_val, lead if ends else None,
                                   tail if ends else None,
                                   lower if bounded else None,

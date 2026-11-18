@@ -3,7 +3,6 @@
 ``in_area`` / ``grade_change_per_m``)."""
 
 import numpy
-
 import O4_Cfg_Vars as CFGVARS
 import O4_Road_Grade as RG
 import O4_Vector_Utils as VECT
@@ -74,7 +73,7 @@ def test_the_window_holds_the_steep_cap_and_the_curve():
     z, rep = _profile(s, dem)
     g = numpy.abs(numpy.diff(z)) / numpy.diff(s)
     assert g.max() <= 0.20 + 1e-9
-    assert RG.grade_change_excess(s, z, 0.01 / 3.0) <= 1e-6
+    assert RG._grade_change_excess(s, z, 0.01 / 3.0) <= 1e-6
     for r in rep["runs"]:
         assert r["cap_eff"] <= 0.20 + 1e-12
 
@@ -99,17 +98,17 @@ def test_outside_the_area_nothing_triggers():
 def test_the_curve_is_identity_on_a_smooth_profile():
     s = numpy.arange(20) * 15.0
     t = 0.05 * s
-    out = RG.smooth_grade_changes(s, t, 0.20, 0.01 / 3.0, [0], [0.0])
+    out = RG._smooth_grade_changes(s, t, 0.20, 0.01 / 3.0, [0], [0.0])
     assert numpy.allclose(out, t, atol=1e-7)
 
 
 def test_the_curve_takes_its_pins_and_caps():
     s = numpy.arange(30) * 10.0
     t = numpy.where(s < 150, 0.15 * s, 0.15 * (300 - s))   # a 15 % crest
-    out = RG.smooth_grade_changes(s, t, 0.15, 0.01 / 3.0, [0, 29], [0.0, t[-1]])
+    out = RG._smooth_grade_changes(s, t, 0.15, 0.01 / 3.0, [0, 29], [0.0, t[-1]])
     assert out is not None
     assert out[0] == 0.0 and out[-1] == t[-1]
-    assert RG.grade_change_excess(s, out, 0.01 / 3.0) <= 1e-6
+    assert RG._grade_change_excess(s, out, 0.01 / 3.0) <= 1e-6
     assert (numpy.abs(numpy.diff(out)) / 10.0).max() <= 0.15 + 1e-9
 
 

@@ -206,7 +206,7 @@ def stations(points: _t.Sequence[XY], station_m: float) -> np.ndarray:
     much closer — the sidecar's own caveat)."""
     pts = [(float(x), float(y)) for x, y in points]
     out: list[XY] = []
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:], strict=False):
         out.append((x0, y0))
         L = exact.hypot(x1 - x0, y1 - y0)
         ins = int(L // station_m) if station_m > 0 else 0
@@ -506,7 +506,7 @@ def _sample_fn(airport: Airport) -> _t.Callable[[np.ndarray, np.ndarray], np.nda
     many = getattr(dem, "z_many", None)
     if callable(many):
         return lambda xs, ys: np.asarray(many(xs, ys), dtype=float)
-    return lambda xs, ys: np.array([dem.z(float(x), float(y)) for x, y in zip(xs, ys)])
+    return lambda xs, ys: np.array([dem.z(float(x), float(y)) for x, y in zip(xs, ys, strict=True)])
 
 
 def _inside_fn(airport: Airport) -> Inside:

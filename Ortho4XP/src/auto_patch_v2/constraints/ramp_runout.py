@@ -403,7 +403,6 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             continue
         n += 1
         banks = {rec["landing"] + COLLAR_SUFFIX, str(f.ref) + COLLAR_SUFFIX}
-        (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
         g, cap, y = float(rec["g"]), float(rec["cap"]), y_rec
         # a run-out that CLIMBS out of a lower region (``sign`` -1,
         # ``planar/cut_runout`` roads): every row mirrored -- never below the
@@ -420,8 +419,7 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
                     for q in planar.vertices[v].incident_faces):
                 continue
             seen.add(v)
-            x, yy = planar.vertices[v].xy
-            s = max(0.0, (x - x0) * dx + (yy - y0) * dy)
+            s, t = _station(rec, *planar.vertices[v].xy)
             dg = _dz_at(rec["ground"], s)
             prof = sg * max(-cap * s, min(-g * s, sg * dg - g * s))
             rows.append(Linear(((v, 1.0), (dv, -1.0)), *sorted((y + prof, y)), src))
@@ -440,13 +438,31 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             elif dem is not None:
                 lo = min(float(dem) + dg, z_hi + prof) - band
                 rows.append(Band(v, lo, None, src))
-            t = -(x - x0) * dy + (yy - y0) * dx
             if abs(t) >= 0.25 * w:
                 sides.setdefault(t > 0.0, []).append((s, v))
         rows.extend(_chord_rows(planar, sides, cap, xcap, src))
     STATS["landing_runout_rows"] = {"runouts": n, "runouts_no_datum": n_none,
                                     "rows": len(rows)}
     return rows
+
+
+def _station(rec: _t.Mapping[str, _t.Any], x: float, y: float) -> tuple[float, float]:
+    """``(s, t)``: a point's distance along a run-out from its lip (never
+    negative) and its offset across it (+ left) — along the strip's
+    ``path`` where it bends (#2129, a deck end's carried route), else the
+    lip's straight direction."""
+    (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
+    path = rec.get("path")
+    if not path or len(path) < 2:
+        return max(0.0, (x - x0) * dx + (y - y0) * dy), -(x - x0) * dy + (y - y0) * dx
+    from shapely.geometry import LineString, Point
+    line = LineString(path)
+    s = line.project(Point(x, y))
+    a, b = line.interpolate(max(0.0, s - 0.5)), line.interpolate(s + 0.5)
+    tx, ty = b.x - a.x, b.y - a.y
+    n = (tx * tx + ty * ty) ** 0.5 or 1.0
+    p = line.interpolate(s)
+    return s, (-(x - p.x) * ty + (y - p.y) * tx) / n
 
 
 def _row_vs(row) -> tuple[int, ...]:

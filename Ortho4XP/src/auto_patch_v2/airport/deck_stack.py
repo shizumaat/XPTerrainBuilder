@@ -633,14 +633,18 @@ def _stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     return None if got.is_empty else got
 
 
-def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -> tuple:
+def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None,
+                  end_cuts: "_t.Mapping[int, list] | None" = None) -> tuple:
     """``ways`` with every stack deck's carried stretch a mapped bridge
     (``deck_carry.bridge_stretches``, §3.5).  A trench stack cuts by the
     deck's rectangle.  A free / kept stack with a GRADED end (#2065 A3 rule
     7) cuts by the plate's RING, only a stretch not already ``bridge !=
     no``; and the run-on of a bridge way past a GRADED end (within
     ``[bridge] free_end_run_on_max_m`` along its path -- an AGP deck end's
-    whole run, #2116) becomes at grade."""
+    whole run, #2116) becomes at grade.  ``end_cuts`` (#2129 R8, ``airport/
+    deck_end_witness.route_end_cuts``): way id -> ``[(deck, S piece)]``, a
+    unit deck's carried stretch behind an elevated route end, cut the same
+    (a graded-end bridge stretch)."""
     from ..geom.deck_ground import end_corridor
     from .agp_deck_ends import AGP_END_PREFIX
     from .bridge_end_state import cut as _cut_path
@@ -675,6 +679,9 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
                 if is_bridge_way(w.tags or {}) and LineString(w.points).intersection(past
                                                                                   ).length > 0.5:
                     level.setdefault(int(w.id), []).append((e.object_id, past))
+    for wid, pairs in (end_cuts or {}).items():
+        if not is_bridge_way(tags.get(int(wid), {})):
+            ends.setdefault(int(wid), []).extend(pairs)
     out = bridge_stretches(ways, cuts) if cuts else tuple(ways)
     out = bridge_stretches(out, ends, graded_end=True) if ends else out
     return bridge_stretches(out, level, at_grade=True) if level else out
@@ -686,12 +693,17 @@ def with_bridge_stacks(airport, stacks: _t.Sequence[DeckStack], law) -> _t.Any:
     stretch rewritten from the ways AS MAPPED (rule 7, :func:`_rewrite_ways`);
     a stale free / kept stack (an earlier read) is replaced."""
     import dataclasses as _dc
+    from ..model.platform import LANDING_BAND_M
+    from .deck_end_witness import route_end_cuts
     trench = tuple(s for s in getattr(airport, "deck_stacks", ()) or () if s.kind == TRENCH)
     every = trench + tuple(stacks)
-    if len(every) == len(getattr(airport, "deck_stacks", ()) or ()) and not stacks:
+    # #2129 R8: a unit deck's carried stretch behind an elevated route end
+    ends = route_end_cuts(airport, law, LANDING_BAND_M)
+    if len(every) == len(getattr(airport, "deck_stacks", ()) or ()) and not stacks \
+            and not ends:
         return airport
     mapped = getattr(airport, "osm_ways_mapped", None) or airport.osm_ways
-    return _dc.replace(airport, osm_ways=_rewrite_ways(mapped, every, law),
+    return _dc.replace(airport, osm_ways=_rewrite_ways(mapped, every, law, ends),
                        osm_ways_mapped=mapped, deck_stacks=every)
 
 

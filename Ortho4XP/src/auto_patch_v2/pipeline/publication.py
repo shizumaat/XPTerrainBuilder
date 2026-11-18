@@ -900,7 +900,14 @@ def _landings(planar: PlanarMap, z) -> list[dict[str, _t.Any]]:
             # their face ref and each one's declared height
             row["riser_ref"] = ref + "#strip"
             row["riser_heights_m"] = [r["height_m"] for r in rec["risers"]]
+        if rec.get("end"):
+            # #2129 R10: an elevated deck end's landing and its reading
+            row.update(kind=rec["kind"], end=rec["end"])
         out.append(row)
+    # #2129 R10: every elevated deck end that minted nothing, with why
+    for bref, hb in sorted(planar.registries.held.items()):
+        out.extend({"ref": None, "block": bref, "kind": "end", "level": None, "end": r}
+                   for r in hb.get("deck_ends", ()) if not r.get("landing"))
     return out
 
 

@@ -60,7 +60,8 @@ def runout_ref(landing_ref: str) -> str:
 
 
 def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airport, law,
-                    taken, near_m: float, grid: float, counts: dict
+                    taken, near_m: float, grid: float, counts: dict,
+                    feet: "_t.Sequence | None" = None, tag: str = "landing"
                     ) -> dict[str, dict[str, _t.Any]]:
     """``{run-out ref: record}`` for every ramp foot standing on a landing of
     ``plats`` (``planar/landing``'s PASS 1 tuples ``(ref, Ls, Lu, y_land,
@@ -69,14 +70,16 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
     foot's lip stands to its landing.  The record carries the strip
     polygons (``polys``), the lip, the direction, the landing / block / y,
     and the long section relative to the landing's level (``profile``:
-    ``[(s, dz)]``)."""
+    ``[(s, dz)]``).  ``feet``: the feet to run out (default the object
+    ramps', ``airport/ramp_feet``); a foot with a ``path`` (#2129, a deck
+    end's carried route) runs out along it.  ``tag`` prefixes the counts."""
     from ..airport.ramp_feet import ramp_feet
     from ..geom.ramp_profile import runout_profile
     from ..law.tables import role_cap
     frame, dem = getattr(airport, "frame", None), getattr(airport, "dem", None)
     if frame is None or dem is None or not plats:
         return {}
-    feet = ramp_feet(airport, law, frame.entry())
+    feet = ramp_feet(airport, law, frame.entry()) if feet is None else feet
     if not feet:
         return {}
     g = float(law.tables.emit.road_contact.ramp_grade)
@@ -89,6 +92,8 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
     stat = {"feet": 0, "no_datum": 0, "at_grade": 0, "held_ahead": 0, "taken": 0}
     for f in feet:
         (lx, ly), (dx, dy), h = f.lip, f.direction, 0.5 * f.width_m
+        bent = len(getattr(f, "path", ())) > 1
+        at = _axis(f.lip, f.direction, getattr(f, "path", ()))
         lip = Point(lx, ly)
         land = min(plats, key=lambda p: p[2].distance(lip))
         ref, _Ls, Lu, y_land, _key, bref = land[:6]
@@ -108,21 +113,20 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
         # strip longer than its descent lies on its own ground beyond it.
         reach_hi = widest_reach(hb)
         def ground(s: float) -> float:
-            return float(dem.z(lx + dx * s, ly + dy * s))
+            return float(dem.z(*at(s)[:2]))
         prof = runout_profile(z0 + reach_hi, ground, g, cap, MAX_RUN_M)
         run = prof[-1][0]
         if abs(z0 + reach_hi - ground(0.0)) <= band or run <= grid:
             stat["at_grade"] += 1
             continue
-        nx, ny = -dy, dx
         # the strip's two sides carry PAIRED stations (``[chords]
         # station_spacing_m``): the road's cross-section rows pair a side's
         # vertex with the other side's at the same station — unpaired, the
         # 2 % cross-fall and the long section contest (MEASURED, HECA:
         # stations 35.9 / 47.7 m apart across the strip, 0.41 m relaxed)
         ss = [min(run, k * step) for k in range(int(math.ceil(run / step)) + 1)]
-        R = Polygon([(lx + dx * s + nx * -h, ly + dy * s + ny * -h) for s in ss]
-                    + [(lx + dx * s + nx * h, ly + dy * s + ny * h) for s in reversed(ss)])
+        R = Polygon([(x - nx * h, y - ny * h) for x, y, nx, ny in map(at, ss)]
+                    + [(x + nx * h, y + ny * h) for x, y, nx, ny in map(at, reversed(ss))])
         # a pad or the airside standing in the run: the ground between is
         # graded between the two, never run out to the DEM short of it.  A
         # SIBLING foot's strip is not such a stand: two ramps landing side by
@@ -150,13 +154,36 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
                      "ground": [(float(s_), round(ground(s_) - ground(0.0), 4))
                                 for s_, _z in prof[::2] + prof[-1:]],
                      "run_m": round(run, 1), "polys": got,
-                     "axis": LineString([(lx, ly), (lx + dx * run, ly + dy * run)]),
+                     "axis": LineString([at(s_)[:2] for s_ in (ss if bent else (0.0, run))]),
+                     **({"path": [at(s_)[:2] for s_ in ss]} if bent else {}),
                      "at": (round(lat, 7), round(lon, 7))}
         taken = unary_union([taken, *got])
-    counts["landing_runouts"] = len(out)
-    counts["landing_runout_feet"] = stat
+    counts[f"{tag}_runouts"] = counts.get(f"{tag}_runouts", 0) + len(out)
+    counts[f"{tag}_runout_feet"] = stat
     if out:
-        counts["landing_runout_list"] = "; ".join(
+        counts[f"{tag}_runout_list"] = "; ".join(
             f"{r} lip {v['at'][0]},{v['at'][1]} z0 {v['z0_pred']:.2f} run {v['run_m']:.0f} m "
             f"x {v['width_m']:.0f} m" for r, v in sorted(out.items()))
     return out
+
+
+def _axis(lip, direction, path) -> _t.Callable[[float], tuple[float, float, float, float]]:
+    """``s -> (x, y, nx, ny)``: the run-out's axis ``s`` metres from the lip
+    and its left normal there — straight along ``direction``, or along
+    ``path`` (#2129: a deck end's carried route, run on straight past its
+    last point)."""
+    (lx, ly), (dx, dy) = lip, direction
+    if len(path) < 2:
+        return lambda s: (lx + dx * s, ly + dy * s, -dy, dx)
+    line = LineString(path)
+    L = line.length
+
+    def at(s: float) -> tuple[float, float, float, float]:
+        a, b = line.interpolate(max(0.0, min(s, L) - 0.5)), line.interpolate(min(s, L) + 0.5)
+        tx, ty = b.x - a.x, b.y - a.y
+        n = math.hypot(tx, ty) or 1.0
+        tx, ty = tx / n, ty / n
+        p = line.interpolate(min(s, L))
+        more = max(0.0, s - L)
+        return (p.x + tx * more, p.y + ty * more, -ty, tx)
+    return at

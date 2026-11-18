@@ -48,21 +48,21 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
-import weakref
 
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from ..airport.deck_end_witness import partition_prints as _prints
 from ..geom.valid_area import minus
 from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX, pad_base_ref
-from ..model.platform import LANDING_SEP
+from ..model.platform import LANDING_BAND_M, LANDING_SEP
 from ..model.registries import Registries
 
 __all__ = ["BAND_M", "landing_regions", "landing_cut"]
 
 #: the landing band: the deck surface within this of its lowest authored
 #: ``y`` is a landing (the master's "y <= min + 0.5", lane viaduct290)
-BAND_M = 0.5
+BAND_M = LANDING_BAND_M
 
 
 def _parts(g) -> list[Polygon]:
@@ -72,48 +72,6 @@ def _parts(g) -> list[Polygon]:
         return [g]
     return [q for q in getattr(g, "geoms", ()) if isinstance(q, Polygon)
             and not q.is_empty]
-
-
-#: issue #1706: ``id(partition) -> (weak reference, its prints)`` — one
-#: build's prefix runs (the main map, the ribbon-free map, the last stage's
-#: derives) read the SAME partition object, so its prints, and the memos
-#: they carry (``deck_components``' pieces: 94 s of EDDF's 923 s planar
-#: stage), are derived once per partition instead of once per run
-_PRINTS: dict[int, tuple] = {}
-
-
-def _prints(part) -> list:
-    """The deck model footprints of the pack partition (``bridge_family.
-    deck_prints`` over the partition, each deck parsed once), held for as
-    long as the partition object lives (:data:`_PRINTS`)."""
-    held = _PRINTS.get(id(part))
-    if held is not None and held[0]() is part:
-        return held[1]
-    prints = _derive_prints(part)
-    try:
-        ref = weakref.ref(part, _forget)
-    except TypeError:                         # not weakly referable: not held
-        return prints
-    _PRINTS[id(part)] = (ref, prints)
-    return prints
-
-
-def _forget(ref) -> None:
-    """A held partition died: drop its prints (only its own entry)."""
-    for k, held in list(_PRINTS.items()):
-        if held[0] is ref:
-            del _PRINTS[k]
-
-
-def _derive_prints(part) -> list:
-    from ..airport import bridge_family as _bf
-    from ..airport.placement_cut import _LineCutter
-
-    def _cutter(ui: int, _mi: int, m):
-        u = part.units[ui]
-        return _LineCutter(m, 0.0, 0, 0.0, 0.0, 0.0,
-                           float(u.anchor[0]), float(u.anchor[1]))
-    return _bf.deck_prints(part, _cutter)
 
 
 def _free_pieces(g, taken, grid: float) -> list[Polygon]:
@@ -431,6 +389,16 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                 taken = unary_union([taken, *(r["polygon"] for r in got)])
         plats.append((ref, Ls, Lu, f.y, f"{f.kind}:{f.source}", f.block,
                       f.voters, unit, tmpl))
+    # PASS 1c (#2129): THE ELEVATED ENDS of a unit's decks, a landing at
+    # the end's top beyond its edge (``planar/deck_end_fill``)
+    from .deck_end_fill import END_KIND, deck_ends, end_landings
+    to_ll = (frame.transformers()[1] if hasattr(frame, "transformers")
+             else (lambda x, y: (x, y)))
+    taken, ends, end_runs, end_holds = end_landings(
+        deck_ends(vias, part, to_xy, held, airport, law, counts), plats, n_by_unit, held,
+        lambda b: template.get(b) or next((r for r in out if str(r.ref).startswith(b)), None),
+        taken, grid, reach, law, to_ll, airport, counts)
+    kinds.update((ref, END_KIND) for ref, _e in ends)
     if not plats:
         counts["landings"] = 0
         return []
@@ -442,6 +410,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                                            reach + grid, grid, counts))
     for rec in runouts.values():
         taken = unary_union([taken, *rec["polys"]])
+    runouts.update(end_runs)
     # PASS 2: the collars, over what no platform, pad or airside holds — nor
     # a ROAD STRIP (round 3 D2): no collar goes over or along the road; the
     # kerb is the fill's edge (MEASURED HECA l1088: collars minted over the
@@ -452,6 +421,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2)
         C = minus(C, _dry(held_c, airport, C, counts, "collar_water_m2"))
+        if ref in end_holds:            # #2129 Q2 (a): an end's bank yields to every road
+            C = minus(C, end_holds[ref])
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpls[ref] = tmpl
@@ -464,6 +435,9 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                          "voters": voters, "area_m2": round(Lu.area, 1),
                          "collar_m2": round(sum(q.area for q in cparts), 1),
                          "kind": kinds.get(ref, "deck")}
+        if ref in dict(ends):
+            landings[ref]["end"] = next(r for r in held[bref]["deck_ends"]
+                                        if r.get("landing") == ref)
         if ref in risers:
             # §2 (4): the declared step's geometry, read into one
             # ``road_terrace['wall']`` record per riser (``airport/riser_wall``)
@@ -481,6 +455,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # seated on the landing at 101.78 m, +10.91 m)
     for rref, rec in sorted(runouts.items()):
         band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
+        band = minus(band, end_holds[rref]) if rref in end_holds else band
         cparts = [q for q in _parts(minus(band, held_c)) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpl = tmpls[rec["landing"]]
@@ -537,7 +512,8 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     # carries the descent itself (§37 (6)); a run-out
     # yields to it as to any road (``_runout_regions``), and a plate / piers
     # fill runs TO it and stops at its kerb
-    deck = {ref for ref, rec in landings.items() if rec.get("kind", "deck") == "deck"}
+    # #2129: an END landing stands on the carried road beyond its edge the same
+    deck = {ref for ref, rec in landings.items() if rec.get("kind", "deck") in ("deck", "end")}
     L_road = unary_union([r.polygon for r in pad_regions
                           if pad_base_ref(r.ref) in deck and r.polygon is not None])
     air = [r.polygon for r in base_regions if r.polygon is not None

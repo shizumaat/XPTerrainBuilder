@@ -15,7 +15,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["structure_vertices", "Platform", "LANDING_SEP",
+__all__ = ["structure_vertices", "Platform", "LANDING_SEP", "LANDING_BAND_M",
            "is_landing_ref", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
@@ -115,6 +115,10 @@ def install_hold_report(held: "dict[str, dict]",
 #:
 #: The landing ref's separator (``<unit ref>/landing<k>``).
 LANDING_SEP = "/landing"
+#: owner RULINGS 2026-10-03e: a deck's surface within this of its lowest
+#: authored ``y`` is a ramp LANDING (``planar/landing.BAND_M``); an end edge
+#: above it is an elevated END (#2129, ``planar/deck_end_fill``)
+LANDING_BAND_M = 0.5
 
 
 def is_landing_ref(ref: object) -> bool:

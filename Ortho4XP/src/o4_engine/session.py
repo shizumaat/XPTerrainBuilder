@@ -60,6 +60,7 @@ from .events import (
     TileState,
 )
 from . import step_clock as STEP_CLOCK
+from . import step_inputs as STEP_INPUTS
 from .slow_step import SlowStepWatch
 
 #: The queue rank of a tile whose batch named no class or deadline.
@@ -837,6 +838,9 @@ class EngineSession:
         # #2006; scanned_world, #2024).
         self._scanned = None
         self._building = False
+        #: the machine-ledger hold on the tile this process builds
+        #: (``O4_Machine_Memory.hold_tile``): no cleanup touches it
+        self._tile_hold = None
         # Build display state (moved from the Qt view): current step plus
         # the three legacy bar values plus the auto-patch fold.
         self._current_step = None          # (tile, key, base, width)
@@ -1695,9 +1699,34 @@ class EngineSession:
                                           attempt))
         return True
 
+    def _run_step_fed(self, step_fn, key, tile, plan):
+        """:meth:`_run_step`, a step failing for want of a cache file an
+        earlier step wrote rebuilding it instead (``step_inputs``, owner
+        2026-11-18T13:05Z); the failure it recorded is dropped then."""
+        mark = len(self._tile_failures)
+
+        def discard():
+            del self._tile_failures[mark:]
+        return STEP_INPUTS.run_fed(
+            lambda k: self._run_step(step_fn[k], k, tile, plan), tile, key,
+            lambda: _recall_from_tier(tile), discard)
+
+    def _hold_tile(self, tile):
+        """Hold ``tile`` on the machine ledger while this process builds it
+        (``None``: hold nothing); the previous tile's hold is released.
+        Every storage cleanup leaves a held tile alone (owner
+        2026-11-18T13:06Z: "not mid-build")."""
+        old, self._tile_hold = self._tile_hold, None
+        if old is not None:
+            old.release()
+        if tile is not None:
+            import O4_Machine_Memory as MEMORY
+            self._tile_hold = MEMORY.hold_tile(*tile)
+
     def _run_finished(self):
         """Bookkeeping shared by both run modes when a run ends."""
         self._building = False
+        self._hold_tile(None)
         self._current_step = None
         self._active_tile = None
         self._eta = None
@@ -1765,6 +1794,7 @@ class EngineSession:
                 self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
+            self._hold_tile((lat, lon))
             if not self._stepwise_run:
                 self.tile_logs.begin((lat, lon), FNAMES.build_dir(
                     lat, lon, custom_build_dir))
@@ -1831,7 +1861,7 @@ class EngineSession:
                         self._imagery_weights = _imagery_weights_for(
                             lat, lon, provider, zoomlevel, custom_build_dir)
                     step_t0 = time.time()
-                    result = self._run_step(step_fn[key], key, tile, plan)
+                    result = self._run_step_fed(step_fn, key, tile, plan)
                     step_seconds[key] = time.time() - step_t0
                     if result == 1 and not UI.red_flag:
                         # The step ENDED with its outputs on disk: its

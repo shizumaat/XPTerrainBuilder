@@ -78,7 +78,17 @@ def _work(busy: _t.Callable[[], bool]) -> None:
 
 def watch(session: _t.Any) -> None:
     """After each build run (``RunDone``), :func:`offload_now` in the
-    background once no build runs; it stops when one starts."""
+    background once no build runs; it stops when one starts.
+
+    Never in a parallel run's WORKER child (incident 2026-11-18, tile
+    +53+010's ``.node`` / ``.poly`` moved mid-build): a child's run is one
+    tile of its parent's, so its ``RunDone`` and its idle ``_building``
+    say nothing of the siblings still building.  The parent's own
+    ``RunDone`` -- the whole run's end -- is the one that offloads."""
+    import O4_Machine_Memory as MEMORY
+    if os.environ.get(MEMORY.ENV_STEP_RESERVED):
+        return
+
     def busy() -> bool:
         return bool(getattr(session, "_building", False))
 

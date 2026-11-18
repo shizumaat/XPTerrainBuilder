@@ -64,9 +64,9 @@ else:
 
 __all__ = ["BUDGET", "ENV_DIR", "ENV_LABEL", "ENV_ROLE", "ENV_SESSION",
            "ENV_STEP_RESERVED", "XPLANE_NAMES", "Reservation", "Snapshot",
-           "Verdict", "admission", "admits", "claim", "holders_text", "ledger_dir",
-           "note_wait", "process_table", "reserve", "role", "session_id",
-           "snapshot"]
+           "Verdict", "admission", "admits", "claim", "held_tiles", "hold_tile",
+           "holders_text", "ledger_dir", "note_wait", "process_table",
+           "reserve", "role", "session_id", "snapshot"]
 
 #: the ledger directory (default: :func:`ledger_dir`'s per-user path)
 ENV_DIR = "O4_MACHINE_LEDGER_DIR"
@@ -353,6 +353,26 @@ def reserve(gigabytes: float, what: str, pid: "int | None" = None,
              "now: %s." % (ledger_dir(), _label(), _gb(gigabytes), what,
                            holders_text(snapshot())))
     return held
+
+
+def hold_tile(lat: int, lon: int) -> Reservation:
+    """THE BUILD HOLD (owner 2026-11-18T13:06Z: "cleanup unneeded files,
+    but not mid-build"): a locked ledger record naming the tile this
+    process is building, held until released or until the process exits
+    however it exits.  Every cleanup reads :func:`held_tiles` and leaves a
+    held tile's files alone, whichever session holds it."""
+    return _write_record("t", _body(0.0, tile=[int(lat), int(lon)],
+                                    pid=os.getpid()))
+
+
+def held_tiles() -> set:
+    """The ``(lat, lon)`` tiles a live build holds, on the whole machine
+    (:func:`hold_tile`); dead holders' records are dropped."""
+    out = set()
+    for body in _live_records("t"):
+        with contextlib.suppress(TypeError, ValueError, IndexError, KeyError):
+            out.add((int(body["tile"][0]), int(body["tile"][1])))
+    return out
 
 
 #: set once a process (or an ancestor) has announced the ledger in its log

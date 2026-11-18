@@ -871,22 +871,29 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     the open stretch to it, between that stretch's own inner faces — and
     the rim the same strip ``inset`` wider (behind the walls), inside the
     deck's ring under it.  ``None`` where either side of the deck has no
-    wall: the 30b bank stands there."""
+    wall: the 30b bank stands there.
+
+    #2157 R2: a wall line outside the ring's own reach across the road is
+    not this deck's wall (a frame's wall under another span of the same
+    object), and the floor never leaves the ring's reach across the road
+    but along the open stretch to ``other`` (MEASURED KRDU obj140: the W
+    span took the E span's wall 436 m away and floored the at-grade
+    taxiway between them)."""
     if not db.walls:
         return None
     r, n, faces = db.walls
     u_lo, u_hi = project_span(db.ring, n)
     s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
     if ua is None or ub is None:
         return None
-    floors = [wall_strip(r, n, ua, ub, s_lo, s_hi)]
+    floors = [wall_strip(r, n, max(ua, u_lo), min(ub, u_hi), s_lo, s_hi)]
     rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(deck_polygon(db))]
     if other is not None:
         o_lo, o_hi = project_span(other.ring, r)
         g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
         if g1 > g0:
-            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi))
+            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
             if va is not None and vb is not None:
                 floors.append(wall_strip(r, n, va, vb, g0, g1))
                 rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))

@@ -316,6 +316,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                 screen.plate_paths, keep=keep_extension
                                 ).filtered(screen, law)
     _to_xy, to_ll = airport.frame.transformers()
+    witness = _witness(part.pack_root, airport)
     by_id = {o.id: o for o in objs}
     counts = dict(part.counts)
     counts["plate_objects"] = len(plates)
@@ -329,7 +330,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             o = by_id.get(oid)
             members.append(m if o is None
                            else _with_deck(m, o, to_ll, deck_datum, plates, counts,
-                                           law, free_decks, cache))
+                                           law, free_decks, cache, witness))
         units.append(_dc.replace(u, id=f"unit:{ui}", members=tuple(members)))
     flat = _flat_datum(airport, to_ll)
     if flat is not None:
@@ -342,6 +343,21 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       adapted_frame_pids=tuple(sorted(
                           getattr(part, "adapted_frame_pids", ()) or ())),
                       origin_tile=_origin_tile(airport))
+
+
+def _witness(pack_root: "str | None", airport) -> _t.Callable[..., "str | None"]:
+    """The pack-patch witness line of a two-level deck (RULINGS
+    2026-11-18f (1), ``pack_patch_witness.deck_note``), its pads read on
+    first use; ``None`` for a pack that ships no patch for the tile."""
+    from . import pack_patch_witness as _ppw
+    tile = _origin_tile(airport)
+    memo: list = []
+
+    def note(plane, ring) -> "str | None":
+        if not memo:
+            memo.append(_ppw.pack_pads(pack_root, *tile) if tile else [])
+        return _ppw.deck_note(memo[0], plane, ring)
+    return note
 
 
 def _z(z: "float | None") -> str:
@@ -361,7 +377,8 @@ def _origin_tile(airport) -> tuple[int, int] | None:
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                counts: dict[str, int], law: Law | None = None,
                free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
-               cache: _obj8.ResourceCache | None = None) -> Member:
+               cache: _obj8.ResourceCache | None = None,
+               witness: _t.Callable[..., "str | None"] | None = None) -> Member:
     """``m`` with the PLANAR and SOLVED fields attached: the hard-deck
     ring and its datum (or the signature plate's ends / profile /
     stations) and the tunnel-wall plate's height and band stations.
@@ -395,6 +412,9 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                 plane_note = ("two-level deck: the datum read over its deck plane "
                               f"{_z(deck_datum_z)}, the whole ring (its floor in it) "
                               f"{_z(whole)} (RULINGS 2026-11-18f)",)
+                seen = witness([to_ll(x, y) for x, y in datum_xy], deck_ring) \
+                    if witness is not None else None
+                plane_note += (seen,) if seen else ()
             if deck_datum_z is None and law is not None:
                 # §16e (2): A FLAG DECK OVER NO GRADED FACE GETS ITS END
                 # LINES FROM ITS RING.  R12's abutment reading needs the

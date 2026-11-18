@@ -100,6 +100,49 @@ def _structures(pack_root: str, lat: int, lon: int, frame, region, ctx
             ctx["cache"])
 
 
+def _assembled(pack_root: str, lat: int, lon: int, frame, region,
+               hidden: _t.Sequence[_po.HideRow], structs, ctx) -> list:
+    """The rows the route assembly of ``hidden`` adds in the pack
+    (``pack_overlap_assembly``, #2163: a hidden span's whole chain, its
+    piers, the stations it passes through)."""
+    if not hidden:
+        return []
+    from auto_patch_v2.airport import pack_overlap_assembly as _pa
+
+    from . import obj8_reader as _or
+    from .object_stage import pack_dump
+    pd = pack_dump(pack_root, lat, lon, read_only=False)
+    if pd is None:
+        return []
+    with open(pd.dump_path, encoding="utf-8", errors="replace") as fh:
+        return _pa.assembly(
+            fh, frame, region, hidden, structs,
+            lambda r: _or.resolve_object_resource(r, pack_root, ctx["xplane_root"]),
+            ctx["cache"])
+
+
+def _grown(pair: _po.OverlapPair, roots: _t.Mapping[str, str], by_pack, lat: int,
+           lon: int, frame, region, ctx) -> _po.OverlapPair:
+    """``pair`` with each side's rows grown by their route assembly."""
+    return pair._replace(rows=tuple(
+        tuple(r) + tuple(_assembled(roots[n], lat, lon, frame, region, r,
+                                    by_pack[n], ctx))
+        for n, r in zip(pair.packs, pair.rows, strict=True)))
+
+
+def _remember(scenery_dir: str, key: str, lat: int, lon: int, aname: str,
+              pair: _po.OverlapPair) -> None:
+    """Store the pair's rows; an ANSWERED pair whose hiding they change has
+    its packs rewritten at once (a pack written earlier in the build read
+    the rows stored before)."""
+    old = ({n: _hidden(scenery_dir, n, lat, lon) for n in pair.packs}
+           if _ovc.winner(key) else {})
+    _ovc.remember_found(key, lat, lon, aname, pair.packs, pair.rows)
+    for n, before in old.items():
+        if _hidden(scenery_dir, n, lat, lon) != before:
+            _rewrite(scenery_dir, n, lat, lon)
+
+
 def _context(xplane_root: str) -> dict:
     from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport import obj8 as _obj8
@@ -166,6 +209,7 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
     anames = [os.path.basename(os.path.normpath(a)) for a in airports]
     asked = _asked(scenery_dir, anames, {frozenset(r["packs"]) for r in dups})
     rows: dict[str, dict] = {}
+    roots = {os.path.basename(os.path.normpath(p)): p for p in packs}
     for ap in airports:
         aname = os.path.basename(os.path.normpath(ap))
         for frame, region in _po.airport_regions(_af.apt_dat_of(ap)):
@@ -175,7 +219,8 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
                 key = _ovc.pair_key(scenery_dir, *pair.packs)
                 if key in rows or not asked(*pair.packs):
                     continue
-                _ovc.remember_found(key, lat, lon, aname, pair.packs, pair.rows)
+                pair = _grown(pair, roots, by_pack, lat, lon, frame, region, ctx)
+                _remember(scenery_dir, key, lat, lon, aname, pair)
                 rows[key] = _row(key, aname, pair, scenery_dir, anames)
     return dups + list(rows.values())
 

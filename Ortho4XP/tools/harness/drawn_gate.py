@@ -318,7 +318,7 @@ def _objects(args, sampler, dsfs):
     ns = argparse.Namespace(
         icao=args.icao, tile=getattr(args, "tile", None), tag=args.tag,
         out=getattr(args, "out", None), patches=getattr(args, "patches", None),
-        radius=15.0, tol=0.3, margin=0.012, plan=None, mesh=None,
+        radius=15.0, tol=0.3, margin=0.012, plan=getattr(args, "plan", None), mesh=None,
         sampler=sampler, sampler_dsfs=dsfs)
     try:
         rep = DC.run(ns)
@@ -661,6 +661,10 @@ def main(argv=None):
                          "within 0.5 m of it")
     ap.add_argument("--against", default=None, metavar="BASE.json",
                     help="the control's --json: fail any site new or worse")
+    ap.add_argument("--plan", default=None, metavar="PLAN.json",
+                    help="the objects layer reads a pack COPY's written plan "
+                         "(v2_rebake_replay.py plan --write-pack COPY --plan-out PLAN; "
+                         "pass --custom-scenery holding the copy)")
     ap.add_argument("--json", default=None, help="write the full report here")
     ap.add_argument("--top", type=int, default=20, help="sites printed per layer")
     args = ap.parse_args(argv)

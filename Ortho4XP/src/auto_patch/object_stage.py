@@ -510,6 +510,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import free_column as _fcol
     from auto_patch_v2.airport import touch_seat as _tseat
     from auto_patch_v2.airport import deck_profile as _dprof
+    from auto_patch_v2.airport import floor_deck_ends as _fde
     from . import dsf_reader as _DSFR
 
     from . import pack_copy as _copy
@@ -732,7 +733,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             # #2110 R3 (RULINGS 2026-11-16k/u/v): touching buildings, one seat
             touch_seat=_tseat.law_of(law.tables.structures.placement),
             # #2144 P2: a deck touching buildings at two levels is warped
-            deck_warp=_dprof.law_of(law.tables.structures))
+            deck_warp=_dprof.law_of(law.tables.structures),
+            # RULINGS 2026-11-18c: a floor frame's deck seated by its end lines
+            floor_deck_ends=_fde.law_of(law.tables.structures))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the

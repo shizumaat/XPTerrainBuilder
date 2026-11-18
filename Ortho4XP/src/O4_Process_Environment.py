@@ -23,12 +23,21 @@ __all__ = ["strip_malloc_stack_logging"]
 MALLOC_DEBUG_PREFIXES = ("MallocStackLogging", "__XPC_MallocStackLogging")
 
 
+def _fold(name):
+    """Windows names environment variables case-insensitively and
+    ``os.environ`` upper-cases its keys there; macOS and Linux do not."""
+    return name.upper() if os.name == "nt" else name
+
+
+_PREFIXES = tuple(_fold(p) for p in MALLOC_DEBUG_PREFIXES)
+
+
 def strip_malloc_stack_logging(environ=None):
     """Remove every ``MallocStackLogging*`` variable from ``environ``
     (default ``os.environ``, so every later child inherits the clean
     set); answer the names removed, sorted."""
     env = os.environ if environ is None else environ
-    names = sorted(k for k in list(env) if k.startswith(MALLOC_DEBUG_PREFIXES))
+    names = sorted(k for k in list(env) if _fold(k).startswith(_PREFIXES))
     for name in names:
         del env[name]
     return names

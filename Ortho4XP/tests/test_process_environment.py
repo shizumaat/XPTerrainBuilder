@@ -30,7 +30,8 @@ def test_strip_of_a_clean_environment_removes_nothing():
 
 def test_default_is_os_environ(monkeypatch):
     monkeypatch.setenv("MallocStackLogging", "0")
-    assert PE.strip_malloc_stack_logging() == ["MallocStackLogging"]
+    removed = PE.strip_malloc_stack_logging()
+    assert [n.upper() for n in removed] == ["MALLOCSTACKLOGGING"]  # Windows upper-cases keys
     assert "MallocStackLogging" not in os.environ
 
 

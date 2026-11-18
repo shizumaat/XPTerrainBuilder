@@ -18,6 +18,10 @@ brightens:
 * **only below the rim**: a node above its nearest region's mid-height
   is the land on top of the cliff, never its shadow
   (:func:`_below_the_rim`);
+* **only where the sun casts it**: a dark region whose face turns toward
+  the sun the photo shows (``O4_Cliff_Sun``) is dark rock -- it seeds no
+  carry, its nodes are never shadow, and it is named in
+  ``stats.rock_regions`` for the caller to leave to the photo;
 * **a soft end**: beyond that dark set the opacity ramps from 1 to 0 over
   ``RAMP_M`` of mesh edges, so the overlay never ends on a sharp line.
 
@@ -32,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy
+import O4_Cliff_Sun as SUN
 
 __all__ = ["DARK_FRACTION", "LIT_FRACTION", "REACH_M", "RAMP_M",
            "photo_pixel_coords", "shadow_alpha"]
@@ -67,6 +72,8 @@ class ShadeStats:
     dark: float = float("nan")
     lit: float = float("nan")
     nodes: int = 0
+    sun_azimuth: float = float("nan")
+    rock_regions: list = field(default_factory=list)
 
     def line(self):
         ext = numpy.asarray(self.extension_m, float)
@@ -75,9 +82,16 @@ class ShadeStats:
                if len(ext) else "")
         return ("%d of %d region(s) carried over dark photo (%d node(s))%s;"
                 " land luminance median %.0f, dark <= %.0f, lit >= %.0f;"
-                " %d photo(s) read." % (len(ext), self.regions, self.nodes,
-                                        far, self.median, self.dark,
-                                        self.lit, self.photos))
+                " %d photo(s) read%s." % (
+                    len(ext), self.regions, self.nodes, far, self.median,
+                    self.dark, self.lit, self.photos, self._sun()))
+
+    def _sun(self):
+        if not numpy.isfinite(self.sun_azimuth):
+            return "; no sun in the photo (no dark-rock witness)"
+        return ("; sun azimuth %.0f deg, %d dark sun-facing region(s) are"
+                " dark rock, left to the photo" % (self.sun_azimuth,
+                                                   len(self.rock_regions)))
 
 
 def photo_pixel_coords(lonlat, attrs, size):
@@ -161,18 +175,34 @@ def _land_graph(xyz, tri_idx, land):
 
 
 def _reference(lum, lonlat_tris, land, reader):
-    """Median land luminance from up to REFERENCE_SAMPLES triangle
-    centroids spread over the tile; NaN when too few are readable."""
+    """``(median, ids, values)``: the median land luminance from up to
+    REFERENCE_SAMPLES triangle centroids spread over the tile (NaN when
+    too few are readable), the sampled triangles and their luminance."""
     ids = numpy.nonzero(land)[0]
     if not len(ids):
-        return float("nan")
+        return float("nan"), ids, numpy.zeros(0)
     ids = ids[:: max(1, len(ids) // REFERENCE_SAMPLES)]
     values = lum.at(lonlat_tris[ids].mean(1), reader,
                     max_photos=REFERENCE_PHOTOS)
-    values = values[numpy.isfinite(values)]
-    if len(values) < MIN_REFERENCE:
-        return float("nan")
-    return float(numpy.median(values))
+    read = values[numpy.isfinite(values)]
+    if len(read) < MIN_REFERENCE:
+        return float("nan"), ids, values
+    return float(numpy.median(read)), ids, values
+
+
+def _rock(stats, layout, xyz, tri_idx, ref_ids, ref_values, near, values):
+    """(r,) bool dark-rock regions (``O4_Cliff_Sun``); fills ``stats``."""
+    import O4_Cliff_Faces as FACES
+    slopes, normals, areas = FACES.triangle_slopes(xyz, tri_idx)
+    sun = SUN.sun_direction(ref_values, normals[ref_ids], slopes[ref_ids])
+    node_lum = numpy.full(len(xyz), numpy.nan)
+    node_lum[near] = values
+    rock = SUN.dark_rock_regions(layout.region_tris, tri_idx, node_lum,
+                                 stats.median, sun, normals, areas, slopes)
+    if sun is not None:
+        stats.sun_azimuth = float(numpy.degrees(numpy.arctan2(*sun)) % 360)
+    stats.rock_regions = numpy.nonzero(rock)[0].tolist()
+    return rock
 
 
 def _region_reach(layout, tri_idx, new, dist, source):
@@ -249,8 +279,8 @@ def shadow_alpha(layout, xyz, lonlat, tri_idx, land, photo_at, read_photo,
     near = numpy.nonzero(numpy.isfinite(dist))[0]
     lum = _Luminance(photo_at)
     values = lum.at(lonlat[near], read_photo)
-    stats.median = _reference(lum, lonlat[tri_idx], land,
-                              read_reference or read_photo)
+    stats.median, ref_ids, ref_values = _reference(
+        lum, lonlat[tri_idx], land, read_reference or read_photo)
     stats.photos = lum.photos_read()
     stats.dark = DARK_FRACTION * stats.median
     stats.lit = LIT_FRACTION * stats.median
@@ -262,9 +292,18 @@ def shadow_alpha(layout, xyz, lonlat, tri_idx, land, photo_at, read_photo,
         (values[ok] - stats.dark) / (stats.lit - stats.dark))
     below = _below_the_rim(layout, xyz, tri_idx, source)
     dark = (shade > 0) & (dist <= REACH_M) & below
-    if not dark[region_nodes].any():
+    rock = _rock(stats, layout, xyz, tri_idx, ref_ids, ref_values, near,
+                 values)
+    seeds = region_nodes
+    if rock.any():
+        rock_nodes = numpy.unique(numpy.concatenate(
+            [tri_idx[layout.region_tris[r]] for r in numpy.nonzero(rock)[0]]
+        ).ravel())
+        dark[rock_nodes] = False
+        seeds = numpy.setdiff1d(region_nodes, rock_nodes)
+    if not dark[seeds].any():
         return None, stats
-    core = _dark_core(graph, dark, region_nodes)
+    core = _dark_core(graph, dark, seeds)
     extra = numpy.zeros(len(xyz))
     extra[core] = shade[core] * (1.0 - _smoothstep(
         (dist[core] - (REACH_M - RAMP_M)) / RAMP_M))

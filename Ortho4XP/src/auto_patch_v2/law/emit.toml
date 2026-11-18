@@ -226,6 +226,21 @@ public_classes = ["motorway", "motorway_link", "trunk", "trunk_link",
                   "tertiary", "tertiary_link", "unclassified", "residential",
                   "living_street", "road", "track"]
 
+# OWNER RULINGS 2026-11-18e (LPPD bluff, 14:50Z): "we should only follow
+# terrain where it's able to keep the road under 20% grade, and shouldn't
+# allow super sharp changes in angle, so we don't have jagged peaks and
+# valleys".  The 20 % is `[common] road_terrain_max_grade` (a railway's is
+# `structures [tunnel] rail_ramp_grade`, 1.25 %, RULINGS 2026-11-14g); the
+# sharp changes are held by a VERTICAL CURVE in every run and every DEM-wrong
+# window (`O4_Road_Grade`): K metres of road per 1 % of grade change.
+# Road: K = 3 m/% -- the town-street value the owner already ruled for a
+# junction joint ([common] road_joint_k_m_per_pct, RULINGS 2026-10-27s; a
+# 300 m vertical radius, AASHTO's crest K at ~30 km/h): a 20 % crest-to-
+# valley swing takes 120 m.  Rail: K = 20 m/% (a 2,000 m radius, EN 13803's
+# low-speed minimum).
+vertical_curve_k_m      = 3.0
+rail_vertical_curve_k_m = 20.0
+
 # S.3 PER-CLASS CAPS — the steepest grade a PUBLISHED DESIGN STANDARD
 # permits for that class in MOUNTAINOUS terrain at low design speed.
 # Sources per row are in the spec's table (AASHTO Green Book via KYTC

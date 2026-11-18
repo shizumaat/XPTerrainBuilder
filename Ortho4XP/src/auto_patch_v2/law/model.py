@@ -933,6 +933,13 @@ class RoadProfile:
     #: whose in-band segments follow the terrain up to ``cap_ceiling``
     #: (``O4_Vector_Utils.road_inside_cap``); every other class keeps the
     #: patch's ``road_grade_limit``
+    #: OWNER RULINGS 2026-11-18e ("shouldn't allow super sharp changes in
+    #: angle"): the road profile's VERTICAL CURVE, metres of road per 1 % of
+    #: grade change (``vertical_curve_k_grade_unit``), held in every run and
+    #: every DEM-wrong window (``O4_Road_Grade``); ``rail_vertical_curve_k_m``
+    #: is a railway's
+    vertical_curve_k_m: float
+    rail_vertical_curve_k_m: float
     public_classes: tuple[str, ...] = ()
 
 

@@ -37,7 +37,8 @@ _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 # them HERE — never as literals beside the clamp.
 def road_neighbourhood_law() -> dict:
     """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes,
-    terrain_cap}`` from the law table (``O4_Vector_Utils.clamp_road_network``
+    terrain_cap, rail_cap, grade_change_per_m, rail_grade_change_per_m}``
+    from the law table (``O4_Vector_Utils.clamp_road_network``
     / v2's ``airport/road_profile``).  ``terrain_cap`` is the road on steep
     ground's cap (owner RULINGS 2026-11-17, ``tables.road_terrain_cap``)."""
     from auto_patch_v2.law import tables as _v2_tables
@@ -49,7 +50,9 @@ def road_neighbourhood_law() -> dict:
         "cap_ceiling": float(rp.cap_ceiling),
         "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
         "public_classes": tuple(str(c) for c in rp.public_classes),
-        "terrain_cap": float(_v2_tables.road_terrain_cap(law)),
+        # OWNER RULINGS 2026-11-18e: terrain_cap, rail_cap and the
+        # vertical curves (one derivation, ``tables.road_steep_law``)
+        **_v2_tables.road_steep_law(law),
     }
 
 

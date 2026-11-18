@@ -182,6 +182,26 @@ def road_terrain_cap(law: Law) -> float:
     return max(float(c.road_max_grade), float(c.road_terrain_max_grade))
 
 
+def road_steep_law(law: Law) -> dict:
+    """THE ROAD ON WRONG GROUND (owner RULINGS 2026-11-18e) -- ONE
+    derivation site: the steepest a road follows its DEM (``terrain_cap``,
+    :func:`road_terrain_cap`), a railway's (``rail_cap``: ``[tunnel]
+    rail_ramp_grade``, the rail grade of RULINGS 2026-11-14g), and their vertical
+    curves as grade change per metre (``[road_profile]
+    vertical_curve_k_m`` / ``rail_vertical_curve_k_m``, metres per
+    ``vertical_curve_k_grade_unit``).  Read by the core clamp
+    (``O4_Cfg_Vars.road_neighbourhood_law``) and ``airport/road_profile``
+    through ``O4_Road_Grade.steep_limits``."""
+    rp = law.tables.emit.road_profile
+    unit = float(law.tables.common.vertical_curve_k_grade_unit)
+    return {
+        "terrain_cap": float(road_terrain_cap(law)),
+        "rail_cap": float(law.tables.structures.tunnel.rail_ramp_grade),
+        "grade_change_per_m": unit / float(rp.vertical_curve_k_m),
+        "rail_grade_change_per_m": unit / float(rp.rail_vertical_curve_k_m),
+    }
+
+
 def bend_class(law: Law, role: str) -> str:
     """The BENDING CLASS of ``role`` (``design_schema.BEND_CLASSES``, RULINGS
     2026-09-08v): ``runway`` / ``taxi`` for the two named families,

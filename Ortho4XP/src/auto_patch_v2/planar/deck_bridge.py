@@ -878,19 +878,20 @@ def deck_ground(classification, tunnels, law, decks=()) -> tuple:
     not ground, and is dropped: a deck no corridor runs under mints no
     ground.  A BANKED deck's reach (``planar/deck_bank``: no wall under it,
     pack or generated, RULINGS 2026-11-17p) runs ``bank_past_m`` past its
-    ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank under it
-    "needs to extend about 1m past the bridge edges"): its bank stands on
-    that ground (``constraints/edge_deck``)."""
-    from .deck_bank import bank_past_m, banked
+    sides (``deck_bank.past_sides``; ``decks``; owner sim read
+    2026-11-17T19:42Z: the bank under it "needs to extend about 1m past the
+    bridge edges"): its bank stands on that ground (``constraints/
+    edge_deck``)."""
+    from .deck_bank import bank_past_m, banked, past_sides
     past = bank_past_m(law)
-    gen = {d.object_id for d in decks if banked(d)}
+    gen = {d.object_id: d for d in decks if banked(d)}
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
         reach = MultiPoint(pts).convex_hull if pts is not None else None
         if reach is not None and reach.geom_type == "Polygon":
             if t.deck_bridge in gen and past > 0.0:
-                reach = reach.union(Polygon(t.deck_ring).buffer(past, join_style="mitre"))
+                reach = reach.union(past_sides(gen[t.deck_bridge], past))
                 reach = reach if reach.geom_type == "Polygon" else reach.convex_hull
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:

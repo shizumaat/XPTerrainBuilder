@@ -59,7 +59,7 @@ from ..law.tables import family
 from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
-from ..model.structures import DECK_GROUND_REF, deck_reach
+from ..model.structures import DECK_GROUND_REF, deck_reach, is_generated
 
 __all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
@@ -250,8 +250,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if bank is not None and bank > 0.0 else None
     wide = prep(wide_g) if wide_g is not None else None
     kerb = _kerb(planar, air, decks, wide_g) if wide_g is not None else None
+    # ONE EMBANKMENT ROUND THE CORNER (#2141, :func:`_blend_drop`) is a
+    # GENERATED deck's: round a pack deck whose cut does not yet reach under
+    # (MEASURED KIAH, ``deck_probe --cut-cover`` FAIL in the control) it
+    # raised the ground under the ring to the kerb and moved the taxiway
+    # junction beside obj24549 0.65 m -- a pack deck keeps the nearest-edge
+    # blend, its walls and the run-on as they were
+    gen = all(is_generated(e.deck) for e in es)
     rim = _rim(es, ring_past, bank, _floors_near(planar, wide_g)) \
-        if wide_g is not None else None
+        if wide_g is not None and gen else _NO_RIM
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -291,7 +298,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             if wide is not None and v not in air and v not in done and wide.contains(p) \
-                    and _open_ground(planar, vx, walls=True):
+                    and _open_ground(planar, vx, walls=gen):
                 rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, blend,
                                         kerb, rim))
             continue
@@ -312,10 +319,10 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         # bank) -- keeps the seat's level
         drop = 0.0
         if bank is not None and (_bridge_ground(planar, vx)
-                                 or _open_ground(planar, vx, walls=True)):
+                                 or _open_ground(planar, vx, walls=gen)):
             drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
                 else _blend_drop(es, p, ring_past, bank, kerb, rim)
-            if kerb is not None and not kerb.is_empty:
+            if gen and kerb is not None and not kerb.is_empty:
                 # the bank keeps off the airside beside the deck everywhere,
                 # as the blend beyond the run-on does: one field, no step
                 # (#2141: MEASURED ESSA o4gen_cd009c10, the run-on on the
@@ -410,6 +417,8 @@ def _blend_drop(es, p, ring_past, slope: float, kerb=None, rim=None) -> float:
     return max(0.0, drop)
 
 
+#: no edge read: the nearest edge point alone (a pack deck's blend)
+_NO_RIM = ((), (), ())
 #: the run-on's edge is read this often (m) for the bank blending out
 RIM_STEP_M = 0.25
 

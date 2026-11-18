@@ -42,10 +42,10 @@ def _tilted(lift: float = 0.0):
     return [rec], {"dsf:shelters": (u, _M())}
 
 
-def _untilt(splits, members):
+def _untilt(splits, members, sink_max_m=1.0):
     counts: dict = {}
     moved, rows = TF.untilt_floating(splits, members, _surface(), band_m=BAND_M,
-                                     contact_tol_m=TOL_M, tol_m=0.05, sink_max_m=1.0,
+                                     contact_tol_m=TOL_M, tol_m=0.05, sink_max_m=sink_max_m,
                                      counts=counts)
     return moved, rows, counts
 
@@ -61,12 +61,14 @@ def test_the_shelters_keep_their_tilt():
 
 
 def test_a_tilt_re_zeroed_to_float_is_levelled_at_its_no_float_zero():
+    """The shelters' level seat floats their high end 1.64 m + the lift:
+    with a sink allowance past that, the frame is levelled ..."""
     splits, members = _tilted(lift=0.5)
     u, m = members["dsf:shelters"]
     tilted = splits[0].bodies[0]
     worst = max(f[4] for f in TF._floats_as_written(tilted, u, m, _surface(), BAND_M, TOL_M))
     assert worst > 0.4
-    _moved, rows, counts = _untilt(splits, members)
+    _moved, rows, counts = _untilt(splits, members, sink_max_m=3.0)
     b = splits[0].bodies[0]
     assert counts["seat_tilt_refused_floats"] == 1 and len(rows) == 1
     assert not b.seat.applied and "RULINGS 2026-11-18h (4)" in b.anchor.reason
@@ -137,3 +139,12 @@ def test_a_connector_between_one_seat_is_no_bridge():
     w.body("bridge", (19.95, 8, 60.05, 12), 431.0, base=6.0, h=3.0, feet=False)
     _out, table, _c = w.run(law=LAW)
     assert table["connectors"] == []
+
+
+def test_a_frame_whose_level_seat_floats_past_a_metre_is_listed_and_kept():
+    """... and with 16v's metre it is no tilt problem: listed, untouched."""
+    splits, members = _tilted(lift=0.5)
+    before = splits[0].bodies[0]
+    moved, rows, counts = _untilt(splits, members, sink_max_m=1.0)
+    assert not moved and rows[0][3] is None and counts["seat_tilt_float_unreached"] == 1
+    assert splits[0].bodies[0] is before

@@ -169,7 +169,8 @@ def _install(tmp_path, override=False):
         "NORMAL_METALNESS\nDECAL_LIB lib/g10/decals/a.dcl\nSURFACE asphalt\nSCALE 18 36\n",
         encoding="utf-8", newline="\n")
     (so / "apt_pavement/pavement/c.pol").write_text(
-        "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\nSCALE 22 44\n", encoding="utf-8", newline="\n")
+        "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\nSCALE 22 44\n",
+            encoding="utf-8", newline="\n")
     (so / "apt_pavement/pavement/r.pol").write_text(
         "A\n850\nDRAPED_POLYGON\nTEXTURE r.png\nSCALE 30 30\nWEATHER_TRANSPARENT\n",
         encoding="utf-8", newline="\n")

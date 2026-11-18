@@ -23,12 +23,11 @@ bottom).  Nothing here names a pack, a resource or an airport.
 from __future__ import annotations
 
 import math
-import typing as _t
 
 import numpy as np
 from shapely.geometry import Polygon
 
-from ..geom.wall_lines import Face, inner_faces
+from ..geom.wall_lines import inner_faces
 
 __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 

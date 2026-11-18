@@ -260,6 +260,7 @@ def test_the_scheduler_holds_its_first_step_for_another_build(
     step always runs"); with another build's reservation filling the
     machine it waits, its row naming the holder, and starts once it goes."""
     from types import SimpleNamespace
+
     from o4_engine import parallel
     from test_step_memory_admission import _Child
 

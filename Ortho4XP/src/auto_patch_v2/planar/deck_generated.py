@@ -57,8 +57,8 @@ from shapely.ops import linemerge, unary_union
 from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
-from ..model.structures import GENERATED_WITNESS, DeckBridge, is_generated
 from ..model.deck_bank import deck_bank_slope
+from ..model.structures import GENERATED_WITNESS, DeckBridge, is_generated
 from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover

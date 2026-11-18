@@ -152,7 +152,8 @@ def _write_poly(tmp_path):
     node = tmp_path / "Data+30+030.node"
     poly = tmp_path / "Data+30+030.poly"
     node.write_text(f"{len(points)} 2 1 0\n" + "".join(
-        f"{i + 1} {x:.9f} {y:.9f} 0.0\n" for i, (x, y) in enumerate(points)), encoding="utf-8", newline="\n")
+        f"{i + 1} {x:.9f} {y:.9f} 0.0\n" for i, (x, y) in enumerate(points)),
+            encoding="utf-8", newline="\n")
     poly.write_text(f"0 2 1 0\n\n{len(segments)} 1\n" + "".join(
         f"{k + 1} {a + 1} {b + 1} {VMAP.PATCH_RING_MARKER}\n"
         for k, (a, b) in enumerate(segments)) + "\n0\n\n0\n", encoding="utf-8", newline="\n")

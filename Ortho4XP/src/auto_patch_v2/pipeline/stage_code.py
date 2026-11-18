@@ -1933,7 +1933,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.deck_ground geom.end_line model.deck_ends
         geom.lowest_face geom.plate_heights
         geom.exact geom.lowest_face
-        constraints.contiguity constraints.deck_stack constraints.edge_deck geom.wall_lines model.deck_bank
+        constraints.contiguity constraints.deck_stack constraints.edge_deck geom.wall_lines
+        model.deck_bank
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
@@ -1946,7 +1947,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.agp_plate model.agp_plate model.deck_ends geom.end_line
         geom.lowest_face geom.plate_heights
         geom.exact  
-        constraints.agp_plate constraints.contiguity constraints.edge_deck geom.wall_lines model.deck_bank
+        constraints.agp_plate constraints.contiguity constraints.edge_deck geom.wall_lines
+        model.deck_bank
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
@@ -2159,7 +2161,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
-        constraints.contiguity constraints.edge_deck geom.wall_lines model.deck_bank constraints.edge_floor
+        constraints.contiguity constraints.edge_deck geom.wall_lines model.deck_bank
+        constraints.edge_floor
         constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
@@ -3169,7 +3172,8 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.generated_publication planar.bore_continuation planar.cell_knife planar.channel
     planar.channel_depth planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_ground planar.deck_bridge
-    planar.deck_generated planar.deck_route planar.deck_walls geom.wall_lines model.deck_bank planar.end_witness
+    planar.deck_generated planar.deck_route planar.deck_walls geom.wall_lines model.deck_bank
+    planar.end_witness
     planar.deck_pack_cover
     planar.entrance_skirt planar.lidar_road planar.mouth_behind planar.mouth_opening
     planar.object_corridor planar.structure_approach planar.structure_deck

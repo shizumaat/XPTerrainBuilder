@@ -144,7 +144,8 @@ def test_a_pier_foot_stretches_down_and_its_top_stays_with_the_deck(tmp_path):
                         allow_single=True)
     got = [tuple(float(q) for q in ln.split()[1:4]) for ln in res.files[0].text.splitlines()
            if ln.startswith("VT")]
-    src = [tuple(float(q) for q in ln.split()[1:4]) for ln in open(path, encoding="utf-8").read().splitlines()
+    src = [tuple(float(q) for q in ln.split()[1:4]) for ln in open(path,
+        encoding="utf-8").read().splitlines()
            if ln.startswith("VT")]
     field = OW.Field(NODES)
     assert len(got) == len(src) == 8

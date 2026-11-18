@@ -143,7 +143,8 @@ def test_census_reads_every_airport_pack_deck_once(tmp_path):
     src = _deck(pack / "objects")
     os.rename(src, str(pack / "objects" / "bridge.obj"))
     (pack / "objects" / "bridge__b0_0011aabb.obj").write_text(
-        (pack / "objects" / "bridge.obj").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+        (pack / "objects" / "bridge.obj").read_text(
+            encoding="utf-8"), encoding="utf-8", newline="\n")
     (tmp_path / "Not an airport").mkdir()
     out = C.census(str(tmp_path), None, 2.0)
     assert out["totals"] == {"packs": 1, "deck_files": 1, "multi_plate": 1, "banded": 1}

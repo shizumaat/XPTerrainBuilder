@@ -136,7 +136,8 @@ def test_recent_places_are_ground_notes_and_flight_ends_of_30_days(tmp_path):
             "id": name, "source": {}, "created_at": created,
             "arrived_at": arrived,
             "origin": {"ident": name[:4], "lat": 30.1, "lon": 31.4},
-            "destination": {"ident": name[4:], "lat": 25.3, "lon": 51.6}}), encoding="utf-8", newline="\n")
+            "destination": {"ident": name[4:], "lat": 25.3, "lon": 51.6}}),
+                encoding="utf-8", newline="\n")
     flight("HECAOTHH", "2027-01-14T00:00:00Z", "2027-01-14T05:00:00Z")
     flight("KMRYKFAT", "2026-11-01T00:00:00Z")                      # old
     got = RECENT.places(now, history=history, flights=str(flights))

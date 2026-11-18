@@ -15,6 +15,9 @@ brightens:
 * **only the dark that touches a cliff**: the dark nodes connected to a
   region's nodes through dark nodes, along land edges, at most ``REACH_M``
   from the region (tapered over its last ``RAMP_M``);
+* **only below the rim**: a node above its nearest region's mid-height
+  is the land on top of the cliff, never its shadow
+  (:func:`_below_the_rim`);
 * **a soft end**: beyond that dark set the opacity ramps from 1 to 0 over
   ``RAMP_M`` of mesh edges, so the overlay never ends on a sharp line.
 
@@ -187,6 +190,27 @@ def _region_reach(layout, tri_idx, new, dist, source):
     return [reach[r] for r in sorted(reach)]
 
 
+def _below_the_rim(layout, xyz, tri_idx, source):
+    """(n,) bool: the node lies no higher than the MID-HEIGHT of the
+    cliff region nearest it.  A shadow lies on a face and at its FOOT; dark
+    ground at or above a cliff's rim is the land on top (a bluff's dark
+    vegetation, an airfield's grass and asphalt -- LPPD 2026-11-17, where
+    the carry painted X-Plane's land textures up to 500 m over the bluff
+    top and the airport), never the cliff's shadow."""
+    n = len(xyz)
+    mid_of_node = numpy.full(n, numpy.inf)
+    for tris in layout.region_tris:
+        nodes = numpy.unique(tri_idx[tris])
+        z = xyz[nodes, 2]
+        mid_of_node[nodes] = numpy.minimum(mid_of_node[nodes],
+                                           0.5 * (z.min() + z.max()))
+    src = numpy.asarray(source)
+    ok = src >= 0
+    mid = numpy.full(n, -numpy.inf)
+    mid[ok] = mid_of_node[src[ok]]
+    return xyz[:, 2] <= mid
+
+
 def _dark_core(graph, dark, region_nodes):
     """The dark nodes connected to a region node through dark nodes."""
     from scipy.sparse.csgraph import connected_components
@@ -236,7 +260,8 @@ def shadow_alpha(layout, xyz, lonlat, tri_idx, land, photo_at, read_photo,
     shade = numpy.zeros(len(xyz))
     shade[near[ok]] = 1.0 - _smoothstep(
         (values[ok] - stats.dark) / (stats.lit - stats.dark))
-    dark = (shade > 0) & (dist <= REACH_M)
+    below = _below_the_rim(layout, xyz, tri_idx, source)
+    dark = (shade > 0) & (dist <= REACH_M) & below
     if not dark[region_nodes].any():
         return None, stats
     core = _dark_core(graph, dark, region_nodes)
@@ -246,7 +271,7 @@ def shadow_alpha(layout, xyz, lonlat, tri_idx, land, photo_at, read_photo,
     full = core[extra[core] >= 0.5]
     if len(full):
         d_out = dijkstra(graph, indices=full, min_only=True, limit=RAMP_M)
-        ramp = numpy.where(numpy.isfinite(d_out),
+        ramp = numpy.where(numpy.isfinite(d_out) & below,
                            1.0 - _smoothstep(d_out / RAMP_M), 0.0)
         extra = numpy.maximum(extra, numpy.where(numpy.isfinite(dist),
                                                  ramp, 0.0))

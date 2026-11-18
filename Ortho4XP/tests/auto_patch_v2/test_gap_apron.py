@@ -387,7 +387,8 @@ def test_the_class_table_read_on_a_real_map():
     # (#808: gap:19 is gone; the refs after it move down by one)
     # §37 (2)'s share (#1900: >= 19 +1; 10m: 18 -> 17)
     assert sorted(by[True]) == [14, 15, 17, 21, 23, 34, 35, 42]   # #2134 re-record
-    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(10)]  # #2134: 12 -> 9; #2113 10
+    # #2134: 12 -> 9; #2113: 10
+    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(10)]
     assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (10, 11)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
@@ -427,7 +428,7 @@ def test_the_class_table_read_on_a_real_map():
                            + [flush[int(j)] for j in ftree.query(reach, predicate="intersects")])
         assert _unwelded_m2(part, near, weld, keep) < 1.0, c.ref
         grew += part.area > c.evidence["area_m2"] - 1e-6 and part.is_valid
-    assert grew == 10  # every apron piece; #1876: 13 -> 12; #2134: 12 -> 9; #2113 10
+    assert grew == 10  # every apron piece; #1876: 13 -> 12; #2134: 12 -> 9; #2113: 10
     # the spec's sliver site (the census's apron|apron step, gap:30 | pav39
     # when recorded; gap:32 since the regL3 re-record) is inside the part now
     site = Point(*to_xy(31.4046286, 30.1278259))

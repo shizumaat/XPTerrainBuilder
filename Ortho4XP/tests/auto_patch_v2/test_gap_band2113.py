@@ -70,7 +70,8 @@ def test_band_ground_far_from_the_page_apron_and_its_road_stays_the_band():
     apron = box(0, 50, 100, 100)
     road = box(150, 0, 160, 100)
     assert road_split(box(161.5, 0, 200, 10), [sheet], [apron], [road], 2.5) is False
-    assert road_split(box(101.5, 0, 148.5, 10), [sheet], [box(0, 0, 100, 100)], [box(100, 0, 100.5, 100)], 2.5) is True
+    assert road_split(box(101.5, 0, 148.5, 10), [sheet], [box(0, 0, 100, 100)],
+                      [box(100, 0, 100.5, 100)], 2.5) is True
 
 
 def test_band_ground_on_a_page_with_no_apron_stays_the_band():

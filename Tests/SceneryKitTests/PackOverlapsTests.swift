@@ -70,6 +70,32 @@ struct PackOverlapsTests {
         #expect(!o.asks)
     }
 
+    /// RULINGS 17s (23:37Z): two packs defining one airport offer to disable
+    /// the lower one; a pack the ini does not list is a report, never sent.
+    @Test func aSameAirportPairOffersToDisableTheLowerPack() {
+        var event = fullEvent
+        event["items"] = [
+            ["key": "/CS/same airport/Alpha | Zeta", "kind": "duplicate",
+             "packs": ["Zeta", "Alpha"], "airport": "XXXX", "default": "disable",
+             "winner": "", "lower": "Alpha", "count": 1, "rows": [],
+             "summary": "Zeta and Alpha both define XXXX."],
+            ["key": "/CS/same airport/Beta | Gamma", "kind": "duplicate",
+             "packs": ["Beta", "Gamma"], "airport": "YYYY", "default": "",
+             "winner": "", "lower": "", "count": 1, "rows": [], "summary": "not listed"],
+        ]
+        guard case .packOverlaps(let o)? = O4Event.parse(object: event) else {
+            Issue.record("PackOverlaps did not decode")
+            return
+        }
+        #expect(o.asks && o.hasSameAirport && o.offers.count == 2)
+        let pair = o.offers[0]
+        #expect(pair.sameAirport && pair.lower == "Alpha" && pair.preselected == "disable")
+        #expect(pair.choices.map(\.label) == ["Disable Alpha", "Keep both enabled"])
+        #expect(pair.choices.map(\.winner) == ["disable", "keep"])
+        #expect(o.offers[1].choices.isEmpty)
+        #expect(o.answerable.map(\.key) == ["/CS/same airport/Alpha | Zeta"])
+    }
+
     @Test func absentFieldsDefaultSafely() {
         guard case .packOverlaps(let o)? = O4Event.parse(object: ["event": "PackOverlaps"]) else {
             Issue.record("PackOverlaps did not decode")

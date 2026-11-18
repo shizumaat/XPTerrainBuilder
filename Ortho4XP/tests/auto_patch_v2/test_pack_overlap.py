@@ -60,9 +60,9 @@ def pack(tmp_path):
     root = tmp_path / "pack"
     (root / "facades").mkdir(parents=True)
     (root / "objects").mkdir()
-    (root / "facades" / "block.fac").write_text(BUILDING_FAC)
-    (root / "facades" / "fence.fac").write_text(FENCE_FAC)
-    (root / "objects" / "box.obj").write_text(OBJ)
+    (root / "facades" / "block.fac").write_text(BUILDING_FAC, encoding="utf-8", newline="")
+    (root / "facades" / "fence.fac").write_text(FENCE_FAC, encoding="utf-8", newline="")
+    (root / "objects" / "box.obj").write_text(OBJ, encoding="utf-8", newline="")
     return str(root)
 
 
@@ -194,7 +194,7 @@ def test_default_follows_the_ini_order_then_the_airport_pack(tmp_path):
     (tmp_path / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Zeta City/\n"
-        "SCENERY_PACK Custom Scenery/Alpha City/\n")
+        "SCENERY_PACK Custom Scenery/Alpha City/\n", encoding="utf-8", newline="")
     d = str(tmp_path)
     both = {"Alpha City", "Zeta City"}
     assert OS.default_pack(d, both, ["Alpha City", "Zeta City"]) == "Zeta City"
@@ -211,7 +211,8 @@ def _scenery(tmp_path, airports, others):
         (scenery / n / "Earth nav data").mkdir(parents=True)
         (scenery / n / "Earth nav data" / "apt.dat").write_text(
             "I\n1100 Version\n\n1 10 0 0 XXXX Field\n100 45 1 0 0.25 0 2 1 "
-            "09 25.25 55.36 0 0 2 0 0 0 27 25.25 55.37 0 0 2 0 0 0\n99\n")
+            "09 25.25 55.36 0 0 2 0 0 0 27 25.25 55.37 0 0 2 0 0 0\n99\n",
+            encoding="utf-8", newline="")
     for n in others:
         (scenery / n / "Earth nav data").mkdir(parents=True)
     return scenery
@@ -277,3 +278,106 @@ def test_family_witness_reads_words_not_ordering_marks():
     assert not PF.same_family("Pub_A_KQRS_Field", "Pub_B_KXYZ_Overlays", names, airport)
     assert not PF.same_family("Vendor2_Town_Autogen", "c_XY - 100_airport - ABCD_Town_Vendor1",
                               names, airport)
+
+
+# --- RULINGS 17s (23:37Z): two packs defining one airport (the twins) ------
+
+_INI = ("I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/Zeta_ABCD_Field/\n"
+        "SCENERY_PACK Custom Scenery/Other_City/\n"
+        "SCENERY_PACK Custom Scenery/Alpha_ABCD_Airport/\n"
+        "SCENERY_PACK *GLOBAL_AIRPORTS*\n")
+
+
+@pytest.fixture
+def same_airport(tmp_path, monkeypatch):
+    """A scenery folder whose two airport packs (by different vendors)
+    both define ``XXXX``; Zeta's row is higher in the ini."""
+    monkeypatch.setattr(PC, "store_path", lambda name: str(tmp_path / "prefs" / name))
+    scenery = _scenery(tmp_path, ["Zeta_ABCD_Field", "Alpha_ABCD_Airport"],
+                       ["Other_City"])
+    (scenery / "scenery_packs.ini").write_text(_INI, encoding="utf-8", newline="")
+    return scenery
+
+
+def _dup_rows(scenery, on_tile=("Alpha_ABCD_Airport",)):
+    from auto_patch import duplicate_stage as DS
+    return DS.rows(str(scenery), on_tile)
+
+
+def test_the_lower_of_two_packs_defining_one_airport_is_offered(same_airport):
+    from auto_patch_v2.airport import pack_duplicate as PD
+    (row,) = _dup_rows(same_airport)
+    assert row["kind"] == "duplicate" and row["airport"] == "XXXX"
+    assert row["packs"] == ["Zeta_ABCD_Field", "Alpha_ABCD_Airport"]
+    assert row["lower"] == "Alpha_ABCD_Airport" and row["default"] == PD.DISABLE
+    assert row["winner"] == ""
+    assert _dup_rows(same_airport, on_tile=("Other_City",)) == []   # not this tile
+
+
+def test_one_family_defining_one_airport_is_not_offered(tmp_path, monkeypatch):
+    monkeypatch.setattr(PC, "store_path", lambda name: str(tmp_path / "prefs" / name))
+    scenery = _scenery(tmp_path, ["Vendor_Town_airport_v1", "Vendor_Town_airport_v2"], [])
+    (scenery / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/Vendor_Town_airport_v2/\n"
+        "SCENERY_PACK Custom Scenery/Vendor_Town_airport_v1/\n", encoding="utf-8", newline="")
+    assert _dup_rows(scenery, on_tile=("Vendor_Town_airport_v1",)) == []
+
+
+def test_a_pack_the_ini_does_not_list_is_reported_not_offered(same_airport):
+    (same_airport / "scenery_packs.ini").write_text(
+        _INI.replace("SCENERY_PACK Custom Scenery/Alpha_ABCD_Airport/\n", ""),
+        encoding="utf-8", newline="")
+    (row,) = _dup_rows(same_airport)
+    assert row["lower"] == "" and row["default"] == ""
+    assert "Alpha_ABCD_Airport is not listed" in row["summary"]
+
+
+def test_yes_disables_only_the_lower_row_keeps_a_backup_and_is_idempotent(
+        same_airport, monkeypatch):
+    from auto_patch import overlap_stage as OS
+    from auto_patch_v2.airport import pack_duplicate as PD
+    monkeypatch.setattr(OS.UI, "vprint", lambda *a, **k: None)
+    ini = same_airport / "scenery_packs.ini"
+    (row,) = _dup_rows(same_airport)
+    before = sorted(p.name for p in (same_airport / "Alpha_ABCD_Airport").rglob("*"))
+    out = OS._answer(str(same_airport), "choose", [{"key": row["key"], "winner": "disable"}])
+    assert out["state"] == "chosen" and out["files"] == [str(ini)]
+    assert out["items"][0]["lower"] == "Alpha_ABCD_Airport"
+    want = _INI.replace("SCENERY_PACK Custom Scenery/Alpha_ABCD_Airport/",
+                        "SCENERY_PACK_DISABLED Custom Scenery/Alpha_ABCD_Airport/")
+    assert ini.read_text(encoding="utf-8") == want
+    assert (same_airport / "scenery_packs.ini.o4bak").read_text(encoding="utf-8") == _INI
+    assert sorted(p.name for p in (same_airport / "Alpha_ABCD_Airport").rglob("*")) == before
+    assert PD.STORE.choice(row["key"]) == PD.DISABLE
+    again = OS._answer(str(same_airport), "choose", [{"key": row["key"], "winner": "disable"}])
+    assert again["files"] == [] and ini.read_text(encoding="utf-8") == want
+    assert (same_airport / "scenery_packs.ini.o4bak").read_text(encoding="utf-8") == _INI
+
+
+def test_no_is_remembered_and_not_now_asks_again(same_airport, monkeypatch):
+    from auto_patch import overlap_stage as OS
+    from auto_patch_v2.airport import pack_duplicate as PD
+    (row,) = _dup_rows(same_airport)
+    OS._answer(str(same_airport), "choose", [{"key": row["key"], "winner": ""}])
+    assert PD.STORE.choice(row["key"]) == ""                  # Not now: asked again
+    OS._answer(str(same_airport), "choose", [{"key": row["key"], "winner": "keep"}])
+    assert _dup_rows(same_airport)[0]["winner"] == PD.KEEP    # No: never asked again
+    assert (same_airport / "scenery_packs.ini").read_text(encoding="utf-8") == _INI
+    with pytest.raises(ValueError):
+        OS._answer(str(same_airport), "choose", [{"key": row["key"], "winner": "Other"}])
+
+
+def test_a_same_airport_pair_is_not_also_a_structure_pair(detect, tmp_path, monkeypatch):
+    import auto_patch.drape_stage as DSTG
+    (tmp_path / "Custom Scenery").mkdir()
+    (tmp_path / "Custom Scenery" / "scenery_packs.ini").write_text(
+        _INI, encoding="utf-8", newline="")
+    monkeypatch.setattr(DSTG, "_folder_packs", lambda d, la, lo: [
+        os.path.join(d, "Alpha_ABCD_Airport")])
+    rows = detect(["Zeta_ABCD_Field", "Alpha_ABCD_Airport"], ["Other_City"])
+    kinds = sorted((r.get("kind", "overlap"), tuple(sorted(r["packs"]))) for r in rows)
+    assert ("duplicate", ("Alpha_ABCD_Airport", "Zeta_ABCD_Field")) in kinds
+    assert ("overlap", ("Alpha_ABCD_Airport", "Zeta_ABCD_Field")) not in kinds
+    assert len([k for k in kinds if k[0] == "overlap"]) == 2

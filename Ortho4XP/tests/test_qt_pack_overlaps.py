@@ -101,7 +101,14 @@ def test_the_copy_matches_the_mac_app():
     assert joined("static let detail", "static let applyButton") == QTOVER.DETAIL
     assert joined("static let keepBoth", "static let keepPrefix") == QTOVER.KEEP_BOTH
     assert joined("static let keepPrefix", "static let detail") == QTOVER.KEEP_PREFIX
-    assert joined("static let both", "}") == QTOVER.BOTH
+    assert joined("static let both", "// Two packs defining") == QTOVER.BOTH
+    assert joined("static let sameAirport", "static let disablePrefix") == QTOVER.SAME_AIRPORT
+    assert joined("static let disablePrefix", "static let keepEnabled") == QTOVER.DISABLE_PREFIX
+    assert joined("static let keepEnabled", "static let restartNote") == QTOVER.KEEP_ENABLED
+    assert joined("static let restartNote", "/// The row") == QTOVER.RESTART_NOTE
+    assert joined("static let duplicateKind", "static let disable ") == QTOVER.DUPLICATE_KIND
+    assert joined("static let disable ", "static let keep ") == QTOVER.DISABLE
+    assert joined("static let keep ", "}") == QTOVER.KEEP
     for s in (QTOVER.APPLY_BUTTON, QTOVER.NOT_NOW_BUTTON):
         assert '"%s"' % s in text
 
@@ -132,3 +139,33 @@ def test_apply_sends_every_pick_and_not_now_nothing(window, monkeypatch):
     assert sent == [{"action": "choose", "lat": 24, "lon": 55, "items": [
         {"key": ITEMS[0]["key"], "winner": "Autogen"},
         {"key": ITEMS[1]["key"], "winner": "both"}]}]
+
+
+DUPS = [{"key": "/CS/same airport/Alpha | Zeta", "kind": "duplicate",
+         "packs": ["Zeta", "Alpha"], "airport": "XXXX", "default": "disable",
+         "winner": "", "lower": "Alpha", "count": 1, "rows": [],
+         "summary": "Zeta and Alpha both define XXXX."},
+        {"key": "/CS/same airport/Beta | Gamma", "kind": "duplicate",
+         "packs": ["Beta", "Gamma"], "airport": "YYYY", "default": "",
+         "winner": "", "lower": "", "count": 1, "rows": [], "summary": "not listed"}]
+
+
+def test_a_same_airport_pair_offers_to_disable_the_lower_pack(window, monkeypatch):
+    """RULINGS 17s (23:37Z): the lower pack's disable is offered (and
+    pre-selected), a report row has no picker and is never sent."""
+    from PySide6.QtWidgets import QLabel
+    sent = []
+    monkeypatch.setattr(window._session, "pack_overlaps",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    window._on_engine_event(_event(items=DUPS + ITEMS[:1]))
+    [box] = window._pack_art_boxes
+    assert list(box.pickers) == [DUPS[0]["key"], ITEMS[0]["key"]]
+    pick = box.pickers[DUPS[0]["key"]]
+    assert [pick.itemText(i) for i in range(pick.count())] == [
+        "Disable Alpha", "Keep both enabled"]
+    assert pick.currentData() == "disable"
+    texts = [w.text() for w in box.findChildren(QLabel)]
+    assert QTOVER.SAME_AIRPORT in texts and QTOVER.RESTART_NOTE in texts
+    _button(box, "Apply").click()
+    assert sent[0]["items"] == [{"key": DUPS[0]["key"], "winner": "disable"},
+                                {"key": ITEMS[0]["key"], "winner": "Airport"}]

@@ -689,7 +689,9 @@ public enum O4Event: Sendable, Equatable {
                         winner: row["winner"] as? String ?? "",
                         count: (row["count"] as? NSNumber)?.intValue ?? 0,
                         rows: (row["rows"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue } ?? [],
-                        summary: row["summary"] as? String ?? "")
+                        summary: row["summary"] as? String ?? "",
+                        kind: row["kind"] as? String ?? "",
+                        lower: row["lower"] as? String ?? "")
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",

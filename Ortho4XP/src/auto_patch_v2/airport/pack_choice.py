@@ -42,6 +42,9 @@ TERRAIN_FOUND = "pack_terrain_found.json"
 PRIORITY_CHOICES = "pack_priority_choices.json"
 #: the overlapping structures a build found, per pack pair (#2145)
 OVERLAP_FOUND = "pack_overlap_found.json"
+#: whether to disable the lower of two packs defining one airport, per
+#: pair (#2145, RULINGS 17s; ``pack_duplicate``): "disable" / "keep"
+DUPLICATE_AIRPORT_CHOICES = "pack_duplicate_airport_choices.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")

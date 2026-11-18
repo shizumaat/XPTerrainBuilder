@@ -4,6 +4,12 @@ import Foundation
 /// (engine `PackOverlaps.items`, issue #2145). `defaultWinner` is the
 /// airport pack (the picker's pre-selection), `winner` the remembered
 /// answer ("" none, "both" keep both).
+///
+/// `kind` "duplicate" (RULINGS 17s, owner 2026-11-17T23:37Z): the two
+/// packs define the same airport, `packs` upper first by scenery_packs.ini;
+/// the picker offers to disable `lower` ("disable") or keep both enabled
+/// ("keep"); `lower` empty is a report (a pack the ini does not list): no
+/// picker, nothing sent.
 public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let key: String
     public let packs: [String]
@@ -13,10 +19,13 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let count: Int
     public let rows: [Int]
     public let summary: String
+    public let kind: String
+    public let lower: String
     public var id: String { key }
 
     public init(key: String, packs: [String], airport: String, defaultWinner: String,
-                winner: String, count: Int, rows: [Int], summary: String) {
+                winner: String, count: Int, rows: [Int], summary: String,
+                kind: String = "", lower: String = "") {
         self.key = key
         self.packs = packs
         self.airport = airport
@@ -25,11 +34,24 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
         self.count = count
         self.rows = rows
         self.summary = summary
+        self.kind = kind
+        self.lower = lower
     }
 
-    /// The picker's `(label, winner)` entries: each pack, then both.
+    /// Two packs defining the same airport (not a structure pair).
+    public var sameAirport: Bool { kind == O4PackOverlapsCopy.duplicateKind }
+
+    /// The picker's `(label, winner)` entries: each pack, then both; for a
+    /// same-airport pair, disable the lower pack or keep both enabled (none
+    /// for a report).
     public var choices: [(label: String, winner: String)] {
-        packs.map { (O4PackOverlapsCopy.keepPrefix + $0, $0) }
+        if sameAirport {
+            return lower.isEmpty ? [] : [
+                (O4PackOverlapsCopy.disablePrefix + lower, O4PackOverlapsCopy.disable),
+                (O4PackOverlapsCopy.keepEnabled, O4PackOverlapsCopy.keep),
+            ]
+        }
+        return packs.map { (O4PackOverlapsCopy.keepPrefix + $0, $0) }
             + [(O4PackOverlapsCopy.keepBoth, O4PackOverlapsCopy.both)]
     }
 
@@ -70,6 +92,10 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     public var offers: [O4PackOverlap] { items.filter { $0.packs.count == 2 && !$0.key.isEmpty } }
     /// A question to ask: a build's or the report's, with a pair in it.
     public var asks: Bool { (state == "found" || state == "ask") && !offers.isEmpty }
+    /// The pairs Apply answers (a report row has no picker).
+    public var answerable: [O4PackOverlap] { offers.filter { !$0.choices.isEmpty } }
+    /// A same-airport pair is shown (its words and the restart note).
+    public var hasSameAirport: Bool { offers.contains { $0.sameAirport } }
 }
 
 /// The copy, VERBATIM and identical to the Qt question
@@ -92,4 +118,17 @@ public enum O4PackOverlapsCopy {
     public static let notNowButton = "Not now"
     /// The `winner` that keeps both packs' structures.
     public static let both = "both"
+
+    // Two packs defining the same airport (RULINGS 17s, 23:37Z).
+    public static let sameAirport = "Some packs define the same airport. X-Plane uses the "
+        + "layout of the pack higher in scenery_packs.ini; the lower pack's "
+        + "scenery may still overlap it."
+    public static let disablePrefix = "Disable "
+    public static let keepEnabled = "Keep both enabled"
+    public static let restartNote = "Disabling a pack changes only its line in "
+        + "scenery_packs.ini; its files stay. Restart X-Plane to use the change."
+    /// The row `kind` and the `winner`s of a same-airport pair.
+    public static let duplicateKind = "duplicate"
+    public static let disable = "disable"
+    public static let keep = "keep"
 }

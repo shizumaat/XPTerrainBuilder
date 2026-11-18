@@ -15,6 +15,8 @@ public enum O4StorageText {
     public static let budgetHelp = "More space keeps downloads and rebuild data, so tiles rebuild in minutes instead of re-downloading. Never cleared: your built tiles' scenery files and low-res imagery, your airport patches and your own elevation files. The recommended minimum adds room to work: half of that, at least 50 GB. Over the budget, shared caches go first, then tile by tile: the tiles used longest ago first, favorites last, each tile's quickest-to-rebuild data first. Tiles used this week or being built are kept. With a storage tier, cleared data moves there instead."
     public static let budgetField = "Budget (GB)"
     public static let budgetUseDefault = "Use Default"
+    /// A budget just set, while the usage figures are measured again (#2162).
+    public static let budgetRecalculating = "Recalculating usage…"
     public static let budgetHeld = "Until you confirm a budget, the default holds everything installed now ({held}), so nothing is cleared. Confirm it or set your own."
     public static let budgetConfirm = "Confirm"
     public static let downgradeTitle = "Downgrade scenery to low res to fit the new budget?"
@@ -94,6 +96,13 @@ public enum O4StorageText {
     /// A budget of `newBytes` is below what is in use: ask first.
     public static func needsDowngrade(_ b: O4StorageBudget, _ newBytes: Int64) -> Bool {
         newBytes < b.usedBytes
+    }
+
+    /// The scan's budget was measured with `gigabytes` set (0: the
+    /// default): the apps stop showing the chosen value over it (#2162).
+    public static func reflects(_ b: O4StorageBudget, gigabytes: Double) -> Bool {
+        let chosen = gigabytes > 0 ? Int64(gigabytes * 1e9) : 0
+        return abs((b.chosenBytes ?? 0) - chosen) < 1_000_000
     }
 
     /// The confirmation of a budget below what is in use, with the bytes a

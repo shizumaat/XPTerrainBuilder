@@ -165,6 +165,33 @@ def test_library_start_refuses_clearing_while_building(root):
         LIB.start(lambda _e: None, "storage_clear", kinds=["tmp"])
 
 
+def test_the_command_loop_answers_during_a_scan(root, monkeypatch):
+    """#2162: a storage_scan (the pass after a budget change) runs on a
+    worker; the read loop gets "started" at once and answers the next
+    command while the scan is still walking."""
+    import threading
+    from o4_engine import storage_shared as SHARED
+    walking, release, events = threading.Event(), threading.Event(), []
+
+    def slow_scan():
+        walking.set()
+        release.wait(5)
+        return {"stores": []}
+    monkeypatch.setitem(LIB._COMMANDS, "storage_scan", (slow_scan, None))
+    monkeypatch.setattr(SHARED, "refresh", lambda *a, **k: False)
+    started = time.monotonic()
+    assert LIB.start(events.append, "storage_scan", request=1) == {"status": "started"}
+    assert walking.wait(2) and not events
+    assert "updating" in SHARED.storage_scan_cached()
+    assert time.monotonic() - started < 1.0
+    release.set()
+    for _ in range(50):
+        if events:
+            break
+        time.sleep(0.02)
+    assert events and events[0].command == "storage_scan"
+
+
 def test_auto_clean_drops_texture_copies_their_tiles_hold(root, monkeypatch):
     import O4_DDS_Cache as DDSC
     import O4_DDS_File as DDS

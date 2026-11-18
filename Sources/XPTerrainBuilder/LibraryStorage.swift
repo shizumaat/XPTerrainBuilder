@@ -73,6 +73,13 @@ struct DiskBudgetSection: View {
                 Text(lines.line).fixedSize(horizontal: false, vertical: true)
                 StorageUsageBar(budget: budget)
                 sliderRow(budget)
+                if model.chosenBudgetGB != nil {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text(O4StorageText.budgetRecalculating)
+                    }
+                    .scaledFont(.caption).foregroundStyle(.secondary)
+                }
                 let held = O4StorageText.heldLine(budget)
                 if !held.isEmpty {
                     Text(held).scaledFont(.caption).foregroundStyle(.secondary)
@@ -94,11 +101,12 @@ struct DiskBudgetSection: View {
                     }
                 }
             }
-            .disabled(model.isWorking || buildModel.isBuilding)
+            .disabled(buildModel.isBuilding)
         }
         .help(O4StorageText.budgetHelp)
         .onAppear(perform: showBudget)
         .onChange(of: model.scan) { _, _ in showBudget() }
+        .onChange(of: model.chosenBudgetGB) { _, _ in showBudget() }
         .confirmationDialog(O4StorageText.downgradeTitle, isPresented: Binding(
             get: { asking != nil }, set: { if !$0 { cancel() } }), presenting: asking) { bytes in
             Button(O4StorageText.downgradeOk, role: .destructive) {
@@ -134,7 +142,8 @@ struct DiskBudgetSection: View {
                 .frame(width: 70)
                 .onSubmit(submit)
         }
-        .disabled(model.isWorking || buildModel.isBuilding)
+        // Never held by a scan (#2162): the budget is saved at once.
+        .disabled(buildModel.isBuilding)
         HStack(alignment: .top) {
             Text(ends.min)
             Spacer()
@@ -149,10 +158,13 @@ struct DiskBudgetSection: View {
     }
 
     /// The slider and field show the budget that applies (the default
-    /// when unset), inside the slider's range.
+    /// when unset) or the one just chosen, inside the slider's range.
     private func showBudget() {
-        guard let budget else { return }
-        let applied = Double(budget.budgetBytes) / 1e9
+        guard let budget, !dragging else { return }
+        var applied = Double(budget.budgetBytes) / 1e9
+        if let chosen = model.chosenBudgetGB {
+            applied = chosen > 0 ? chosen : Double(budget.defaultBytes ?? budget.budgetBytes) / 1e9
+        }
         gigabytes = min(max(applied, range.lowerBound), range.upperBound)
         field = String(format: "%.0f", applied)
     }
@@ -168,8 +180,7 @@ struct DiskBudgetSection: View {
     }
 
     private func setBudget(_ gigabytes: Double) {
-        buildModel.setConfigValue(StorageModel.budgetKey, to: .double(gigabytes))
-        model.refresh(buildModel)
+        model.setBudget(gigabytes: gigabytes, buildModel)
     }
 
     /// Cancel keeps the old budget.

@@ -27,7 +27,7 @@ import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Qt_Storage_Tiers as QTTIERS
 import O4_Storage_Text as TEXT
 from O4_Qt_Library import fmt_size
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QDialog,
@@ -107,12 +107,22 @@ class UsageBar(QWidget):
 class DiskBudgetBox(QWidget):
     """The disk budget: its line, the usage bar, the slider with its
     labelled ends and a number field, the preview while the slider
-    moves, and Use Default once set (Confirm until then)."""
+    moves, and Use Default once set (Confirm until then).  A budget set
+    is saved at once and shown (``chosen``) until a scan reflects it; the
+    scan runs once the controls are still for :data:`SETTLE_MS` (#2162)."""
+
+    #: The pause after the last change before the usage is measured again.
+    SETTLE_MS = 1500
 
     def __init__(self, storage, parent=None):
         super().__init__(parent)
         self.storage = storage
         self.budget = {}
+        self.chosen = None
+        self.settle = QTimer(self)
+        self.settle.setSingleShot(True)
+        self.settle.setInterval(self.SETTLE_MS)
+        self.settle.timeout.connect(lambda: self.storage.refresh())
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(_title(TEXT.BUDGET_TITLE))
@@ -147,6 +157,10 @@ class DiskBudgetBox(QWidget):
         self.preview_label = _note("font-size: 11px;")
         self.preview_label.setVisible(False)
         layout.addWidget(self.preview_label)
+        self.recalc_label = _note()
+        self.recalc_label.setText(TEXT.BUDGET_RECALCULATING)
+        self.recalc_label.setVisible(False)
+        layout.addWidget(self.recalc_label)
         self.held_label = _note()
         layout.addWidget(self.held_label)
         self.budget_warning = _note(WARNING_STYLE)
@@ -167,6 +181,9 @@ class DiskBudgetBox(QWidget):
 
     def show_scan(self, scan):
         self.budget = (scan or {}).get("budget") or {}
+        if self.chosen is not None and self.budget and TEXT.reflects(self.budget, self.chosen):
+            self.chosen = None
+        self.recalc_label.setVisible(self.chosen is not None)
         line, warning = TEXT.budget_lines(self.budget) if self.budget else ("", "")
         self.budget_label.setText(line)
         self.usage_bar.show_budget(self.budget)
@@ -193,8 +210,12 @@ class DiskBudgetBox(QWidget):
 
     def _show_field(self):
         """The field and slider show the budget that applies (the default
-        when unset), the slider inside its range."""
+        when unset) or the one just chosen, the slider inside its range."""
         nbytes = self.budget.get("budget_bytes")
+        if self.chosen is not None:
+            nbytes = self.chosen * 1e9 or self.budget.get("default_bytes") or nbytes
+        if self.budget_slider.isSliderDown():
+            return
         self.budget_edit.setText("%.0f" % (nbytes / 1e9) if nbytes else "")
         low, high = self._range()
         self.budget_slider.blockSignals(True)
@@ -237,6 +258,7 @@ class DiskBudgetBox(QWidget):
         """Below what is in use: downgrade to fit, asked first; Cancel
         keeps the old budget."""
         if self.confirm(TEXT.DOWNGRADE_TITLE, TEXT.downgrade_text(self.budget, nbytes)):
+            self._chose(nbytes / 1e9)
             self.storage.apply_budget(nbytes / 1e9)
         else:
             self._show_field()
@@ -245,7 +267,14 @@ class DiskBudgetBox(QWidget):
         import O4_Settings_Model as SM
         from O4_Qt_Settings_Storage import BUDGET_SETTING
         SM.write_global({BUDGET_SETTING: str(float(gigabytes))})
-        self.storage.refresh()
+        self._chose(gigabytes)
+        self.settle.start()             # a burst of changes: one scan
+
+    def _chose(self, gigabytes):
+        """Saved: shown at once, "Recalculating usage…" until a scan."""
+        self.chosen = float(gigabytes)
+        self.recalc_label.setVisible(True)
+        self._show_field()
 
 
 class CachesLine(QWidget):

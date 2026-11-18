@@ -8,7 +8,7 @@ import types
 from shapely.geometry import Polygon
 
 from auto_patch_v2.airport import deck_plates as dp
-from auto_patch_v2.geom.deck_spans import profile_spans, span_cut, span_pieces
+from auto_patch_v2.geom.deck_spans import _profile_spans, span_cut, span_pieces
 
 
 def _ground(x: float, _y: float) -> float:
@@ -42,7 +42,7 @@ def test_all_bridge_has_one_span_and_no_long_at_grade():
 
 
 def test_flat_ground_has_no_span():
-    assert profile_spans([0, 2, 4, 6, 8], [10, 10.03, 10.06, 10.09, 10.12], 3.0, 0.03) == []
+    assert _profile_spans([0, 2, 4, 6, 8], [10, 10.03, 10.06, 10.09, 10.12], 3.0, 0.03) == []
 
 
 def test_span_frame_keeps_span_bands_and_drops_the_rest():

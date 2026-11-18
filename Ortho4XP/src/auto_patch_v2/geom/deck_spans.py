@@ -34,7 +34,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["SpanCut", "profile_spans", "span_cut", "span_pieces"]
+__all__ = ["SpanCut", "span_cut", "span_pieces"]
 
 XY = tuple[float, float]
 
@@ -74,7 +74,7 @@ class SpanCut:
         return out
 
 
-def profile_spans(s: _t.Sequence[float], g: _t.Sequence[float], drop_m: float,
+def _profile_spans(s: _t.Sequence[float], g: _t.Sequence[float], drop_m: float,
                   rise_grade: float) -> list[tuple[int, int]]:
     """The spans of a ground profile (module doc) as abutment index pairs
     ``(i_a, i_b)``, in order; overlapping spans merge."""
@@ -129,7 +129,7 @@ def span_cut(poly: _t.Any, z_of: _t.Callable[[float, float], "float | None"], *,
         if z is None or not math.isfinite(float(z)):
             return None
         zs.append(float(z))
-    found = profile_spans(ss, zs, drop_m, rise_grade)
+    found = _profile_spans(ss, zs, drop_m, rise_grade)
     if not found:
         return None
     return SpanCut(a, b, tuple((float(ss[i]), float(ss[j])) for i, j in found))

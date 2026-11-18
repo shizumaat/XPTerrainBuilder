@@ -13,16 +13,36 @@ AIRSIDE = ("airside deck on the solved airside surface at its end lines 101.20 /
            "(RULINGS 2026-10-22n)")
 
 
-def _piece(reason, cls="deck", stations=((39.0, -104.0), (39.0001, -104.0)), zero=1630.2):
+def _piece(reason, cls="deck", stations=((39.0, -104.0), (39.0001, -104.0)), zero=1630.2,
+           key=(0, 0), name="deck.obj", member=None):
     body = NS(body_class=cls, anchor=NS(reason=reason), elevated=False, geom_pts=(),
               merged_into=None, band=None)
-    return DP._Piece((0, 0), "unit:1", "deck.obj", zero, [], True, False, body,
-                     NS(plate_stations=stations))
+    return DP._Piece(key, "unit:1", name, zero, [], True, False, body,
+                     member or NS(plate_stations=stations))
 
 
 def test_an_overpass_deck_is_a_group_of_its_own():
     groups = DP._groups([_piece(OVERPASS)], walled_m=2.0)
-    assert list(groups) == ["unit:1|overpass:deck.obj"]
+    assert list(groups) == ["unit:1|overpass:0"]
+
+
+def test_an_overpass_placement_moves_as_one_group():
+    """lkden7: the deck and its pier bodies (one placement) are ONE group,
+    its crossing read once; another placement's deck is its own."""
+    m = NS(plate_stations=((39.0, -104.0), (39.0001, -104.0)))
+    ps = [_piece(OVERPASS, key=(0, 0), name="deck.obj", member=m),
+          _piece(OVERPASS, key=(0, 1), name="pier.obj", member=m),
+          _piece(OVERPASS, key=(1, 0), name="other.obj")]
+    groups = DP._groups(ps, walled_m=2.0)
+    assert groups == {"unit:1|overpass:0": [0, 1], "unit:1|overpass:1": [2]}
+    xy = lambda la, lo: ((lo + 104.0) * 85000.0, (la - 39.0) * 111000.0)  # noqa: E731
+    assert len(DP._crossing_nodes(ps, [0, 1], xy)) == 1
+
+
+def test_a_body_the_overpass_seat_placed_is_overpass_seated_whatever_its_class():
+    assert DP._overpass_seated(_piece(OVERPASS, cls="other"))
+    assert not DP._is_overpass(_piece(OVERPASS, cls="other"))
+    assert not DP._overpass_seated(_piece(AIRSIDE))
 
 
 def test_an_overpass_is_not_refused_as_an_airside_deck_but_class_a_still_is():

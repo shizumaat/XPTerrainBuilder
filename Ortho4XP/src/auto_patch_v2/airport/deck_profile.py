@@ -28,7 +28,17 @@ node at ``D = 0`` over the road-beneath stations (``plate_stations``: the
 clearance the seat read stays), and whose LANDING ENDS grade as below.
 MEASURED at KDEN ``Train_Bridge_1`` b0 (a 500 m rail deck seated flush at
 1630.20 over its road): its NE end line read +1.89 m over the drawn ground
-(39.839766,-104.674007); warped it reads +0.09, grade 3.5 %.
+(39.839766,-104.674007); warped it reads +0.09, grade 3.5 %.  THE
+OVERPASS MOVES AS ONE (lkden7, owner KDEN 2026-11-18T19:29Z "moved to the
+right spot, but left some pieces floating, should move as a group"): its
+group is EVERY overpass deck body of the placement (the deck and its pier
+bodies, which the overpass seat put at the one zero), with what rides them
+(``merged_into``) and every other body of its frame the same seat placed
+that touches the deck -- the rails and pieces of a sibling placement at the
+same anchor; before, each deck body was a group of its own, and the piers,
+the rails over them and the loose rail pieces kept the unwarped zero
+(KDEN ``Train_Bridge_1`` b4 / ``_Tracks`` b21 stood +3.3 m over the warped
+rails of b0 / b17 at 39.839152,-104.674323).
 
 NODES.  BUILDING CONTACT (owner RULINGS 2026-11-17t: "a deck touching two
 buildings at different zeros follows both", whichever frame or 22o group
@@ -253,25 +263,32 @@ def _elevated(pc: _Piece, walled_m: float) -> bool:
     return sum(1 for q in g if float(q[2]) >= walled_m) * 2 > len(g)   # authored y over zero
 
 
+def _overpass_seated(pc: _Piece) -> bool:
+    """A body the overpass seat placed (10-30f (5)), whatever its class."""
+    return _OVERPASS in str(pc.body.anchor.reason).split("; was:", 1)[0]
+
+
 def _is_overpass(pc: _Piece) -> bool:
     """A deck body the overpass seat put on the road beneath (10-30f (5))."""
-    return (pc.body.body_class == "deck"
-            and _OVERPASS in str(pc.body.anchor.reason).split("; was:", 1)[0]
+    return (pc.body.body_class == "deck" and _overpass_seated(pc)
             and bool(getattr(pc.member, "plate_stations", ())))
 
 
 def _groups(pieces: _t.Sequence[_Piece], walled_m: float) -> dict[str, list[int]]:
     """``{frame|22o root: piece indices}`` -- each group's ELEVATED members
     and, carried through ``merged_into`` (in its frame), what rides them; a
-    ROAD OVERPASS deck is a group of its own (``frame|overpass:<file>``:
-    held over the road it spans, its landing ends graded, lkden5)."""
+    ROAD OVERPASS is a group of its own -- every overpass deck body of
+    its placement (``frame|overpass:<placement>``), held over the road it
+    spans, its landing ends graded (lkden5); its piers and deck pieces
+    move as one (lkden7, owner KDEN 2026-11-18T19:29Z "should move as a
+    group")."""
     groups: dict[str, list[int]] = {}
     for k, pc in enumerate(pieces):
         r = _root(pc.body.anchor.reason)
         if r and _elevated(pc, walled_m):
             groups.setdefault(f"{pc.frame}|{r}", []).append(k)
         elif _is_overpass(pc):
-            groups.setdefault(f"{pc.frame}|overpass:{pc.name}", []).append(k)
+            groups.setdefault(f"{pc.frame}|overpass:{pc.key[0]}", []).append(k)
     by_file = {(pc.frame, pc.name): k for k, pc in enumerate(pieces)}
     owner = {k: g for g, ks in groups.items() for k in ks}
     grew = True
@@ -392,6 +409,7 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
     z0 = float(np.median([pieces[k].zero for k in ks]))
     frame, datum = pieces[ks[0]].frame, pieces[ks[0]].datum
     own = {_root(pieces[k].body.anchor.reason) for k in ks} - {""}
+    over = any(_is_overpass(pieces[k]) for k in ks)
     rides = {pieces[k].name for k in ks} | own
     bx = np.asarray([g.bounds for g, _p, _k in deck])
     dbox = _box(bx[:, 0].min() - law.reach_m, bx[:, 1].min() - law.reach_m,
@@ -406,7 +424,8 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
         polys = _polys_of(pc, xy)
         if not any(dbox.intersects(g) for g, _p in polys):
             continue
-        if pc.frame == frame and _root(pc.body.anchor.reason) in own:
+        if pc.frame == frame and (_root(pc.body.anchor.reason) in own
+                                  or (over and _overpass_seated(pc))):
             if _contact(pc, polys, tree, deck, pieces, law.reach_m):
                 riders.append(c)
             continue
@@ -548,10 +567,11 @@ def _crossing_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],
     the deck holds the zero the overpass seat read there (10-30f (5): its
     clearance over the road), so its landing ends grade away from it."""
     from shapely.geometry import MultiPoint
-    out = []
+    out, seen = [], set()
     for k in ks:
-        if not _is_overpass(pieces[k]):
+        if not _is_overpass(pieces[k]) or id(pieces[k].member) in seen:
             continue
+        seen.add(id(pieces[k].member))
         st = [xy(float(la), float(lo)) for la, lo, *_z in pieces[k].member.plate_stations]
         if st:
             out.append((pieces[k].zero - float(np.median([pieces[j].zero for j in ks])),
@@ -693,11 +713,14 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         return la0 + y / ml, lo0 + x / mo
     table: list = []
     changed: set[int] = set()
-    for gid, ks in sorted(_groups(pieces, law.walled_m).items()):
+    groups = _groups(pieces, law.walled_m)
+    grouped = {k for ks in groups.values() for k in ks}
+    for gid, ks in sorted(groups.items()):
         if not _is_long(pieces, ks, xy):
             continue
         z0 = float(np.median([pieces[k].zero for k in ks]))
         nodes, riders = _nodes(pieces, ks, xy, law)
+        riders = [c for c in riders if c not in grouped]   # warped by its own group
         nodes = nodes + _crossing_nodes(pieces, ks, xy)
         feet = (_end_nodes(pieces, ks, xy, surface, z0, law.walled_m)
                 if surface is not None else [])

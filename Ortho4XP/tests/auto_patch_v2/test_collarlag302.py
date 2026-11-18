@@ -32,7 +32,8 @@ from auto_patch_v2.constraints import generate
 from auto_patch_v2.model.constraints import Band, Source
 from auto_patch_v2.solve import design_ground, solve_design
 from auto_patch_v2.solve.design_ground import (coverage_edge_collar_vertices,
-                                               ground_datum_vertices)
+                                               ground_datum_vertices,
+                                               riser_rim_vertices)
 
 from auto_patch_v2.classify.roles import Classification
 from auto_patch_v2.planar.build import build
@@ -186,3 +187,36 @@ def test_a_storey_risers_coverage_edge_is_ground():
     beside = _stub_planar({1: ("u/p1", [0, 1, 4, 5]), 2: ("u/p1#strip", [1, 2, 3, 4]),
                            3: ("u", [2, 6, 7, 3])})
     assert not {2, 3} & coverage_edge_collar_vertices(beside)
+
+
+def test_a_risers_free_rim_only_is_ground():
+    """Spec ``rjtt-riser-r6-spec.md`` §2 (a): the riser's free rim (every
+    face the strip) takes the datum; the level's own coverage-edge vertices
+    (1 and 4, in under lrjtt5) are designed, never ground."""
+    pm = _stub_planar({1: ("u/p1", [0, 1, 4, 5]), 2: ("u/p1#strip", [1, 2, 3, 4])})
+    assert riser_rim_vertices(pm) == {2, 3}
+    assert not {0, 1, 4, 5} & coverage_edge_collar_vertices(pm)
+
+
+def _body_datum_cols(base) -> set[int]:
+    b = base.body
+    rows = {k for k, o in enumerate(b.owner) if o and o[0] == "body_datum"}
+    return {c for r, c in zip(b.r, b.c, strict=True) if r in rows}
+
+
+def test_no_body_datum_levels_a_risers_free_rim(problem, bank_law, monkeypatch):
+    """Spec §2 (b): RJTT's ``building56/p1#strip`` rim v24300 solved 8.8 m
+    over its DEM because the pad body's mean/tilt rows, a storey under their
+    DEM plane, had it as their only free column.  A riser rim leaves every
+    body's datum fit (the fixture's collar rim stands in for it)."""
+    from auto_patch_v2.solve import design_assemble
+    from auto_patch_v2.solve.design import DesignReport
+    pm, cs = problem
+    cov = _coverage_collar_vertices(pm, LANDING)
+    base = design_assemble.assemble(pm, cs, bank_law, DesignReport())
+    cols = {int(base.red.col[v]) for v in cov} - {-1}
+    assert cols & _body_datum_cols(base), "the fixture's rim must sit in a body fit"
+    monkeypatch.setattr(design_assemble, "riser_rim_vertices", lambda planar: set(cov))
+    base = design_assemble.assemble(pm, cs, bank_law, DesignReport())
+    cols = {int(base.red.col[v]) for v in cov} - {-1}
+    assert not cols & _body_datum_cols(base)

@@ -26,7 +26,7 @@ from ..model.structures import DECK_GROUND_REF
 from .design_roles import bend_roles, pavement_roles
 
 __all__ = ["ground_roles", "ground_datum_vertices", "ground_rim_vertices",
-           "coverage_edge_collar_vertices"]
+           "coverage_edge_collar_vertices", "riser_rim_vertices"]
 
 
 def ground_roles(law: Law) -> frozenset[str]:
@@ -178,6 +178,40 @@ def riser_outer_vertices(planar: PlanarMap) -> set[int]:
     return out
 
 
+def _coverage_edge_vertices(planar: PlanarMap) -> set[int]:
+    """The vertices of an edge with no face on one side: they stand against
+    the base mesh, which IS the DEM."""
+    return {v for e in planar.edges.values()
+            if e.left_face is None or e.right_face is None
+            for v in (e.a, e.b)}
+
+
+def riser_rim_vertices(planar: PlanarMap) -> set[int]:
+    """A STOREY RISER'S FREE RIM IS GROUND OF ITS OWN (spec
+    ``rjtt-riser-r6-spec.md`` §2): the coverage-edge vertices with a DEM
+    sample whose EVERY incident face is the strip ``<unit>/p<k>#strip``
+    (#2062) of one platform.  Such a vertex has no law row (the riser is
+    exempt) and often no bending row, so it takes the #302 weak datum, and
+    ``solve.design_assemble`` keeps it out of every body's datum fit.
+    MEASURED (RJTT replay, lrjtt5): ``building56/p1#strip``'s rim v24300
+    (owner's v24607) solved to 16.93 m over a DEM of 8.15 m — the pad
+    body's mean/tilt rows, a storey under their DEM plane, levelled it.
+    A level's own vertex is never in the set: the level is designed."""
+    from ..model.planar import is_strip_ref, platform_ref_of
+    if not any(is_strip_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
+        return set()
+    out: set[int] = set()
+    for v in _coverage_edge_vertices(planar):
+        vx = planar.vertices.get(v)
+        if vx is None or vx.dem_z is None or not vx.incident_faces:
+            continue
+        refs = [planar.faces[q].ref for q in vx.incident_faces]
+        if all(is_strip_ref(r) for r in refs) and len(
+                {platform_ref_of(r) for r in refs}) == 1:
+            out.add(v)
+    return out
+
+
 def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:
     """THE COLLAR'S COVERAGE EDGE IS GROUND (issue #302; owner RULINGS
     2026-10-02r / 10-02v (5): "within the bank the rim follows the GROUND
@@ -208,21 +242,15 @@ def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:
     (``building`` is a pavement role, so the §23 (b) pavement test cannot be
     applied to a collar vertex as written — it would exclude them all.)
 
-    A STRIP is the same bank (``model.planar.is_bank_ref``): a storey
-    shell's riser ``<unit>/p<k>#strip`` (#2062) standing on the coverage
-    edge has only its level's one-way rows, and with no datum RJTT
-    ``building56/p1#strip``'s outer vertex v24607 solved to 107.45 m over a
-    DEM of 8.15 m (owner's 1.0.557 solve).  Its vertices whose every face
-    is this strip or its own level take the datum the collar's do."""
-    from ..model.planar import is_bank_ref, platform_ref_of
-    if not any(is_bank_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
-        return set()
-    edge_v = {v for e in planar.edges.values()
-              if e.left_face is None or e.right_face is None
-              for v in (e.a, e.b)}
-    out: set[int] = set()
+    A storey riser's free rim (:func:`riser_rim_vertices`) is the same
+    ground and joins the set."""
+    from ..model.planar import is_collar_ref, platform_ref_of
+    out: set[int] = set(riser_rim_vertices(planar))
+    if not any(is_collar_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
+        return out
+    edge_v = _coverage_edge_vertices(planar)
     for f in planar.faces.values():
-        if not is_bank_ref(f.ref):
+        if not is_collar_ref(f.ref):
             continue
         own = platform_ref_of(f.ref)
         for ring in (f.ring, *f.holes):

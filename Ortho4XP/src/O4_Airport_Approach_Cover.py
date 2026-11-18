@@ -13,6 +13,20 @@ that meet the airport's COVER REGION:
   ``cover_approach_ft`` above the threshold (1,000 ft ~ 5.8 km, 500 ft ~
   2.9 km, 0 = no corridor), widening from the runway width at the
   threshold to :data:`CORRIDOR_FAR_WIDTH_M` at its far end.
+  ``cover_approach_ft`` = :data:`EYE_RULE_FT` (-1, the Sharper airports
+  preset, RULINGS 2026-11-17u) sets the length by THE EYE RULE instead.
+
+THE EYE RULE (RULINGS 2026-11-17u, the in-flight loader's rule of
+RULINGS 2026-11-12f): the corridor runs out to the point of the 3 degree
+path where the base zoom's full-resolution texel (a ZL16 square's 4096 px
+file; ``webmercator_pixel_size``, cos(lat) included) stops being
+resolvable, i.e. subtends :data:`O4_Imagery_Tier_Plan.EYE_RAD` of the
+finest crossing (~1 arcmin) at the eye.  GEOMETRY: the aircraft at the
+corridor's far end, on the 3 degree path, looks down that path at the
+ground it is about to reach -- the landing threshold -- so the slant is
+``L / cos(3 deg)``; inside it the base texel is resolvable and the
+sharper imagery is wanted.  About 6.3 km (~1,100 ft) at 38-40 N, 8.1 km
+(~1,400 ft) at the equator.
 
 Every number comes from the cfg and apt.dat: nothing here knows which
 airport it is reading.  Coordinates leave this module tile-local
@@ -25,24 +39,50 @@ from typing import Iterable, Optional, Sequence
 
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Geo_Utils as GEO
+import O4_Imagery_Tier_Plan as TIER_PLAN
 from auto_patch_v2.airport import apt_dat as APT_DAT
 from shapely import affinity, ops
 from shapely.geometry import Polygon, box
 from shapely.prepared import prep
 
-__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "region_squares", "square_bounds",
+__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "EYE_RULE_FT",
+           "HALF_EYE_RULE_FT",
+           "eye_corridor_length_m", "region_squares", "square_bounds",
            "tile_cover_squares"]
 
 #: The glide path the corridor length is read on (owner: "3° glide path").
 GLIDE_PATH_DEG = 3.0
 #: The corridor's width at its far end (owner: "to ~1 km").
 CORRIDOR_FAR_WIDTH_M = 1000.0
+#: ``cover_approach_ft`` value that sets the corridor length by the eye
+#: rule (RULINGS 2026-11-17u) instead of a height in feet.
+EYE_RULE_FT = -1
+#: ... half the eye rule's length (the Balanced preset; owner 2026-11-18).
+HALF_EYE_RULE_FT = -2
+#: each eye-rule sentinel's fraction of the eye rule's length.
+_EYE_FRACTION = {EYE_RULE_FT: 1.0, HALF_EYE_RULE_FT: 0.5}
 _FT_TO_M = 0.3048
 
 
-def _corridor_length_m(height_ft: float) -> float:
+def eye_corridor_length_m(lat: float, base_zl: int = 16) -> float:
+    """The eye rule's corridor length at latitude ``lat``: the distance
+    from the threshold at which the aircraft on the 3 degree path, looking
+    down it at the threshold, sees a ``base_zl`` full-resolution texel
+    subtend the finest crossing's ``EYE_RAD`` (module docstring)."""
+    texel_m = GEO.webmercator_pixel_size(lat, int(base_zl))
+    slant_m = texel_m / TIER_PLAN.EYE_RAD[-1]
+    return slant_m * math.cos(math.radians(GLIDE_PATH_DEG))
+
+
+def _corridor_length_m(height_ft: float, lat: float = 0.0,
+                       base_zl: int = 16) -> float:
     """How far from the threshold a 3 degree glide path is ``height_ft``
-    above it: 1,000 ft is about 5.8 km, 500 ft about 2.9 km."""
+    above it (1,000 ft is about 5.8 km, 500 ft about 2.9 km), or the eye
+    rule's length at ``lat`` for :data:`EYE_RULE_FT` (half of it for
+    :data:`HALF_EYE_RULE_FT`)."""
+    fraction = _EYE_FRACTION.get(int(height_ft)) if float(height_ft) < 0 else None
+    if fraction is not None:
+        return fraction * eye_corridor_length_m(lat, base_zl)
     height_m = max(float(height_ft), 0.0) * _FT_TO_M
     return height_m / math.tan(math.radians(GLIDE_PATH_DEG))
 
@@ -68,15 +108,18 @@ def _end_corridor(near, far, displaced_m, width_m, length_m):
     return [(x / kx, y / ky) for (x, y) in ring]
 
 
-def _threshold_corridors(runways: Iterable, length_m: float) -> list:
+def _threshold_corridors(runways: Iterable, approach_ft: float,
+                         base_zl: int = 16) -> list:
     """One corridor polygon (absolute ``(lon, lat)`` degrees) per runway
-    end of ``runways`` (``auto_patch_v2.airport.apt_dat.AptRunway``);
-    ``[]`` when ``length_m`` is 0."""
-    if length_m <= 0:
-        return []
+    end of ``runways`` (``auto_patch_v2.airport.apt_dat.AptRunway``),
+    ``approach_ft`` long (:func:`_corridor_length_m`); ``[]`` for 0."""
     out = []
     for rw in runways:
         (_, lat_a, lon_a, disp_a, _), (_, lat_b, lon_b, disp_b, _) = rw.ends
+        length_m = _corridor_length_m(approach_ft, (lat_a + lat_b) / 2.0,
+                                      base_zl)
+        if length_m <= 0:
+            continue
         for near, far, disp in (((lat_a, lon_a), (lat_b, lon_b), disp_a),
                                 ((lat_b, lon_b), (lat_a, lon_a), disp_b)):
             ring = _end_corridor(near, far, disp, rw.width_m, length_m)
@@ -86,7 +129,7 @@ def _threshold_corridors(runways: Iterable, length_m: float) -> list:
 
 
 def _cover_region(boundary, runways: Sequence, tile_lat: int, tile_lon: int,
-                 extent_km: float, approach_ft: float):
+                 extent_km: float, approach_ft: float, base_zl: int = 16):
     """The airport's cover region, tile-local degrees: ``boundary``
     widened by ``extent_km`` (in metres, around the polygon, not its
     bounding box) united with the approach corridors of ``runways``."""
@@ -99,7 +142,7 @@ def _cover_region(boundary, runways: Sequence, tile_lat: int, tile_lon: int,
             boundary = affinity.scale(metric.buffer(1000.0 * extent_km),
                                       1 / kx, 1 / ky, origin=(0, 0))
         parts.append(boundary)
-    for poly in _threshold_corridors(runways, _corridor_length_m(approach_ft)):
+    for poly in _threshold_corridors(runways, approach_ft, base_zl):
         parts.append(affinity.translate(poly, -tile_lon, -tile_lat))
     return ops.unary_union(parts) if parts else Polygon()
 
@@ -156,17 +199,20 @@ def tile_cover_squares(tile, dico_airports: dict, airports: Iterable,
                        xplane_root: Optional[str] = None) -> set:
     """Every ``tile.cover_zl`` texture square the ``airports`` of
     ``dico_airports`` cover: boundary (+ ``tile.cover_extent`` km) and,
-    with ``tile.cover_approach_ft`` above 0, their approach corridors."""
+    with ``tile.cover_approach_ft`` above 0 (or an eye-rule sentinel,
+    read against the tile's ``default_zl``), their approach corridors."""
     approach_ft = float(getattr(tile, "cover_approach_ft", 0) or 0)
     extent_km = float(getattr(tile, "cover_extent", 0) or 0)
-    if approach_ft > 0 and xplane_root is None:
+    base_zl = int(getattr(tile, "default_zl", 16) or 16)
+    corridors = approach_ft > 0 or int(approach_ft) in _EYE_FRACTION
+    if corridors and xplane_root is None:
         xplane_root = INSETS._xplane_root_for_package_footprints()
     squares = set()
     for airport in airports:
         runways = (_airport_runways(airport, xplane_root)
-                   if approach_ft > 0 else ())
+                   if corridors else ())
         region = _cover_region(dico_airports[airport].get("boundary"),
                               runways, tile.lat, tile.lon, extent_km,
-                              approach_ft)
+                              approach_ft, base_zl)
         squares |= region_squares(region, tile.lat, tile.lon, tile.cover_zl)
     return squares

@@ -992,14 +992,17 @@ cfg_tile_vars = {
     },
     "cover_approach_ft": {
         "type": int,
-        "default": 1000,
+        "default": -1,
         "hint": (
             "The sharper airport imagery also follows each runway's "
             "approach (#1990): from each landing threshold out along the "
             "extended centreline until a 3 degree glide path is this many "
             "feet above the threshold (1000 ft is about 5.8 km, 500 ft "
             "about 2.9 km; 0 = the airport only), widening from the "
-            "runway width to 1 km."
+            "runway width to 1 km.  -1 (the default) = as far as the eye "
+            "on that glide path still resolves the base zoom's full "
+            "detail: about 6.3 km at 40 degrees latitude, 8 km at the "
+            "equator.  -2 = half that (Balanced)."
         ),
     },
     "cover_zl": {

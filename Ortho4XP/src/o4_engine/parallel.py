@@ -1252,6 +1252,7 @@ class ParallelBuildRun:
             wanted_children = min(self._slots, len(self._queue))
         if not wanted_children:
             return False
+        self._make_room()
         # Import the fetch subsystems' cache predicates off the dispatch
         # path (see preload_cache_predicates), and BEFORE the handshakes
         # so the two waits overlap: the first sweep below must be able to
@@ -1291,6 +1292,23 @@ class ParallelBuildRun:
         # drained the queue already; settle immediately in that case.
         self._maybe_finish()
         return True
+
+    def _make_room(self):
+        """Room on disk for the run's tiles before any starts (owner
+        2026-11-18T13:32Z, ``storage_room``): no storage pass touches a
+        tile once its build holds it."""
+        from . import storage_room
+        with self._lock:
+            tiles = list(self._queue)
+            if not tiles:
+                return
+            arguments = self._tile_arguments[tiles[0]]
+            program = self._programs[tiles[0]]
+        storage_room.before_run(
+            tiles, arguments["provider"], arguments["zoomlevel"],
+            arguments["custom_build_dir"],
+            ("vector" in program, "imagery" in program,
+             "overlays" in program))
 
     def _preload_predicates_then_dispatch(self):
         """Preload thread body: register the predicates, then sweep.

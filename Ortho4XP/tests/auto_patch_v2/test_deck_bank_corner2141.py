@@ -19,7 +19,7 @@ from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.deck_bank import deck_bank_slope
 from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.planar.deck_generated import GENERATED_WITNESS
-from auto_patch_v2.planar.deck_skirt import SKIRT_PREFIX, deck_skirt_pieces, skirt_region
+from auto_patch_v2.planar.deck_skirt import SKIRT_PREFIX, deck_skirt_pieces, _skirt_region
 from auto_patch_v2.planar.overlay import Region
 
 LAW = load_default()
@@ -50,7 +50,7 @@ def test_the_bank_round_the_corner_is_never_steeper_than_the_bank():
     # round the corner, moving outward the drop only falls (no notch)
     out = [_blend_drop(ENDS, Point(10.0 + 0.6 * k, 11.0 + 0.6 * k), RUN_ON, SLOPE)
            for k in range(12)]
-    assert all(a >= b for a, b in zip(out, out[1:])) and out[0] > out[-1]
+    assert all(a >= b for a, b in zip(out, out[1:], strict=False)) and out[0] > out[-1]
 
 
 def test_the_corridor_floor_beside_the_deck_carries_the_bank():
@@ -97,9 +97,9 @@ def test_the_skirt_takes_the_free_ground_the_bank_reaches():
     for r in (zone, ramp):
         assert got.intersection(r.polygon).area < 1e-6
     assert got.distance(house.polygon) >= 0.6 - 1e-6
-    assert skirt_region(db, LAW).buffer(1e-6).contains(got)
+    assert _skirt_region(db, LAW).buffer(1e-6).contains(got)
     assert got.distance(Point(25.0, 15.0)) == 0.0          # the corner is ground now
-    assert abs(skirt_region(db, LAW).bounds[2] - (20.0 + reach)) < 1e-6
+    assert abs(_skirt_region(db, LAW).bounds[2] - (20.0 + reach)) < 1e-6
 
 
 def test_a_walled_deck_mints_no_skirt():

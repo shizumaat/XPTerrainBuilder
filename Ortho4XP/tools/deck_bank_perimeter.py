@@ -62,7 +62,7 @@ def _interp(pm, z, region):
 
     def f(xs, ys):
         out = np.full(len(xs), np.nan)
-        for k, (x, y) in enumerate(zip(xs, ys)):
+        for k, (x, y) in enumerate(zip(xs, ys, strict=True)):
             for i in tree.query(shapely.Point(x, y)):
                 _t, c, zz = tris[i]
                 (x0, y0), (x1, y1), (x2, y2) = c

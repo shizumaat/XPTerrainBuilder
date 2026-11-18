@@ -19,7 +19,7 @@ corridor's wall rim or on such a hole's edge.
 
 So each banked deck mints ``graded_strip`` pieces under
 :data:`SKIRT_PREFIX` over the free ground its bank reaches
-(:func:`skirt_region`: the run-on, then the deepest end's depth at the bank's
+(:func:`_skirt_region`: the run-on, then the deepest end's depth at the bank's
 slope, then a metre more for the daylight line) -- a zone region's family,
 no zone class, the form of ``planar/pit_bank``.  The ground's own datum
 holds it on the DEM (``solve/design_ground``: ground reaching the patch's
@@ -38,7 +38,7 @@ from shapely.geometry import Polygon
 from .bank_cut import knives, pieces
 from .stack_ground import _areal
 
-__all__ = ["SKIRT_PREFIX", "deck_skirt_pieces", "skirt_region", "is_deck_skirt_ref"]
+__all__ = ["SKIRT_PREFIX", "deck_skirt_pieces", "is_deck_skirt_ref"]
 
 #: a piece of the ground round a banked deck
 SKIRT_PREFIX = "deck_skirt:"
@@ -53,7 +53,7 @@ def is_deck_skirt_ref(ref: object) -> bool:
     return str(ref or "").startswith(SKIRT_PREFIX)
 
 
-def skirt_region(db, law):
+def _skirt_region(db, law):
     """The plan the bank under ``db`` reaches (module doc)."""
     from ..model.deck_bank import bank_past_m, deck_bank_slope
     slope = deck_bank_slope(law)
@@ -77,7 +77,7 @@ def deck_skirt_pieces(decks: _t.Sequence, regions: _t.Sequence, keepouts: _t.Seq
     ribbons claim their own footprint at the face claim (``planar/overlay``),
     as round a pit's bank."""
     from ..model.deck_bank import banked
-    plan = [(db, skirt_region(db, law)) for db in decks
+    plan = [(db, _skirt_region(db, law)) for db in decks
             if banked(db) and len(getattr(db, "ring", ()) or ()) >= 3]
     if not plan:
         return []

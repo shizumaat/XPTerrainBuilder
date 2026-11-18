@@ -329,6 +329,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
+        "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
@@ -645,6 +646,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
+        "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
@@ -1594,6 +1596,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
+        "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
@@ -2417,7 +2420,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
     classify.car_lot
-    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.gap_apron classify.fence_division classify.gap_band
+    classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
@@ -2672,7 +2676,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
     classify.car_lot
-    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.gap_apron classify.fence_division classify.gap_band
+    classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
@@ -2869,7 +2874,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
     classify.car_lot
-    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.gap_apron classify.fence_division classify.gap_band
+    classify.gap_mint classify.gap_stands
     classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
@@ -3085,6 +3091,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.car_lot
+    classify.gap_band
     classify.gap_mint classify.gap_stands classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
@@ -3242,7 +3249,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
     classify.car_lot
-    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.gap_apron classify.fence_division classify.gap_band
+    classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall

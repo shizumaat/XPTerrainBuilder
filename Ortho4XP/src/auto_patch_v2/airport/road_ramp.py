@@ -400,9 +400,31 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
 def _only_agp_ground(pm: PlanarMap, law: Law, v: int) -> bool:
     """#2090 C3b: every airside-side face at ``v`` is an AGP plate or bank."""
     from ..model.planar import is_agp_ground_ref
+    return _airside_all(pm, law, v, is_agp_ground_ref)
+
+
+def _only_band_ground(pm: PlanarMap, law: Law, v: int) -> bool:
+    """#2152: every airside-side face at ``v`` is a runway / taxi ZONE BAND
+    (an ``adjacent_ground`` graded strip).  A band carries no level of its
+    own -- it grades from its pavement's edge to whatever it meets -- so a
+    road vertex on its kerb is no mouth: no ramp seed, no cut source, and
+    it never stands in for the road END's contact with the pavement past
+    the band (:func:`reach_contacts`).  MEASURED KEGE (39.6428, -106.9000;
+    owner sim read 2026-11-18T00:38Z): the 25 kerb vertices a service road
+    shares with taxiway pol93's band were mouths at their DEM; seven stood
+    0.4-1.9 m over it and cut the road up to 4.2 m into the hill (5.7 m on
+    1.0.557), and the three at the road's end hid the taxiway 2.6 m away,
+    so the road left it 4.8 m under its edge."""
+    from ..model.road_yield import is_band_zone_ref
+    return _airside_all(pm, law, v, is_band_zone_ref)
+
+
+def _airside_all(pm: PlanarMap, law: Law, v: int, is_ref) -> bool:
+    """``v`` carries an airside-side face and ``is_ref`` holds for every
+    one's ref."""
     air = [pm.faces[f] for f in pm.vertices[v].incident_faces
            if f in pm.faces and role_side(law, pm.faces[f].role) == "airside"]
-    return bool(air) and all(is_agp_ground_ref(f.ref) for f in air)
+    return bool(air) and all(is_ref(f.ref) for f in air)
 
 
 def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
@@ -426,6 +448,8 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
                     continue
                 if _only_agp_ground(pm, law, v):
                     continue                    # #2090 C3b: never a road contact
+                if _only_band_ground(pm, law, v):
+                    continue                    # #2152: a zone band is no contact
                 z = _airside_level(pm, v)
                 if z is not None:
                     out[v] = z

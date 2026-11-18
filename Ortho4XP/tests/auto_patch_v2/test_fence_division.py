@@ -185,3 +185,31 @@ def test_every_cut_piece_is_one_polygon(monkeypatch):
     final = [["parking_lot", "pav2", box(0, 0, 100, 100), None, {"kind": "lot"}, "lot"]]
     assert FD.split_at_fences(final, fence, EDGE_CANDIDATES, RULES)
     assert all(f[2].geom_type == "Polygon" for f in final) and len(final) == 3
+
+
+def test_fold_keeps_only_area():
+    """A sliver folded into its host along a collapsed edge unioned into a
+    GeometryCollection (polygon + line) whose ``boundary`` is None, and the
+    next fold's ``max`` raised ``'NoneType' object has no attribute
+    'intersection'`` (the airport built no patch).  The pieces as measured,
+    on the face's 0.01 m snap grid (the grid is what collapses the edge)."""
+    import shapely
+    from auto_patch_v2.classify import fence_division as FD
+    from shapely import wkt
+    pieces = [shapely.set_precision(wkt.loads(w), 0.01, mode="pointwise") for w in (
+        "POLYGON ((-145.15 -609.05, -146.68 -612.17, -148.96 -610.96, -148.55 -610.14,"
+        " -147.28 -607.77, -145.15 -609.05))",
+        "POLYGON ((-148.96 -610.96, -148.97 -610.96, -152.79 -618.04, -149.1 -611.17,"
+        " -148.55 -610.14, -148.96 -610.96))",
+        "POLYGON ((-152.79 -618.04, -162.27 -612.96, -156.12 -601.65, -146.68 -606.36,"
+        " -147.31 -607.62, -148.55 -610.14, -149.1 -611.17, -152.79 -618.04),"
+        " (-153.38 -616.19, -148.66 -607.36, -155.76 -603.66, -160.43 -612.38,"
+        " -153.38 -616.19))",
+        "POLYGON ((-162.27 -612.96, -152.79 -618.04, -162.28 -612.96, -162.27 -612.96))",
+        "POLYGON ((-162.27 -612.96, -162.28 -612.96, -156.12 -601.65, -162.27 -612.96))",
+        "POLYGON ((-146.68 -606.36, -147.35 -607.73, -147.28 -607.77, -148.55 -610.14,"
+        " -147.31 -607.62, -146.68 -606.36))")]
+    out = FD._fold_small(pieces, 0.25)
+    assert len(out) == 2
+    assert all(g.geom_type in ("Polygon", "MultiPolygon") and g.boundary is not None for g in out)
+    assert abs(sum(g.area for g in out) - sum(p.area for p in pieces)) < 0.01

@@ -149,6 +149,58 @@ def test_f6_a_road_leaving_a_frame_level_runs_out_from_its_edge(tmp_path):
     assert not reg2.landing_runouts
 
 
+def test_f6_a_road_dipping_out_of_a_level_runs_out_to_its_junction(tmp_path):
+    """2120-F6 follow-up (owner 2026-11-17T18:47Z, RULINGS 17e): a road that
+    leaves the level's open edge and comes back into it elsewhere runs out
+    to its JUNCTION -- the next fixed point -- at the grade the distance
+    needs (15 % here, over the 10 % cap, under the 20 % terrain cap); with
+    no junction before it comes back it is a notch and asks nothing."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.registries import Registries
+    from auto_patch_v2.planar.low_extent import _frame_runouts
+    from auto_patch_v2.planar.overlay import Region
+    from test_two_pads1214 import _airport as _pads_airport
+    law = Law.for_airport("ZZZZ")
+    L = box(500.0, 10.0, 540.0, 80.0)               # the level at 26 (D 30, y -4)
+
+    def ground(x, y):                                # 2.3 m up 15 m out of the edge
+        return 26.0 if x < 540.0 else 26.0 + min(2.3, 2.3 * (x - 540.0) / 15.0)
+    A = _pads_airport([], tmp_path, ground=ground)
+    A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
+    # the road leaves east, meets its side street at (555, 35) and swings
+    # back north-west into the level
+    loop = [(505.0, 35.0), (555.0, 35.0), (580.0, 60.0), (560.0, 75.0), (530.0, 75.0)]
+    side = types.SimpleNamespace(id=-2, points=[(555.0, 35.0), (580.0, 10.0)],
+                                 tags={"highway": "service"})
+
+    def region(ref, g):
+        return Region(role="building", ref=ref, polygon=g, code_number=None,
+                      code_letter=None, side="airside", source="cell")
+    regs = [region("blk/p2", L)]
+
+    def run(ways):
+        A.osm_ways = ways
+        reg = Registries()
+        reg.held["blk"] = {"unit": "blk", "datum_pred": 30.0}
+        counts: dict = {}
+        _frame_runouts(regs, reg, {"blk/p2": (L, "blk", -4.0)},
+                       box(400.0, 300.0, 500.0, 330.0), [], A, law, 0.5, counts)
+        return [v for v in reg.landing_runouts.values() if v.get("kind") == "level_end"], counts
+    got, counts = run([types.SimpleNamespace(id=-1, points=loop, tags={"highway": "service"}),
+                       side])
+    out = [r for r in got if r["lip"][0] == pytest.approx(540.0, abs=0.01)
+           and r["lip"][1] == pytest.approx(35.0, abs=0.01)]
+    assert len(out) == 1, counts.get("level_runout_list")
+    rec = out[0]
+    assert rec["sign"] < 0 and rec["fix_m"] == pytest.approx(15.0, abs=0.5)
+    assert 0.10 < rec["g"] <= 0.20 and rec["cap"] >= rec["g"]
+    assert rec["g"] == pytest.approx(2.3 / 15.0, abs=0.01)   # never steeper than needed
+    assert rec["run_m"] < 30.0      # at the 5 % design grade it ran ~66 m past the junction
+    # no junction before it comes back: a notch, no run-out off that crossing
+    got, _c = run([types.SimpleNamespace(id=-1, points=loop, tags={"highway": "service"})])
+    assert not [r for r in got if r["lip"][1] == pytest.approx(35.0, abs=0.01)]
+
+
 # ── P1: the portal's datum is its cover slab on the pavement ──────────────
 
 def test_p1_the_portal_seats_its_slab_on_the_pavement_stations():

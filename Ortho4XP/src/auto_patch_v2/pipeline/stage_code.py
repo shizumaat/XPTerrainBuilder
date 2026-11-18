@@ -798,6 +798,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_pack_cover",
         "auto_patch_v2.planar.deck_route",
         "auto_patch_v2.planar.deck_runout",
+        "auto_patch_v2.planar.deck_skirt",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
@@ -2601,7 +2602,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.airside_top
     airport.facade_seat
     airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
-    planar.bank_cut planar.pit_bank
+    planar.bank_cut planar.pit_bank planar.deck_skirt
     airport.agp_deck_ends airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
@@ -2797,7 +2798,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.facade_seat
     airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate
     model.agp_plate planar.agp_ground
-    planar.bank_cut planar.pit_bank
+    planar.bank_cut planar.pit_bank planar.deck_skirt
     airport.agp_deck_ends airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group

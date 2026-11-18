@@ -12,7 +12,9 @@ station off the anchor level; then every HARD row over the materiality
 floor (0.02 m) that touches a vertex within ``--near`` metres (default 5)
 of a deck ring or on an end line — the "no NOT SETTLED row within 5 m of
 any deck" bar — and the row fingerprint (count and sha of every row).
-``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
+``--bank-perimeter``: the bank round every banked deck
+(``tools/deck_bank_perimeter``: steps, jags and slope breaks along offset
+lines round the ring).  ``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
 row on it with its violation.  ``--cut-cover TOL``: the cut under every
 BANKED deck (generated or a wall-less pack deck, RULINGS 2026-11-17p) and
 generated road bridge (``tools/deck_cut_cover``; owner 2026-11-17 "the cut
@@ -122,6 +124,10 @@ def main(argv=None) -> int:
                     help="the cut under every GENERATED deck and road bridge "
                          "(tools/deck_cut_cover): solved ground over the bank / "
                          "floor / clearance by more than TOL m fails; exit 1")
+    ap.add_argument("--bank-perimeter", action="store_true",
+                    help="the bank round every BANKED deck (tools/deck_bank_perimeter): "
+                         "the worst step, grade, jags and slope break along offset "
+                         "lines round its ring")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -184,6 +190,15 @@ def main(argv=None) -> int:
                   + (f" over {q['lower']}" if q.get("lower") else "")
                   + f": {q['over']}/{q['samples']} sample(s) over {a.cut_cover:g} m, worst "
                   f"{q['worst_m']} m at {q.get('ll')} {q['worst_at']} {q.get('note', '')}")
+    if a.bank_perimeter:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_bank_perimeter import bank_perimeter
+        res["bank_perimeter"] = bank_perimeter(pm, z, d.get("airport"))
+        for q in res["bank_perimeter"]:
+            per = " ".join(f"{k:g}:{v['grade']:.2f}/{v['jags']}" for k, v in q["offsets"].items())
+            print(f"BANK-PERIMETER {q['object']}: step {q['step_m']} m grade {q['grade']} "
+                  f"jags {q['jags']} break {q['break']} off-patch {q['off']} "
+                  f"at {q.get('ll')} | {per}")
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, default=str))
     return rc

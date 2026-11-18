@@ -59,7 +59,7 @@ from ..law.tables import family
 from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
-from ..model.structures import DECK_GROUND_REF, deck_reach
+from ..model.structures import DECK_GROUND_REF, deck_reach, is_generated
 
 __all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
@@ -67,6 +67,11 @@ GEN = "edge_deck"
 #: the ruling head (``[design] hard_rulings``)
 RULING = "roads.edge bridge deck level with the airside abeam"
 #: the hard-deck bridge's rigid row's head (``[design] hard_rulings``)
+#: a corridor's wall face's ref (``constraints/structures.WALL_REF``; not
+#: imported: its closure is not this generator's stage key)
+_WALL_REF = "tunnel_wall"
+#: the inputs label of a bank-blend CEILING (:func:`_blend_rows`)
+BLEND = "bank blend"
 RIGID = ("structures.hard-deck bridge: one zero, flush at both end lines "
          "(RULINGS 2026-10-30a (1))")
 
@@ -245,6 +250,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if bank is not None and bank > 0.0 else None
     wide = prep(wide_g) if wide_g is not None else None
     kerb = _kerb(planar, air, decks, wide_g) if wide_g is not None else None
+    # ONE EMBANKMENT ROUND THE CORNER (#2141, :func:`_blend_drop`) is a
+    # GENERATED deck's: round a pack deck whose cut does not yet reach under
+    # (MEASURED KIAH, ``deck_probe --cut-cover`` FAIL in the control) it
+    # raised the ground under the ring to the kerb and moved the taxiway
+    # junction beside obj24549 0.65 m -- a pack deck keeps the nearest-edge
+    # blend, its walls and the run-on as they were
+    gen = all(is_generated(e.deck) for e in es)
+    rim = _rim(es, ring_past, bank, _floors_near(planar, wide_g)) \
+        if wide_g is not None and gen else _NO_RIM
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -268,6 +282,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
               if banked(d) and tuple(d.ring) not in mine_rings]
     others_in = prep(unary_union(others)) if others else None
     src = Source(GEN, RULING, (oid, oid, "deck span"))
+    blend = Source(GEN, RULING, (oid, oid, BLEND))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
     seats = set(seat_vs) | set(near_vs)
@@ -283,8 +298,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             if wide is not None and v not in air and v not in done and wide.contains(p) \
-                    and _open_ground(planar, vx):
-                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src, kerb))
+                    and _open_ground(planar, vx, walls=gen):
+                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, blend,
+                                        kerb, rim))
             continue
         x, y = vx.xy
         a = min(near_vs, key=lambda s: sq(planar.vertices[s].xy[0] - x)
@@ -302,9 +318,18 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         # under the ring (KJFK building39: its edge pulled 2 m down with the
         # bank) -- keeps the seat's level
         drop = 0.0
-        if bank is not None and (_bridge_ground(planar, vx) or _open_ground(planar, vx)):
+        if bank is not None and (_bridge_ground(planar, vx)
+                                 or _open_ground(planar, vx, walls=gen)):
             drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
-                else _blend_drop(es, p, ring_past, bank, kerb)
+                else _blend_drop(es, p, ring_past, bank, kerb, rim)
+            if gen and kerb is not None and not kerb.is_empty:
+                # the bank keeps off the airside beside the deck everywhere,
+                # as the blend beyond the run-on does: one field, no step
+                # (#2141: MEASURED ESSA o4gen_cd009c10, the run-on on the
+                # floor 1.6 m under the blend 0.7 m away; clamped in the
+                # run-on alone, KJFK o4gen_be9bf957 stood 2.85 m over the
+                # bank 0.1 m inside the ring)
+                drop = min(drop, bank * kerb.distance(p))
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
@@ -349,31 +374,96 @@ def _bank_drop(es, p, slope: float) -> float:
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
 
 
-def _blend_drop(es, p, ring_past, slope: float, kerb=None) -> float:
+def _blend_drop(es, p, ring_past, slope: float, kerb=None, rim=None) -> float:
     """THE BANK BLENDS OUT (owner sim read 2026-11-17T22:25Z, ESSA 1.0.557:
     "just past the bridge edge the bank changes suddenly from what's under
     it to what's next to it"; RULINGS 17p: the cut runs ``past`` metres
     beyond the bridge, then blends back to the cut and the natural
     terrain).  How far under its seat the ground at ``p``, beyond the
-    ring's run-on ``ring_past``, stands on the cut: the bank's drop at the
-    nearest point of the run-on's edge (:func:`_bank_drop`) less ``slope``
-    x the distance out -- the bank's own face carried on past the edge
-    line, so the surface is continuous there and daylights into the ground
-    beside it.  MEASURED ESSA (``v2_solve_replay`` of the lessa4 capture on
-    test-557 721317bb0): beside o4gen_44525b99 the run-on band stood on the
-    floor (30.91 at +0.85 m) and the zone ground at +1.0-1.3 m at the seat
-    (35.8-36.3), a 5 m step in 0.3 m.
+    ring's run-on ``ring_past``, stands on the cut: the bank's face carried
+    on past the run-on's edge at ``slope`` in EVERY direction -- the deepest
+    of the edge's drops (:func:`_bank_drop`) less ``slope`` x the distance
+    to it (:func:`_rim`), so the surface is continuous at the edge, never
+    steeper than the bank, and daylights into the ground beside.
+
+    ONE EMBANKMENT ROUND THE CORNER (owner sim read 2026-11-18T13:58Z, ESSA
+    1.0.558 59.657248, 17.952089: "we're cutting a strange jagged edge
+    around the corner of the bridge ... graded smoothly to ground the
+    entire width, with the same embankment the whole way").  Read off the
+    NEAREST edge point alone (1.0.558) the drop fell at ``slope`` away from
+    the edge AND at ``slope`` along it with the bank under the deck -- a
+    face up to 1.41x the bank's grade beside the side, and round the
+    corner a cone from one point meeting the side's face in a crease.
+    MEASURED ESSA (``tools/deck_probe.py --bank-perimeter``, capture on
+    test-558 fa425778c): o4gen_44525b99's walk round its ring 2.51 grade,
+    23 jags over 1V:1H -> 1.02, 2 with this, the corridor's floor
+    (:func:`_rim`) and the ground round the deck (``planar/deck_skirt``).
 
     ``kerb`` (:func:`_kerb`): the airside pavement beside the deck -- the
     cut never undercuts it (airside is king): the drop is at most ``slope``
     x the distance from it, the bank rising to its edge."""
+    import numpy as np
     from shapely.ops import nearest_points
-    s = ring_past.distance(p)
+    rim = _rim(es, ring_past, slope) if rim is None else rim
+    xs, ys, drops = rim
+    # the nearest edge point is exact (continuous at the edge line); the
+    # sampled edge carries the deeper drops round the corner
     q = nearest_points(ring_past, p)[0]
-    drop = _bank_drop(es, q, slope) - slope * s
+    drop = _bank_drop(es, q, slope) - slope * ring_past.distance(p)
+    if len(drops):
+        drop = max(drop, float(np.max(drops - slope * np.hypot(xs - p.x, ys - p.y))))
     if kerb is not None and not kerb.is_empty:
         drop = min(drop, slope * kerb.distance(p))
     return max(0.0, drop)
+
+
+#: no edge read: the nearest edge point alone (a pack deck's blend)
+_NO_RIM = ((), (), ())
+#: the run-on's edge is read this often (m) for the bank blending out
+RIM_STEP_M = 0.25
+
+
+def _rim(es, ring_past, slope: float, floors=()):
+    """``(xs, ys, drops)``: the run-on ``ring_past``'s edge -- and the
+    edges of the corridor ``floors`` beside it (:func:`_floors_near`) --
+    every :data:`RIM_STEP_M`, with the bank's drop there
+    (:func:`_bank_drop`): the edge :func:`_blend_drop` carries the bank's
+    face out from.  THE CORRIDOR'S FLOOR TOO (#2141): beyond the deck's
+    side the road's trench runs on, and read off the run-on alone its wall
+    stood at the corridor's own grade beside the deck (MEASURED ESSA
+    o4gen_c8fe47a5: the rim 4.2 m past the ring 3.9 m over the floor
+    2.5 m away) -- from the floor's edge the bank's face is the same
+    embankment round the corner and along the trench."""
+    import numpy as np
+    pts = []
+    lines = [r for g in getattr(ring_past, "geoms", [ring_past])
+             for r in (g.exterior, *g.interiors)]
+    lines += [ln for g in floors for ln in getattr(g, "geoms", [g]) if not ln.is_empty]
+    for ln in lines:
+        n = max(4, int(ln.length / RIM_STEP_M) + 1)
+        pts.extend(ln.interpolate(k * ln.length / n) for k in range(n + 1))
+    xs = np.array([q.x for q in pts], float)
+    ys = np.array([q.y for q in pts], float)
+    return xs, ys, np.array([_bank_drop(es, q, slope) for q in pts], float)
+
+
+def _floors_near(planar: PlanarMap, region) -> list:
+    """The edges of the corridor floors (:data:`_FLOOR_ROLES` faces) inside
+    ``region`` -- the trench running on past a deck's side."""
+    from shapely.geometry import Polygon
+    from shapely.prepared import prep
+    reg = prep(region)
+    out = []
+    for f in planar.faces.values():
+        if f.role not in _FLOOR_ROLES:
+            continue
+        ring = [planar.vertices[v].xy for v in planar.ring_vertices(f.ring)]
+        if len(ring) < 3:
+            continue
+        g = Polygon(ring)
+        if reg.intersects(g):
+            out.append(g.exterior.intersection(region))
+    return out
 
 
 def _kerb(planar: PlanarMap, air, decks, region):
@@ -397,21 +487,33 @@ def _kerb(planar: PlanarMap, air, decks, region):
     return MultiLineString([g for g in segs if g.geom_type == "LineString"]) if segs else None
 
 
-def _open_ground(planar: PlanarMap, vx) -> bool:
+def _open_ground(planar: PlanarMap, vx, walls: bool = False) -> bool:
     """A vertex every face of which is open ground (``graded_strip``: a
-    zone band, the bridge's own ground) -- never a pavement's, a wall's or
-    a building pad's, which keep their own law."""
+    zone band, the bridge's own ground, the ground round it --
+    ``planar/deck_skirt``) -- never a pavement's or a building pad's, which
+    keep their own law.  ``walls``: a corridor's wall rim too (a
+    ``retaining_wall`` face of ref ``tunnel_wall``) that the ground shares --
+    the bank blending out takes the corridor's walls down beside the deck
+    (#2141: MEASURED ESSA o4gen_44525b99, the rim 2.9 m past the ring stood
+    at the DEM, 3.8 m over the floor 2 m away, a notch round the deck's
+    corner).  A rim no ground face shares keeps its pin: released, it had
+    no datum at all (MEASURED KIAH, a rim beside obj24551 fell to 0.00,
+    28.3 m under its DEM)."""
     faces = [planar.faces.get(f) for f in vx.incident_faces]
-    return bool(faces) and all(f is not None and f.role == "graded_strip" for f in faces)
+    if not faces or any(f is None for f in faces):
+        return False
+    ground = [f.role == "graded_strip" for f in faces]
+    wall = [walls and f.role == "retaining_wall" and str(f.ref) == _WALL_REF for f in faces]
+    return any(ground) and all(g or w for g, w in zip(ground, wall, strict=True))
 
 
 def _blend_rows(planar: PlanarMap, v: int, p, es, ring_past, slope: float, near_vs,
-                src: Source, kerb=None) -> list[Row]:
+                src: Source, kerb=None, rim=None) -> list[Row]:
     """The ground beside a generated deck's run-on stands no higher than the
     bank blending out (:func:`_blend_drop`) under its nearest seat: a
     one-sided CEILING -- the cut takes ground away, never fills it; ground
     already under the cone keeps its own law."""
-    drop = _blend_drop(es, p, ring_past, slope, kerb)
+    drop = _blend_drop(es, p, ring_past, slope, kerb, rim)
     if drop <= 0.0:
         return []
     x, y = p.x, p.y
@@ -589,7 +691,11 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
     airside abeam; ``constraints/wing_cut``'s to its wings' feet, #2099 R2)
     sheds the one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or
     a one-term ``Linear`` — that held it at the DEM or at a road's ramp.
-    Pair rows (grades, steps) are kept: they bind it to its neighbours."""
+    Pair rows (grades, steps) are kept: they bind it to its neighbours.  A
+    bank-blend CEILING (:data:`BLEND`) governs its vertex too: held at its
+    DEM by a pin, the cap pushed the deck's seat up instead (MEASURED ESSA,
+    #2141: taxiway 0.08 m) -- so a capped vertex is always open ground,
+    whose own datum is the ground's (:func:`_open_ground`)."""
     gov = {r.terms[0][0] for r in rows
            if isinstance(r, Linear) and r.source.generator == gen and r.terms[0][1] > 0.0
            and r.source.ruling != RIGID}

@@ -151,7 +151,9 @@ def test_the_bank_blends_out_past_the_run_on():
     assert _blend_drop(ends, edge, run_on, slope) == \
         pytest.approx(_bank_drop(ends, edge, slope))          # no step at the edge line
     out = [_blend_drop(ends, Point(4.0, 11.0 + s), run_on, slope) for s in (0.0, 1.5, 3.0)]
-    assert out[0] > out[1] > out[2] and out[0] - out[1] == pytest.approx(slope * 1.5)
+    # rising away from the edge, never steeper than the bank (#2141: the
+    # bank's face carried out in every direction, ``test_deck_bank_corner2141``)
+    assert out[0] > out[1] > out[2] and out[0] - out[1] <= slope * 1.5 + 1e-9
     assert _blend_drop(ends, Point(10.0, 11.0 + 9.5), run_on, slope) == 0.0   # daylit
     # airside pavement beside the deck is never undercut: the bank rises to its edge
     from shapely.geometry import LineString

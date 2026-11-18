@@ -20,7 +20,9 @@ Its readers are the ONE derivation of that bank:
   :func:`bank_past_m` past the ring;
 * ``constraints/edge_deck`` -- the span rows hold that ground ON the bank
   (never flush with the seats), to :func:`bank_past_m` past the ring;
-* ``planar/deck_generated`` -- the generated deck's size reads the run.
+* ``planar/deck_generated`` -- the generated deck's size reads the run;
+* ``planar/deck_skirt`` -- the free ground round the deck the bank blends
+  out over (#2141: run-on, then the deepest end's depth at the slope).
 
 A WALLED deck (``planar/deck_walls``, RULINGS 2026-10-30f (3)) keeps its
 walls: the pack states the cut's shape there and the fill behind them is

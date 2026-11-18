@@ -185,3 +185,24 @@ def test_an_app_build_session_and_xplane_are_the_reasons(monkeypatch):
         assert YIELD.reason() == ""
     finally:
         YIELD.watch(None)
+
+
+def test_another_sessions_app_reservation_is_an_app_build(monkeypatch):
+    """The ledger's holders (O4_Machine_Memory): another session's app
+    reservation pauses the work; this session's own does not."""
+    import O4_Machine_Memory as MEMORY
+    from o4_engine import world_yield as YIELD
+    from o4_engine import xplane_root
+    monkeypatch.setattr(xplane_root, "xplane_running", lambda: False)
+    monkeypatch.setattr(YIELD, "XPLANE_EVERY_S", 0.0)
+    mine = MEMORY.session_id()
+    rows = {}
+    snap = type("Snap", (), {"sessions": rows, "wants": []})()
+    monkeypatch.setattr(MEMORY, "snapshot", lambda: snap)
+    YIELD.watch(None)
+    rows[mine] = {"role": "app"}
+    assert YIELD.reason() == ""
+    rows["other"] = {"role": "lane"}
+    assert YIELD.reason() == ""
+    rows["other"] = {"role": "app"}
+    assert YIELD.reason() == "app build"

@@ -12,12 +12,11 @@ flying) are not paused: they keep their priority.
 * :func:`wait` -- blocks the calling worker while :func:`reason` holds,
   logging the pause and the resume once each.
 
-MERGE NOTE (for the master): ``claude/lmemshare`` (2cd5b5b25) adds
-``O4_Machine_Memory``, whose ledger sees every engine session's role
-(app / lane / cli builds) and X-Plane machine-wide.  It is not on this
-lane's base, so an app build is read from THIS engine session only (the
-app's builds run in it); when both land, :func:`reason` should read the
-ledger's holders instead (an ``app`` reservation, X-Plane's process).
+An app build is read from THIS engine session (the app's builds run in
+it) and from the machine memory ledger (``O4_Machine_Memory``): another
+session holding an ``app`` reservation, or an app step waiting (its WANT
+mark), is an app build too.  This session's own records are not read
+there: the World job's drapes reserve in it as well.
 """
 from __future__ import annotations
 
@@ -54,6 +53,19 @@ def _app_building() -> bool:
         return False
 
 
+def _ledger_app_building() -> bool:
+    """Another engine session's app build holds or wants memory."""
+    try:
+        import O4_Machine_Memory as MEMORY
+        snap = MEMORY.snapshot()
+        mine = MEMORY.session_id()
+    except Exception:                       # an unreadable ledger: no one
+        return False
+    return any(row.get("role") == "app" and sid != mine
+               for sid, row in snap.sessions.items()) or any(
+        w.get("session") != mine for w in snap.wants)
+
+
 def _xplane() -> bool:
     now = time.monotonic()
     with _LOCK:
@@ -68,7 +80,7 @@ def _xplane() -> bool:
 
 def reason() -> str:
     """Why the work waits now: "app build", "X-Plane", or "" (go)."""
-    if _app_building():
+    if _app_building() or _ledger_app_building():
         return "app build"
     if _xplane():
         return "X-Plane"

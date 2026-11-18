@@ -9,6 +9,7 @@ import SceneryKit
 /// lines pass the tile. With tiles selected the console shows only their
 /// lines plus run-level lines, and a selected tile with no lines in this
 /// session shows its newest saved log (`BuildModel.syncConsoleView`).
+/// A background job's line (`[job:world] `, #2148) is never shown.
 /// TWIN of the Qt drawer's `ConsoleLines` (`O4_Qt_Build_History.py`).
 @MainActor
 final class BuildConsoleModel: ObservableObject {
@@ -45,6 +46,9 @@ final class BuildConsoleModel: ObservableObject {
     static let trimTo = 4000
 
     func append(_ line: String, tile: String? = nil) {
+        // A background job's line (#2148: the World job's downloads) is no
+        // tile's and not the build's; EngineStderrLog keeps it.
+        if tile == nil, TileBuildLogs.jobOfLine(line) != nil { return }
         let key = tile ?? TileBuildLogs.tileOfLine(line).tile
         entries.append(Line(tile: key, text: line))
         if let key { liveCounts[key, default: 0] += 1 }

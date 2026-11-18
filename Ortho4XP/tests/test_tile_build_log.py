@@ -162,6 +162,38 @@ def test_stream_tag_prefixes_and_logs_while_a_tile_builds(tmp_path):
     assert TILELOG.read_log(str(tmp_path), row["log"]) == "Step one\n"
 
 
+def test_a_job_threads_lines_carry_the_job_never_the_tile(tmp_path,
+                                                          capsys):
+    """#2148: a background job's thread (the World job) prints with its
+    ``[job:world] `` prefix; the stream tag passes it through, so the line
+    reaches neither the building tile's prefix nor its log."""
+    import threading
+
+    import O4_UI_Utils as UI
+    logs = TILELOG.TileBuildLogs(who=WHO)
+    out = io.StringIO()
+    stream = TILELOG.TileStreamTag(out, logs, lambda: (47, -123))
+    logs.begin((47, -123), str(tmp_path))
+
+    def job():
+        UI.set_thread_job("world")
+        stream.write(UI.job_text(UI.thread_job(), "Downloading x") + "\n")
+        UI.vprint(0, "   Downloading y")
+    worker = threading.Thread(target=job)
+    worker.start()
+    worker.join()
+    stream.write("Step one\n")
+    logs.finish((47, -123), "ok")
+    assert out.getvalue() == ("[job:world] Downloading x\n"
+                              "[+47-123] Step one\n")
+    assert capsys.readouterr().out == "[job:world]    Downloading y\n"
+    row = TILELOG.last_build(str(tmp_path), 47, -123)
+    assert TILELOG.read_log(str(tmp_path), row["log"]) == "Step one\n"
+    assert TILELOG.job_of_line("[job:world]    Downloading y") == "world"
+    assert TILELOG.job_of_line("[+47-123] Step one") is None
+    assert UI.thread_job() == ""                    # this thread: no job
+
+
 def test_log_is_capped(tmp_path):
     logs = TILELOG.TileBuildLogs(who=WHO, max_bytes=40)
     logs.begin((1, 2), str(tmp_path))

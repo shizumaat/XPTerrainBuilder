@@ -46,10 +46,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional, Tuple
 
+import O4_UI_Utils as UI
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
 from . import world_drape_process as DRAPE_PROCESS
+from . import world_spawn_recent as RECENT
 from .build_share import SHARE, BuildShare
 from .events import TileState
 from .fly_here import describe as describe_here
@@ -233,7 +235,9 @@ class _SessionBuilder:
         if self._pool is None:
             # as many at once as the job's slots dispatch (it was one: a
             # 3-slot flight ran its drapes one after another)
-            self._pool = ThreadPoolExecutor(thread_name_prefix="o4-drape")
+            self._pool = ThreadPoolExecutor(
+                thread_name_prefix="o4-drape", initializer=UI.set_thread_job,
+                initargs=(WORLD.JOB_NAME,))           # #2148: not a tile's lines
 
         def work() -> None:
             try:
@@ -521,8 +525,9 @@ class _Runner:
             sim_priority=values.get("fly_sim_priority") or "balanced",
             loads=_Loads(scenery_dir), stamp=_utc)
         self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self.run, daemon=True,
-                                       name="o4-world-job")
+        self.thread = threading.Thread(
+            target=lambda: (UI.set_thread_job(WORLD.JOB_NAME), self.run()),
+            daemon=True, name="o4-world-job")
 
     def run(self) -> None:
         status_at, resets = -1e18, self.feed.resets
@@ -534,6 +539,8 @@ class _Runner:
                     resets = self.feed.resets
                     self.job.forget_window()
                 self.job.tick(now, rec)
+                if self.job.on_ground and self.job.position is not None:
+                    RECENT.note(*self.job.position)     # owner 11-17 (a)
             except Exception as error:      # logged; the job goes on
                 WORLD.write_log({"world_job_error": repr(error)[:300]})
             if now - status_at >= STATUS_EVERY_S:
@@ -624,6 +631,8 @@ def autostart(session, port=None, **_ignored) -> Optional[dict]:
         reply = world_job_start(session, port=port, if_enabled=True)
     except Exception as error:              # logged; the follow job starts
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})
+    from . import world_yield as YIELD
+    YIELD.watch(session)                    # its builds pause the backfill
     if (reply or {}).get("status") in ("started", "running"):
         from . import world_spawn_window as SPAWN
         SPAWN.backfill(WORLD.scenery_dir_or_default())  # #2142 Q4

@@ -48,6 +48,7 @@ import threading
 import time
 
 import O4_File_Names as FNAMES
+import O4_UI_Utils as UI
 
 __all__ = [
     "BUILDER_TOOL",
@@ -62,6 +63,7 @@ __all__ = [
     "creation_agent",
     "dsf_creation_agent",
     "in_date_range",
+    "job_of_line",
     "last_build",
     "read_log",
     "read_records",
@@ -87,6 +89,8 @@ _RANGE_SECONDS = {"48h": 48 * 3600, "7d": 7 * 86400, "30d": 30 * 86400}
 
 #: The console prefix of a tile's line: ``[+47-123] ``.
 _PREFIX = re.compile(r"^\[([+-]\d{2}[+-]\d{3})\] ")
+#: A background job's line (``O4_UI_Utils.JOB_PREFIX``, #2148).
+_JOB_PREFIX = re.compile(r"^\[job:([a-z_]+)\] ")
 
 
 def build_logs_dir(build_dir):
@@ -102,6 +106,14 @@ def tile_of_line(line):
     if match is None:
         return None, line
     return match.group(1), line[match.end():]
+
+
+def job_of_line(line):
+    """The job of a background job's console line (``[job:world] ...``,
+    ``O4_UI_Utils.set_thread_job``), or None: a console hides it by default
+    (#2148).  TWIN of SceneryKit ``TileBuildLogs.jobOfLine``."""
+    match = _JOB_PREFIX.match(line)
+    return match.group(1) if match is not None else None
 
 
 def builder():
@@ -431,7 +443,8 @@ class TileStreamTag:
 
     def write(self, text):
         try:
-            tile = self._tile_now()
+            # a background job's thread (#2148) writes no tile's lines
+            tile = None if UI.thread_job() else self._tile_now()
         except Exception:
             tile = None
         with self._lock:

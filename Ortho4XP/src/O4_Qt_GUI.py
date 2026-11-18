@@ -5930,8 +5930,10 @@ class MainWindow(QMainWindow):
             pass
         if chunks:
             # Filtered to the map selection when tiles are selected
-            # (#1226); otherwise shown as it comes.
-            self.console_drawer.append_text("".join(chunks))
+            # (#1226); otherwise shown as it comes.  A background job's
+            # lines (#2148) go to the engine log, not the console.
+            for line in self.console_drawer.append_text("".join(chunks)):
+                self._stderr_log.write(line + "\n")
 
     CONSOLE_DEFAULT_LINES = 6
 

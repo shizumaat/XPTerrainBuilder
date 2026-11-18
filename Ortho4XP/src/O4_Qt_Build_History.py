@@ -96,10 +96,24 @@ def dimmed_tiles(built, range_key, now=None):
             if not TILELOG.in_date_range(_built_date(info), range_key, now)}
 
 
+_JOB_MARK = "[job:"
+
+
+def _maybe_job(partial):
+    """Whether an unfinished line may still turn out a job's line."""
+    return partial.startswith(_JOB_MARK) or _JOB_MARK.startswith(partial)
+
+
 class ConsoleLines:
     """The console's lines, each with its tile (TWIN of the Mac app's
     ``BuildConsoleModel``).  Text arrives in chunks; a line is complete at
-    its newline."""
+    its newline.
+
+    A background job's line (``[job:world] ...``, #2148: the World job's
+    downloads) is no tile's and not the build's: it is never shown; the
+    caller persists it (:attr:`job_lines` of the last chunk).  ``stream``
+    is the last chunk's text to show as it comes, those lines left out
+    (an unfinished line is held while it may still be one)."""
 
     def __init__(self, max_lines=5000, trim_to=4000):
         self.entries = []          # (tile key or None, text)
@@ -110,6 +124,9 @@ class ConsoleLines:
         self.filter = frozenset()
         self.saved = []
         self.live = True
+        self.stream = ""
+        self.job_lines = []
+        self._partial_shown = 0
 
     @property
     def filtered(self):
@@ -119,12 +136,25 @@ class ConsoleLines:
         """Store a chunk; the complete lines it finished, tagged."""
         pieces = (self._partial + text).split("\n")
         self._partial = pieces.pop()
-        added = []
+        added, stream, self.job_lines = [], [], []
+        skip = self._partial_shown          # of the first piece, shown
         for line in pieces:
+            if TILELOG.job_of_line(line) is not None:
+                self.job_lines.append(line)
+                skip = 0
+                continue
+            stream.append(line[skip:] + "\n")
+            skip = 0
             tile, _rest = TILELOG.tile_of_line(line)
             added.append((tile, line))
             if tile:
                 self._counts[tile] = self._counts.get(tile, 0) + 1
+        if _maybe_job(self._partial):
+            self._partial_shown = 0
+        else:
+            stream.append(self._partial[skip:])
+            self._partial_shown = len(self._partial)
+        self.stream = "".join(stream)
         self.entries.extend(added)
         if len(self.entries) > self._max_lines:
             drop = len(self.entries) - self._trim_to
@@ -146,7 +176,7 @@ class ConsoleLines:
         lines = list(self.saved) + [line for tile, line in self.entries
                                     if self.shows(tile)]
         text = "\n".join(lines) + ("\n" if lines else "")
-        if not self.filtered:
+        if not self.filtered and not _maybe_job(self._partial):
             text += self._partial
         return text
 
@@ -162,6 +192,7 @@ class ConsoleLines:
         self.entries = []
         self._counts = {}
         self._partial = ""
+        self._partial_shown = 0
         self.saved = []
 
 
@@ -306,15 +337,19 @@ class ConsoleDrawer(QWidget):
 
     def append_text(self, text):
         """A chunk of console output: shown as it comes when nothing is
-        filtered, else only the finished lines the filter shows."""
+        filtered, else only the finished lines the filter shows; a
+        background job's lines never (#2148).  Returns those job lines
+        (the caller keeps them in the engine log)."""
         filtered = self.lines.filtered
         added = self.lines.add_text(text)
         if not filtered:
-            self._insert(text)
-            return
+            if self.lines.stream:
+                self._insert(self.lines.stream)
+            return self.lines.job_lines
         shown = [line for tile, line in added if self.lines.shows(tile)]
         if shown:
             self._insert("\n".join(shown) + "\n")
+        return self.lines.job_lines
 
     def clear(self):
         self.lines.clear()

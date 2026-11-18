@@ -126,6 +126,19 @@ public enum TileBuildLogs {
         return (key, String(line.dropFirst(10)))
     }
 
+    /// The job of a background job's console line (`[job:world] ...`, the
+    /// engine's `O4_UI_Utils.set_thread_job`, #2148), or nil: no tile's and
+    /// not the build's, the console never shows it (the engine log keeps
+    /// it). TWIN of `O4_Tile_Build_Log.job_of_line`.
+    public static func jobOfLine(_ line: String) -> String? {
+        guard line.hasPrefix("[job:"), let close = line.firstIndex(of: "]") else { return nil }
+        let name = line[line.index(line.startIndex, offsetBy: 5)..<close]
+        let after = line.index(after: close)
+        guard !name.isEmpty, after < line.endIndex, line[after] == " ",
+              name.allSatisfy({ ("a"..."z").contains($0) || $0 == "_" }) else { return nil }
+        return String(name)
+    }
+
     /// The "Built by" line: from the record's builder; else from the
     /// DSF's `sim/creation_agent` — a bare `Ortho4XP` is an older Ortho4XP
     /// build, anything else is shown as it is. "" when neither is known.

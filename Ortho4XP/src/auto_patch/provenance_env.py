@@ -158,6 +158,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
         "which file names the World folder as the tiles' home (RULINGS "
         "2026-11-12g/h); it moves where a tile folder lives, never what "
         "an airport build writes",
+    "O4_WORLD_SPAWNS":
+        "which file keeps the places the World job saw the aircraft on "
+        "the ground (RULINGS 2026-11-17v); it chooses which spawn windows "
+        "are pre-draped, never what an airport build writes",
     "O4_HARNESS_IN_LEDGER": "the harness's own re-entry marker",
     "O4_HARNESS_PYTHON": "which interpreter the lane ritual uses",
     "O4_RUN_LEDGER_PATH": "where the run ledger is kept",

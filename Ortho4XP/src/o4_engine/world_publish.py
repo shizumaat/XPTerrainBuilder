@@ -285,6 +285,8 @@ def watch(session: Any,
             lat, lon = int(event.lat), int(event.lon)
             enqueue((lat, lon, scenery_dir()))
     session.subscribe(on_event)
+    from . import world_yield as YIELD
+    YIELD.watch(session)            # its builds pause the spawn pre-drape
 
 
 def _utc() -> str:

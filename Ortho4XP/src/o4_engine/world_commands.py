@@ -42,7 +42,8 @@ from typing import Any, Callable, Dict, Optional
 import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
-__all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
+__all__ = ["JOB_NAME", "LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root",
+           "scenery_dir_or_default",
            "managed", "refuse_foreign",
            "OFFERED_KEY",
            "tile_loaded", "xplane_reads", "world_status", "world_install", "world_onboard",
@@ -50,6 +51,9 @@ __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_
            "status_event", "write_log"]
 
 LOG_NAME = "world_pack.log"
+#: The World job's console tag (``O4_UI_Utils.set_thread_job``, #2148):
+#: its threads' lines are no tile's; a console hides them by default.
+JOB_NAME = "world"
 #: Rule S3's margin outside the window: 0.05° (the 60 s of flight it also
 #: names needs a speed: ``tile_loaded(speed_ms=)``, and the build-ahead
 #: job's own rule, ``world_job.WorldJob.held``).
@@ -602,6 +606,8 @@ def start_world_regions_set(emit: Callable[[Any], None],
     from .events import WorldReady
 
     def work() -> None:
+        import O4_UI_Utils as UI
+        UI.set_thread_job(JOB_NAME)          # #2148: no tile's lines
         with _GUARD:
             try:
                 result = _regions_set(regions, scenery_dir)

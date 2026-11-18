@@ -79,6 +79,21 @@ def test_selection_filters_and_keeps_run_level_lines(drawer):
     assert not drawer.chip.isVisibleTo(drawer)
 
 
+def test_console_drops_job_lines(drawer):
+    """#2148: another job's lines (the World job's downloads) are never
+    shown, filtered or not, even split across chunks; they are handed back
+    for the engine log.  TWIN of BuildConsoleJobLinesTests."""
+    kept = drawer.append_text("[+10+020] one\n[jo")
+    kept += drawer.append_text("b:world]    Downloading a_low13.jpg\n=== r")
+    kept += drawer.append_text("un line ===\n[+11+021] two\n")
+    assert kept == ["[job:world]    Downloading a_low13.jpg"]
+    assert drawer.console.toPlainText() == (
+        "[+10+020] one\n=== run line ===\n[+11+021] two\n")
+    drawer.set_selection({(10, 20)}, (10, 20))
+    drawer.append_text("[job:world] more\n[+11+021] three\n")
+    assert drawer.console.toPlainText() == "[+10+020] one\n=== run line ===\n"
+
+
 def test_selected_tile_without_lines_shows_its_saved_log(drawer):
     drawer.set_selection({(47, -123), (48, -123)}, (47, -123))
     text = drawer.console.toPlainText()

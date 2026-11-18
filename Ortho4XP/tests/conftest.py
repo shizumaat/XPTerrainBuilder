@@ -385,6 +385,9 @@ def _world_home_guard_outlives_each_test(tmp_path_factory):
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("O4_WORLD_HOME_POINTER",
                   str(basetemp / "world_home" / "session.json"))
+        # RULINGS 2026-11-17v: a World job runner a test drives notes the
+        # aircraft's ground places; never into the checkout's data folder.
+        mp.setenv("O4_WORLD_SPAWNS", str(basetemp / "world_spawns.json"))
         mp.setattr(HOME, "migrate", _migrate_only_under(basetemp, HOME.migrate))
         yield
 

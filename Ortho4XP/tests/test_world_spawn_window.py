@@ -82,3 +82,106 @@ def test_nothing_is_draped_under_the_disk_floor():
                        drape=lambda t, c: True, publish=lambda t: "swapped",
                        floor_ok=lambda: False)
     assert counts["draped"] == 0 and counts["skipped"] == counts["wanted"]
+
+
+# ---------------------------------------------------- owner 2026-11-17 (a)/(b)
+
+def test_backfill_queues_only_favourite_and_recent_airports(monkeypatch):
+    """RULINGS 2026-11-17v (a): of the pack's full tiles beside a
+    placeholder, only those of a favourite tile or a recent place are
+    queued; every other built airport waits for the aircraft."""
+    from o4_engine import world_commands as WORLD
+    kinds = {(lat, lon): "placeholder" for lat in range(-46, 62)
+             for lon in range(-72, 20)}
+    full = [(59, 17), (-42, 147), (-41, -70), (47, 12), (10, 10)]
+    kinds.update({t: "full" for t in full})
+    queued = []
+    monkeypatch.setattr(WORLD, "managed", lambda d: True)
+    monkeypatch.setattr(WORLD, "pack_dir", lambda d: d)
+    monkeypatch.setattr(WORLD, "write_log", lambda r: None)
+    monkeypatch.setattr(SPAWN.WP, "world_tiles", lambda d: kinds)
+    monkeypatch.setattr(SPAWN, "start",
+                        lambda la, lo, d: queued.append((la, lo)) or True)
+    recent = [("", POINT[1], POINT[2]), ("HECA", 30.11, 31.41)]
+    out = SPAWN.backfill("pack", favourites={(47, 12)}, recent=recent)
+    assert sorted(queued) == [(47, 12), (59, 17)]
+    assert out == ["+47+012", "+59+017"]
+
+
+def test_a_tiles_points_are_its_favourites_or_near_a_recent_place():
+    from o4_engine import world_spawn_recent as RECENT
+    points = [POINT, ("FAR", 59.2, 17.2), ("ESSA", 59.9, 17.9)]
+    assert RECENT.allowed((59, 17), points, favourites={(59, 17)},
+                          recent=[]) == points
+    near = [("", POINT[1] + 0.02, POINT[2] - 0.03), ("essa", 0.0, 0.0)]
+    assert RECENT.allowed((59, 17), points, favourites=set(),
+                          recent=near) == [POINT, ("ESSA", 59.9, 17.9)]
+    assert RECENT.allowed((59, 17), points, favourites=set(), recent=[]) == []
+
+
+def test_recent_places_are_ground_notes_and_flight_ends_of_30_days(tmp_path):
+    import json
+
+    from o4_engine import world_spawn_recent as RECENT
+    now = 1_800_000_000.0
+    history = str(tmp_path / "spawns.json")
+    assert RECENT.note(59.651, 17.918, now - 86400, path=history)
+    assert not RECENT.note(59.652, 17.919, now - 86000, path=history)  # same
+    assert RECENT.note(10.0, 10.0, now - 40 * 86400, path=history)   # old
+    flights = tmp_path / "Flights"
+    flights.mkdir()
+
+    def flight(name, created, arrived=None):
+        (flights / (name + ".json")).write_text(json.dumps({
+            "id": name, "source": {}, "created_at": created,
+            "arrived_at": arrived,
+            "origin": {"ident": name[:4], "lat": 30.1, "lon": 31.4},
+            "destination": {"ident": name[4:], "lat": 25.3, "lon": 51.6}}))
+    flight("HECAOTHH", "2027-01-14T00:00:00Z", "2027-01-14T05:00:00Z")
+    flight("KMRYKFAT", "2026-11-01T00:00:00Z")                      # old
+    got = RECENT.places(now, history=history, flights=str(flights))
+    assert sorted(p[0] for p in got) == ["", "HECA", "OTHH"]
+    assert ("", 59.65, 17.92) in got
+
+
+def test_the_work_waits_while_the_app_builds_or_xplane_runs():
+    """RULINGS 2026-11-17v (b): paused while a reason holds, resumed
+    after; one log line each; ``_run`` holds before every drape."""
+    from o4_engine import world_yield as YIELD
+    reasons = ["app build", "X-Plane", ""]
+    slept, lines = [], []
+    waited = YIELD.wait(lines.append, why=lambda: reasons.pop(0),
+                        sleep=slept.append, poll_s=5.0)
+    assert len(slept) == 2 and waited >= 0.0
+    assert lines[0] == {"spawn_window": "paused", "reason": "app build"}
+    assert lines[1]["spawn_window"] == "resumed"
+    assert YIELD.wait(lines.append, why=lambda: "") == 0.0 and len(lines) == 2
+
+    held = []
+    kinds = {t: "placeholder" for t in SPAWN.spawn_set(POINT[1], POINT[2])}
+    counts = SPAWN._run((59, 17), [POINT], kind_of=kinds.get,
+                        drape=lambda t, c: True, publish=lambda t: "swapped",
+                        hold=lambda: held.append(1))
+    assert len(held) == counts["wanted"] == counts["draped"]
+
+
+def test_an_app_build_session_and_xplane_are_the_reasons(monkeypatch):
+    from o4_engine import world_yield as YIELD
+    from o4_engine import xplane_root
+    running = [False]
+    monkeypatch.setattr(xplane_root, "xplane_running", lambda: running[0])
+    monkeypatch.setattr(YIELD, "XPLANE_EVERY_S", 0.0)
+    session = type("S", (), {"tiles": set(),
+                             "building_tiles": lambda self: self.tiles})()
+    YIELD.watch(session)
+    try:
+        assert YIELD.reason() == ""
+        session.tiles = {"+47+012"}
+        assert YIELD.reason() == "app build"
+        session.tiles = set()
+        running[0] = True
+        assert YIELD.reason() == "X-Plane"
+        running[0] = False
+        assert YIELD.reason() == ""
+    finally:
+        YIELD.watch(None)

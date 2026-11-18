@@ -373,9 +373,43 @@ def thread_is_quiet():
     return getattr(_quiet, "depth", 0) > 0
 
 
+################################################################################
+# A background JOB's thread (the World job's drapes, #2148): its lines are not
+# the build's.  Inside set_thread_job(name) vprint/lvprint lines carry the
+# job's ``[job:<name>] `` prefix (JOB_PREFIX), so a console shows them apart
+# from every tile's lines and hides them by default; the tile stream tagger
+# (O4_Tile_Build_Log.TileStreamTag) passes them through untagged.
+JOB_PREFIX = "[job:%s]"
+_job = threading.local()
+
+
+def set_thread_job(name):
+    """Mark this thread as job ``name``'s ("" clears it); a pool's
+    ``initializer`` (every thread of the pool is the job's)."""
+    _job.name = str(name or "")
+
+
+def thread_job():
+    """The job this thread works for, "" for none."""
+    return getattr(_job, "name", "")
+
+
+def job_text(name, text):
+    """``text`` as job ``name``'s line (unchanged for no job, or when it
+    already carries a job's prefix: a worker's line relayed)."""
+    if not name or str(text).startswith("[job:"):
+        return text
+    return "%s %s" % (JOB_PREFIX % name, text)
+
+
+def _job_args(args):
+    name = thread_job()
+    return ((JOB_PREFIX % name,) + tuple(args)) if name else tuple(args)
+
+
 def vprint(min_verbosity, *args):
     if verbosity >= min_verbosity and not thread_is_quiet():
-        print(*_scrub(args))
+        print(*_job_args(_scrub(args)))
 
 
 ################################################################################
@@ -399,7 +433,7 @@ def lvprint(min_verbosity, *args):
     if thread_is_quiet():
         return
     if verbosity >= min_verbosity:
-        print(*_scrub(args))
+        print(*_job_args(_scrub(args)))
     if log:
         logprint(*args)
 

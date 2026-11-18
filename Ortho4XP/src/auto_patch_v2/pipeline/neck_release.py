@@ -28,6 +28,8 @@ import typing as _t
 
 from ..model.planar import face_cycles
 
+__all__ = ["late_neck_release", "necks_over"]
+
 #: metres beyond the identity spacing a candidate stands from a base vertex
 _IDENTITY_MARGIN_M = 0.001
 #: metres: G1's interval tolerance

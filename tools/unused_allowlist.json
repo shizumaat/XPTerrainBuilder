@@ -458,5 +458,55 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/sunk_frame.py",
   "name": "SunkReading",
   "reason": "return type of the module's public reader sunk_wall (wall_class reads its fields, never names it); listed in __all__ (lkatlWF2, ldeck3)"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Airport_Approach_Cover.py",
+  "name": "eye_corridor_length_m",
+  "reason": "integration test-558: the eye rule's corridor length (RULINGS 2026-11-18a Balanced = half the eye rule); the module's own cover reads it and its twin pins the number"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "Reservation",
+  "reason": "integration test-558: the record type reserve() returns (module doc, lmemshare); callers hold it via reserve(), its name is the ledger's API contract"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "Snapshot",
+  "reason": "integration test-558: the reading snapshot() returns (lmemshare); world_yield and the waits read its fields, the type name is the ledger's API"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "ledger_dir",
+  "reason": "integration test-558: the ledger directory resolver (ENV_DIR / per-user path); the conftest isolation and twins read it, production goes through snapshot/reserve"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Machine_Memory.py",
+  "name": "role",
+  "reason": "integration test-558: the session role (app/lane/cli) the admission law reads; public for the twins that set ENV_ROLE and check it"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Sea_Leak_Guard.py",
+  "name": "SeaLeak",
+  "reason": "integration test-558: the guard's refusal (lflood sea-leak guard); raised by its check and caught by the tile driver's failure catalogue by type"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Sea_Leak_Guard.py",
+  "name": "leaked_sea",
+  "reason": "integration test-558: the sea-leak measure (lflood); the guard's own check reads it, its twin pins the triangle census"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_family.py",
+  "name": "shared_lead",
+  "reason": "integration test-558: pack-family name rule (#2145 l2145d, RULINGS 2026-11-17s); the family test reads it, the module's own grouping is its production user"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_family.py",
+  "name": "words",
+  "reason": "integration test-558: pack-family name words (#2145 l2145d); the module's grouping reads it, the twin pins the ordering-mark skip"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/world_yield.py",
+  "name": "reason",
+  "reason": "integration test-558: why the World job's spawn window waits (RULINGS 2026-11-17v); wait()'s default why=, the twins read it directly"
  }
 ]

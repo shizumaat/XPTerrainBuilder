@@ -255,10 +255,8 @@ def _unlock_fd(fd) -> None:
 
 
 def _remove(path: str) -> None:
-    try:
+    with contextlib.suppress(OSError):    # already gone: another reader's
         os.remove(path)
-    except OSError:
-        pass
 
 
 _SEQ = [0]

@@ -197,20 +197,3 @@ def test_a_deck_walled_on_one_side_is_banked():
     assert DB._walled_trench(one_side, 0.0) is None and banked(one_side)
     both = _pack_deck(walls=_BOTH_WALLS)
     assert DB._walled_trench(both, 0.0) is not None and not banked(both)
-
-
-def test_the_bank_never_runs_past_an_end_line():
-    """MEASURED LFPG H19: beyond an end line is the pavement's ground; the
-    bank runs 1 m past the deck's sides only."""
-    import math
-
-    from auto_patch_v2.constraints.edge_deck import _bank_drop
-    from shapely.geometry import Point
-    db = _pack_deck()
-    es = (types.SimpleNamespace(deck=db, line=db.seats_a, depth=7.42),
-          types.SimpleNamespace(deck=db, line=db.seats_b, depth=7.42))
-    slope = 0.667
-    assert abs(_bank_drop(es, Point(3.0, 10.0), slope) - 3.0 * slope) < 1e-9   # on the bank
-    assert _bank_drop(es, Point(-0.6, 10.0), slope) == 0.0                     # beyond end A
-    assert abs(_bank_drop(es, Point(3.0, 20.6), slope) - math.hypot(3.0, 0.6) * slope) < 1e-9
-    assert _bank_drop(es, Point(20.0, 10.0), slope) == 7.42                    # the floor

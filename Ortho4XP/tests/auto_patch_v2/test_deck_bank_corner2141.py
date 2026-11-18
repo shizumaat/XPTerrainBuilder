@@ -102,12 +102,10 @@ def test_the_skirt_takes_the_free_ground_the_bank_reaches():
     assert abs(_skirt_region(db, LAW).bounds[2] - (20.0 + reach)) < 1e-6
 
 
-def test_a_walled_deck_mints_no_skirt():
-    walled = _deck()
-    walls = ((0.0, 1.0), (1.0, 0.0), ((5.0, -10.0, 10.0), (15.0, -10.0, 10.0)))
+def test_a_pack_deck_mints_no_skirt():
     import dataclasses
-    walled = dataclasses.replace(walled, walls=walls)
-    assert deck_skirt_pieces([walled], [], [], 0.6, 0.2, 5.0, LAW) == []
+    pack = dataclasses.replace(_deck(), witness="hard_deck")
+    assert deck_skirt_pieces([pack], [], [], 0.6, 0.2, 5.0, LAW) == []
 
 
 def test_only_a_rim_the_ground_shares_takes_the_blend():

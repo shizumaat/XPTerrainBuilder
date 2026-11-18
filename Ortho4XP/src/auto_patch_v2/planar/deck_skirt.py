@@ -17,11 +17,16 @@ holes within 10 m of its ring, 29-259 m2 each, one at each corner
 the ring read (``tools/deck_probe.py --bank-perimeter``) stood on the
 corridor's wall rim or on such a hole's edge.
 
-So each banked deck mints ``graded_strip`` pieces under
+So each GENERATED deck mints ``graded_strip`` pieces under
 :data:`SKIRT_PREFIX` over the free ground its bank reaches
 (:func:`_skirt_region`: the run-on, then the deepest end's depth at the bank's
 slope, then a metre more for the daylight line) -- a zone region's family,
-no zone class, the form of ``planar/pit_bank``.  The ground's own datum
+no zone class, the form of ``planar/pit_bank``.  Not a pack deck's (RULINGS 2026-11-17p
+shares the bank, not this ground): MEASURED KIAH (lkiah capture), round
+pack decks whose cut does not yet reach under (``deck_probe --cut-cover``
+FAIL in the control, ground 6-7 m over the bank) a skirt carried the bank's
+face down beside ground standing at the deck -- obj24614's walk 5 -> 20
+jags.  The ground's own datum
 holds it on the DEM (``solve/design_ground``: ground reaching the patch's
 edge); the deck's blend holds it under the bank's face (a ceiling).  Each
 piece welds to the zone bands, the keep-outs and the deck's own corridor
@@ -76,9 +81,9 @@ def deck_skirt_pieces(decks: _t.Sequence, regions: _t.Sequence, keepouts: _t.Seq
     3.8 m over the skirt 1 m away (MEASURED ESSA o4gen_44525b99).  The road
     ribbons claim their own footprint at the face claim (``planar/overlay``),
     as round a pit's bank."""
-    from ..model.deck_bank import banked
+    from ..model.structures import is_generated
     plan = [(db, _skirt_region(db, law)) for db in decks
-            if banked(db) and len(getattr(db, "ring", ()) or ()) >= 3]
+            if is_generated(db) and len(getattr(db, "ring", ()) or ()) >= 3]
     if not plan:
         return []
     taken = [r.polygon for r in regions if r.source == "zone" or r.role in _MET]

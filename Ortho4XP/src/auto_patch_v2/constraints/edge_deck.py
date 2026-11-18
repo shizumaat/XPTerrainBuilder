@@ -244,7 +244,6 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     ring_past = unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
                                                     join_style="mitre") for d in decks])
     ring_in = prep(ring_past)
-    under_ring = prep(unary_union([Polygon(d.ring) for d in decks]))
     # THE BANK BLENDS OUT (:func:`_blend_drop`): the ground the bank's
     # daylight cone reaches past the ring's run-on
     wide_g = ring_past.buffer(max(float(e.depth) for e in es) / bank) \
@@ -316,10 +315,13 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                                  or _open_ground(planar, vx, walls=True)):
             drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
                 else _blend_drop(es, p, ring_past, bank, kerb, rim)
-            if kerb is not None and not kerb.is_empty and not under_ring.contains(p):
-                # the run-on past the ring keeps off the airside as the blend
-                # beyond it does (#2141: MEASURED ESSA o4gen_cd009c10, the
-                # run-on on the floor 1.6 m under the blend 0.7 m away)
+            if kerb is not None and not kerb.is_empty:
+                # the bank keeps off the airside beside the deck everywhere,
+                # as the blend beyond the run-on does: one field, no step
+                # (#2141: MEASURED ESSA o4gen_cd009c10, the run-on on the
+                # floor 1.6 m under the blend 0.7 m away; clamped in the
+                # run-on alone, KJFK o4gen_be9bf957 stood 2.85 m over the
+                # bank 0.1 m inside the ring)
                 drop = min(drop, bank * kerb.distance(p))
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))

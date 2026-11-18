@@ -1423,6 +1423,43 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
     return results
 
 
+def _custom_patch_rescreens(patch_dir: str, manual_icaos) -> dict:
+    """``{ICAO: why}`` for each airport a CUSTOM patch covers whose auto
+    patch's object record the object stage would refuse (#2171).
+
+    The custom patch is the airport's mesh, but the pack's objects are
+    placed from the plan the AUTO patch's build recorded.  Nothing else
+    rebuilds that auto patch under a custom patch, so a stale record (the
+    law or the engine moved since it was built) skipped the placement on
+    every build and left the pack's buildings on their old seats.  Each
+    one listed here is rebuilt by this build for its object plan only —
+    the mesh step never applies an auto patch a custom patch covers."""
+    if not manual_icaos:
+        return {}
+    from auto_patch_v2.airport import object_plan as _oplan
+    from auto_patch_v2.law import Law
+    out = {}
+    for icao in sorted(manual_icaos):
+        why = _oplan.refused_by_stage(patch_dir, icao, Law.for_airport(icao))
+        if why:
+            UI.lvprint(0, "   Auto-patch:", icao, "— custom patch in use; its "
+                       "auto patch is rebuilt for the pack's object plan only "
+                       "(not applied to the mesh):", why)
+            out[icao] = why
+    return out
+
+
+def _with_rescreens(selection, tile, cifp_path, mode, manual_icaos,
+                    rescreen) -> list:
+    """``selection`` with each ``rescreen`` airport's ``manual`` candidate
+    replaced by its ordinary one, so the loop rebuilds its auto patch."""
+    fresh = {c.icao: c for c in _SELECTION.select_patch_airports(
+        tile, cifp_path, mode,
+        manual_icaos=[m for m in manual_icaos if m not in rescreen])
+        if c.icao in rescreen}
+    return [fresh.get(c.icao, c) for c in selection]
+
+
 def _run_build_tasks(tasks: list, tile, auto_patched: list,
                      verify_debug_path: str) -> None:
     """Run the collected per-airport build tasks — in parallel across airports
@@ -1791,6 +1828,10 @@ def generate_auto_patches(tile, cifp_path: str,
     if selection is None:
         selection = _SELECTION.select_patch_airports(
             tile, cifp_path, mode, manual_icaos=manual_patches)
+    rescreen = _custom_patch_rescreens(patch_dir, manual_patches)
+    if rescreen:
+        selection = _with_rescreens(selection, tile, cifp_path, mode,
+                                    manual_patches, rescreen)
     _name_unclassified_environment()
     for candidate in selection:
         icao = candidate.icao
@@ -1872,7 +1913,8 @@ def generate_auto_patches(tile, cifp_path: str,
             patch_dir, "{}_auto.patch.osm".format(icao)
         )
         imagery_paths = _imagery_of(airport_imagery, icao)
-        if _auto_patch_is_current(auto_patch_file, xp_root, icao,
+        if icao not in rescreen and _auto_patch_is_current(
+                                  auto_patch_file, xp_root, icao,
                                   tile=tile, cifp_file=filepath,
                                   apt_dat_now=apt_dat_selected,
                                   imagery_paths=imagery_paths):

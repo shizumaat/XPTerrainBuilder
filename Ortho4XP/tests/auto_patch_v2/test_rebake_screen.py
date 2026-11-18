@@ -256,7 +256,7 @@ def test_the_object_stage_builds_the_plan_beside_the_patch(world, law, tmp_path,
                            encoding="utf-8", newline="\n")
     assert OP.from_screen(screen, str(plan_path), str(patch_dir), law,
                           say=ui2.vprint, mod_cache_root=ROOT) is None
-    assert "STALE" in ui2.lines[-1] and "rebuilds the airport's patch" in ui2.lines[-1]
+    assert "STALE" in ui2.lines[-1] and "Build this tile again" in ui2.lines[-1]
     # the refusal is LEFT FOR THE GATE, plan or no plan — and a new build clears it
     refused = patch_dir / OP.REFUSED_FILENAME.format(icao="ZZZZ")
     assert "patch body" in refused.read_text(encoding="utf-8")
@@ -297,6 +297,42 @@ def test_a_cold_partition_sends_the_patch_back_through_its_build(world, law, tmp
     # and the driver's gate asks
     from auto_patch import driver
     assert "_oplan.unservable(" in inspect.getsource(driver._auto_patch_is_current)
+
+
+def test_a_custom_patch_airport_rebuilds_its_auto_patch_for_a_stale_record(
+        world, law, monkeypatch):  # noqa: F811
+    """#2171: under a custom patch the freshness gate never runs, so a
+    record the object stage would refuse is found HERE and the airport's
+    auto patch is rebuilt (never meshed) in the same build."""
+    from auto_patch import driver
+    from auto_patch import selection as SEL
+    from auto_patch_v2.airport import object_plan as OP
+    from auto_patch_v2 import law as LAW
+    patch_dir = str(world.patch.parent)
+    assert OP.refused_by_stage(patch_dir, "ZZZZ", law) is None     # no sidecar
+    side = world.patch.parent / RS.SCREEN_FILENAME.format(icao="ZZZZ")
+    screen = _take(world, law)
+    side.write_text(screen.to_json(), encoding="utf-8", newline="\n")
+    assert OP.refused_by_stage(patch_dir, "ZZZZ", law) is None
+    # the law moved since the patch was built — a plan beside it or not
+    (world.patch.parent / PLAN_FILENAME.format(icao="ZZZZ")).write_text(
+        "{}", encoding="utf-8", newline="\n")
+    side.write_text(_dc.replace(screen, law_sha256="0" * 64).to_json(),
+                    encoding="utf-8", newline="\n")
+    assert "law tables" in OP.refused_by_stage(patch_dir, "ZZZZ", law)
+    monkeypatch.setattr(LAW.Law, "for_airport", classmethod(lambda cls, icao: law))
+    monkeypatch.setattr(driver.UI, "lvprint", lambda *a, **k: None)
+    rescreen = driver._custom_patch_rescreens(patch_dir, {"ZZZZ", "YYYY"})
+    assert list(rescreen) == ["ZZZZ"]
+    # its MANUAL candidate becomes the ordinary one; the others stand
+    manual = [SEL.PatchCandidate(i, "f", {}, "manual", "m") for i in ("YYYY", "ZZZZ")]
+    patch = SEL.PatchCandidate("ZZZZ", "f", {"r": 1}, "patch", "", "apt.dat")
+    asked = {}
+    monkeypatch.setattr(SEL, "select_patch_airports",
+                        lambda *a, manual_icaos=(), **k: asked.update(m=manual_icaos)
+                        or [manual[0], patch])
+    got = driver._with_rescreens(manual, None, "cifp", "All", ["YYYY", "ZZZZ"], rescreen)
+    assert asked["m"] == ["YYYY"] and got == [manual[0], patch]
 
 
 def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(

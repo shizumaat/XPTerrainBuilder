@@ -37,7 +37,7 @@ from . import partition_cache as _pcache
 from . import rebake_screen as _rs
 
 __all__ = ["SCREEN_NAME_RE", "REFUSED_FILENAME", "place", "unservable",
-           "from_screen"]
+           "refused_by_stage", "from_screen"]
 
 #: The sidecar's own file name in the patch directory
 #: (``rebake_screen.SCREEN_FILENAME``).  The object stage's plan-name
@@ -52,6 +52,14 @@ SCREEN_NAME_RE = re.compile(r"^o4_v2_rebake_[A-Za-z0-9]{2,8}\.screen\.json$")
 #: it leaves this for the NEXT tile build's freshness gate, which sends the
 #: airport back through its patch build.  Not ``*.json``: no glob reads it.
 REFUSED_FILENAME = "o4_v2_rebake_{icao}.screen.refused"
+
+
+#: What a skip tells the user to do.  The refusal makes the next build's
+#: driver rebuild the airport's AUTO patch — under a custom patch too, where
+#: it is rebuilt for the object plan only and never meshed (#2171).
+_HOW_TO_FIX = ("Build this tile again: its airport patch is rebuilt first "
+               "(under a custom patch, only for the object plan) and the "
+               "pack's objects are then placed")
 
 
 def _refuse(patch_dir: str, icao: str, why: str) -> None:
@@ -124,6 +132,30 @@ def unservable(patch_dir: str, icao: str) -> str | None:
     return _rs.unservable(screen)
 
 
+def refused_by_stage(patch_dir: str, icao: str, law: Law) -> str | None:
+    """Why the object stage would REFUSE the record beside ``icao``'s auto
+    patch this build (:func:`unservable`, or :func:`rebake_screen.
+    stale_reason` against the law and code in hand), or ``None``.
+
+    ASKED FOR AN AIRPORT A CUSTOM PATCH COVERS (#2171).  Its auto patch is
+    never meshed, so the freshness gate never sends it back through its
+    build, and :func:`from_screen` would skip its placement on every build
+    while the pack's objects keep their old seats over the new mesh.  The
+    tile driver rebuilds that auto patch (not applied) when this answers.
+    No sidecar beside the patch: ``None`` (nothing to refuse)."""
+    screen_path = os.path.join(patch_dir, _rs.SCREEN_FILENAME.format(icao=icao))
+    if not os.path.isfile(screen_path):
+        return None
+    why = unservable(patch_dir, icao)
+    if why:
+        return why
+    try:
+        screen = _rs.read(screen_path)
+    except _rs.StaleScreen as exc:
+        return str(exc)
+    return _rs.stale_reason(screen, law, os.path.join(patch_dir, icao + "_auto.patch.osm"))
+
+
 def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: Law, *,
                 say: _t.Callable[[int, str], None],
                 mod_cache_root: str | None) -> RebakePlan | None:
@@ -144,8 +176,7 @@ def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: L
     if why:
         _refuse(patch_dir, icao, why)
         say(0, f"  [v2 rebake] {icao}: placement SKIPPED — the object plan's "
-               f"screen record is STALE ({why}); the next build of this tile "
-               "rebuilds the airport's patch")
+               f"screen record is STALE ({why}). {_HOW_TO_FIX}")
         return None
     if os.path.isfile(plan_path):
         with open(plan_path, encoding="utf-8") as fh:
@@ -163,8 +194,7 @@ def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: L
     except _rs.StaleScreen as exc:
         _refuse(patch_dir, icao, str(exc))
         say(0, f"  [v2 rebake] {icao}: placement SKIPPED — the object plan "
-               f"cannot be built ({exc}); the next build of this tile rebuilds "
-               "the airport's patch")
+               f"cannot be built ({exc}). {_HOW_TO_FIX}")
         return None
     with open(plan_path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)

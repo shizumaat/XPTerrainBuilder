@@ -229,7 +229,8 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          patches: _t.Iterable[str | os.PathLike] = (),
          authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
          free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
-         patch_bodies: _t.Iterable[str] | None = None) -> RebakeScreen | None:
+         patch_bodies: _t.Iterable[str] | None = None,
+         cache: _t.Any = None) -> RebakeScreen | None:
     """The record of THIS patch build — its keywords are ``rebake_plan.
     plan``'s own (``pipeline.build._rebake_inputs`` assembles them) — or ``None`` when the run
     kept no partition cache (the caller then plans inline).  ``patches``
@@ -249,7 +250,7 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
         tuple(sorted(exclude)), dict(tunnel_objects),
         tuple((_wkb(r), tuple(ids)) for r, ids in below_grade),
         tuple((tuple(ring), None if deck_datum is None else deck_datum(ring))
-              for ring in _rplan.datum_rings(objects, below_grade)),
+              for ring in _rplan.datum_rings(objects, below_grade, cache, law)),
         (None if getattr(part, "connectors", None) is None
          else tuple(v.to_dict() for v in part.connectors)),
         None if fv is None else (fv.verdict, fv.auto_verdict, fv.z0_m,

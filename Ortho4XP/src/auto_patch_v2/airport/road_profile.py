@@ -69,7 +69,8 @@ from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
-from ..law.tables import road_family_roles, road_terrain_cap, role_cap, senior_role
+from ..law.tables import (road_family_roles, road_steep_law, road_terrain_cap,
+                          role_cap, senior_role)
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap
@@ -224,13 +225,17 @@ def _arclength(xy: np.ndarray) -> np.ndarray:
 def neighbourhood_profile(s: np.ndarray, dem: np.ndarray, in_band: np.ndarray,
                           cap_class: float, *, cap_inside: float,
                           runout_m: float, budget_m: float,
-                          cap_ceiling: float) -> np.ndarray:
+                          cap_ceiling: float,
+                          grade_change_per_m: float | None = None) -> np.ndarray:
     """The core's NEIGHBOURHOOD clamp, verbatim — v2 and the core call
-    ONE function (spec §2-SUPPLEMENT S.2 (b), S.5)."""
+    ONE function (spec §2-SUPPLEMENT S.2 (b), S.5).  No DEM-wrong windows
+    (RULINGS 2026-11-18e): a window lies outside every run, at least
+    ``runout_m`` beyond the band, where no patch vertex reads it."""
     VECT = _core_vector_utils()
     z, _rep = VECT.neighbourhood_road_profile(
         s, dem, in_band, cap_class, cap_inside=cap_inside, runout_m=runout_m,
-        budget_m=budget_m, cap_ceiling=cap_ceiling)
+        budget_m=budget_m, cap_ceiling=cap_ceiling,
+        grade_change_per_m=grade_change_per_m)
     return np.asarray(z, dtype=float)
 
 
@@ -252,7 +257,8 @@ def clamp_way(kind: str, ref: str, points: _t.Sequence[XY],
               inside: Inside | None = None, *,
               in_band: Inside | None = None, cap_class: float | None = None,
               runout_m: float | None = None, budget_m: float | None = None,
-              cap_ceiling: float | None = None) -> list[Way]:
+              cap_ceiling: float | None = None,
+              grade_change_per_m: float | None = None) -> list[Way]:
     """Station ``points``, sample the terrain, clamp — one :class:`Way`
     per maximal run of stations ``inside`` the sampleable DEM (a
     tile-wide OSM way leaving the warm tiles is clamped in parts: a cold
@@ -303,7 +309,8 @@ def clamp_way(kind: str, ref: str, points: _t.Sequence[XY],
                 s, dem, np.asarray(in_band(part), bool),
                 cap if cap_class is None else cap_class, cap_inside=cap,
                 runout_m=runout_m, budget_m=budget_m,
-                cap_ceiling=cap_ceiling)
+                cap_ceiling=cap_ceiling,
+                grade_change_per_m=grade_change_per_m)
         out.append(Way(kind, ref, part, s, dem, z))
     return out
 
@@ -535,13 +542,20 @@ def _osm_levelled(w) -> bool:
     return True
 
 
-def _class_cap(tags, class_caps, default_cap: float) -> float:
-    """The way's per-class cap (S.3): ``highway`` value, else
-    ``railway:<value>``; unknown or untagged takes ``road_grade_limit``."""
+def _core_class(tags) -> str | None:
+    """The way's class in the core's spelling: ``highway`` value, else
+    ``railway:<value>``, else ``None``."""
     key = tags.get("highway")
     if not key:
         rail = tags.get("railway")
         key = ("railway:" + str(rail)) if rail else None
+    return key
+
+
+def _class_cap(tags, class_caps, default_cap: float) -> float:
+    """The way's per-class cap (S.3): ``highway`` value, else
+    ``railway:<value>``; unknown or untagged takes ``road_grade_limit``."""
+    key = _core_class(tags)
     if key is not None:
         v = class_caps.get(str(key))
         if v is not None:
@@ -630,6 +644,8 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     inside = _inside_fn(airport)
     ways: list[Way] = []
     VECT = _core_vector_utils()
+    from O4_Road_Grade import steep_limits
+    steep_law = road_steep_law(law)
     # 2120-WF3 W-B (16d, 16n): a mapped way has no ground inside a retaining
     # piece -- split at the pieces (the cut lines' own split), each run
     # clamped on its own side's ground
@@ -641,8 +657,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
             # core's own reading (``road_inside_cap``), so the patch and the
             # core ribbon outside it stay one profile; 2026-11-17: every
             # other road's is the steep-ground cap (``road_terrain_cap``)
+            # 11-18e: the way's STEEP CAP (20 % a road, 1.25 % a railway)
+            # is its ceiling, held on a vertical curve -- the core's own
+            steep_cap, rate = steep_limits(_core_class(w.tags), steep_law)
             cap_in = VECT.road_inside_cap(w.tags.get("highway"), cap_,
-                                          rp.cap_ceiling, rp.public_classes,
+                                          steep_cap, rp.public_classes,
                                           road_terrain_cap(law))
             got = split_at_walls(w.points, pieces) if pieces and len(w.points) >= 2 else None
             for pts in (w.points,) if got is None else got[0]:
@@ -651,7 +670,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
                     inside, in_band=band_fn,
                     cap_class=_class_cap(w.tags, rp.class_caps, cap_),
                     runout_m=rp.runout_m, budget_m=rp.budget_m,
-                    cap_ceiling=rp.cap_ceiling))
+                    cap_ceiling=steep_cap, grade_change_per_m=rate))
     for b in pm.breaklines.values():
         if b.kind != "road_centerline":
             continue

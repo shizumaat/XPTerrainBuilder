@@ -794,13 +794,12 @@ def _airport_auto_roads_layer(tile):
     return _airport_auto_roads_layer_at(tile.lat, tile.lon)
 
 
-def _airport_auto_roads_layer_at(lat, lon):
-    """The auto-road-mode OSM layer: level-5 road classes + airport rail
-    classes fetched ONLY inside the airport elevation-inset bounding
-    boxes (read from the inset GeoTIFF json sidecars), merged into one
-    per-tile cache (``airport_small_roads``).  Returns ``None`` when the
-    tile has no cached insets (feature off, no airports) or every bbox
-    query failed — the caller then simply keeps the level-1 behaviour."""
+def _airport_inset_boxes(lat, lon):
+    """THE AIRPORT AREA of tile ``(lat, lon)``: the elevation-inset
+    bounding boxes ``(lat_min, lon_min, lat_max, lon_max)`` read from the
+    inset GeoTIFF json sidecars -- the boxes the airport-area roads are
+    fetched in, and (owner RULINGS 2026-11-18e) the area whose roads of
+    every class are graded where their DEM is wrong."""
     import json as _json
 
     import O4_Airport_Elevation_Insets as INSETS
@@ -819,6 +818,26 @@ def _airport_auto_roads_layer_at(lat, lon):
         except (OSError, ValueError, KeyError, TypeError):
             continue
         boxes.append((lat_min, lon_min, lat_max, lon_max))
+    return boxes
+
+
+def _airport_area_polygon(lat, lon):
+    """:func:`_airport_inset_boxes` as one tile-relative polygon
+    ``(lon - lon0, lat - lat0)`` -- the frame the road stations are in;
+    an empty polygon when the tile has no inset."""
+    boxes = [geometry.box(b[1] - lon, b[0] - lat, b[3] - lon, b[2] - lat)
+             for b in _airport_inset_boxes(lat, lon)]
+    return ops.unary_union(boxes) if boxes else geometry.Polygon()
+
+
+def _airport_auto_roads_layer_at(lat, lon):
+    """The auto-road-mode OSM layer: level-5 road classes + airport rail
+    classes fetched ONLY inside the airport elevation-inset bounding
+    boxes (read from the inset GeoTIFF json sidecars), merged into one
+    per-tile cache (``airport_small_roads``).  Returns ``None`` when the
+    tile has no cached insets (feature off, no airports) or every bbox
+    query failed — the caller then simply keeps the level-1 behaviour."""
+    boxes = _airport_inset_boxes(lat, lon)
     if not boxes:
         return None
     queries = small_roads_queries(5) + AUTO_AIRPORT_RAIL_QUERIES
@@ -2734,6 +2753,11 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
             join_pins=_join_pins,
             public_classes=_law["public_classes"],
             terrain_cap=_law["terrain_cap"],
+            # 11-18e: "the ones near the airport we are grading" -- the
+            # airport-area roads' own area, every class in it
+            steep_area=(_airport_area_polygon(tile.lat, tile.lon)
+                        if (road_auto or patch_area_detail) else None),
+            law=_law,
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -2764,8 +2788,9 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
         UI.vprint(
             1,
             "      %d way(s) in the patch neighbourhood, %d run(s), "
-            "%d yielded (worst cap_eff %s on way %s, class %s), %d at the "
-            "%.0f %% ceiling, max offset %.2f m; %d unclassed way(s) at "
+            "%d yielded (worst cap_eff %s on way %s, class %s), %d past the "
+            "%.0f %% steep cap (graded within the budget of its need), "
+            "max offset %.2f m; %d unclassed way(s) at "
             "road_grade_limit." % (
                 _clamp_report["neighbourhood_ways"], _clamp_report["runs"],
                 _clamp_report["yielded_runs"],
@@ -2773,7 +2798,21 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                 if _yield_worst[0] else "-",
                 _yield_worst[2], _yield_worst[1],
                 _clamp_report["ceiling_runs"],
-                100.0 * _law["cap_ceiling"], _worst_run[0], _unclassed),
+                100.0 * _law["terrain_cap"], _worst_run[0], _unclassed),
+        )
+        UI.vprint(
+            1,
+            "      DEM-wrong windows (RULINGS 2026-11-18e, steep cap %.0f %% "
+            "road / %.2f %% rail): %d road window(s) over %.2f km, %d rail "
+            "window(s) over %.2f km, max move %.2f m; %d window(s) the steep "
+            "cap cannot solve KEEP THE DEM." % (
+                100.0 * _law["terrain_cap"], 100.0 * _law["rail_cap"],
+                _clamp_report["dem_wrong_windows"],
+                _clamp_report["dem_wrong_km"],
+                _clamp_report["dem_wrong_rail_windows"],
+                _clamp_report["dem_wrong_rail_km"],
+                _clamp_report["dem_wrong_max_move_m"],
+                _clamp_report["dem_kept_windows"]),
         )
         if _deck_pins:
             UI.vprint(

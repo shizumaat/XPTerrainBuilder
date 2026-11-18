@@ -693,20 +693,24 @@ def test_t4_dev_is_monotone_in_the_cap():
         prev = dev
 
 
-def test_t4_an_in_band_cliff_ships_at_the_ceiling_and_says_so():
+def test_t4_an_in_band_cliff_grades_within_the_budget_of_its_need():
     # An 8 % in-band segment pushed off terrain by a cliff INSIDE the
-    # band: no out-of-band cap can buy the budget back, so the run ships
-    # at the ceiling and is named.
+    # band: no out-of-band cap up to the steep cap buys the budget back.
+    # OWNER RULINGS 2026-11-18e: the run no longer follows the terrain at
+    # the ceiling -- its cap is the gentlest whose move stays within
+    # ``budget_m`` of the move the steep cap itself needs, and it is named.
     s = numpy.array([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
     dem = numpy.array([0.0, 0.0, 40.0, 40.0, 40.0, 40.0])
     band = numpy.array([True, True, True, False, False, False])
-    z, rep = VECT.neighbourhood_road_profile(
-        s, dem, band, 0.15, cap_inside=0.08, runout_m=100.0, budget_m=1.0,
-        cap_ceiling=0.30)
+    kw = dict(cap_inside=0.08, runout_m=100.0, budget_m=1.0, cap_ceiling=0.20)
+    z, rep = VECT.neighbourhood_road_profile(s, dem, band, 0.15, **kw)
     (run,) = rep["runs"]
     assert run["at_ceiling"] is True
     assert run["yielded"] is True
-    assert abs(run["cap_eff"] - 0.30) < 1e-9
+    assert 0.15 <= run["cap_eff"] <= 0.20 + 1e-12
+    assert run["max_offset_m"] <= run["need_m"] + 1.0 + 1e-6
+    _z, top = VECT.neighbourhood_road_profile(s, dem, band, 0.20, **kw)
+    assert abs(top["runs"][0]["max_offset_m"] - run["need_m"]) < 1e-3
 
 
 # T5 ── a deck pin inside a run is still EXACT, and §6's refusal survives.
@@ -873,7 +877,8 @@ def test_t11_a_public_road_inside_the_band_is_its_terrain():
     assert "residential" in law["public_classes"]
     # every public class is a class the per-class table states
     assert set(law["public_classes"]) <= set(law["class_caps"])
-    ceil = law["cap_ceiling"]
+    # 11-18e: a road follows its terrain up to the STEEP CAP, never past it
+    ceil = law["terrain_cap"]
     assert VECT.road_inside_cap("residential", CAP, ceil, law["public_classes"]) == ceil
     assert VECT.road_inside_cap("service", CAP, ceil, law["public_classes"]) == CAP
     assert VECT.road_inside_cap(None, CAP, ceil, law["public_classes"]) == CAP
@@ -904,7 +909,8 @@ def test_t11_a_public_road_inside_the_band_is_its_terrain():
         geometry.MultiLineString(lines), steep_vec, CAP, 4.0, coverage=band,
         way_classes=["residential", "service"])
     public, service = lev.ways
-    assert numpy.allclose(public["alt"], public["dem"], atol=1e-9)
-    g = numpy.abs(numpy.diff(service["alt"])) / numpy.diff(service["s_m"])
-    assert g.max() <= law["terrain_cap"] + 1e-9
-    assert not numpy.allclose(service["alt"], service["dem"], atol=0.1)
+    # 11-18e: on 30 % ground the public road too is held at the steep cap
+    for w in (public, service):
+        g = numpy.abs(numpy.diff(w["alt"])) / numpy.diff(w["s_m"])
+        assert g.max() <= law["terrain_cap"] + 1e-9
+        assert not numpy.allclose(w["alt"], w["dem"], atol=0.1)

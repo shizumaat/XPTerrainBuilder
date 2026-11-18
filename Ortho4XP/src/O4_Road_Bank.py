@@ -125,7 +125,8 @@ def _side_runs(ref, z_ref, k, n, alt_vec, lane_width, side):
 
 def assign_bank_runs(roads, alt_vec, lane_width):
     """Decide every levelled way's side banks, in place (``w["bank_run"]``
-    and ``w["bank_foot_m"]``, ``[left, right]`` per station).
+    and ``w["bank_foot_m"]``, ``[left, right]`` per station), on its
+    graded (answering) stations only (RULINGS 2026-11-18e (g)).
 
     Returns ``{"bank_m", "face_m"}``: the road-side length banked 1:2
     (a foot past the edge) and held by a retaining face.
@@ -136,7 +137,12 @@ def assign_bank_runs(roads, alt_vec, lane_width):
     for w in roads.ways:
         pts = numpy.asarray(w["points"], dtype=numpy.float64)
         n = len(pts)
-        if n < 2:
+        # OWNER RULINGS 2026-11-18e (g): banks only where the profile was
+        # graded -- the answering stations of a run or a DEM-wrong window;
+        # a terrain station's ribbon reads its own DEM
+        graded = numpy.asarray(w.get("answers", numpy.ones(n, dtype=bool)),
+                               dtype=bool)
+        if n < 2 or not graded.any():
             w["bank_run"] = [[BANK_RUN] * n, [BANK_RUN] * n]
             w["bank_foot_m"] = [[0.0] * n, [0.0] * n]
             continue
@@ -155,6 +161,9 @@ def assign_bank_runs(roads, alt_vec, lane_width):
         for side in ("left", "right"):
             run, foot, face = _side_runs(ref, z_ref, k, n, alt_vec,
                                          lane_width, side)
+            foot = numpy.where(graded, foot, 0.0)
+            run = numpy.where(graded, run, BANK_RUN)
+            face = face & graded
             runs.append(run)
             feet.append(foot)
             report["face_m"] += float(share[face & (foot > 0.0)].sum())
@@ -182,7 +191,7 @@ def bank_foot_lines(roads, lane_width):
         ref = numpy.asarray(VECT.refine_way(pts, lane_width),
                             dtype=numpy.float64)
         s_ref = VECT.way_arclengths(ref)
-        for side, feet in zip(("left", "right"), w["bank_foot_m"]):
+        for side, feet in zip(("left", "right"), w["bank_foot_m"], strict=True):
             foot = numpy.interp(s_ref, s_st, numpy.asarray(feet, float))
             on = foot > 0.0
             if not on.any():
@@ -193,8 +202,8 @@ def bank_foot_lines(roads, lane_width):
             line = ref + ((lane_width + foot) * VECT.GEO.m_to_lat)[:, None] \
                 * normals
             edges = numpy.flatnonzero(numpy.diff(on.astype(numpy.int8)))
-            for a, b in zip(numpy.r_[0, edges + 1], numpy.r_[edges + 1,
-                                                              len(on)]):
+            for a, b in zip(numpy.r_[0, edges + 1],
+                            numpy.r_[edges + 1, len(on)], strict=True):
                 if on[a] and b - a >= 2:
                     out.append(geometry.LineString(line[a:b]))
     return geometry.MultiLineString(out)
@@ -289,4 +298,4 @@ def road_bank_values(tile, vertices, fixed):
     idx = numpy.flatnonzero(free)
     (sel, znew) = bank_field(payload, tile.lat, tile.lon, v[idx, :2],
                              v[idx, 2])
-    return dict(zip(idx[sel].tolist(), znew.tolist()))
+    return dict(zip(idx[sel].tolist(), znew.tolist(), strict=True))

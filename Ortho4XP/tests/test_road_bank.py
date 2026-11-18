@@ -61,6 +61,24 @@ def test_bank_where_it_fits_face_where_it_does_not():
     assert rep["face_m"] == pytest.approx(200.0, rel=0.01)
 
 
+def test_banks_only_where_the_profile_was_graded():
+    # RULINGS 2026-11-18e (g): a station outside every run and DEM-wrong
+    # window (a terrain station, not answering) is never banked
+    w = _road()
+    n = len(w["points"])
+    w["answers"] = numpy.zeros(n, dtype=bool)
+    rep = RB.assign_bank_runs(_Roads([w]), _ground(_step(3.0), _step(40.0)),
+                              LANE)
+    assert numpy.all(numpy.asarray(w["bank_foot_m"]) == 0.0)
+    assert rep == {"bank_m": 0.0, "face_m": 0.0}
+    w = _road()
+    w["answers"] = numpy.arange(n) < n // 2
+    RB.assign_bank_runs(_Roads([w]), _ground(_step(3.0), _step(40.0)), LANE)
+    foot_l = numpy.asarray(w["bank_foot_m"][0])
+    assert numpy.all(foot_l[w["answers"]] > 0.0)
+    assert numpy.all(foot_l[~w["answers"]] == 0.0)
+
+
 def test_small_step_is_not_banked():
     w = _road()
     rep = RB.assign_bank_runs(

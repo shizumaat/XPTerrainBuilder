@@ -382,6 +382,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      osm_evidence=None,
                      refused=None,
                      slope=None,
+                     routes=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -504,6 +505,22 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        caller has no OSM in hand, which is NOT evidence of absence — the
        gate then rests on the vertical test alone (v1's own clause).
 
+    9a. A BUILDING RISES ABOVE ITS OWN GRADE (K1, kord-trench-frame-spec):
+       a cluster whose tallest ABOVE-GRADE extent
+       (``evidence.tallest_extent_m``) is under
+       ``admission.above_grade_min_m`` (the walled height) is a road bed, a
+       trench floor, a pit or a retaining wall and mints nothing, counted
+       ``below_grade`` and listed with rules 9 / 10.  Asked before rule
+       10, so no vouch (OSM, cache or name) admits it.
+
+        9b. A TAXI ROUTE NEVER CROSSES A BUILDING (owner RULINGS 2026-11-19k
+       (2)): ``routes`` (a :class:`geom.route_over_pad.RouteWitness`) reading
+       ``"over"`` on the closed outline — a 1202 edge enters and leaves it,
+       or a through node stands inside it — refuses the pad, counted
+       ``taxi_route_over`` and listed; ``"touch"`` (the route ends at or in
+       it) keeps it, counted ``taxi_route_touch``.  ``routes=None``
+       disarms.
+
     THE REFUSAL IS RECORDED, NEVER SILENT (owner RULINGS 2026-10-02v
     (3)).  ``refused``, when a list, collects one row per rule-9/10
     refusal — ``{"id", "gate", "value", "area_m2", "length_m",
@@ -533,6 +550,10 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "post_bridged": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
+              # K1 (kord-trench-frame-spec): nothing above its own grade
+              "below_grade": 0,
+              # 2026-11-19k (2): a taxi route passes over / meets it
+              "taxi_route_over": 0, "taxi_route_touch": 0,
               "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0,
               # owner RULINGS 2026-10-19w: under the bar but floating
               "slope_padded": 0}
@@ -580,6 +601,17 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             _refuse(refused, counts, "no_tall_base", c,
                     "min_tall_base_fill", ev.tall_base_fill, None, ev)
             continue
+        # K1 (kord-trench-frame-spec) — A BUILDING RISES ABOVE ITS OWN
+        # GRADE.  Asked before rule 10's vouch: a vouch says a building is
+        # NEAR, never that a slab wholly under the ground is one (a road
+        # bed, a trench floor, a pit, a retaining wall)
+        if (admission is not None and ev is not None
+                and float(getattr(admission, "above_grade_min_m", 0.0)) > 0.0
+                and float(getattr(ev, "tallest_extent_m", 0.0))
+                < float(admission.above_grade_min_m)):
+            _refuse(refused, counts, "below_grade", c, "above_grade_min_m",
+                    float(getattr(ev, "tallest_extent_m", 0.0)), None, ev)
+            continue
         ps: list[Polygon] = []
         for r in (getattr(c, "rings", ()) or ()):
             if len(r) < 3:
@@ -623,6 +655,18 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                 counts["under_min_m2"] += 1
                 continue
             counts["slope_padded"] += 1
+        # rule 9b (owner RULINGS 2026-11-19k (2)) — A TAXI ROUTE NEVER
+        # CROSSES A BUILDING: a 1202 route passing over the closed outline
+        # says the ground is a deck's or a trench frame's; no vouch admits
+        # it.  A route ending at or inside it (a hangar door) keeps it.
+        if routes is not None:
+            _rk, _rin = routes.read(u)
+            if _rk == "over":
+                _refuse(refused, counts, "taxi_route_over", c, "taxi_route",
+                        _rin, u, ev)
+                continue
+            if _rk:
+                counts["taxi_route_touch"] += 1
         # rule 10 — NO BUILDING, NO PAD.  Asked on the CLOSED outline so
         # the OSM half reads the same polygon the pad would have been.
         if (admission is not None and ev is not None

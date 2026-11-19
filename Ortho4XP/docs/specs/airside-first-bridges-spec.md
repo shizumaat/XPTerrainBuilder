@@ -10,10 +10,10 @@ crossings become our decks (19p).
 
 | # | stage | what happens to a generated deck |
 |---|-------|----------------------------------|
-| 1 | planar, FULL map | the deck is derived: one per carried taxi/runway route, a parallelogram whose sides run along the route and whose ends are the cut's crests (parallel to the road); WIDTH = the route's width class, taxiway + shoulders (`[deck_gen] width_by_class_m`, ICAO Annex 14 §3.9.3 / §3.10.1), never the pack pavement or the cut |
+| 1 | planar, FULL map | the deck is derived (`planar/deck_width`): one per taxi route (apt.dat 1202, grouped by name) across the pavement over the cut, a parallelogram whose sides run along the route and whose ends are the cut's crests (parallel to the road), each end run on to meet the pavement (`[deck_gen] end_reach_m`); WIDTH = the route's width class, taxiway + shoulders (`[deck_gen] width_by_class_m`, ICAO Annex 14 §3.9.3 / §3.10.1), never the pack pavement or the cut. The pack pavement over the cut beside the deck is opened with its ring (`approach`); decks of parallel taxiways over one road closer than the road's two ramps at its grade cap are ONE cut (`deck_gen_pairs._pair_gap_m`); the deck's cut is never a survey keep-out (`survey_deck_cut`: the lidar floor is read, the region C is not drawn) |
 | 2 | planar, STAGE-1 map (`model/stage_one.from_full`) | the deck is WITHHELD (`planar/deck_airside`): no deck record, no ring cut, no deck ground, no survey keep-out, no bore under it; its ring is FILLED with the carried route's pavement role (the taxiway spans the road on its own grade law) and its covered roads are covered ground (`planar/covered_ground`: the bare-earth trench is masked out of `Vertex.dem_z`) |
 | 3 | stage 1 solve | the airside levels: the NO-BRIDGE SOLVE. Stage 1 is derived whenever the full map carries a generated deck, ribbons or not |
-| 4 | between the stages (`stage2_rewrite`) | per deck, the DECK SURFACE (`constraints/deck_surface`): a Coons patch of the stage-1 levels along its four ring edges (exact on each edge). Every full-map airside vertex on or inside a generated ring that has no stage-1 twin is FIXED at that surface (`stage2_fixed`); every floor pin under the deck drops to `min(planar floor (lidar road), surface min - thickness - clearance)` |
+| 4 | between the stages (`stage2_rewrite`, `constraints/deck_floor_follow`) | per deck, the DECK SURFACE: a Coons patch (`geom/coons_patch`) of the stage-1 levels along its four ring edges (exact on each edge; a ring stage 1 carried no pavement under reads the full map's stage-1 levels on it, else stage 1's TIN round it). FIXED (`stage2_fixed`): every full-map airside vertex on or in the ring the coordinate join left without a level (the patch), the abutment crest under each end (the patch; never a road's or the cut's own vertex), and every other unmapped airside vertex within the deck's reach -- ring and opened pavement grown by `floor_min_m / [tunnel] ramp_max_grade` -- at stage 1's TIN. FREED (`stage2_free`): every ground vertex on or in the ring the join had fixed. FLOOR: every floor pin drops to `min(planar floor (lidar road), surface min - floor_min_m)` (slab + design clearance) |
 | 5 | stage 2 solve | the cut, its banks and the roads in it, with every airside vertex a constant: the carve can never move airside |
 | 6 | publication / object stage | the deck record carries the four edge profiles (absolute m) and its axis; `airport/deck_objects` draws the top as the same Coons patch, so each end is flush by construction; the kerb (lip) runs on the edges parallel to the route only |
 
@@ -21,8 +21,9 @@ crossings become our decks (19p).
 
 * full map -> stage 1: `PlanarMap.decks` (generated ones withheld by
   `deck_airside.withheld`), the full map's anchors (generated ones carry no pin).
-* stage 1 -> rewrite: `StageOne.levels1` (stage-1 ids -> solved level) and
-  `StageOne.pm` (its vertices on each ring).
+* stage 1 -> rewrite: `StageOne.solved` (stage-1 ids -> solved level, set by
+  `solve/design_stage.stage_one_on`) and `StageOne.pm`; stage 1's own map
+  carries `PlanarMap.withheld_rings` (every trend over it reads them blind).
 * rewrite -> stage 2: `stage2_fixed {full vid: z}`; the moved floor pins.
 * rewrite -> publication: `DesignReport.reach_seed["generated_tops"]`
   (`{deck id: {"a": [[t, z]...], "b": ..., "s0": ..., "s1": ...}}`).
@@ -64,3 +65,20 @@ certified airports (no generated deck) identical.
 Build-time impact: one stage-1 derive at an airport whose classification has
 no ribbon but a generated deck; a Coons evaluation per deck vertex in the
 rewrite (milliseconds).
+
+## 6. The measurement arm
+
+`tools/v2_solve_replay.py --no-bridge` (`planar/deck_airside.no_bridge_arm`):
+the FULL map withholds its generated decks too (filled rings, no cut, no
+deck), its stage 1 identical to the plain replay's.  The 19s bar is
+`tools/airside_value_delta.py ARM.osm PLAIN.osm`, solve-owned frame.
+
+## 7. Not done in this round (lbridge2)
+
+* The designed carve where no bore runs under the deck (KBNA: the public
+  roads under taxiway L get no bore/corridor in the patch; the ground under
+  the deck is the mesh's lidar) -- the embankment-vs-wall rule and the road
+  ramp back to terrain at its grade cap (rail 1.25 %) are not built there.
+* Embankments: the existing generated-deck bank (`model/deck_bank`,
+  1V:1.5H via `constraints/edge_deck` span/blend rows) stands where a bore
+  cuts under the deck; no new wall rule.

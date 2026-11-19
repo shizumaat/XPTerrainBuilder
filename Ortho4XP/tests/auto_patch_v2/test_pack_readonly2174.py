@@ -9,10 +9,9 @@ import stat
 import threading
 import time
 
-import pytest
-
 import O4_File_Lock as FL
 import O4_UI_Utils as UI
+import pytest
 from auto_patch import object_rebake as OR
 from auto_patch_v2.airport import pack_access as PA
 from auto_patch_v2.airport import pack_lock as PL

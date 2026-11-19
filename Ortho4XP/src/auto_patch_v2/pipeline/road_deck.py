@@ -35,12 +35,9 @@ import typing as _t
 
 from shapely.geometry import LineString
 
+from .generated_publication import _ll
+
 __all__ = ["road_deck_records"]
-
-
-def _ll(to_ll, pts) -> list[list[float]]:
-    return [[round(float(lo), 9), round(float(la), 9)]
-            for la, lo in (to_ll(float(x), float(y)) for x, y in pts)]
 
 
 def _end(axis: LineString, end: int, w: float) -> list[tuple[float, float]]:

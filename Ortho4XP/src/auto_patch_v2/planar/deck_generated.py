@@ -541,9 +541,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                        [p for p in packs if p.object_id not in over], law,
                        why_of, [r.parent or r.line for r in under]) or refused_pack
         if over and not why:
+            clear = float(law.tables.structures.bridge.clearance_minimum_m)
             notes.append(f"{where}: the pack's {', '.join(sorted(over))} stand(s) over the "
-                         f"crossing (top {float(law.tables.structures.bridge.clearance_minimum_m):g}"
-                         f" m or more over the pavement): no refusal (#2181 item 2)")
+                         f"crossing (top {clear:g} m or more over the pavement): no refusal "
+                         f"(#2181 item 2)")
         if why:
             notes.append(f"{where}: REFUSED -- {why}")
             continue

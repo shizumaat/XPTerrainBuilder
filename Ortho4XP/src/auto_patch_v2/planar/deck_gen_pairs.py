@@ -51,17 +51,17 @@ import typing as _t
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
-__all__ = ["one_cut", "one_bridge", "riders", "rider_gap_m", "pair_gap_m"]
+__all__ = ["one_cut", "one_bridge", "riders"]
 
 
-def pair_gap_m(a, b, law) -> float:
+def _pair_gap_m(a, b, law) -> float:
     """The widest gap two decks are one cut across (rule 1): their banks'
     runs, each floor's depth over the bank slope under a bridge."""
     from ..model.deck_bank import deck_bank_slope
     return (float(a.floor_min_m) + float(b.floor_min_m)) / deck_bank_slope(law)
 
 
-def rider_gap_m(law) -> float:
+def _rider_gap_m(law) -> float:
     """The widest gap a road bridge rides a deck across: two rings each
     ``[deck_gen] edge_margin_m`` outside their pavement meet (rule 2)."""
     return 2.0 * float(law.tables.structures.deck_gen.edge_margin_m)
@@ -111,7 +111,7 @@ def one_cut(decks: _t.Sequence, roads: _t.Sequence, law,
     for i in range(len(decks)):
         for j in range(i + 1, len(decks)):
             a, b = rings[i], rings[j]
-            gap, gap_max = a.distance(b), pair_gap_m(decks[i], decks[j], law)
+            gap, gap_max = a.distance(b), _pair_gap_m(decks[i], decks[j], law)
             if gap <= 0.0 or gap > gap_max:
                 continue
             both = [(ln, w) for ln, w in lines if ln.intersects(a) and ln.intersects(b)
@@ -147,7 +147,7 @@ def riders(piece: Polygon, carried, covered_ids: _t.AbstractSet[str],
     ``covered_ids`` the ids of the roads it covers; ``bridges`` the
     generated road bridge records (``Airport.road_bridges``)."""
     g = law.tables.structures.deck_gen
-    lim = rider_gap_m(law)
+    lim = _rider_gap_m(law)
     ids: list[str] = []
     notes: list[str] = []
     grown = [piece]

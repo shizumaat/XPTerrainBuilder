@@ -45,6 +45,7 @@ from shapely.geometry import Polygon
 
 from . import deck_objects as _objs
 from . import deck_pavement as _pav
+from . import deck_ride as _ride
 from . import deck_texture as _tex
 from . import dsf_row_hide as _hide
 from .deck_obj8 import DECK_MARK
@@ -77,7 +78,7 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     decks = list((generated or {}).get("decks") or ())
     bridges = list((generated or {}).get("road_bridges") or ())
     out: dict = {"decks": [], "regions": [], "chains": [], "files": {}, "notes": [],
-                 "hides": []}
+                 "hides": [], "deck_tops": []}
     if not decks and not bridges:
         return out
     # owner 2026-11-17 (KPHX): a pack placement that only fakes the cut
@@ -109,6 +110,8 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
                                       runway=runway)
         rel = str(d["resource"])
         frame = st["frame"]
+        # RULINGS 2026-11-19c: the pack's placements on the deck ride its top
+        out["deck_tops"].append(_ride.deck_top(d, frame, st["top_y"]))
         for orel, text in objs:
             out["files"][orel] = text.encode("ascii")
             out["decks"].append({"object_id": d["object_id"] + orel[len(rel) - 4:-4],
@@ -169,11 +172,14 @@ def regions_of(rec: _t.Mapping) -> list[Polygon]:
 
 
 def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
-               splits: _t.Sequence = ()) -> tuple[str, dict]:
+               splits: _t.Sequence = (), pack_root: str = "") -> tuple[str, dict]:
     """The DSF dump ``text`` with the recipe applied (module doc): pages
     clipped by every region, every deck placed, every chain added, every
     hidden placement dropped -- as its bodies where ``splits`` (the plan's
-    ``Split`` rows) wrote it split (#2167).  Returns ``(text, counts)``."""
+    ``Split`` rows) wrote it split (#2167) -- and every pack placement left
+    standing on a deck seated on its top (``deck_ride``, RULINGS
+    2026-11-19c; ``pack_root`` reads the models and object strings).
+    Returns ``(text, counts)``."""
     from . import dsf_additions as _add
     from . import dsf_poly_clip as _clip
     counts = {"pages_cut": 0, "lines_cut": 0, "area_removed_m2": 0.0, "decks": 0,
@@ -198,6 +204,8 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
         # (``pack_overlap_choice.overlap_hides``)
         text, counts["overlap_hidden"] = _hide.hide_rows(
             text, _hide.through_splits(rec["overlap_hides"], splits))
+    text, ride, _rides = _ride.ride_text(text, rec.get("deck_tops") or (), pack_root)
+    counts.update(ride)
     for d in rec.get("decks") or ():
         text, _idx = _add.add_object(text, d["resource"], float(d["lon"]), float(d["lat"]),
                                      float(d["msl"]), float(d["hdg"]))
@@ -276,6 +284,7 @@ def record(backup_sha: str, rec: _t.Mapping, counts: _t.Mapping, stamp: str) -> 
             # #2140: the faked-cut placements hidden ride the record too,
             # so a write that keeps it (``recorded``) still hides them
             "hides": list(rec.get("hides") or ()),
+            "deck_tops": list(rec.get("deck_tops") or ()),
             "files": sorted(set((rec.get("files") or {}).keys())
                             | set((rec.get("links") or {}).keys())
                             | set(rec.get("kept_files") or ())),
@@ -292,4 +301,4 @@ def recorded(entry: _t.Mapping, backup_sha: str) -> dict:
         return {}
     return {"decks": r.get("decks") or [], "regions": r.get("regions") or [],
             "chains": r.get("chains") or [], "hides": r.get("hides") or [],
-            "files": {}, "kept_files": r.get("files") or []}
+            "deck_tops": r.get("deck_tops") or [], "files": {}, "kept_files": r.get("files") or []}

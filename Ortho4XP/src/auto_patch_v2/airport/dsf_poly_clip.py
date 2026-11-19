@@ -34,7 +34,7 @@ from shapely.geometry.polygon import orient
 
 from . import apt_dat as _apt
 
-__all__ = ["UvMappedPage", "ClipReport", "clip_text"]
+__all__ = ["UvMappedPage", "ClipReport", "clip_text", "blocks", "flatten", "point_row"]
 
 UV_PARAM = 65535
 
@@ -60,7 +60,7 @@ def _pseudo_row(t: list[str], bezier: bool) -> list[str]:
     return ["111", t[2], t[1]]
 
 
-def _flatten(points: list[list[str]], closed: bool,
+def flatten(points: list[list[str]], closed: bool,
              bezier: bool) -> list[tuple[float, float]]:
     rows = [_pseudo_row(t, bezier) for t in points]
     n = len(rows)
@@ -74,12 +74,12 @@ def _flatten(points: list[list[str]], closed: bool,
     return out
 
 
-def _point(lon: float, lat: float, ncoords: int) -> str:
+def point_row(lon: float, lat: float, ncoords: int) -> str:
     xy = f"{lon:.9f} {lat:.9f}"
     return f"POLYGON_POINT {xy} {xy}" if ncoords >= 4 else f"POLYGON_POINT {xy}"
 
 
-def _blocks(lines: list[str]) -> _t.Iterator[tuple[int, int, list[str], list[list[list[str]]]]]:
+def blocks(lines: list[str]) -> _t.Iterator[tuple[int, int, list[str], list[list[list[str]]]]]:
     """``(start, end, header tokens, windings)`` per ``BEGIN_POLYGON``."""
     i = 0
     while i < len(lines):
@@ -109,7 +109,7 @@ def clip_text(text: str, region: Polygon,
     pages = n_lines = 0
     area = length = 0.0
     k = math.cos(math.radians(region.centroid.y)) * 111320.0 ** 2
-    for start, end, head, wind in _blocks(lines):
+    for start, end, head, wind in blocks(lines):
         path = defs[int(head[1])]
         if not wanted(path) or not wind or not wind[0]:
             continue
@@ -119,12 +119,12 @@ def clip_text(text: str, region: Polygon,
         # (param 65535), 4 = u v and 8 = bezier + u v
         bezier = ncoords >= 8 if (param == UV_PARAM and not is_line) else ncoords >= 4
         if is_line:
-            pts = _flatten(wind[0], param == 1, bezier)
+            pts = flatten(wind[0], param == 1, bezier)
             if param == 1:
                 pts = pts + pts[:1]
             g = LineString(pts) if len(pts) >= 2 else None
         else:
-            rings = [_flatten(w, True, bezier) for w in wind]
+            rings = [flatten(w, True, bezier) for w in wind]
             g = (Polygon(rings[0], [r for r in rings[1:] if len(r) >= 3])
                  if len(rings[0]) >= 3 else None)
             if g is not None and not g.is_valid:
@@ -144,14 +144,14 @@ def clip_text(text: str, region: Polygon,
             if is_line:
                 new.append(f"BEGIN_POLYGON {head[1]} 0 {ncoords}")
                 new.append("BEGIN_WINDING")
-                new += [_point(x, y, ncoords) for x, y in p.coords]
+                new += [point_row(x, y, ncoords) for x, y in p.coords]
                 new.append("END_WINDING")
             else:
                 p = orient(p, 1.0)
                 new.append(f"BEGIN_POLYGON {head[1]} {head[2]} {ncoords}")
                 for ring in (p.exterior, *p.interiors):
                     new.append("BEGIN_WINDING")
-                    new += [_point(x, y, ncoords) for x, y in list(ring.coords)[:-1]]
+                    new += [point_row(x, y, ncoords) for x, y in list(ring.coords)[:-1]]
                     new.append("END_WINDING")
             new.append("END_POLYGON")
         out += lines[pos:start] + new

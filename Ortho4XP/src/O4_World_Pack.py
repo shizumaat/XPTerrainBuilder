@@ -28,8 +28,10 @@ Publishing a build (spec §7.3): :func:`_stage_tile` lays the build folder
 out in the pack's shape under a staging folder -- textures hard-linked,
 ``.ter`` references and DSF definitions given the tile subfolder by a
 BINARY rewrite (``O4_DSF_Binary``; no DSFTool) -- :func:`verify_tile`
-checks it, :func:`publish` swaps it in unless X-Plane may hold the tile
-(then it stays staged, rule S3/S4; :func:`swap_staged` retries).
+checks it, :func:`publish` swaps it in unless the caller's ``loaded``
+keeps it staged (:func:`swap_staged` retries): the build-ahead and flight
+jobs keep rule S3/S4, a Build-tab publish waits only while X-Plane is
+loading the tile (RULINGS 2026-11-19e, ``o4_engine.xplane_open_files``).
 
 Placeholders are written in pure Python (:func:`write_placeholder`,
 :func:`write_placeholders`): the bytes DSFTool writes, verified against

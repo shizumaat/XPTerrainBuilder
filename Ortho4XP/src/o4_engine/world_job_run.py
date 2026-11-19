@@ -419,7 +419,8 @@ class _PackPublisher:
             self._pending.pop(tile, None)
             if held and not WP.nothing_held(pack, lat, lon):
                 return "staged"             # S4: a real tile X-Plane holds
-            with FOLLOW.paused("world swap", tiles=[WP.tile_name(lat, lon)]):
+            with PUBLISH.SWAP_LOCK, FOLLOW.paused(
+                    "world swap", tiles=[WP.tile_name(lat, lon)]):
                 if merge:
                     _merge_held(pack, staged, lat, lon)
                 else:

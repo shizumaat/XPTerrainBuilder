@@ -239,7 +239,9 @@ struct BuildPane: View {
                          exportPackage: {
                              TilePackageModel.shared.startExport([active], build: buildModel)
                          },
-                         remove: { await buildModel.removeFromWorldPack(active) })
+                         remove: { await buildModel.removeFromWorldPack(active) },
+                         tilesWaiting: buildModel.worldTilesWaiting,
+                         reloadScenery: { buildModel.reloadScenery() })
             // The elevation the tile was built with, before Imagery (#2033;
             // the Qt pane: the same row): the build's record, else the
             // cfg's pinned file.

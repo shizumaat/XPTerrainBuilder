@@ -1,0 +1,9 @@
+{
+ "event": "WorldTilesWaiting",
+ "waiting": [
+  "+41-088"
+ ],
+ "reload": [
+  "+45+007"
+ ]
+}

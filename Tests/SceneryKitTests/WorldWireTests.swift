@@ -78,6 +78,24 @@ import Foundation
         #expect(O4WorldMigrateText.measuredAgo(3 * 86400) == "Measured 3 days ago")
     }
 
+    @Test func worldTilesWaitingDecodesThePythonEvent() throws {
+        // #2175: the shared fixture `world/world_tiles_waiting_event.json`
+        // (test_world_staged_sweep.py writes the same JSON).
+        let url = Self.fixtures.appendingPathComponent("world/world_tiles_waiting_event.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        guard case .worldTilesWaiting(let waiting) = try #require(O4Event.parse(object: object)) else {
+            Issue.record("WorldTilesWaiting did not decode as .worldTilesWaiting")
+            return
+        }
+        #expect(waiting == O4WorldTilesWaiting(waiting: ["+41-088"], reload: ["+45+007"]))
+        #expect(O4WorldStateText.waitingNote(tile: "+41-088", waiting)
+                == "+41-088 is waiting for X-Plane to finish loading it")
+        #expect(O4WorldStateText.waitingNote(tile: "+45+007", waiting)
+                .hasPrefix("+45+007 is in the World pack"))
+        #expect(O4WorldStateText.waitingNote(tile: "+45+008", waiting).isEmpty)
+    }
+
     @Test func worldStatusDecodesThePythonEvent() throws {
         let url = Self.fixtures.appendingPathComponent("world/world_status_event.json")
         let object = try #require(

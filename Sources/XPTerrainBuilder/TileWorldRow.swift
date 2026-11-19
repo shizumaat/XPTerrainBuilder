@@ -7,8 +7,11 @@ import SceneryKit
 /// imagery", who made it and where its own files live — and, for a real
 /// tile, Rebuild Tile (its rebuild inputs, even when the tiles folder
 /// holds only those), Export Package… and Remove from World Pack… (its
-/// package first, then the placeholder; confirmed first). Hidden when the
-/// World pack holds nothing of the tile.
+/// package first, then the placeholder; confirmed first). A built tile
+/// waiting for X-Plane to finish loading it, or in over the version X-Plane
+/// loaded, says so, the latter with "Reload scenery" (#2175,
+/// `O4WorldStateText.waitingNote`). Hidden when the World pack holds
+/// nothing of the tile and nothing waits.
 struct TileWorldRow: View {
     let coord: BuildModel.TileCoord
     let world: O4WorldTile?
@@ -17,17 +20,33 @@ struct TileWorldRow: View {
     let exportPackage: () -> Void
     /// Remove it from the World pack; the note to show.
     let remove: () async -> String
+    /// The engine's last `WorldTilesWaiting` (nil: none yet).
+    var tilesWaiting: O4WorldTilesWaiting? = nil
+    /// The user's "Reload scenery" (`scenery_reload`).
+    var reloadScenery: () -> Void = {}
 
     @State private var note: String?
     @State private var confirming = false
 
     var body: some View {
         let status = O4WorldStateText.paneStatus(world)
-        if !status.isEmpty {
+        let waiting = O4WorldStateText.waitingNote(tile: coord.key, tilesWaiting)
+        if !status.isEmpty || !waiting.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
-                Text(status)
-                    .scaledFont(.caption, weight: .semibold)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !status.isEmpty {
+                    Text(status)
+                        .scaledFont(.caption, weight: .semibold)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !waiting.isEmpty {
+                    Text(waiting)
+                        .scaledFont(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if tilesWaiting?.reload.contains(coord.key) == true {
+                        Button(O4OnDemandText.reloadSceneryTitle) { reloadScenery() }
+                            .controlSize(.small)
+                    }
+                }
                 let detail = O4WorldStateText.paneDetail(world)
                 if !detail.isEmpty {
                     Text(detail)

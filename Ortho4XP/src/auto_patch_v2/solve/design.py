@@ -301,6 +301,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         free2 = frozenset(seed_rep.pop("stage2_free", None) or ())
         if free2:
             fixed2 = {v: z for v, z in levels.items() if v not in free2}
+        # RULINGS 2026-11-19s (1): the airside vertices round a generated deck
+        # the coordinate join left without a stage-1 level take the no-bridge
+        # surface there (``constraints/deck_floor_follow``)
+        extra2 = seed_rep.pop("stage2_fixed", None)
+        if extra2:
+            fixed2 = {**fixed2, **{int(v): float(z) for v, z in extra2.items()}}
         # the caller's rewrite re-reads the set it was BOUND to (the un-
         # yielded one): a pin stage 1 RELEASED stays released in stage 2
         # (lane ``joinyield128``: HECA v28332 was re-pinned 0.32 m off the

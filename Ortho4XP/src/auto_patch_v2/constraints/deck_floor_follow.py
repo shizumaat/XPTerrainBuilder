@@ -1,61 +1,192 @@
-"""THE FLOOR UNDER A GENERATED DECK FOLLOWS THE DECK AS SOLVED (owner
-2026-11-17 18:30Z: "Be sure the cut goes all the way under anywhere we add
-a bridge"; spec 2123 A1 Q6).
+"""THE CARVE UNDER A GENERATED DECK TAKES THE NO-BRIDGE AIRSIDE AS GIVEN
+(owner RULINGS 2026-11-19s (1)-(2); ``docs/specs/airside-first-bridges-
+spec.md`` section 1 row 4; spec 2123 A1 Q6).
 
-A generated deck's floor (``planar/deck_generated``) stands ``thickness_m +
-[tunnel] clearance_m`` under its top.  The planar stage sets it from the
-deck's PRE-SOLVE estimate (``DeckBridge.deck_z``, the survey beside its end
-lines) and ``constraints/structures`` pins every datum station at it (the
-ladder floor, #2072 B1: the solve has nothing to trade between the floor and
-airside).  The airside solve then puts the end lines where the routes make
-them feasible -- MEASURED ESSA ``o4gen_95e0e654``: ends 28.68 / 28.97, the
-floor pinned 23.25 from an estimate of 29.39, 0.53 m shallow.
+Stage 1 solves the airside with no generated bridge (``planar/
+deck_airside``: the deck withheld, its ring filled with the carried
+pavement).  Between the two stages (``solve_design``'s ``stage2_rewrite``)
+each generated deck of the full map reads that answer ONCE:
 
-The end lines are stage 1 columns, constants of stage 2 (``constraints/
-deck_anchor``: a taxi deck's stations are held rigid in the airside solve).
-So between the two stages (``solve_design``'s ``stage2_rewrite``) each
-generated deck's floor pins move to ``min(end level - its depth)`` over the
-deck's end lines, read off stage 1's levels -- never higher than the planar
-floor (a deeper pin stands: the deck solved higher than estimated keeps its
-clearance).  A pack hard deck's floor is the object's own and stays.
-Pure: a new set, the original untouched; no generated deck, no change.
-Nothing here names an airport.
+* ITS TOP is the stage-1 pavement over its ring -- a Coons patch of the
+  stage-1 levels along the ring's four edges (``geom/coons_patch``), exact
+  on each edge, so both ends are flush by construction at any slope;
+* every full-map AIRSIDE vertex on or inside the ring the coordinate join
+  left without a stage-1 level is FIXED at that patch (``stage2_fixed``),
+  and every vertex the join fixed there that the full map does not carry
+  as airside (the deck's ground, the bank's crest under the ring's sides)
+  is stage 2's to solve (``stage2_free``): the carve never moves airside;
+* its FLOOR pins (``constraints/edge_floor.DECK_FLOOR``) drop to the
+  deeper of the planar floor (the lidar road) and the deck's underside
+  less the road's clearance: ``patch low - floor_min_m`` (the slab plus
+  ``structure_approach.design_clearance_m``), never higher (19s (2)).
+
+The patches go to the object stage (``pipeline/generated_publication``)
+through the design report (``reach_seed["generated_tops"]``).  A pack
+hard deck's floor is the object's own and stays.  Pure: a new set, the
+original untouched; no generated deck, no change.  Nothing here names an
+airport.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
-import statistics
 import typing as _t
 
+from ..geom.coons_patch import CoonsPatch, edge_profiles
 from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]
 
+#: a vertex this near a ring (m) stands on it: the planar build snaps a
+#: vertex to its identity lattice (``law.tables.snap_margin_m``, 0.35 m) and
+#: welds a boundary to a pavement edge within ``weld_spacing_m``
+_ON_RING_M = 0.6
 
-def _floor_targets(pm, levels: _t.Mapping[int, float]) -> dict[str, float]:
-    """Per generated deck id: ``min(end level - end depth)`` over its end
-    lines' stations as stage 1 solved them."""
-    from ..model.structures import is_generated
-    decks = {d.object_id: d for d in getattr(pm, "decks", ()) or () if is_generated(d)}
-    out: dict[str, float] = {}
-    for a in getattr(pm, "deck_anchors", ()) or ():
-        d = decks.get(a.object_id)
-        zs = [float(levels[s]) for s in a.stations if s in levels]
-        if d is None or not zs:
-            continue
-        depth = d.depth_a if a.end == "a" else d.depth_b
-        t = statistics.median(zs) - float(depth)
-        out[a.object_id] = min(out.get(a.object_id, t), t)
+
+@_dc.dataclass(frozen=True)
+class _StageTwo:
+    """What the rewrite hands stage 2 (module doc)."""
+
+    report: dict
+    fixed: dict = _dc.field(default_factory=dict)
+    free: frozenset = frozenset()
+    tops: dict = _dc.field(default_factory=dict)
+
+    def stage_two(self, rep: _t.Mapping) -> dict:
+        """The keys the caller's rewrite report takes: this report, and the
+        ``stage2_fixed`` / ``stage2_free`` / ``generated_tops`` that
+        ``solve_design`` and the publication read (``stage2_free`` joined
+        with what ``rep`` already frees)."""
+        out: dict = {"deck_floor_follow": self.report}
+        if self.fixed:
+            out["stage2_fixed"] = dict(self.fixed)
+        if self.free:
+            out["stage2_free"] = frozenset(rep.get("stage2_free") or ()) | self.free
+        if self.tops:
+            out["generated_tops"] = dict(self.tops)
+        return out
+
+
+def _deck_frame(db) -> "tuple[tuple, tuple, tuple] | None":
+    """``(o, u, w)``: the deck ring as the parallelogram ``o + s u + t w``
+    -- ``s = 0`` its end A (the edge nearest ``seats_a``), ``u`` along its
+    sides to end B, ``w`` along end A.  A ring of other than four corners
+    reads its least rotated rectangle; ``None`` for no ring."""
+    from shapely.geometry import MultiPoint, Point, Polygon
+    if len(getattr(db, "ring", ()) or ()) < 3:
+        return None
+    poly = Polygon(db.ring).buffer(0.0).simplify(0.05)
+    if poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    pts = list(poly.exterior.coords)[:-1]
+    if len(pts) != 4:
+        pts = list(poly.minimum_rotated_rectangle.exterior.coords)[:-1]
+    if len(pts) != 4:
+        return None
+    sa = getattr(db, "seats_a", ()) or ()
+    ca = MultiPoint([tuple(p) for p in sa]).centroid if sa else Point(pts[0])
+    from shapely.geometry import LineString
+    i = min(range(4), key=lambda k: LineString([pts[k], pts[(k + 1) % 4]]).distance(ca))
+    c0, c1, c3 = pts[i], pts[(i + 1) % 4], pts[(i + 3) % 4]
+    return (c0, (c3[0] - c0[0], c3[1] - c0[1]), (c1[0] - c0[0], c1[1] - c0[1]))
+
+
+def _samples(pm, levels: _t.Mapping[int, float], ring) -> list[tuple[float, float, float]]:
+    """``(x, y, z)`` of every ``pm`` vertex with a level on or inside ``ring``."""
+    from shapely.geometry import Point
+    from shapely.prepared import prep
+    near = prep(ring.buffer(_ON_RING_M))
+    out = []
+    for v, z in levels.items():
+        vx = pm.vertices.get(v) if isinstance(pm.vertices, dict) else pm.vertices[v]
+        if vx is not None and near.contains(Point(vx.xy)):
+            out.append((float(vx.xy[0]), float(vx.xy[1]), float(z)))
     return out
 
 
-def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float]) -> tuple[_t.Any, dict]:
-    """``(cs with each generated deck's floor pins lowered to the floor its
-    solved end lines need, the report)`` (module doc)."""
-    target = _floor_targets(pm, levels)
-    rep: dict = {"decks": 0, "pins": 0, "max_drop_m": 0.0}
-    if not target:
-        return cs, rep
+def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
+    """``(the deck's top, the samples read)`` (module doc): stage 1's levels
+    along its ring, else the full map's (no stage-1 map: the end lines'
+    stations alone)."""
+    from ..planar.deck_bridge import deck_polygon
+    fr = _deck_frame(db)
+    if fr is None:
+        return None, 0
+    ring = deck_polygon(db)
+    solved = getattr(stage1, "solved", None) if stage1 is not None else None
+    smp = _samples(stage1.pm, solved, ring) if solved else []
+    got = edge_profiles(*fr, smp, tol=_ON_RING_M) if smp else None
+    if got is None:
+        # stage 1 carried no pavement over the ring (a pack structure kept
+        # the fill out): the full map's own airside on it, at stage 1's levels
+        smp = _samples(pm, levels, ring)
+        got = edge_profiles(*fr, smp, tol=_ON_RING_M)
+    return got, len(smp)
+
+
+def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, law=None
+                         ) -> tuple[_t.Any, _StageTwo]:
+    """``(cs with the generated decks' floor pins moved, _StageTwo)``
+    (module doc).  ``levels``: stage 1's levels on the full map's ids;
+    ``stage1``: the stage-1 problem (``pipeline/stage_one_map.StageOne``,
+    duck-typed: ``.pm`` and ``.solved``), ``law`` for the airside set."""
+    from shapely.geometry import Point
+    from shapely.prepared import prep
+
+    from ..model.structures import is_generated
+    from ..planar.deck_bridge import deck_polygon
+    rep: dict = {"decks": 0, "pins": 0, "max_drop_m": 0.0, "fixed": 0, "freed": 0,
+                 "floor": {}, "top_low": {}, "ring_off": {}, "samples": {}}
+    decks = [d for d in getattr(pm, "decks", ()) or () if is_generated(d)]
+    if not decks:
+        return cs, _StageTwo(rep)
+    from ..model.platform import stage_air_vertices
+    air = stage_air_vertices(pm, law) if law is not None else set()
+    # a road's and the cut's own vertices are never the abutment's crest
+    from ..emit.graded import FLOOR_ROLES
+    from ..law.tables import family
+    low = set(FLOOR_ROLES) | (set(family(law, "road_cross_section").roles)
+                              if law is not None else set())
+    fixed: dict[int, float] = {}
+    free: set[int] = set()
+    tops: dict[str, dict] = {}
+    target: dict[str, float] = {}
+    for d in decks:
+        patch, n_smp = _patch(d, stage1, pm, levels)
+        if patch is None:
+            rep.setdefault("no_top", {})[d.object_id] = n_smp
+            continue
+        tops[d.object_id] = {"o": list(patch.o), "u": list(patch.u), "w": list(patch.w),
+                             **patch.as_record()}
+        target[d.object_id] = patch.low() - float(d.floor_min_m)
+        rep["top_low"][d.object_id] = round(patch.low(), 3)
+        rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
+        near = prep(deck_polygon(d).buffer(_ON_RING_M))
+        lu = max(1e-9, (patch.u[0] ** 2 + patch.u[1] ** 2) ** 0.5)
+        for v, vx in pm.vertices.items():
+            if not near.contains(Point(vx.xy)):
+                continue
+            s_, _t = patch.st(*vx.xy)
+            on_end = min(abs(s_), abs(s_ - 1.0)) * lu <= _ON_RING_M \
+                and not low & {pm.faces[f].role for f in vx.incident_faces}
+            if v in air and v in levels:
+                # the join's own level against the patch: the deck's flushness
+                off = abs(float(levels[v]) - patch.z(*vx.xy))
+                rep["ring_off"][d.object_id] = round(max(off, rep["ring_off"].get(
+                    d.object_id, 0.0)), 3)
+            if (v in air and v not in levels) or (on_end and v not in air):
+                # the airside the join missed, and the abutment's crest under
+                # each end: the deck's level (flush by construction)
+                fixed[v] = round(patch.z(*vx.xy), 6)
+            elif v in levels and v not in air:
+                free.add(v)
+    rep["fixed"], rep["freed"] = len(fixed), len(free)
+    cs2 = _floor_pins(pm, cs, target, rep)
+    return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
+
+
+def _floor_pins(pm, cs, target: _t.Mapping[str, float], rep: dict):
+    """``cs`` with each generated deck's floor pins at ``min(pin, target)``;
+    ``rep`` takes the counts and each deck's floor."""
     deck_of = {tn.id: getattr(tn, "deck_bridge", "") for tn in getattr(pm, "structures", ()) or ()}
     by_tn: dict[str, float] = {}
     for p in cs.pins:
@@ -63,10 +194,15 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float]) -> tuple[_t.Any
             tid = p.source.inputs[0]
             if deck_of.get(tid) in target:
                 by_tn[tid] = max(by_tn.get(tid, -float("inf")), float(p.z))
+    for tid, z in by_tn.items():
+        oid = deck_of[tid]
+        floor = min(z, target[oid])
+        cur = rep["floor"].get(oid)
+        rep["floor"][oid] = round(floor if cur is None else min(cur, floor), 3)
     drop = {tid: target[deck_of[tid]] - z for tid, z in by_tn.items()
             if target[deck_of[tid]] < z - 1e-6}
     if not drop:
-        return cs, rep
+        return cs
     pins = []
     for p in cs.pins:
         tid = p.source.inputs[0] if p.source.ruling == DECK_FLOOR and p.source.inputs else None
@@ -76,4 +212,4 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float]) -> tuple[_t.Any
         pins.append(p)
     rep["decks"] = len({deck_of[t] for t in drop})
     rep["max_drop_m"] = round(-min(drop.values()), 3)
-    return _dc.replace(cs, pins=tuple(pins)), rep
+    return _dc.replace(cs, pins=tuple(pins))

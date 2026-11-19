@@ -62,7 +62,7 @@ def start(cl, derive, pm_channels, out: _t.Callable[[str], None]) -> "Ahead | No
     pass's map after its target channels, or ``None`` (said through ``out``
     unless ``cl`` has no stage-1 map of its own)."""
     from .stage_one_map import stage_one_classification
-    split = stage_one_classification(cl)
+    split = stage_one_classification(cl, pm_channels)
     if split is None:
         return None
     why = _ahead.may_start("build")

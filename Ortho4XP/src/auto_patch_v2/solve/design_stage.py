@@ -246,6 +246,9 @@ def stage_one_on(stage1: _t.Any, law: Law, solve1: _t.Callable, yield_heads
             d["clamps"] = [[to(c[0]), *c[1:]] for c in d.get("clamps") or ()
                            if to(c[0]) is not None]
     levels = {j: z for v, z in levels1.items() if (j := to(v)) is not None}
+    # RULINGS 2026-11-19s (1): a generated deck takes stage 1's own levels
+    # along its ring (``constraints/deck_floor_follow``)
+    stage1.solved = dict(levels1)
     s1_read = frozenset(j for j in map(to, read1) if j is not None)
     released = [dict(r, v=to(r["v"]), v_stage1=int(r["v"]))
                 for r in yielded1 if to(r["v"]) is not None]

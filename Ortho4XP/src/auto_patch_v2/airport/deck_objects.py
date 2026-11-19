@@ -121,7 +121,12 @@ def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     centre = [[f0.to_local(lo, la) for lo, la in d.points] for d in dropped
               if int(d.line or 0) in _CENTRE_TYPES or int(d.light or 0) in _CENTRE_LIGHTS]
     route = [[f0.to_local(lo, la) for lo, la in rec.get("route") or ()]]
-    d = _chord(centre, R0) or _chord(route, R0)
+    axis = [f0.to_local(lo, la) for lo, la in rec.get("axis") or ()]
+    # RULINGS 2026-11-19s (4) (b): the deck's own axis (its sides, along the
+    # taxiway it carries) first -- a dropped line crossing the deck turned
+    # KBNA's frame and its lip ran round every edge
+    d = ((axis[1][0] - axis[0][0], axis[1][1] - axis[0][1]) if len(axis) == 2 else None) \
+        or _chord(centre, R0) or _chord(route, R0)
     if d is not None and d[0] * (bx - ax) + d[1] * (bz - az) < 0.0:
         d = (-d[0], -d[1])
     dx, dz = d if d is not None else (bx - ax, bz - az)
@@ -130,9 +135,21 @@ def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
 
 
 def _top_fn(rec: _t.Mapping, frame: DeckFrame):
-    """``top_y(x, z)``: the deck's one plane in the object frame -- level
-    across the A->B line, ``top_a`` at end A rising to ``top_b`` at end
-    B, plus ``top_lift_m`` (the object's zero is the deck's zero)."""
+    """``top_y(x, z)``: the deck's top in the object frame, plus
+    ``top_lift_m`` over the deck's zero: the published SURFACE (RULINGS
+    2026-11-19s (1): the pavement stage 1 solved over the ring, a Coons
+    patch exact on every edge, ``geom/coons_patch``), else one plane --
+    level across the A->B line, ``top_a`` at end A rising to ``top_b``."""
+    sf = rec.get("surface")
+    if sf:
+        from ..geom.coons_patch import CoonsPatch
+        o = frame.to_local(*sf["o"])
+        ou, ow = frame.to_local(*sf["ou"]), frame.to_local(*sf["ow"])
+        patch = CoonsPatch(o, (ou[0] - o[0], ou[1] - o[1]), (ow[0] - o[0], ow[1] - o[1]),
+                           *(tuple((float(q), float(zz)) for q, zz in sf[k])
+                             for k in ("a", "b", "s0", "s1")))
+        zero, lift_s = float(rec["zero_m"]), float(rec.get("top_lift_m", 0.02))
+        return lambda x, z: patch.z(x, z) - zero + lift_s
     a = frame.to_local(*_mean(rec["seats_a"]))
     b = frame.to_local(*_mean(rec["seats_b"]))
     dx, dz = b[0] - a[0], b[1] - a[1]

@@ -29,11 +29,17 @@ THE RING (spec A2; #2131): ``C`` = the covered roads' carriageways, a
 level floor ``shoulder_m`` beyond each edge and the bank's run to the crest
 (:func:`_cut_reach`); ``R`` = (``P`` ∩ ``C`` ⊕ ``bearing_m``) ⊕ ``edge_margin_m``
 (mitred), ``P`` the taxi/runway pavement.  Each connected piece of ``R``
-is one deck.  Its END LINES are where the pavement runs onto it
-(``airside_deck_seat.facing_contacts``, the pack deck's own reading).
-THE TOP is one plane: level across the route, tilted along it by the DEM
-just outside the end lines, clamped to ``tilt_cap_share`` of the family's
-longitudinal cap.  THE FLOOR stands ``thickness_m + [tunnel]
+is cut into ONE DECK PER TAXI ROUTE across it at the route's class width,
+taxiway plus shoulders (owner RULINGS 2026-11-19s (3) (b), (4) (c);
+``planar/deck_width``).  Its END LINES are where the pavement runs onto it
+(``airside_deck_seat.facing_contacts``, the pack deck's own reading; else
+its own ends, ``deck_width.route_ends``).  THE PRE-SOLVE TOP (``top_a`` /
+``top_b``, the planar consumers' estimate) is one plane: level across the
+route, tilted along it by the DEM just outside the end lines, clamped to
+``tilt_cap_share`` of the family's longitudinal cap; the BUILT top is the
+no-bridge airside over the ring (RULINGS 2026-11-19s (1): stage 1 withholds
+the deck, ``planar/deck_airside``; ``constraints/deck_floor_follow`` reads
+the surface).  THE FLOOR stands ``thickness_m + [tunnel]
 clearance_m`` under the top (Q6) -- 4.2 m (``[bridge] clearance_minimum_m``)
 over a small road (owner 2026-11-17T19:08Z, ``structure_approach.
 design_clearance_m``).
@@ -506,6 +512,12 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             float(g.edge_margin_m), join_style="mitre"), ribbons, g), aero)
     roles = CellRoles(classification, airport)
     surface = types.SimpleNamespace(roles=roles)
+    from ..law.tables import rolled_on_roles
+    from .deck_width import route_ends
+    _rolled = rolled_on_roles(law)
+
+    def pave(r) -> bool:
+        return bool(r) and r in _rolled
     to_xy, to_ll = airport.frame.transformers()
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     refused_pack = _pack_refusal(airport)
@@ -519,10 +531,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         own = re.compile(re.escape(oid) + r"(?![0-9])")
         return next((n for n in deck_notes if own.search(n)), "")
     out: list[DeckBridge] = []
-    for piece in sorted(getattr(R, "geoms", [R]), key=lambda q: -q.area):
-        if piece.geom_type != "Polygon" or piece.area < float(g.min_area_m2):
-            continue
-        piece = Polygon(piece.exterior).simplify(0.05)
+    for piece in _route_pieces(R, roads, airport, law, notes,
+                               lambda xy: pave(roles.at_xy(xy))):
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
         if not under:
             continue
@@ -562,8 +572,12 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         def ends_of(pc, road_dir=road_dir):
             pairs = facing_contacts([to_ll(x, y) for x, y in pc.exterior.coords[:-1]],
                                     surface, step, every=True)
-            return _end_pair(pairs, road_dir, to_xy, _routes_across(airport, pc)) \
+            got = _end_pair(pairs, road_dir, to_xy, _routes_across(airport, pc)) \
                 if pairs else None
+            # a deck at its class width inside a wider pavement meets pavement
+            # all round: its ends are its own edges along the road
+            return got if got is not None else route_ends(pc, road_dir, roles.at_xy, pave,
+                                                          step, to_ll)
         pair = ends_of(piece)
         for frac in (0.75, 0.5, 0.25, 0.0) if pair is None else ():
             # #2131: the carried pavement ends inside the bank's reach (a
@@ -626,6 +640,27 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                                for f in fakes))
     out, pair_notes = one_cut(out, mapped, law, lambda tags: _reach_of(tags, law))
     return tuple(out), notes + pair_notes
+
+
+def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None) -> list[Polygon]:
+    """Each piece of ``R`` (the pavement over the cut) as ONE DECK PER
+    TAXI ROUTE across it, at the route's class width (owner RULINGS
+    2026-11-19s (3) (b), (4) (c); ``planar/deck_width``) -- never the
+    pavement's width; a piece no taxi route crosses (a runway's) as read."""
+    from .deck_width import route_decks
+    g = law.tables.structures.deck_gen
+    out: list[Polygon] = []
+    for piece in sorted(getattr(R, "geoms", [R]), key=lambda q: -q.area):
+        if piece.geom_type != "Polygon" or piece.area < float(g.min_area_m2):
+            continue
+        piece = Polygon(piece.exterior).simplify(0.05)
+        under = [r for r in roads if r.line.intersection(piece).length > 1.0]
+        decks = route_decks(piece, _mean_dir([r.line.intersection(piece) for r in under]),
+                            airport, law, pave_at)
+        c = piece.centroid
+        notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for _p, n in decks]
+        out += [p for p, _n in decks if p.area >= float(g.min_area_m2)] or [piece]
+    return out
 
 
 def _carried_level(airport, piece: Polygon) -> "float | None":

@@ -182,6 +182,11 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                     tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
                                _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law)))
+        if all(is_generated(e.deck) for e in es):
+            # RULINGS 2026-11-19s (1): a generated deck's end lines are stage
+            # 1's no-bridge pavement, constants of stage 2 -- no station or
+            # rigid row holds them (``constraints/deck_floor_follow``)
+            continue
         held = _held_levels(planar, oid, es)
         for g in groups:
             idx = [i for i, q in enumerate(plates) if q == g]

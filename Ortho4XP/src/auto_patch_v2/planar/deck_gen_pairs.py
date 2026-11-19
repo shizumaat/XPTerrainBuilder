@@ -56,9 +56,16 @@ __all__ = ["one_cut", "one_bridge", "riders"]
 
 def _pair_gap_m(a, b, law) -> float:
     """The widest gap two decks are one cut across (rule 1): their banks'
-    runs, each floor's depth over the bank slope under a bridge."""
+    runs, each floor's depth over the bank slope under a bridge -- and,
+    the decks of two parallel taxiways (owner RULINGS 2026-11-19s (3): "two
+    parallel taxiways have to have a minimum gap between them which always
+    leave a gap between two bridges with the cut running straight
+    through"), the road's two ramps at its grade cap: closer than that the
+    road between them never regains the ground, the cut runs on."""
     from ..model.deck_bank import deck_bank_slope
-    return (float(a.floor_min_m) + float(b.floor_min_m)) / deck_bank_slope(law)
+    depth = float(a.floor_min_m) + float(b.floor_min_m)
+    cap = float(law.tables.structures.tunnel.ramp_max_grade)
+    return max(depth / deck_bank_slope(law), depth / cap if cap > 0.0 else 0.0)
 
 
 def _rider_gap_m(law) -> float:

@@ -58,6 +58,11 @@ def deck_end_flush(p: Patch) -> list[Row]:
     # RULINGS 2026-11-18i (b): one per END LINE of a graded span
     by_obj: dict[tuple[str, int, str], list] = {}
     for r in recs:
+        if r.get("witness") == "generated":
+            # RULINGS 2026-11-19s (1): a generated deck's top IS the solved
+            # pavement over its ring (``geom/coons_patch``): flush by
+            # construction, never one plane to be read against
+            continue
         by_obj.setdefault((str(r.get("object")), int(r.get("plate") or 0),
                            str(r.get("end")) if r.get("graded") else ""), []).append(r)
     out: list[Row] = []

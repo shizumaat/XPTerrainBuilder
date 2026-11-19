@@ -292,6 +292,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                          if t_ids & set(db.members)], law)
         tunnel_ways += g_ways
         stats.hard_decks.extend(g_notes)
+    # RULINGS 2026-11-19s (1): no road is bored under a generated deck stage
+    # 1 withholds (``planar/deck_airside``): the carve is stage 2's
+    from .deck_airside import drop_bores, withheld
+    tunnel_ways, _n_held = drop_bores(tunnel_ways, withheld())
+    if _n_held:
+        stats.hard_decks.append(f"{_n_held} bore(s) under withheld generated deck(s) "
+                                f"dropped from stage 1's map (RULINGS 2026-11-19s (1))")
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
     # it yields to a level seed's passage (§19 S1, ``level_seeds``)

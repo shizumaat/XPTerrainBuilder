@@ -48,11 +48,25 @@ def _roads(db, law, to_ll) -> list[dict]:
             for _id, tags, coords in getattr(db, "covered", ()) or () if len(coords) >= 2]
 
 
-def generated_records(planar, law, airport, z, offers=()) -> dict[str, list]:
+def _surface(top: dict, to_ll) -> dict:
+    """A deck's top (``constraints/deck_floor_follow``'s record, frame
+    metres) in lon/lat: the corner ``o``, the corners ``o + u`` (end B) and
+    ``o + w`` (along end A), and the four profiles (absolute metres)."""
+    o, u, w = top["o"], top["u"], top["w"]
+    corners = _ll(to_ll, [o, (o[0] + u[0], o[1] + u[1]), (o[0] + w[0], o[1] + w[1])])
+    return {"o": corners[0], "ou": corners[1], "ow": corners[2],
+            **{k: [[round(float(q), 6), round(float(zz), 4)] for q, zz in top[k]]
+               for k in ("a", "b", "s0", "s1")}}
+
+
+def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str, list]:
     """``{"decks": [...], "road_bridges": [...]}`` -- empty lists where
     the airport generated none (module doc) -- and, for an airport drawn
     by Global Airports alone, ``"offer"``: one note per structure refused
-    only for that (#2169), which ``gateway_stage`` offers to install."""
+    only for that (#2169), which ``gateway_stage`` offers to install.
+    ``tops``: each deck's top as stage 1 solved the pavement under it
+    (RULINGS 2026-11-19s (1); ``reach_seed["generated_tops"]``) -- the
+    object's top IS that surface, its zero the surface's lowest level."""
     from ..planar.deck_generated import is_generated
     _to_xy, to_ll = airport.frame.transformers()
     g = law.tables.structures.deck_gen
@@ -60,14 +74,20 @@ def generated_records(planar, law, airport, z, offers=()) -> dict[str, list]:
     for db in getattr(planar, "decks", ()) or ():
         if not is_generated(db):
             continue
-        zero = _zero(planar, law, db, z)
+        top = (tops or {}).get(db.object_id)
+        surface = _surface(top, to_ll) if top is not None else None
+        zero = min(zz for k in ("a", "b", "s0", "s1") for _q, zz in surface[k]) \
+            if surface is not None else _zero(planar, law, db, z)
         if zero is None:
             continue
         decks.append({
+            **({"surface": surface, "axis": [surface["o"], surface["ou"]]}
+               if surface is not None else {}),
             "object_id": db.object_id, "resource": db.resource,
             "ring": _ll(to_ll, db.ring), "seats_a": _ll(to_ll, db.seats_a),
             "seats_b": _ll(to_ll, db.seats_b),
-            "top_a": round(float(db.top_a), 4), "top_b": round(float(db.top_b), 4),
+            "top_a": 0.0 if surface else round(float(db.top_a), 4),
+            "top_b": 0.0 if surface else round(float(db.top_b), 4),
             "zero_m": round(float(zero), 4), "family": db.family,
             "route": _ll(to_ll, db.route), "road": _ll(to_ll, db.road),
             "approach": [_ll(to_ll, q) for q in getattr(db, "approach", ()) or ()],

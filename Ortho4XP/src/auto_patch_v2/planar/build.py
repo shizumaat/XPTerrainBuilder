@@ -403,10 +403,20 @@ def build(airport: Airport, classification: Classification, law: Law,
             covered=roads_under([b for t in takes for b in t.bridges], airport, law))
         gen, tk_notes = attach(gen, takes, law)
         decks, deck_notes = tuple(decks) + gen, [*deck_notes, *gen_notes, *tk_notes]
-    # a generated deck carries its airside pavement on both maps (A3)
+    # owner RULINGS 2026-11-19s (1): stage 1 solves the airside with NO
+    # generated bridge -- its decks withheld, their rings filled with the
+    # pavement they carry (``planar/deck_airside``); the full map builds them
+    from .deck_airside import fill_rings, withheld
+    held_back = withheld()
+    if held_back:
+        _held = {d.object_id for d in held_back}
+        decks = tuple(d for d in decks if d.object_id not in _held)
+        classification, fill_notes = fill_rings(classification, held_back, law)
+        deck_notes = [*deck_notes, *fill_notes]
+    # a generated deck carries its airside pavement on the full map (A3)
     classification, cut_notes = carried_off(classification, decks, law)
     # the pads and walls read off the pack placements it hides are no ground
-    classification, hid_notes = hidden_cells_off(classification, decks)
+    classification, hid_notes = hidden_cells_off(classification, (*decks, *held_back))
     deck_notes = list(deck_notes) + cut_notes + hid_notes
     # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
     # of the deck mouths are formed here, before the structure pass
@@ -625,7 +635,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     for _line in _cp_lines(airport.icao, in_cut):
         print(f"  [planar] {_line}")
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects, bridges, decks, in_cut)
+                                              objects, bridges, (*decks, *held_back), in_cut)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads

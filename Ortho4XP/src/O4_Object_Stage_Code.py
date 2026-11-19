@@ -366,6 +366,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.base_slab",
     "auto_patch_v2.geom.centreline",
     "auto_patch_v2.geom.cluster_outline",
+    "auto_patch_v2.geom.coons_patch",
     "auto_patch_v2.geom.diameter",
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.grid_pickle",

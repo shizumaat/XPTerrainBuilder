@@ -467,6 +467,10 @@ class StageOne:
     state: dict                #: its capture-state record
     vmap: dict = _dc.field(default_factory=dict)   #: ribbon-free vid -> full vid
     unmapped: int = 0          #: ribbon-free vertices the full map lacks
+    #: stage 1's solved levels on ITS ids (``solve/design_stage.stage_one_on``):
+    #: the no-bridge pavement a generated deck takes (``constraints/
+    #: deck_floor_follow``)
+    solved: dict = _dc.field(default_factory=dict)
     report: dict = _dc.field(default_factory=dict)
     #: the FULL map's registries (:meth:`bind`): stage 1's hold report is
     #: carried into them at every :meth:`scope` exit
@@ -558,14 +562,20 @@ class StageOne:
         return _dc.replace(pm_full, fronting_vertices=fv, fronting_ref=fref)
 
 
-def stage_one_classification(cl) -> tuple | None:
+def stage_one_classification(cl, full=None) -> tuple | None:
     """``(cl0, cl_b, cl_r)``: the classification stage 1 is derived on
     (main's pad set, :func:`base_pad_map`, then no ribbon,
     :func:`ribbon_free`) and the two steps' own results, or ``None`` when
-    ``cl`` carries no ribbon and no 19w pad."""
+    ``cl`` carries no ribbon and no 19w pad -- unless ``full`` (the full
+    map) carries a GENERATED deck: stage 1 is then the no-bridge airside
+    on ``cl`` itself (RULINGS 2026-11-19s (1), ``planar/deck_airside``)."""
     cl_b = base_pad_map(cl)
     cl_r = ribbon_free(cl_b if cl_b is not None else cl)
     cl0 = cl_r if cl_r is not None else cl_b
+    if cl0 is None and full is not None:
+        from ..model.structures import is_generated
+        if any(is_generated(d) for d in getattr(full, "decks", ()) or ()):
+            return (cl, None, None)
     return None if cl0 is None else (cl0, cl_b, cl_r)
 
 
@@ -582,7 +592,7 @@ def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
     (``model/stage_one.from_full``, deck redesign §1).  ``split``: what
     :func:`stage_one_classification` already gave for ``cl`` (the build's
     stage 1 run ahead, ``pipeline/stage_one_ahead``)."""
-    split = stage_one_classification(cl) if split is None else split
+    split = stage_one_classification(cl, full) if split is None else split
     if split is None:
         return None
     cl0, cl_b, cl_r = split

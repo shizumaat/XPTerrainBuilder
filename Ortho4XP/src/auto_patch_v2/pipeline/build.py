@@ -705,11 +705,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lv1 = dict(lv)
         door, bands, pref = blend_release(pm, law, airport, lv, cs)
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
-        # a generated deck's floor follows its end lines as stage 1 solved them
-        cs2, rep["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
-        if rep["deck_floor_follow"]["pins"]:
-            _say(f"[{icao}] generated deck floor follows its end lines: "
-                 f"{rep['deck_floor_follow']}", out)
+        # RULINGS 2026-11-19s: a generated deck takes the no-bridge airside
+        # as given -- its top, its fixed ring and its floor
+        cs2, s2 = floor_follow_rewrite(pm, cs2, lv1, _s1, law)
+        rep.update(s2.stage_two(rep))
+        if s2.report["fixed"] or s2.report["pins"] or s2.tops:
+            _say(f"[{icao}] generated decks take the no-bridge airside (RULINGS "
+                 f"2026-11-19s): {s2.report}", out)
         if bands:
             cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
         rep["door_blend"] = door

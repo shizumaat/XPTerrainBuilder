@@ -279,9 +279,12 @@ def _takeovers(objects, cache, classification, airport, law, ground=None, trench
         # our decks carry the taxiways and runways
         left = [p for p in fr if p.family != "road" and not _taken(p, polys, a_min)]
         if left:
+            # the probe's own refusals name why (a frame kept is a read to check)
+            why = [n for n in _gn if "REFUSED" in n]
             notes.append(f"{where}: KEPT -- no generated deck takes its bridge(s) "
                          + ", ".join(f"{deck_polygon(p).area:,.0f} m2" for p in left)
-                         + " (owner 2026-11-19T13:51Z)")
+                         + " (owner 2026-11-19T13:51Z)"
+                         + "".join(f"; probe: {n}" for n in why[:4]))
             continue
         placed = [by_id[m] for m in db.members if m in by_id]
         out.append(_Takeover(db.object_id, db.resource,

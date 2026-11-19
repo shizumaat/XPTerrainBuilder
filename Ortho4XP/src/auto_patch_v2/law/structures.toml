@@ -1800,6 +1800,8 @@ tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of
 tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line
 level_probe_m     = 30.0    # A2: ... out to this far: the ground beside the road's cut is the highest DEM there (a bare-earth DEM reads the cut under the bridge)
 min_area_m2       = 50.0    # a smaller deck piece is not generated
+width_by_class_m  = { A = 10.5, B = 13.5, C = 25.0, D = 34.0, E = 38.0, F = 44.0 }  # owner RULINGS 2026-11-19s (4) (c) ("match the width of the taxiway + a shoulder"; planar/deck_width): a generated deck's width across its route by the route's apt.dat 1202 width class -- C-F the ICAO Annex 14 §3.10.1 taxiway-plus-shoulders width (config ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M), A/B the §3.9.3 taxiway width (7.5 / 10.5 m) plus shoulder_m each side
+end_reach_m       = 10.0    # owner RULINGS 2026-11-19s (planar/deck_width._reach): a generated deck's end runs on along its route until the airport's pavement meets it across most of its width (a deck over a pack's hole spans it, pavement to pavement, #2183 item 4), at most this far (m)
 pack_structure_depth_m = 2.0  # A1 (2) "the pack always wins" (owner 2026-11-17, planar/deck_pack_cover): a pack placement reaching deeper than this under its own ground is a STRUCTURE; an up-facing face within it is a TOP. A structure AND a top over the covered road refuse the generated deck (the pack models the crossing); a cut with no top, or a top with no structure, does not
 pack_cover_share  = 0.5     # ... a top runs over the road when it covers at least this share of the covered roads' axis inside the deck piece
 lod_m             = 6000.0  # A2: draw distance

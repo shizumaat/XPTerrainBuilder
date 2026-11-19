@@ -109,8 +109,12 @@ def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
     the ground the carried route runs on.  A cut's faces are the ones whose
     point stands inside its rim path (``Tunnel.wall_path``), else within
     its half width and rim stand-off of its axis."""
-    out = [tuple(tuple(p) for p in db.ring) for db in getattr(pm, "decks", ()) or ()
-           if len(db.ring) >= 3]
+    # RULINGS 2026-11-19s (1): a generated deck stage 1 withholds
+    # (``planar/deck_airside``) is a window too -- the taxiway spans the
+    # trench on its own grade law, the bare-earth DEM never reaches it
+    from ..planar.deck_airside import withheld
+    out = [tuple(tuple(p) for p in db.ring)
+           for db in (*(getattr(pm, "decks", ()) or ()), *withheld()) if len(db.ring) >= 3]
     cuts = [tn for tn in getattr(pm, "structures", ()) or () if getattr(tn, "deck_bridge", "")]
     for tn in cuts:
         fp = tuple(getattr(tn, "footprint", ()) or ())
@@ -312,13 +316,10 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
                            cut=cut.get(line, "none"), line=line, plate=plate,
                            graded=graded)
             a = _judge(a, rows, vw, law, rws.get(rwid), senior, yielding)
-            # spec 2123: a GENERATED deck keeps its pin on the window-blind
-            # profile (the runway deck's reading): a bare-earth DEM reads
-            # the road's cut under it, and the free level sank into it
-            # (MEASURED ESSA replay l2123a/a3: U2 deck 3.6 m under its
-            # taxiway's trend, its floor 3 m under the deck)
-            out.append(a if any(getattr(e[3], "witness", "") == "generated"
-                                 for e in ends) else _solved_level(a))
+            # a taxi deck's level is the airside solve's; a GENERATED deck's
+            # is stage 1's no-bridge pavement (RULINGS 2026-11-19s (1)): it
+            # pins nothing, its record is published at the solved level
+            out.append(_solved_level(a))
     return tuple(_one_per_vertex(out))
 
 

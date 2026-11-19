@@ -451,7 +451,8 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            # decks and road bridges the object stage writes
                            "generated": generated_records(
                                pm, law, airport, sol.z,
-                               getattr(lrep, "generated_offers", ()))})
+                               getattr(lrep, "generated_offers", ()),
+                               (design_rep.reach_seed or {}).get("generated_tops"))})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,

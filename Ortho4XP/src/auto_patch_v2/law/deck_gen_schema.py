@@ -11,6 +11,7 @@ still loads -- the ``[walled_plate]`` precedent.
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 
 __all__ = ["DeckGenLaw", "RoadGenLaw"]
 
@@ -45,6 +46,15 @@ class DeckGenLaw:
     level_probe_m: float = 30.0
     #: a deck piece smaller than this is not generated (m2)
     min_area_m2: float = 50.0
+    #: owner RULINGS 2026-11-19s (4) (c): a deck's width across its route
+    #: by the route's apt.dat 1202 width class (m; ``planar/deck_width``):
+    #: C-F ICAO Annex 14 §3.10.1 taxiway plus shoulders, A/B §3.9.3 taxiway
+    #: plus ``shoulder_m`` each side
+    width_by_class_m: _t.Mapping[str, float] = _dc.field(default_factory=lambda: {
+        "A": 10.5, "B": 13.5, "C": 25.0, "D": 34.0, "E": 38.0, "F": 44.0})
+    #: ... and its end runs on along the route until the airport's pavement
+    #: meets it (a pack's hole spanned pavement to pavement), at most this (m)
+    end_reach_m: float = 10.0
     #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
     #: placement deeper than this under its own ground is a STRUCTURE; an
     #: up-facing face within it is a TOP; both over the road refuse (m)

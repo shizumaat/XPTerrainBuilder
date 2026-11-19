@@ -1551,6 +1551,11 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         edited = _dh.cover_row_elevations(edited)
         # ... and a seat is stored at its nearest quantum, never floored
         edited = _dh.nearest_row_elevations(edited)
+        # a row DSFTool would refuse fails the whole file: named here, never encoded
+        refused_rows = _dh.refused_rows(edited)
+        if refused_rows:
+            raise ValueError(f"{len(refused_rows)} object row(s) the encoder "
+                             f"cannot place, first {refused_rows[0]}")
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)

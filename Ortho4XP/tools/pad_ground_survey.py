@@ -53,9 +53,16 @@ def _refresh_facades(airport, inputs):
     if any(getattr(b.facade, "base_m", None) is not None for b in airport.buildings
            if getattr(b, "facade", None) is not None):
         return airport, 0
-    lib = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
-        if getattr(inputs, "mod_cache_root", "") and getattr(inputs, "xplane_root", "") else ""
-    index = _obj8.read_library_index(lib) if lib else None
+    import os
+    xp = getattr(inputs, "xplane_root", "") or ""
+    index = None
+    # the capture's own mod cache, else this checkout's (a capture taken in
+    # another lane's worktree names a cache that is gone)
+    for root in (getattr(inputs, "mod_cache_root", "") or "", str(ROOT / "Airport_mod_cache")):
+        lib = _obj8.library_index_path(root, xp) if root and xp else ""
+        if lib and os.path.isfile(lib):
+            index = _obj8.read_library_index(lib)
+            break
     root = airport.pack.pack_root if airport.pack is not None else None
     out, n = [], 0
     for b in airport.buildings:

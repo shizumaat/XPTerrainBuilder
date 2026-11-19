@@ -569,6 +569,10 @@ class DeckBridge:
     #: (``planar/deck_bridge._beyond_stretches``): its floor is the piece's,
     #: its mouth where the frame's floor ends.  ``()`` for every other deck
     beyond: tuple = ()
+    #: #2181 item 1: the generated road bridges (``Airport.road_bridges``
+    #: ids) a GENERATED deck carries on its edge (``planar/deck_gen_pairs.
+    #: riders``) -- built as part of the deck, never on their own
+    riders: tuple = ()
 
     @property
     def depth_a(self) -> float:

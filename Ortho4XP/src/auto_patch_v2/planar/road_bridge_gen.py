@@ -47,7 +47,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -142,6 +142,11 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
     tn = law.tables.structures.tunnel
     dem = getattr(airport, "dem", None)
     from .road_bridge_pack import PackRoads, pack_provides
+    from .deck_generated import _approach_run_m
+    from .structure_underpass import aeroway_decks
+    aero = [(LineString(a.points), carriageway_width_m(a.tags, law) / 2.0)
+            for a in aeroway_decks(airport, law)]
+    run = _approach_run_m(law)
     roads = PackRoads(airport, mod_cache_root)
     _to_xy, to_ll = airport.frame.transformers()
     out: list[dict] = []
@@ -153,8 +158,6 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         if carriage.area <= 0.0:
             continue
         cover = carriage.intersection(P).area / carriage.area
-        if cover < float(rg.page_cover_frac):
-            continue
         lay = max(_layer(w.tags), 1)
         crossed = []
         for j in tree.query(line, predicate="crosses"):
@@ -165,9 +168,21 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
             if not (_layer(t) < lay or str(t.get("tunnel", "no")) in tn.admitted_values):
                 continue
             x = line.intersection(lines[int(j)])
-            pts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Point"]
+            # a road leaving the bridge's own END is its approach, never a
+            # road under it (MEASURED KIAH -1318: service -1482 runs on from
+            # its north end and read as a lower road)
+            pts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Point"
+                   and min(q.distance(Point(line.coords[0])),
+                           q.distance(Point(line.coords[-1]))) > _JOIN_END_M]
             if pts:
                 crossed.append((str(o.id), lines[int(j)], pts[0], t))
+        into = None
+        if cover < float(rg.page_cover_frac):
+            # #2181 item 3 / #2183 item 5: no pack page draws it, but a lower
+            # road it crosses runs into a taxiway bridge's cut
+            into = _into_deck_cut(crossed, lines, tree, aero, run, law)
+            if into is None:
+                continue
         # #2141 item 5: the clearance is the survey's ends on their
         # embankments and the lower roads cut by the rest (road_bridge_clear)
         plan = clearance_plan(airport, law, w, line, crossed)
@@ -206,11 +221,13 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         ground = span_cuts(airport, law, line, plan.levels, crossed, span)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
                     "_line_xy": plan.chain or line, "_span_xy": span, "half_m": half,
+                    "into": into,
                     "cover": round(cover, 3), "over": lower, "ground": ground,
                     "levels": plan.levels, "_axis_xy": line})
-        notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
-                     f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B); "
-                     f"{plan.note()}")
+        notes.append(f"{where}: " + (f"{100 * cover:.0f} % under pack pavement" if into is None
+                                     else f"over {into}")
+                     + f" over {', '.join(lower[:4])} -- GENERATED (spec 2123 B; a narrow flat "
+                       f"deck, #2183 item 5); {plan.note()}")
     return out, notes
 
 
@@ -251,6 +268,7 @@ def _road_bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                     # the deck line (``road_bridge_clear.deck_at``): the ends'
                     # levels on their embankments along the mapped axis
                     "levels": [round(float(v), 3) for v in b["levels"]],
+                    "half_m": round(float(b["half_m"]), 3),
                     "axis_xy": [[round(x, 3), round(y, 3)] for x, y in b["_axis_xy"].coords]})
     return tuple(out), notes
 
@@ -272,6 +290,43 @@ def attach_road_bridges(airport, law, notes: "list[str] | None" = None, objects=
     return _dc.replace(airport, road_bridges=tuple(bs),
                        osm_ways=_densified(getattr(airport, "osm_ways", ()) or (), bs))
 
+
+def _into_deck_cut(crossed, lines, tree, aero, run: float, law) -> "str | None":
+    """#2181 item 3 / #2183 item 5: the bridge crosses a lower road that
+    runs, within ``run`` (the generated cut's approach run,
+    ``deck_generated._approach_run_m``) of the crossing along its mapped
+    chain, under a mapped aeroway bridge (``aeroway_decks``) -- the road
+    the build cuts down to a taxiway deck's floor: the bridge over it is
+    built though no pack page draws it.  Names the crossing, or ``None``.
+    MEASURED KPHX ``-301`` / ``-302`` over motorways ``-1002`` / ``-2560``
+    64 / 60 m from taxiway bridges ``-96`` / ``-1259``; KIAH ``-1318``
+    over ``-59337`` 66 m from ``-373``."""
+    from shapely.geometry import Point
+    from shapely.ops import substring
+
+    from .deck_generated import _road_chain
+    if not aero:
+        return None
+    for oid, low, pt, tags in crossed:
+        # the road grown end to end through OSM's splits, whatever their
+        # length (a primary split 34 m short of the bridge runs on under it
+        # as a 185 m way: KIAH -59337 / -54869), read within ``run``
+        chain = _road_chain(low, lines, tree, 10.0 * run)
+        s = chain.project(Point(pt))
+        near = substring(chain, max(0.0, s - run), min(chain.length, s + run))
+        half = carriageway_width_m(tags, law) / 2.0
+        for a, a_half in aero:
+            # the lower road's carriageway reaches under the bridge's own
+            # (its mapped end may stop short of the aeroway's centreline)
+            if near.distance(a) <= half + a_half:
+                q = a.interpolate(a.project(near.centroid))
+                d = abs(chain.project(q) - s)
+                return f"lower road {oid}, {d:.0f} m from a taxiway bridge's cut"
+    return None
+
+
+#: a crossing this close to the bridge's mapped end is its own approach (m)
+_JOIN_END_M = 0.5
 
 #: a lower road under a cut ribbon carries a node at least this often (m)
 _DENSE_M = 2.0

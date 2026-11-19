@@ -36,7 +36,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY
 from ..law import Law
 from ..law.reference_code import ref_status, status_by_ref
-from ..law.tables import zone_edge_offset_m
+from ..law.tables import taxi_half_width_m, zone_edge_offset_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
@@ -275,8 +275,22 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # The cell states where the crossing is COVERED, which is the
         # footprint between its kerbs at each station of the way.
         ribbon, from_cell = _cell_ribbon(axis_fn, ss, offs, rim_off + grid, grid)
+        # #2183 item 4: where no airside cell stands under the bridge (the
+        # pack's hole under its own deck object) the ribbon is the TAXIWAY's
+        # -- the authority's default width (``taxi.width_m``), never a road's
+        # lanes fallback: its 7 m "carriageway" clipped every road to 1.4 m,
+        # under ``underpass_min_span_m`` (MEASURED KIAH ``-414`` over primary
+        # ``-5106``: 0 roads bored; ``-67``'s cells stood over ``-450`` only,
+        # ``-25635`` beside it in the hole unbored)
+        twy = taxi_half_width_m(law, None)
+        centre = ln.buffer(max(half_clip, (twy or 0.0) - rim_off - grid), **_MITRE)
         if ribbon is None:
-            ribbon = ln.buffer(half_clip, **_MITRE)
+            ribbon = centre
+        else:
+            air = [polys[k] for k, c in enumerate(cells)
+                   if c.role in cut_roles and polys[k].intersects(centre)]
+            hole = centre.difference(unary_union(air)) if air else centre
+            ribbon = unary_union([ribbon, hole]) if hole.area > 1.0 else ribbon
         pieces: list[tuple[OsmWay, LineString]] = []
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)

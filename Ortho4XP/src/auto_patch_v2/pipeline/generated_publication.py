@@ -77,8 +77,14 @@ def generated_records(planar, law, airport, z, offers=()) -> dict[str, list]:
             # #2132 the piers: the floor under the top and each covered road
             "floor_m": round(float(db.floor_min_m), 4),
             "roads": _roads(db, law, to_ll)})
-    bridges = [{k: v for k, v in dict(b).items() if k not in ("span_xy", "ground")}
-               for b in getattr(airport, "road_bridges", ()) or ()]
+    # #2183 item 5: a road bridge is a narrow flat deck, or rides a taxiway
+    # deck (#2181 item 1) -- never an X-Plane road chain
+    from .road_deck import road_deck_records
+    riding = {str(r) for db in getattr(planar, "decks", ()) or () if is_generated(db)
+              for r in getattr(db, "riders", ()) or ()}
+    road_decks, bridges = road_deck_records(getattr(airport, "road_bridges", ()) or (),
+                                            riding, law, airport)
+    decks += road_decks
     out: dict[str, list] = {"decks": decks, "road_bridges": bridges}
     if offers:
         out["offer"] = list(offers)

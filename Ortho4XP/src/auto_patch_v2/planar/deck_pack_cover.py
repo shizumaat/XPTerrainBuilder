@@ -67,7 +67,7 @@ from ..airport import frame_entry as _fe
 from ..airport import obj8 as _obj8
 from ..airport.object_cut import _face_normals_y
 
-__all__ = ["hidden_cells_off", "pack_decks_near", "pack_refusal", "faked_cuts"]
+__all__ = ["hidden_cells_off", "pack_decks_near", "pack_refusal", "faked_cuts", "overhead_decks"]
 
 _NONE = np.zeros(0, dtype=bool)
 _NONE_TRIS = np.zeros((0, 3), dtype=np.int64)
@@ -305,3 +305,27 @@ def _beside(piece: Polygon, packs: _t.Sequence[_PackDeck], law,
                     f"approach run {reach:g} m: the pack models the crossing "
                     f"(RULINGS 2026-11-17n)")
     return ""
+
+
+def overhead_decks(objects: _t.Sequence, region, level: "float | None", law) -> frozenset[str]:
+    """The pack hard decks over ``region`` whose rendered top
+    (``PlacedObject.deck_top_z``) stands ``[bridge] clearance_minimum_m``
+    or more over ``level`` -- the carried pavement's: they pass OVER the
+    crossing (a people-mover viaduct over the taxiway), never model it, so
+    they refuse no generated deck (#2181 item 2; MEASURED KPHX 33.434942,
+    -111.992308: ``SkyTrain.obj``'s guideway deck over taxiway bridge
+    ``-96`` refused the deck over the road under it)."""
+    if level is None or region is None or region.is_empty:
+        return frozenset()
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    out = set()
+    for o in objects or ():
+        hd, top = getattr(o, "hard_deck", None), getattr(o, "deck_top_z", None)
+        if hd is None or top is None or hd.is_empty:
+            continue
+        try:
+            if hd.intersects(region) and float(top) >= float(level) + clear:
+                out.add(str(o.id))
+        except shapely.errors.GEOSException:
+            continue
+    return frozenset(out)

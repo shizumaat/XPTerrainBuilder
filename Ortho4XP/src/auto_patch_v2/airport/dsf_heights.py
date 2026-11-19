@@ -139,8 +139,8 @@ def _row_elevations(text: str) -> tuple[float, float] | None:
 
 
 def cover_row_elevations(text: str) -> str:
-    """``text`` with its ``HEIGHTS`` base lowered to cover the lowest
-    elevated object row it carries, the quantum kept.
+    """``text`` with its ``HEIGHTS`` row moved to cover every elevated
+    object row it carries, the quantum kept where its span still reaches.
 
     ``--text2dsf`` encodes an elevation as ``base + quantum * q`` with
     ``q >= 0``, so a row below the base is refused — ``ERROR: could not
@@ -156,7 +156,14 @@ def cover_row_elevations(text: str) -> str:
     ``HEIGHTS 0.50000``, and a row the plan writes there (a body seated by
     its row) was encoded 0.27 m under its seat and refused by the round
     trip.  Where the quantum is coarser than :data:`_FINE_QUANTUM` the row
-    is ``GuessGoodHeights`` over the written rows themselves."""
+    is ``GuessGoodHeights`` over the written rows themselves.
+
+    1.0.564 (2026-11-19, a 2,348 m airport): a pristine with no elevated row pins
+    ``HEIGHTS 0.03125 0.0`` -- top 2,047.97 m -- and the rows the plan
+    seats at 2,348 m lay ABOVE it: refused, the whole write failed.  A row
+    over the top moves the base up to the whole metre under the lowest
+    row; where the quantum's span still cannot reach the highest row the
+    row is ``GuessGoodHeights`` over the written rows."""
     got = _row_elevations(text)
     if got is None:
         return text
@@ -177,13 +184,47 @@ def cover_row_elevations(text: str) -> str:
                 lines[i] = (f"HEIGHTS {scale / 65535.0:.5f} {offs:.1f}  "
                             f"# max encodeable {offs + scale:.5f}{eol}")
                 return "".join(lines)
-        if low >= base:
+        if base <= low and high <= base + quantum * 65535.0:
             return text
-        offs = float(math.floor(low))
-        lines[i] = (f"HEIGHTS {toks[1]} {offs:.1f}  # max encodeable "
+        offs, q_tok = float(math.floor(low)), toks[1]
+        if offs + quantum * 65535.0 < high:
+            scale, offs = _guess_good_heights(low, high, high - low)
+            q_tok = f"{scale / 65535.0:.5f}"
+            quantum = scale / 65535.0
+        lines[i] = (f"HEIGHTS {q_tok} {offs:.1f}  # max encodeable "
                     f"{offs + quantum * 65535.0:.5f}{eol}")
         return "".join(lines)
     return text
+
+
+def refused_rows(text: str) -> list[str]:
+    """The object rows ``--text2dsf`` would refuse with ``could not place
+    object`` -- which fails the WHOLE file -- read before the encode: an
+    elevated row outside the ``HEIGHTS`` row's encodable range
+    ``[base, base + quantum * 65535]``, or a heading outside ``[0, 360]``
+    (the object pools' heading plane).  Each as ``"line N: row"``."""
+    hq = None
+    bad: list[str] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if hq is None and _HEIGHTS_LINE.match(line) is not None:
+            toks = line.split()
+            try:
+                hq = (float(toks[2]), float(toks[2]) + float(toks[1]) * 65535.0)
+            except (IndexError, ValueError):
+                hq = (-math.inf, math.inf)
+            continue
+        if not line.startswith("OBJECT ") and not line.startswith(_ELEVATED):
+            continue
+        toks = line.split()
+        try:
+            hdg = float(toks[-1])
+            z = float(toks[4]) if line.startswith(_ELEVATED) else None
+        except (IndexError, ValueError):
+            continue
+        lo, hi = hq if hq is not None else (-math.inf, math.inf)
+        if not 0.0 <= hdg <= _HEADING_SPAN or (z is not None and not lo <= z <= hi):
+            bad.append(f"line {n}: {line.strip()}")
+    return bad
 
 
 #: the finest elevation quantum an overlay's object pools carry:
@@ -244,4 +285,4 @@ def nearest_row_elevations(text: str) -> str:
 
 
 __all__ = ["FINEST_QUANTUM_M", "cover_row_elevations", "nearest_row_elevations",
-           "on_finest_grid", "pin_heights", "pool_header"]
+           "on_finest_grid", "pin_heights", "pool_header", "refused_rows"]

@@ -700,6 +700,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
         "auto_patch_v2.geom.deck_ground",
+        "auto_patch_v2.geom.deck_spans",
         "auto_patch_v2.geom.diameter",
         "auto_patch_v2.geom.end_line",
         "auto_patch_v2.geom.exact",
@@ -821,6 +822,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_route",
         "auto_patch_v2.planar.deck_runout",
         "auto_patch_v2.planar.deck_skirt",
+        "auto_patch_v2.planar.deck_span_cut",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
@@ -2651,6 +2653,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    geom.deck_spans planar.deck_span_cut
     planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
@@ -2851,6 +2854,7 @@ CODE_MODULES["solve"] = _mods("""
     model.road_clearance
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    geom.deck_spans planar.deck_span_cut
     geom.channel_declared planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
@@ -3074,6 +3078,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.road_bridge_ceiling model.road_clearance
 """)
 CODE_MODULES["emit"] = _mods("""
+    geom.deck_spans planar.deck_span_cut
     airport.band_run
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
     planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim

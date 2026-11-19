@@ -25,18 +25,31 @@ def _ll(to_ll, pts) -> list[list[float]]:
             for la, lo in (to_ll(float(x), float(y)) for x, y in pts)]
 
 
-def _zero(planar, law, db, z) -> "float | None":
-    """The deck's zero: the solved surface at its end-line stations less
-    the top there (``rebake_inputs._deck_plate``'s reading)."""
+def _zero(planar, law, db, z) -> "tuple[float, float, float] | None":
+    """``(zero, top_a, top_b)``: the deck's zero -- the solved surface at
+    its end-line stations less the top there (``rebake_inputs._deck_plate``'s
+    reading) -- and its tops.  A deck that slopes at the taxiway's grade
+    (``constraints/deck_gen_grade``, owner 2026-11-19T17:02Z) takes each
+    end's top from the level the solve built there; else its planar tops."""
+    from ..constraints.deck_gen_grade import graded
     from ..constraints.deck_lines import end_lines
-    zs = []
+    zs, at_of = [], {}
     for e in end_lines(planar, law).get(db.object_id, ()):
         w = sum(wt for _v, wt in e.terms)
         if w <= 0.0:
             continue
         at = sum(float(z[v]) * wt for v, wt in e.terms) / w
         zs.append(at - (float(db.bottom_y) + float(e.depth)))
-    return statistics.median(zs) if zs else None
+        at_of.setdefault(tuple(e.line), at)
+    if not zs:
+        return None
+    zero = statistics.median(zs)
+    ta, tb = float(db.top_a), float(db.top_b)
+    a, b = (at_of.get(tuple(tuple(p) for p in s)) for s in (db.seats_a, db.seats_b))
+    if graded(db) and a is not None and b is not None:
+        zero = a - ta
+        tb = ta + (b - a)
+    return zero, ta, tb
 
 
 def _roads(db, law, to_ll) -> list[dict]:
@@ -60,14 +73,15 @@ def generated_records(planar, law, airport, z, offers=()) -> dict[str, list]:
     for db in getattr(planar, "decks", ()) or ():
         if not is_generated(db):
             continue
-        zero = _zero(planar, law, db, z)
-        if zero is None:
+        solved = _zero(planar, law, db, z)
+        if solved is None:
             continue
+        zero, top_a, top_b = solved
         decks.append({
             "object_id": db.object_id, "resource": db.resource,
             "ring": _ll(to_ll, db.ring), "seats_a": _ll(to_ll, db.seats_a),
             "seats_b": _ll(to_ll, db.seats_b),
-            "top_a": round(float(db.top_a), 4), "top_b": round(float(db.top_b), 4),
+            "top_a": round(top_a, 4), "top_b": round(top_b, 4),
             "zero_m": round(float(zero), 4), "family": db.family,
             "route": _ll(to_ll, db.route), "road": _ll(to_ll, db.road),
             "approach": [_ll(to_ll, q) for q in getattr(db, "approach", ()) or ()],

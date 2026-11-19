@@ -101,7 +101,7 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     nearest = airside_nearest(planar, law)
     if nearest is None:
         return floor_rows
-    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air) \
+    rows: list[Row] = _deck_rows(planar, law, decked, nearest.air, airport) \
         if getattr(planar, "decks", ()) else []
     rows.extend(floor_rows)
     for tn in tunnels:
@@ -135,11 +135,13 @@ _FLOOR_ROLES = frozenset({"tunnel_ramp"})
 _RUNWAY_FAMILY = frozenset({"runway", "runway_crossing"})
 
 
-def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
+def _deck_rows(planar: PlanarMap, law: Law, tunnels, air, airport=None) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
     from ..model.deck_bank import bank_past_m
+    from .deck_gen_grade import clearance_rows
+    from .deck_gen_grade import graded as gen_graded
     from .deck_lines import end_lines, plate_of
     from .walled_floor import walled_floor_rows
     flush = float(law.tables.structures.bridge.deck_flush_m)
@@ -170,7 +172,10 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         # (``deck_lines.plate_of``), each held at its own end lines
         plates = plate_of(es, law)
         groups = sorted(set(plates))
-        graded = {plates[i] for i, e in enumerate(es) if getattr(e.deck, "span_cut", ())}
+        # owner 2026-11-19T17:02Z: our own bridge slopes at the taxiway's
+        # grade, at the level the solve chooses (``deck_gen_grade``)
+        graded = {plates[i] for i, e in enumerate(es)
+                  if getattr(e.deck, "span_cut", ()) or gen_graded(e.deck)}
         tops = None
         if len(groups) > 1 or graded:
             tops = {}
@@ -195,6 +200,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                 continue
             rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx]))
             rows.extend(_rigid_rows(name, eg))
+        rows.extend(clearance_rows(oid, es, airport, law, RIGID, GEN))
     return rows
 
 

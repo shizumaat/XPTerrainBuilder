@@ -306,7 +306,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  touch_seat: _t.Any = None,
                  # #2144 P2: ``deck_profile.law_of(structures)`` -- a deck
                  # touching buildings at two levels is warped; ``None`` disarms
-                 deck_warp: _t.Any = None
+                 deck_warp: _t.Any = None,
+                 # RULINGS 2026-11-19j: ``split_bar.law_of([placement])`` -- a
+                 # placement whose bodies' seats agree within the ground bar
+                 # is written whole; ``None`` disarms
+                 split_bar: _t.Any = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -1610,6 +1614,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         splits, _touch["deck_warp"] = _dpf.warp_decks(
             splits, plan, counts, law=deck_warp, surface=surface,
             cut_log=_cut_log, write=write, connectors=_touch.get("connectors", ()))
+    if split_bar is not None and splits:
+        # RULINGS 2026-11-19j: ONE pass over the final bodies, last
+        from . import split_bar as _sb
+        splits, _touch["split_bar"] = _sb.keep_whole(
+            splits, plan, counts, law=split_bar, surface=surface, cut_log=_cut_log,
+            write=write, shared=_touch.get("shared_bodies", ()), band_m=foot_band_m)
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts,

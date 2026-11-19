@@ -202,6 +202,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # RULINGS 2026-11-18c: ``floor_deck_ends.law_of(structures)``;
                # ``None`` disarms
                floor_deck_ends: _t.Any = None,
+               # RULINGS 2026-11-19j: ``split_bar.law_of([placement])``;
+               # ``None`` disarms
+               split_bar: _t.Any = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -259,7 +262,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           isolated_foreign=isolated_foreign,
                           isolated_base_min_fraction=isolated_base_min_fraction,
                           isolated_sheet_max_aspect=isolated_sheet_max_aspect,
-                          touch_seat=touch_seat, deck_warp=deck_warp)
+                          touch_seat=touch_seat, deck_warp=deck_warp,
+                          split_bar=split_bar)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,

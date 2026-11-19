@@ -515,6 +515,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import free_column as _fcol
     from auto_patch_v2.airport import touch_seat as _tseat
     from auto_patch_v2.airport import deck_profile as _dprof
+    from auto_patch_v2.airport import split_bar as _sbar
     from auto_patch_v2.airport import floor_deck_ends as _fde
     from . import dsf_reader as _DSFR
 
@@ -739,6 +740,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             touch_seat=_tseat.law_of(law.tables.structures.placement),
             # #2144 P2: a deck touching buildings at two levels is warped
             deck_warp=_dprof.law_of(law.tables.structures),
+            # RULINGS 2026-11-19j: a placement split only past the ground bar
+            split_bar=_sbar.law_of(law.tables.structures.placement),
             # RULINGS 2026-11-18c: a floor frame's deck seated by its end lines
             floor_deck_ends=_fde.law_of(law.tables.structures))
     _pulse.clear()

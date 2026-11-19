@@ -245,6 +245,16 @@ def _deck_warp_law(law):
         return None
 
 
+def _split_bar_law(law):
+    """RULINGS 2026-11-19j: the ground-bar split law, ``None`` under a src
+    that predates it."""
+    try:
+        from auto_patch_v2.airport import split_bar as _sb
+        return _sb.law_of(law.tables.structures.placement)
+    except (ImportError, AttributeError):
+        return None
+
+
 def _floor_deck_ends_law(law):
     """RULINGS 2026-11-18c: the floor-deck end-line seat's law, ``None``
     under a src that predates it."""
@@ -649,6 +659,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         ground_rider_law=_ground_rider_law(law),
         touch_seat=_touch_law(law),
         deck_warp=_deck_warp_law(law),
+        split_bar=_split_bar_law(law),
         floor_deck_ends=_floor_deck_ends_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut

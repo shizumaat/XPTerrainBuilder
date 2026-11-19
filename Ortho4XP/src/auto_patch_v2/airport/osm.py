@@ -383,24 +383,32 @@ def feed_witness(osm_root: str, lat: float, lon: float) -> str:
 
 
 def load_feed(osm_root: str, feed: str, lat: float, lon: float,
-              radius_deg: float = 0.05) -> OsmDoc:
+              radius_deg: float = 0.05,
+              tiles: _t.Sequence[tuple[int, int]] | None = None,
+              cache: dict | None = None) -> OsmDoc:
     """Ways of ``feed`` with a vertex inside the ``radius_deg`` box around
     ``(lat, lon)``, merged over the 3x3 tile neighbourhood (a missing
     tile contributes nothing; a missing natural tile is an empty feed —
-    never a download)."""
+    never a download).  ``tiles`` reads those tiles instead of the
+    neighbourhood; ``cache`` keeps each file's parse for the next call
+    (the Gateway offer's early witness, ``planar/offer_witness``)."""
     out: list[RawWay] = []
     sources: list[str] = []
     schemas: list[tuple[str, str | None]] = []
     rep = RelationReport()
-    for tlat, tlon in _neighbourhood(lat, lon):
+    for tlat, tlon in (tiles if tiles is not None else _neighbourhood(lat, lon)):
         path = feed_path(osm_root, tlat, tlon, feed)
         if not os.path.isfile(path):
             continue
         sources.append(path)
         schemas.append((path, feed_tag_schema(path)))
         ns = f"{tlat:+03d}{tlon:+04d}:"
-        nodes, ways, frep = read_osm_file(
-            path, ns, _FEED_TAGS.get(feed, TAGS_OF_INTEREST))
+        parsed = cache.get(path) if cache is not None else None
+        if parsed is None:
+            parsed = read_osm_file(path, ns, _FEED_TAGS.get(feed, TAGS_OF_INTEREST))
+            if cache is not None:
+                cache[path] = parsed
+        nodes, ways, frep = parsed
         rep = rep.merge(frep)
         for wid, nds, tags in ways:
             pts = tuple(nodes[n] for n in nds if n in nodes)

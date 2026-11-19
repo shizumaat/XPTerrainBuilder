@@ -117,6 +117,7 @@ def xp(tmp_path, monkeypatch):
     monkeypatch.setattr(GW, "_codes_of_tile",
                         lambda root, lat, lon: ["KEUG", "KXXX"])
     GW._LATEST.clear()
+    GW.begin_run()
     APT._SELECTION.clear()
     return types.SimpleNamespace(root=str(root), custom=str(custom),
                                  events=seen)

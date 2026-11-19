@@ -86,7 +86,8 @@ from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
     ETA_EMIT_SECONDS,
-    _offer_gateway_airports, _offer_pack_overlaps, _predict_step_seconds, build_done,
+    _gateway_line, _offer_gateway_airports, _offer_pack_overlaps, _predict_step_seconds,
+    build_done,
     last_outcome_counts,
     plan_steps, prediction_features, reweight_plan_by_seconds, stopped_tile_state,
 )
@@ -1402,7 +1403,15 @@ class ParallelBuildRun:
                 self._judging -= 1
             self._maybe_finish()
 
-    def _reselect_tile_locked(self, tile, icaos):
+    def repatch(self, tile, icaos, line):
+        """#2169 (3): *tile*'s patch of *icaos* was built against what
+        X-Plane no longer draws (a Gateway install this run): its vector
+        step runs again (:meth:`_reselect_tile_locked`), saying *line*."""
+        with self._lock:
+            self._reselect_tile_locked(tile, icaos, line)
+            self._dispatch_locked()
+
+    def _reselect_tile_locked(self, tile, icaos, line=None):
         """A tile still on its program re-runs from its vector step when
         its step in flight ends; a FINISHED, built tile is queued again; a
         queued attempt reads the run afresh at its own vector dispatch."""
@@ -1411,9 +1420,10 @@ class ParallelBuildRun:
         carried = any(child.tile == tile for child in self._children)
         if tile in self._queue:
             return
-        line = ("Tile %s: %s crosses into a tile queued after its airports "
-                "were chosen; building its vector step again to patch it."
-                % (_short_latlon(tile), ", ".join(icaos)))
+        line = line or (
+            "Tile %s: %s crosses into a tile queued after its airports "
+            "were chosen; building its vector step again to patch it."
+            % (_short_latlon(tile), ", ".join(icaos)))
         print(line)
         self.tile_log_line(tile, line)
         if carried or tile in self._next_step_index:
@@ -2570,12 +2580,20 @@ class ParallelBuildRun:
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     (finished, child.tile) = (child.tile, None)
+                    stale = []
                     if self._last_ok.get(finished):
                         # #1989: the built tile's Gateway airports (the
-                        # per-step children each see one step)
+                        # per-step children each see one step); #2169 (3):
+                        # one installed this run after its patch was built
                         _offer_gateway_airports(*finished)
                         _offer_pack_overlaps(*finished)
-                    if rerun and self._last_ok.get(finished):
+                        from auto_patch import gateway_stage as _GW
+                        stale = _GW.stale_patches(*finished)
+                        if stale and not rerun:
+                            line = _gateway_line(finished, stale)
+                            print(line)
+                            self.tile_log_line(finished, line)
+                    if (rerun or stale) and self._last_ok.get(finished):
                         self._readmit_locked(finished)
             self._dispatch_locked()
         if stopped is not None:

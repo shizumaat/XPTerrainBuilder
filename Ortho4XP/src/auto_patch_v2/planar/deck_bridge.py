@@ -89,7 +89,6 @@ __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
            "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
            "is_walled", "rim_end_stations", "walled_span_cuts", "open_stretch",
-           "beyond_stretches",
            "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
@@ -427,7 +426,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             notes.extend(_floor_pair_note(db))
             objs.append(db)
         gap = float(law.tables.structures.tunnel.wall_gap_m)
-        objs = beyond_stretches(objs, gap, notes)
+        objs = _beyond_stretches(objs, gap, notes)
         out.extend(_walled_zero(objs, airport, step, gap, notes))
     return tuple(out), notes
 
@@ -481,7 +480,7 @@ def rim_end_stations(db: DeckBridge, step: float, gap: float
     return moved(db.seats_a), moved(db.seats_b)
 
 
-def beyond_stretches(objs: list[DeckBridge], gap: float,
+def _beyond_stretches(objs: list[DeckBridge], gap: float,
                      notes: "list[str] | None" = None) -> list[DeckBridge]:
     """W7b (walled-multibridge-frames spec; RULINGS 2026-11-19m "trust the
     object"): ``objs`` (one object's pieces) with ``beyond`` set on every

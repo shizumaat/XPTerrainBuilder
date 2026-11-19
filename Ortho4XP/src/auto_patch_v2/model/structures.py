@@ -566,7 +566,7 @@ class DeckBridge:
     #: walled-multibridge-frames W7b (RULINGS 2026-11-19m): the trench the
     #: frame models on past this WALLED piece's ends -- ``((u_a, u_b), (s0,
     #: s1))`` per stretch, across / along the walls' road
-    #: (``planar/deck_bridge.beyond_stretches``): its floor is the piece's,
+    #: (``planar/deck_bridge._beyond_stretches``): its floor is the piece's,
     #: its mouth where the frame's floor ends.  ``()`` for every other deck
     beyond: tuple = ()
 

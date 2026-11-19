@@ -235,17 +235,17 @@ def test_19m_ground_and_roads_between_the_walls_take_the_objects_floor():
 def test_w7b_the_trench_runs_on_past_the_end_to_the_frames_floor_end():
     import dataclasses
 
-    from auto_patch_v2.planar.deck_bridge import beyond_stretches
+    from auto_patch_v2.planar.deck_bridge import _beyond_stretches
     db = _walled_deck()
     # the frame's floor under the deck (s 0..10) and on past its far end to
     # s 40, then a ramp (no floor solid) beyond; nothing past its near end
     floor = ((-15.0, 15.0, 0.0, 10.0), (-15.0, 15.0, 10.0, 25.0), (-15.0, 15.0, 25.2, 40.0))
     db = dataclasses.replace(db, walls=db.walls[:3] + (floor,))
-    (got,) = beyond_stretches([db], 0.6)
+    (got,) = _beyond_stretches([db], 0.6)
     assert got.beyond == (((-15.0, 15.0), (10.0, 40.0)),)
     # an end facing another piece of the object is the open stretch's
     other = dataclasses.replace(db, ring=tuple((x + 60.0, y) for x, y in db.ring))
-    first, _second = beyond_stretches([db, other], 0.6)
+    first, _second = _beyond_stretches([db, other], 0.6)
     assert first.beyond == ()
 
 

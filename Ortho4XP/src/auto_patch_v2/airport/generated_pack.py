@@ -146,6 +146,8 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     if decks:
         out["files"][f"{GENERATED_DIR}/{TEXTURE}"] = _tex.deck_texture_png()
     for b in bridges:
+        if not b.get("junctions"):
+            continue        # #2183 item 5: a road bridge is a deck (pipeline/road_deck)
         out["chains"].append({"subtype": int(b["subtype"]),
                               "junctions": [list(j) for j in b["junctions"]],
                               "net": str(b.get("net") or "")})

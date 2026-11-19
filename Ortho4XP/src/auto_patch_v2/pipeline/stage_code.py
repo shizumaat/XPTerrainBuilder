@@ -713,11 +713,13 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
         "auto_patch_v2.geom.plate_bands",
+        "auto_patch_v2.geom.plate_cells",
         "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.route_over_pad",
         "auto_patch_v2.geom.shape_class",
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.station_runs",
@@ -762,6 +764,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_bank",
         "auto_patch_v2.model.deck_ends",
+        "auto_patch_v2.model.deck_piece",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.floor_ground",
@@ -823,6 +826,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_runout",
         "auto_patch_v2.planar.deck_skirt",
         "auto_patch_v2.planar.deck_span_cut",
+        "auto_patch_v2.planar.deck_takeover",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
@@ -2848,7 +2852,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     airport.connector_warp airport.stacked_deck airport.tilt_float airport.split_bar
-    planar.deck_pack_cover
+    planar.deck_pack_cover planar.deck_takeover
     airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
     geom.plate_bands model.floor_ground planar.road_wall_witness
     model.road_clearance
@@ -3072,7 +3076,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     airport.connector_warp airport.stacked_deck airport.tilt_float airport.split_bar
-    planar.deck_pack_cover
+    planar.deck_pack_cover planar.deck_takeover
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
     constraints.road_bridge_ceiling model.road_clearance
@@ -3247,7 +3251,7 @@ CODE_MODULES["emit"] = _mods("""
     planar.channel_strip planar.channel_witness planar.covered_ground planar.deck_bridge
     planar.deck_generated planar.deck_route planar.deck_walls geom.wall_lines model.deck_bank
     planar.end_witness
-    planar.deck_pack_cover
+    planar.deck_pack_cover planar.deck_takeover
     planar.entrance_skirt planar.lidar_road planar.mouth_behind planar.mouth_opening
     planar.object_corridor planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth

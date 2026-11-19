@@ -53,6 +53,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
+from shapely.strtree import STRtree
 
 from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
@@ -60,6 +61,8 @@ from ..law.tables import role_cap
 from ..model.deck_bank import deck_bank_slope
 from ..model.structures import GENERATED_WITNESS, DeckBridge, is_generated
 from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
+from .deck_gen_cover import bridge_ribbons, covered_state, distinct_ways, union_with
+from .deck_gen_pairs import one_bridge, one_cut, riders
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
@@ -114,13 +117,15 @@ def _covered_roads(airport, law, classification) -> list[_Road]:
     cells, _gap, polys = standing_cover(classification)
     out: list[_Road] = []
     ways, parents, _notes = underpass_bores(airport, law, cells, polys)
-    for w in ways:
+    # #2181: a piece read from two tiles' extracts is one road
+    for w in distinct_ways(ways):
         ln = LineString(w.points)
         out.append(_Road(str(w.id), dict(w.tags or {}), ln, ln.length,
                          carriageway_width_m(w.tags, law) / 2.0, parents.get(id(w))))
-    tunnels = [w for w in getattr(airport, "osm_ways", ()) or ()
-               if len(w.points) >= 2 and is_tunnel(w, tn.admitted_values)
-               and any((w.tags or {}).get(k) for k in ("highway", "railway"))]
+    # #2181: a tunnel read from two tiles' extracts is ONE tunnel
+    tunnels = distinct_ways([w for w in getattr(airport, "osm_ways", ()) or ()
+                             if len(w.points) >= 2 and is_tunnel(w, tn.admitted_values)
+                             and any((w.tags or {}).get(k) for k in ("highway", "railway"))])
     for group in _connected(tunnels):
         merged = linemerge([LineString(w.points) for w in group])
         covered = sum(LineString(w.points).length for w in group)
@@ -185,15 +190,33 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
     """Each underpass road's stretch under the pavement ``P`` -- the piece
     of its mapped road there holding the clip -- as its line and covered
     length; a road covered over ``max_cover`` is a tunnel and dropped."""
-    from shapely.strtree import STRtree
     out, notes = [], []
+    # #2181 (``deck_gen_cover`` rule 1): the cover grows only through the
+    # pieces OSM maps in the state of the piece under the deck
+    ways = distinct_ways(ways)
+    by_state: dict = {}
+    for st in (False, True):
+        ls = [LineString(w.points) for w in ways if covered_state(getattr(w, "tags", None)) == st]
+        by_state[st] = (ls, STRtree(ls) if ls else None)
     lines = [LineString(w.points) for w in ways]
     tree = STRtree(lines) if lines else None
     for r in roads:
         if r.parent is None or tree is None:
             out.append(r)
             continue
-        chain = _road_chain(r.parent, lines, tree, max_cover)
+        state = _parent_state(r, ways)
+        if not state and _beside_covered(r.parent, *by_state[True]):
+            # #2181: OSM maps the road covered on, and open here -- the
+            # stretch between two bridges is open sky (``deck_gen_cover``)
+            notes.append(f"road {r.id} {r.tags.get('highway') or r.tags.get('railway')} is "
+                         f"mapped open where it joins a covered piece: open sky between "
+                         f"the bridges, no deck over it (#2181 item 1)")
+            continue
+        st_lines, st_tree = by_state[state]
+        if st_tree is None:
+            out.append(r)
+            continue
+        chain = _road_chain(r.parent, st_lines, st_tree, max_cover)
         x = chain.intersection(P)
         mid = r.line.interpolate(0.5, normalized=True)
         # an EMPTY LineString is a LineString too (the chain missing the
@@ -217,6 +240,32 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
             continue
         out.append(r._replace(line=line, covered_m=line.length))
     return out, notes
+
+
+def _beside_covered(parent: LineString, lines, tree) -> bool:
+    """A mapped COVERED line (``deck_gen_cover.covered_state``) joins
+    ``parent`` end to end."""
+    if tree is None:
+        return False
+    for e in (Point(parent.coords[0]), Point(parent.coords[-1])):
+        for j in tree.query(e.buffer(0.05)):
+            ln = lines[int(j)]
+            if not ln.equals(parent) and any(Point(q).distance(e) < 0.05
+                                             for q in (ln.coords[0], ln.coords[-1])):
+                return True
+    return False
+
+
+def _parent_state(r: _Road, ways) -> bool:
+    """The cover state OSM maps the road an underpass piece was clipped
+    from in (``deck_gen_cover.covered_state``): its own way's tags (the
+    piece's carry the bore's ``tunnel``)."""
+    # by the line, never the id: a twin from another tile's extract was
+    # dropped (``distinct_ways``) and carries another id
+    for w in ways:
+        if len(w.points) >= 2 and LineString(w.points).equals_exact(r.parent, 0.05):
+            return covered_state(getattr(w, "tags", None))
+    return False
 
 
 def _depth_m(law, roads) -> float:
@@ -372,14 +421,17 @@ def _pack_refusal(airport) -> str:
 
 def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                     blocked: _t.Sequence = (), objects: _t.Sequence = (), cache=None,
-                    deck_notes: _t.Sequence[str] = ()
+                    deck_notes: _t.Sequence[str] = (), covered: _t.Sequence = ()
                     ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(every generated deck, one note per deck or refusal)`` (module
     doc).  ``taken``: the pack's own hard decks (``deck_bridges``);
     ``blocked``: the pack's trench / corridor / floor outlines (frame);
     ``objects`` / ``cache``: the pack read, whose own hard decks and tops
     refuse a piece whether ``deck_bridges`` admitted them or not
-    (``planar/deck_pack_cover``); ``deck_notes``: its notes, naming why."""
+    (``planar/deck_pack_cover``); ``deck_notes``: its notes, naming why;
+    ``covered``: more covered roads (:class:`_Road`) -- those under a pack
+    frame the build hid (``planar/deck_takeover``: its bridges stated the
+    crossing, as a hard deck bores its road, ``planar/deck_bores``)."""
     if classification is None or not classification.cells:
         return (), []
     g = law.tables.structures.deck_gen
@@ -402,8 +454,13 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             paved.append(p if p.is_valid else p.buffer(0.0))
     P = unary_union(paved)
     notes: list[str] = []
+    # #2183 item 4 (``deck_gen_cover`` rule 3): a mapped aeroway bridge over
+    # the pack's hole under its own bridge object is pavement for the deck
+    ribbons, rib_notes = bridge_ribbons(P, airport, law)
+    P = union_with(P, ribbons)
+    notes += rib_notes
     roads = []
-    for r in _covered_roads(airport, law, classification):
+    for r in _covered_roads(airport, law, classification) + list(covered):
         # the classification cuts a road's own ribbon out of the pavement
         # over it: the road is under the pavement within its half width
         if r.line.distance(P) > r.half_m + 1.0:
@@ -434,18 +491,25 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     C = _cut_reach(roads, law)
     R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
         float(g.edge_margin_m), join_style="mitre")
+    # #2183 item 4: a deck over a pack's hole spans the hole, pavement to
+    # pavement -- its end lines stand where the pavement runs on
+    R = _over_holes(R, ribbons, g)
+    # #2181 (``deck_gen_pairs`` rule 3): one mapped bridge, one deck
+    from .structure_underpass import aeroway_decks
+    aero = [LineString(a.points) for a in aeroway_decks(airport, law)]
+    R = one_bridge(R, aero)
     shared = _shared_depths(roads, law, R)
     if any(abs(d - _depth_m(law, (r,))) > 1e-9 for r in roads if (d := shared.get(r.id))):
         # a deck over roads of two clearances: each bank reaches the deck's floor
         C = _cut_reach(roads, law, shared)
-        R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
-            float(g.edge_margin_m), join_style="mitre")
+        R = one_bridge(_over_holes(P.intersection(C.buffer(float(g.bearing_m))).buffer(
+            float(g.edge_margin_m), join_style="mitre"), ribbons, g), aero)
     roles = CellRoles(classification, airport)
     surface = types.SimpleNamespace(roles=roles)
     to_xy, to_ll = airport.frame.transformers()
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     refused_pack = _pack_refusal(airport)
-    from .deck_pack_cover import pack_decks_near
+    from .deck_pack_cover import overhead_decks, pack_decks_near
     # (c) RULINGS 2026-11-17n: a pack hard deck beside a piece, over its
     # road within the approach run, refuses it too (``deck_pack_cover``)
     packs = pack_decks_near(objects, cache, law, R,
@@ -471,12 +535,27 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             notes.append(f"{where}: REFUSED -- a tunnel, covered over max_cover_m "
                          f"{float(g.max_cover_m):g} m (A1 (3) / Q2)")
             continue
-        why = _blocked(piece, taken, blocked, [r.line for r in under], packs, law,
+        # #2181 item 2: a pack deck standing a road's clearance over the
+        # carried pavement passes OVER the crossing (``overhead_decks``)
+        over = overhead_decks(objects, cache, piece, _carried_level(airport, piece), law)
+        why = _blocked(piece, [d for d in taken if not (over & {d.object_id, *d.members})],
+                       blocked, [r.line for r in under],
+                       [p for p in packs if p.object_id not in over], law,
                        why_of, [r.parent or r.line for r in under]) or refused_pack
+        if over and not why:
+            clear = float(law.tables.structures.bridge.clearance_minimum_m)
+            notes.append(f"{where}: the pack's {', '.join(sorted(over))} stand(s) over the "
+                         f"crossing (top {clear:g} m or more over the pavement): no refusal "
+                         f"(#2181 item 2)")
         if why:
             notes.append(f"{where}: REFUSED -- {why}")
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
+        # #2181 item 1 / #2183 item 5: a road bridge beside the deck rides it
+        piece, rides, ride_notes = riders(
+            piece, P.intersection(piece), {r.id for r in under},
+            getattr(airport, "road_bridges", ()) or (), law)
+        notes += [f"{where}: {n}" for n in ride_notes]
         piece = _straight_sided(piece, road_dir,
                                _route_dir(carried_route(airport, piece)[1], piece))
 
@@ -536,7 +615,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                         for f in fakes),
             hidden_plans=tuple(tuple(q.exterior.coords[:-1]) for f in fakes
                                for q in getattr(f.plan, "geoms", [f.plan])
-                               if q.geom_type == "Polygon")))
+                               if q.geom_type == "Polygon"),
+            riders=rides))
         notes.append(f"{where}: GENERATED o4gen_{hid} ({family}, rise {rise:+.2f} m "
                      f"A->B, floor {depth:.1f} m under the top; spec 2123 A1)"
                      + (f"; {sum(q.area for q in approach):,.0f} m2 of pack pavement over "
@@ -544,7 +624,39 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                      + "".join(f"; the pack's {f.object_id} ({f.resource}) only fakes the cut "
                                f"(drawn under the terrain): hidden in the pack copy"
                                for f in fakes))
-    return tuple(out), notes
+    out, pair_notes = one_cut(out, mapped, law, lambda tags: _reach_of(tags, law))
+    return tuple(out), notes + pair_notes
+
+
+def _carried_level(airport, piece: Polygon) -> "float | None":
+    """The carried pavement's level over ``piece``: the HIGHEST ground on
+    its ring -- the ring stands on the pavement beside the cut, and a
+    bare-earth survey reads the cut under it (#2181 item 2; a mean read
+    the cut and took KRDU's own ``STH_TML.obj`` taxiway deck, 4 m over it,
+    for a structure passing over the crossing)."""
+    dem = getattr(airport, "dem", None)
+    if dem is None:
+        return None
+    zs = [float(dem.z(x, y)) for x, y in piece.exterior.coords]
+    zs = [z for z in zs if math.isfinite(z)]
+    return max(zs) if zs else None
+
+
+def _over_holes(R, ribbons, g):
+    """``R`` with every hole ribbon (``deck_gen_cover.bridge_ribbons``) it
+    reaches, grown by the ring's ``edge_margin_m``."""
+    hit = [rb.buffer(float(g.edge_margin_m), join_style="mitre") for rb in ribbons
+           if rb.intersects(R)]
+    return unary_union([R, *hit]) if hit else R
+
+
+def _reach_of(tags, law) -> float:
+    """A road's cut reach either side of its axis under a generated deck
+    (:func:`_cut_reach`'s: carriageway, shoulder, the bank's run)."""
+    from ..model.deck_bank import deck_bank_slope
+    r = _Road("", tags, LineString(), 0.0, carriageway_width_m(tags, law) / 2.0)
+    return r.half_m + float(law.tables.structures.deck_gen.shoulder_m) \
+        + _depth_m(law, (r,)) / deck_bank_slope(law)
 
 
 def _shortened(piece: Polygon, under, P, law, frac: float) -> "Polygon | None":

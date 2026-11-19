@@ -523,6 +523,18 @@ cfg_tile_vars = {
     # set.  The key lives on only in ``retired_cfg_keys`` below, so a cfg
     # that still carries the line loads with a loud no-op warning instead
     # of an error.
+    "rebase_custom_patches": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "A custom patch authored over another elevation source (the "
+            "coarse base elevation, say) is re-based onto the elevation "
+            "the build meshes with: its pad and ramp heights take a smooth "
+            "offset so the patch meets the high-resolution ground while "
+            "keeping its own shapes. The user's file is never edited "
+            "(RULINGS 2026-11-19b)."
+        ),
+    },
     "modify_custom_airports": {
         "type": bool,
         "default": True,
@@ -1203,6 +1215,7 @@ gui_app_vars_long = list_app_vars[-4:]
 list_vector_vars = [
     "auto_patch",
     "modify_custom_airports",
+    "rebase_custom_patches",
     "elevation_level",
     "approach_rings",
     "elevation_coastline_band_km",

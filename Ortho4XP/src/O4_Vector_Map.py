@@ -10,6 +10,7 @@ from shapely.strtree import STRtree
 
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
+import O4_Patch_Rebase as PATCH_REBASE
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
@@ -4222,8 +4223,10 @@ def include_patches(vector_map, tile):
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()
         try:
+            # A custom patch authored over another elevation source is
+            # read from its re-based copy (RULINGS 2026-11-19b, #2173).
             patch_layer.update_dicosm(
-                os.path.join(patch_dir, pfile_name),
+                PATCH_REBASE.mesh_path(tile, patch_dir, pfile_name),
                 input_tags=None,
                 target_tags=None,
             )

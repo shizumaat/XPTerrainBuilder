@@ -15,7 +15,6 @@ import time
 import traceback
 import typing as _t
 
-
 # ══════════════════════════════════════════════════════════════════════════
 # THE OBJECT STAGE AFTER THE MESH (RULINGS 2026-09-04i 04f-1;
 # THE SEAT RETIRED 2026-09-12s, spec §8)
@@ -76,6 +75,7 @@ def mesh_placement_sampler(mesh_path: str,
     ``MeshElevationSampler`` already built over ``bounds`` (a tile DSF's
     drawn triangles, ``guest_stage``) in place of reading ``mesh_path``."""
     import math
+
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
     if sampler is None and mesh_path.lower().endswith(".dsf"):
         # #2129: a tile whose .mesh is gone reads the DSF its build wrote
@@ -309,6 +309,7 @@ def pack_dump(pack_root: str, lat: int, lon: int, *,
     import O4_Scenery_Packs as _SP
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+
     from . import dsf_reader as _DSFR
     from .post_mesh import _is_protected_scenery_root
 
@@ -338,6 +339,7 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport.file_hash import sha256_file
+
     from . import agp_reader as _agp
 
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
@@ -388,8 +390,8 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     import O4_File_Names as FNAMES
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.airport import dsf_write as _dw
-    from auto_patch_v2.model.placement import (BACKUP_SUFFIX, PlacementPlan,
-                                               Provenance)
+    from auto_patch_v2.model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
+
     from . import dsf_reader as _DSFR
     plan = PlacementPlan("", art.pack_name, pack_root, art.dsf_path,
                          art.dsf_path + BACKUP_SUFFIX,
@@ -509,16 +511,16 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     block an isolated share (§9a, ``isolated_seat``)."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
+    from auto_patch_v2.airport import deck_profile as _dprof
     from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import floor_deck_ends as _fde
+    from auto_patch_v2.airport import free_column as _fcol
     from auto_patch_v2.airport import ground_frame_riders as _gfr
     from auto_patch_v2.airport import placement_write as _pw
-    from auto_patch_v2.airport import free_column as _fcol
-    from auto_patch_v2.airport import touch_seat as _tseat
-    from auto_patch_v2.airport import deck_profile as _dprof
     from auto_patch_v2.airport import split_bar as _sbar
-    from auto_patch_v2.airport import floor_deck_ends as _fde
-    from . import dsf_reader as _DSFR
+    from auto_patch_v2.airport import touch_seat as _tseat
 
+    from . import dsf_reader as _DSFR
     from . import pack_copy as _copy
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
     # ``--pack-copy``: the write targets the clone, never the install
@@ -557,8 +559,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # fell through to ``other`` while ``tools/obj8_split_report.py``,
     # deriving them from the same file, classified both.  ONE derivation,
     # ``placement_plan.pads_rims_from_graded``, two callers.
-    from auto_patch_v2.airport import placement_plan as _pp
     from auto_patch_v2.airport import placement_boxes as _pb
+    from auto_patch_v2.airport import placement_plan as _pp
     pads, rims = (), ()
     decks: tuple = ()                                               # §49
     jetway_strips: tuple = ()          # jetway-strip spec §4 (C17), #31
@@ -628,6 +630,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # issue #1213: the plan below ran 25+ min at KMCI with no line at all —
     # the ONE time-gated heartbeat reads the stages' pulse (``units 12/41``)
     from auto_patch_v2.model import pulse as _pulse
+
     from . import progress as _progress
     _pulse.clear()
     _hb = _progress.Heartbeat(
@@ -770,13 +773,12 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
-    from . import user_seat_stage as _hand
     from auto_patch_v2.airport import pack_access as _pa
-    from auto_patch_v2.airport.backup_state import (BackupUnproven,
-                                                    SUPERSEDED_INFIX as
-                                                    _BS_SUPERSEDED,
-                                                    UNRECOGNISED_INFIX as
-                                                    _BS_UNRECOGNISED)
+    from auto_patch_v2.airport.backup_state import SUPERSEDED_INFIX as _BS_SUPERSEDED
+    from auto_patch_v2.airport.backup_state import UNRECOGNISED_INFIX as _BS_UNRECOGNISED
+    from auto_patch_v2.airport.backup_state import BackupUnproven
+
+    from . import user_seat_stage as _hand
     # #1884: a body standing on a neighbour tile is written in that tile's
     # DSF of the pack (``tile_route``), in the SAME write as this one's
     # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
@@ -1076,12 +1078,17 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
     reuse, with no unpatched-airport restore, no re-seat of its own and no
     tile-wide adjust step (they are the build that asked's)."""
     import glob
+
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.law import Law
     from auto_patch_v2.model import rebake as _rb
-    from .post_mesh import (_is_protected_scenery_root, _mesh_is_newer_than_alt,
-                            object_anchor_worklist_path)
+
+    from .post_mesh import (
+        _is_protected_scenery_root,
+        _mesh_is_newer_than_alt,
+        object_anchor_worklist_path,
+    )
 
     counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
     # RULINGS 2026-10-12d, BEFORE every gate and every early return below:
@@ -1571,6 +1578,7 @@ def _pack_stand_down(tile, icao: str | None = None) -> str:
     switches, in one place for the unpatched-airport restore (the
     placement loop below words its own lines)."""
     import O4_Airport_Fit as AIRPORT_FIT
+
     from .config import DSF_OBJECT_REANCHOR
     if not (AIRPORT_FIT.fits(tile, icao) if icao
             else AIRPORT_FIT.any_fits(tile)):
@@ -1605,9 +1613,9 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     import O4_UI_Utils as UI
     import O4_Unpatched_Airports as UNPATCHED
     from auto_patch_v2.airport import unpatched_pack as _up
-    from . import dsf_reader as _DSFR
     from tile_bundle import pack_dev as _dev
 
+    from . import dsf_reader as _DSFR
     from . import object_rebake as _OR
     from . import pack_copy as _copy
     from .post_mesh import _is_protected_scenery_root, object_anchor_worklist_path
@@ -1692,7 +1700,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                          f"longer carries this tile's "
                                          f"objects of the airport")
     except Exception as exc:
-        import O4_Airport_Fit as AIRPORT_FIT     # silent when the box is off (#42)
+        import O4_Airport_Fit as AIRPORT_FIT  # silent when the box is off (#42)
         UI.vprint(1 if AIRPORT_FIT.any_fits(tile) else _STAND_DOWN_VERBOSITY,
                   f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())

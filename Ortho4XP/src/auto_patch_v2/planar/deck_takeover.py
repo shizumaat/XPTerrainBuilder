@@ -60,8 +60,15 @@ from shapely.ops import linemerge, unary_union
 
 from ..classify.roles import TAXI_FAMILY
 from ..model.structures import DeckBridge, is_generated
-from .deck_bridge import _frames, _road_dir, _walled_trench, deck_bridges, deck_polygon, \
-    mid_line, project_span
+from .deck_bridge import (
+    _frames,
+    _road_dir,
+    _walled_trench,
+    deck_bridges,
+    deck_polygon,
+    mid_line,
+    project_span,
+)
 from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 

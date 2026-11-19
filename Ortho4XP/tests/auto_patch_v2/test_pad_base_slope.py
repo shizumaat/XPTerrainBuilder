@@ -12,10 +12,9 @@ import math
 import types
 
 import pytest
-from shapely.geometry import Polygon
-
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import pad_base_slope as PBS
+from shapely.geometry import Polygon
 
 #: (module, symbol, what it reads, 19o (1) ruling)
 CENSUS = [
@@ -212,8 +211,8 @@ def test_the_census_and_the_verify_share_one_planar_relief_reading():
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-    from check_grade import _planar_relief
     from auto_patch_v2.verify.pads import planar_relief
+    from check_grade import _planar_relief
     pts = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
     for offs in ([0.0, 0.19, 0.05, 0.24], [0.0, 0.5, 0.0, 0.0]):
         assert _planar_relief(pts, offs) == planar_relief(pts, offs)

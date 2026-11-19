@@ -49,10 +49,10 @@ def body_text(event) -> str:
 def warning_key(event) -> tuple:
     """One warning per pack, tile and missing set: every airport of a pack
     runs the check, and the second airport's event is the same news."""
-    return (getattr(event, "pack_root", ""), int(getattr(event, "lat", 0)),
-            int(getattr(event, "lon", 0)),
-            tuple(getattr(event, "first_paths", None) or ()),
-            int(getattr(event, "total", 0) or 0))
+    import O4_Qt_Pack_Forests as QTFORESTS     # the same pack/tile/set key
+
+    return (QTFORESTS.question_key(event)[:4]
+            + (int(getattr(event, "total", 0) or 0),))
 
 
 def pack_art_box(event, parent=None):

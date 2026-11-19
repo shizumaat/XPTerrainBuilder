@@ -9,9 +9,8 @@ No network: ``discover`` only builds the virtual path.
 
 import os
 
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
+import pytest
 from elevation_access import registry as ea_registry
 from elevation_access.definitions import provider_serves_country
 

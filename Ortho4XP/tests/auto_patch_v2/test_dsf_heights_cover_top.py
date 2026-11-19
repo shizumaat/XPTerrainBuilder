@@ -12,7 +12,6 @@ import os
 import subprocess
 
 import pytest
-
 from auto_patch.dsf_reader import _dsftool_path
 from auto_patch_v2.airport import dsf_heights as DH
 
@@ -21,7 +20,7 @@ _EMPTY = "HEIGHTS 0.03125 0.0  # max encodeable 2047.96875\n"
 
 
 def _heights(text: str) -> tuple[float, float]:
-    toks = next(l for l in text.splitlines() if l.startswith("HEIGHTS ")).split()
+    toks = next(row for row in text.splitlines() if row.startswith("HEIGHTS ")).split()
     return float(toks[1]), float(toks[2])
 
 
@@ -64,7 +63,7 @@ def test_dsftool_encodes_the_covered_text(tmp_path):
     for name, text in (("raw", head + _ROW),
                        ("covered", DH.cover_row_elevations(head + _ROW))):
         src = tmp_path / f"{name}.txt"
-        src.write_text(text)
+        src.write_text(text, encoding="utf-8", newline="")
         run = subprocess.run([_dsftool_path(), "--text2dsf", str(src),
                               str(tmp_path / f"{name}.dsf")],
                              capture_output=True, text=True)

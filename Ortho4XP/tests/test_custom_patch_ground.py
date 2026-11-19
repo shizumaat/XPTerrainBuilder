@@ -157,9 +157,10 @@ def test_rings_leave_the_airport_out_and_cut_the_others_back(
     """The left-out airport holds no ring, and another airport's ring
     region no longer reaches its patch hull; the other airport keeps its
     rings."""
-    from tests import test_approach_rings as AR
     import O4_Elevation_Level as RINGS
     from shapely import wkt
+
+    from tests import test_approach_rings as AR
 
     AR._install_registry(monkeypatch, AR._definition("FINE", 1.0))
     ring_tile = AR._tile(tmp_path, monkeypatch)

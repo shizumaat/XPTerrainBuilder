@@ -88,8 +88,6 @@ the ONE grouping derivation).  No mesh, no environment.
 """
 from __future__ import annotations
 
-import math
-
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
@@ -206,7 +204,7 @@ def pad_slope_pair_caps(planar: PlanarMap, law: Law, airport: Airport | None
         for i, (a, pa) in enumerate(pts):
             oa = f.offset(*pa)
             for b, pb in pts[i + 1:]:
-                d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+                d = exact.hypot(pa[0] - pb[0], pa[1] - pb[1])
                 if d > 0.0:
                     g = abs(oa - f.offset(*pb)) / d
                     if g > 0.0:

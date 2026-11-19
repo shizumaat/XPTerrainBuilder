@@ -141,8 +141,8 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
     tree = STRtree(lines)
     tn = law.tables.structures.tunnel
     dem = getattr(airport, "dem", None)
-    from .road_bridge_pack import PackRoads, pack_provides
     from .deck_generated import _approach_run_m
+    from .road_bridge_pack import PackRoads, pack_provides
     from .structure_underpass import aeroway_decks
     aero = [(LineString(a.points), carriageway_width_m(a.tags, law) / 2.0)
             for a in aeroway_decks(airport, law)]

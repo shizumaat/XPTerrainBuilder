@@ -11,11 +11,16 @@ import types
 
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.structures import DeckBridge
-from auto_patch_v2.planar.deck_gen_cover import bridge_ribbons, covered_state, distinct_ways
-from auto_patch_v2.planar.deck_gen_pairs import (_pair_gap_m, _rider_gap_m, one_bridge,
-                                                 one_cut, riders)
-from auto_patch_v2.planar.deck_pack_cover import overhead_decks
 from auto_patch_v2.pipeline.road_deck import road_deck_records
+from auto_patch_v2.planar.deck_gen_cover import bridge_ribbons, covered_state, distinct_ways
+from auto_patch_v2.planar.deck_gen_pairs import (
+    _pair_gap_m,
+    _rider_gap_m,
+    one_bridge,
+    one_cut,
+    riders,
+)
+from auto_patch_v2.planar.deck_pack_cover import overhead_decks
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
 

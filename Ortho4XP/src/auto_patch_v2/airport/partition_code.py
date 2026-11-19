@@ -207,6 +207,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.plate_cells",
     "auto_patch_v2.geom.rotated_rect",
     "auto_patch_v2.geom.shape_class",
+    "auto_patch_v2.geom.sunk_cluster",
     "auto_patch_v2.geom.terrain_deck",
     "auto_patch_v2.geom.triangulate",
     "auto_patch_v2.geom.union_find",

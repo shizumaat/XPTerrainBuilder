@@ -1505,6 +1505,13 @@ class MainWindow(QMainWindow):
         # (_show_build_airports); the window starts with no tile (aad0a7764)
         self._show_build_airports(None)
         self._modified_airport_packs = []
+        # Review this tile's overlapping-packs answers (#2180; mac-app
+        # parity: BuildPane's "Pack choices…"): the question on every pair.
+        self.pack_choices_btn = QPushButton(QTOVER.REVIEW_BUTTON)
+        self.pack_choices_btn.setToolTip(QTOVER.REVIEW_HELP)
+        self.pack_choices_btn.clicked.connect(self._review_pack_overlaps)
+        _never_widen(self.pack_choices_btn)
+        ig.addRow(self.pack_choices_btn)
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
         _never_widen(self.install_check)
@@ -5660,6 +5667,16 @@ class MainWindow(QMainWindow):
         self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
                                   lat=int(tile[0]), lon=int(tile[1]))
 
+    def _review_pack_overlaps(self):
+        """Pack choices… (#2180): the active tile's overlapping-packs
+        report (``pack_overlaps`` ``action="ask"``), which opens the
+        question on every pair with its stored answer."""
+        tile = self.map.active_tile()
+        if tile is None:
+            return
+        self._session.pack_overlaps(action="ask", lat=int(tile[0]),
+                                    lon=int(tile[1]))
+
     def _on_pack_overlaps(self, event):
         """#2145: two packs drawing the same large structures, as one
         question per tile and pair set.
@@ -5668,14 +5685,15 @@ class MainWindow(QMainWindow):
         ``state == "found"`` (or ``"ask"``, the report) with a pair asks
         once, each picker on the remembered answer else the airport pack;
         Apply sends ``pack_overlaps`` ``action="choose"`` with every
-        pair's pick, Not now sends nothing.  An outcome asks nothing (the
-        engine's log line says what was hidden)."""
+        pair's pick, Not now sends nothing.  The report of a tile with no
+        pair says so (#2180).  An outcome asks nothing (the engine's log
+        line says what was hidden)."""
         state = getattr(event, "state", "found")
         key = QTOVER.question_key(event)
         if state == "ask":
             self._overlap_seen.discard(key)
-        if state not in ("found", "ask") or not QTOVER.offers(event) \
-                or key in self._overlap_seen:
+        asks = state in ("found", "ask") and bool(QTOVER.offers(event))
+        if not (asks or QTOVER.reports_none(event)) or key in self._overlap_seen:
             return
         self._overlap_seen.add(key)
         box, buttons = QTOVER.pack_overlaps_box(event, parent=self)

@@ -194,6 +194,8 @@ AIRPORTS_CARD_TEXT = (
     ("gradeSentence", "GRADE_SENTENCE"),
     ("fitSentence", "FIT_SENTENCE"),
     ("backupNote", "BACKUP_NOTE"),
+    ("fitAirportTip", "FIT_AIRPORT_TIP"),
+    ("customPatchTag", "CUSTOM_PATCH_TAG"),
 )
 
 #: The patch editor's Edit-mode right-click items, in menu order (#1318
@@ -1328,3 +1330,49 @@ def test_both_fit_switches_ask_before_fitting_custom_patches(window, monkeypatch
     card.chk_fit.setChecked(True)
     assert card.overrides == {QTAIRPORTS.FIT_KEY: True}
     card.take_overrides()
+
+
+def test_both_cards_have_a_fit_switch_per_airport(window, monkeypatch):
+    """#2182 (owner 2026-11-19T14:15Z): one "Fit" switch per airport whose
+    pack may be fitted, kept for that airport's later builds through the
+    engine's ``set_airport_fit``; turning on an airport with a custom patch
+    asks its question first.  The Mac card lists ``card.fitAirports`` and
+    writes through ``setAirportFit``."""
+    import O4_Qt_Build_Airports as QTAIRPORTS
+    from o4_engine import build_airports as CARD
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert "card.fitAirports" in swift and "setAirportFit(row" in swift
+    assert "airportQuestion?.confirm" in swift
+    card = window.airports_card
+    writes, answers = [], []
+    monkeypatch.setattr(CARD, "set_airport_fit",
+                        lambda tile, icao, fit, folder="": writes.append(
+                            (tile, icao, fit)))
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit",
+                        lambda _parent, question: answers.append(question) or False)
+    monkeypatch.setattr(card, "on_card_changed", None, raising=False)
+    card.overrides.clear()
+    card._on_ready((card._generation, {
+        "airports": [], "packs": [{"name": "P", "objects": 3}],
+        "total_s": [0, 0], "custom_patches": ["KASE"], "fit_buildings": True,
+        "fit_confirm": "Custom patches are installed for KASE. Continue?",
+        "fit_airports": [
+            {"icao": "KASE", "tile": [39, -107], "fit": False,
+             "custom_patch": True,
+             "confirm": "Custom patches are installed for KASE. Continue?"},
+            {"icao": "KEGE", "tile": [39, -107], "fit": True,
+             "custom_patch": False, "confirm": ""}]}, ""))
+    kase = card.fit_airport_checks["KASE"]
+    kege = card.fit_airport_checks["KEGE"]
+    assert kase.text() == "KASE · " + QTAIRPORTS.CUSTOM_PATCH_TAG
+    assert not kase.isChecked() and kege.isChecked()
+    kase.setChecked(True)                      # asked; Cancel keeps it off
+    assert answers and not kase.isChecked() and writes == []
+    kege.setChecked(False)                     # no question: written
+    assert writes == [("+39-107", "KEGE", False)]
+    assert not card.chk_fit.isChecked()        # no airport fits now
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit", lambda *_a: True)
+    kase.setChecked(True)
+    assert writes[-1] == ("+39-107", "KASE", True) and card.chk_fit.isChecked()
+    assert QTAIRPORTS.FIT_KEY not in card.overrides

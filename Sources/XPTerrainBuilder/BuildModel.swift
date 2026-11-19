@@ -341,6 +341,9 @@ final class BuildModel: ObservableObject {
     /// patch" row. The engine owns the rule (`custom_patches`,
     /// O4_Custom_Patches.py).
     @Published private(set) var customPatchTiles: [TileCoord: [String]] = [:]
+    /// Custom-patch elevation notices waiting to be shown, one at a time
+    /// (#2179; the tile pane's `CustomPatchNoticeAlert`).
+    @Published var customPatchNotices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
     /// Built tiles whose airport packs changed since the build (#1958,
     /// `BuildModel+StaleTiles.swift`): only the stale ones.
     @Published var staleTiles: [TileCoord: O4StaleTile] = [:]
@@ -423,6 +426,9 @@ final class BuildModel: ObservableObject {
     /// `overrides` and cleared once sent — never written to a cfg.
     @Published var gradeAirportsThisBuild: Bool?
     @Published var fitBuildingsThisBuild: Bool?
+    /// Bumped when an airport's own Fit switch was written (#2182): the
+    /// Build pane asks the engine for the card again.
+    @Published var airportFitGeneration = 0
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
@@ -691,22 +697,38 @@ final class BuildModel: ObservableObject {
         Task { [weak self] in
             guard let reply = try? await client.customPatches() else { return }
             var found: [TileCoord: [String]] = [:]
+            var notices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
             for row in reply.tiles where !row.files.isEmpty {
-                found[TileCoord(lat: row.lat, lon: row.lon)] = row.files
+                let coord = TileCoord(lat: row.lat, lon: row.lon)
+                found[coord] = row.files
+                notices += row.notices.map { (tile: coord, notice: $0) }
             }
             self?.customPatchTiles = found
+            if self?.customPatchNotices.isEmpty ?? false { self?.customPatchNotices = notices }
+        }
+    }
+
+    /// The custom-patch notice answered (#2179): remembered by the engine
+    /// either way; "Use auto patch" then sets that airport's patch aside.
+    func answerCustomPatchNotice(useAutoPatch: Bool) {
+        guard let first = customPatchNotices.first else { return }
+        customPatchNotices.removeFirst()
+        guard let client else { return }
+        Task { [weak self] in
+            try? await client.customPatchNoticeSeen(tile: first.tile.key, file: first.notice.file)
+            if useAutoPatch { self?.useAutoPatch(for: first.tile, icao: first.notice.icao) }
         }
     }
 
     /// "Use auto patch" in the tile pane (#1229): the engine renames the
     /// tile's custom patches to `….disabled` — never deletes them — so the
     /// next build auto-patches those airports.
-    func useAutoPatch(for coord: TileCoord) {
+    func useAutoPatch(for coord: TileCoord, icao: String = "") {
         connectIfNeeded()
         guard let client, !tileInRun(coord) else { return }
         Task { [weak self] in
             do {
-                let reply = try await client.useAutoPatch(tile: coord.key)
+                let reply = try await client.useAutoPatch(tile: coord.key, icao: icao)
                 for path in reply.setAside {
                     self?.console.append(
                         "Tile \(coord.key): set the custom patch aside as \((path as NSString).lastPathComponent); the next build uses the auto patch.")

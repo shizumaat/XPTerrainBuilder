@@ -250,6 +250,8 @@ CAPABILITIES: tuple = (
     "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
     "pack_readonly",                # 2026-11-19, #2174 PackReadOnly + pack_readonly
     "world_tiles_waiting",          # 2026-11-19, #2175 WorldTilesWaiting (staged tiles)
+    "custom_patch_notice",          # 2026-11-19, #2179 notices + custom_patch_notice_seen
+    "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
 )
 
 
@@ -1194,7 +1196,11 @@ class BuildAirportsReady(EngineEvent):
     ``fit_buildings``: whether the next build fits ("Fit custom airport
     buildings" — off on a tile a custom patch is new to); ``fit_confirm``:
     the question both apps ask before that switch is turned on, "" when
-    there is no custom patch (owner RULINGS 2026-11-18l, #2172).  ``request``
+    there is no custom patch (owner RULINGS 2026-11-18l, #2172).
+    ``fit_airports`` (#2182, capability ``airport_fit``): the switch PER
+    AIRPORT, one row per airport whose pack may be fitted —
+    ``{"icao", "tile": [lat, lon], "fit": bool, "custom_patch": bool,
+    "confirm": str}``; the ``set_airport_fit`` command changes one.  ``request``
     is the ``id`` of the command it answers; ``error`` the failure text.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
@@ -1208,6 +1214,7 @@ class BuildAirportsReady(EngineEvent):
     custom_patches: list = field(default_factory=list)
     fit_buildings: Any = None
     fit_confirm: str = ""
+    fit_airports: list = field(default_factory=list)
     error: str = ""
 
 

@@ -104,7 +104,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
             await refreshCustomAirportPacks()
         }
-        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)") {
+        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)|\(buildModel.airportFitGeneration)") {
             await refreshAirportCard()
         }
         .task(id: imageryAuditKey) {
@@ -169,6 +169,23 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
+        }
+        // Once per custom patch (#2179; the Qt window's
+        // `_ask_custom_patch_notices`): the elevation it was built for.
+        .alert(O4CustomPatchText.title,
+               isPresented: Binding(
+                get: { !buildModel.customPatchNotices.isEmpty
+                    && buildModel.engineCapabilities.supports(O4EngineCapabilities.customPatchNotice) },
+                set: { _ in }),
+               presenting: buildModel.customPatchNotices.first) { _ in
+            Button(O4CustomPatchText.useAutoPatchTitle) {
+                buildModel.answerCustomPatchNotice(useAutoPatch: true)
+            }
+            Button(O4CustomPatchText.keepTitle, role: .cancel) {
+                buildModel.answerCustomPatchNotice(useAutoPatch: false)
+            }
+        } message: { pending in
+            Text(pending.notice.text)
         }
     }
 

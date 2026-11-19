@@ -10,11 +10,44 @@ public struct O4CustomPatchTile: Decodable, Equatable, Sendable {
     public let lon: Int
     /// The custom patch file names, sorted.
     public let files: [String]
+    /// The elevation notices not yet answered (#2179); empty from an
+    /// engine that predates them.
+    public let notices: [O4CustomPatchNotice]
 
-    public init(lat: Int, lon: Int, files: [String]) {
+    public init(lat: Int, lon: Int, files: [String], notices: [O4CustomPatchNotice] = []) {
         self.lat = lat
         self.lon = lon
         self.files = files
+        self.notices = notices
+    }
+
+    private enum CodingKeys: String, CodingKey { case lat, lon, files, notices }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lat = try c.decode(Int.self, forKey: .lat)
+        lon = try c.decode(Int.self, forKey: .lon)
+        files = try c.decode([String].self, forKey: .files)
+        notices = try c.decodeIfPresent([O4CustomPatchNotice].self, forKey: .notices) ?? []
+    }
+}
+
+/// Which elevation a custom patch was built for, said once per patch
+/// (owner 2026-11-19T13:42Z, #2179): the engine's
+/// `O4_Custom_Patches.elevation_notices` row; `text` is the engine's
+/// sentence, shown as is.
+public struct O4CustomPatchNotice: Decodable, Equatable, Sendable, Identifiable {
+    public var id: String { file }
+    public let icao: String
+    public let file: String
+    public let source: String
+    public let text: String
+
+    public init(icao: String, file: String, source: String, text: String) {
+        self.icao = icao
+        self.file = file
+        self.source = source
+        self.text = text
     }
 }
 
@@ -35,6 +68,8 @@ public struct O4UseAutoPatchReply: Decodable, Equatable, Sendable {
 public enum O4CustomPatchText {
     public static let title = "Custom patch"
     public static let useAutoPatchTitle = "Use auto patch"
+    /// The custom-patch notice's other answer (#2179).
+    public static let keepTitle = "Keep custom patch"
     public static let useAutoPatchHelp =
         "Renames the custom patch to .disabled (it is never deleted), "
         + "so the next build auto-patches the airport."
@@ -59,14 +94,28 @@ extension OrthoEngineClient {
     }
 
     /// "Use auto patch": set the tile's custom patches aside (renamed to
-    /// `….disabled`, never deleted) so the next build auto-patches them.
-    public func useAutoPatch(tile: String) async throws -> O4UseAutoPatchReply {
+    /// `….disabled`, never deleted; only `icao`'s when given) so the next
+    /// build auto-patches them.
+    public func useAutoPatch(tile: String, icao: String = "") async throws -> O4UseAutoPatchReply {
         try await withCheckedThrowingContinuation { continuation in
-            send(command: "use_auto_patch", arguments: ["tile": tile]) { reply in
+            send(command: "use_auto_patch", arguments: ["tile": tile, "icao": icao]) { reply in
                 let result: Result<O4UseAutoPatchReply, Error> =
                     Self.decodeReply(reply, command: "use_auto_patch")
                 continuation.resume(with: result)
             }
         }
     }
+
+    /// The custom-patch notice was answered (#2179, capability
+    /// `custom_patch_notice`): not shown again until the file changes.
+    public func customPatchNoticeSeen(tile: String, file: String) async throws {
+        let _: O4CustomPatchNoticeSeenReply = try await request(
+            "custom_patch_notice_seen", ["tile": tile, "file": file])
+    }
+}
+
+/// The `custom_patch_notice_seen` reply.
+struct O4CustomPatchNoticeSeenReply: Decodable, Sendable {
+    let tile: String
+    let file: String
 }

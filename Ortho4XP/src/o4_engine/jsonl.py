@@ -187,7 +187,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import world_commands as WORLD
     from . import world_job_run as WORLD_JOB
     from .aircraft_watch import aircraft_watch_handlers
-    from .build_airports import start_build_airports
+    from .build_airports import set_airport_fit, start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_handlers, flight_plan_handlers
     from .imagery_commands import (
@@ -314,6 +314,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the auto patch runs again.  Synchronous file work.
         "custom_patches": patch_commands.custom_patches,
         "use_auto_patch": patch_commands.use_auto_patch,
+        "custom_patch_notice_seen": patch_commands.custom_patch_notice_seen,
         # Patches dropped on the map or the app icon (#1979, capability
         # patch_drop): the plan (airport, tile, destination; writes
         # nothing) and the install.  Synchronous file work.
@@ -331,6 +332,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # CIFP, apt.dat and the Custom Scenery walk stay off THIS thread.
         "build_airports": lambda **kw: start_build_airports(
             session._emit, **kw),
+        # The card's per-airport "Fit custom airport buildings" switch
+        # (#2182, capability airport_fit).  Synchronous file work.
+        "set_airport_fit": set_airport_fit,
         # ... and the pack's own apt.dat pavement and boundary, as the
         # map's dashed reference outlines.  Synchronous, cache-only.
         "pack_outlines": pack_outlines,

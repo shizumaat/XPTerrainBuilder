@@ -54,6 +54,33 @@ struct BuildAirportsTests {
         #expect(old.fitBuildings == nil && old.fitConfirm.isEmpty)
     }
 
+    /// #2182: the Fit switch per airport (capability `airport_fit`); an
+    /// older engine's card has none.
+    @Test func decodesTheSwitchPerAirport() throws {
+        let event = O4JSON.from([
+            "event": "BuildAirportsReady", "airports": [], "packs": [],
+            "total_s": [0, 0], "fit_buildings": true,
+            "fit_airports": [
+                ["icao": "KASE", "tile": [39, -107], "fit": false,
+                 "custom_patch": true,
+                 "confirm": "Custom patches are installed for KASE. Continue?"],
+                ["icao": "KEGE", "tile": [39, -107], "fit": true,
+                 "custom_patch": false, "confirm": ""],
+            ],
+        ] as [String: Any])
+        let card = try O4BuildAirports.decode(event).get()
+        #expect(card.fitAirports.map(\.icao) == ["KASE", "KEGE"])
+        #expect(card.fitAirports[0].tile == O4TileRef(lat: 39, lon: -107))
+        #expect(!card.fitAirports[0].fit && card.fitAirports[0].customPatch)
+        #expect(card.fitAirports[0].confirm.hasPrefix("Custom patches are installed for KASE"))
+        #expect(card.fitAirports[1].fit && card.fitAirports[1].confirm.isEmpty)
+        #expect(card.fitAirports[0].id != card.fitAirports[1].id)
+        let old = try O4BuildAirports.decode(O4JSON.from(
+            ["event": "BuildAirportsReady"] as [String: Any])).get()
+        #expect(old.fitAirports.isEmpty)
+        #expect(O4EngineCapabilities.airportFit == "airport_fit")
+    }
+
     @Test func anErrorIsAFailure() {
         let event = O4JSON.from(["event": "BuildAirportsReady", "error": "no CIFP"] as [String: Any])
         guard case .failure(let error) = O4BuildAirports.decode(event) else {

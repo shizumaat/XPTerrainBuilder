@@ -25,6 +25,8 @@ struct BuildAirportsCard: View {
     @State private var showingFitInfo = false
     /// The engine's custom-patch question, while it waits (#2172).
     @State private var fitQuestion: String?
+    /// The airport whose own switch asks it, while it waits (#2182).
+    @State private var airportQuestion: O4BuildAirports.FitAirport?
 
     /// The confirmation's yes (Cancel is the default; RULINGS 2026-11-18l).
     static let continueButton = "Continue"
@@ -32,6 +34,10 @@ struct BuildAirportsCard: View {
     static let gradeSentence = "Runways, taxiways and aprons are reshaped to meet FAA (USA) or ICAO slope and smoothness rules, so you don't get bumpy runways or cliffs at the apron edge. Without this, airports drape over the raw elevation data."
     static let fitSentence = "Moves the 3-D buildings, jetways and roads of these custom airports onto the reshaped ground so nothing floats or sinks."
     static let backupNote = "Originals are backed up. Restore a pack from Modified airports in the Selection box."
+    /// The per-airport switches (#2182): their tooltip, and the tag after
+    /// an airport whose custom patch is installed.
+    static let fitAirportTip = "Kept for this airport's later builds."
+    static let customPatchTag = "custom patch"
 
     var body: some View {
         GroupBox {
@@ -67,9 +73,21 @@ struct BuildAirportsCard: View {
                     caption(Self.fitSentence)
                 }
                 packList
+                fitAirportList
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(2)
+            .alert(O4Glossary.term("fit_buildings"),
+                   isPresented: Binding(get: { airportQuestion != nil },
+                                        set: { if !$0 { airportQuestion = nil } })) {
+                Button(Self.continueButton) {
+                    if let row = airportQuestion { buildModel.setAirportFit(row, to: true) }
+                }
+                Button("Cancel", role: .cancel) {}
+                    .keyboardShortcut(.defaultAction)
+            } message: {
+                Text(airportQuestion?.confirm ?? "")
+            }
             .alert(O4Glossary.term("fit_buildings"),
                    isPresented: Binding(get: { fitQuestion != nil },
                                         set: { if !$0 { fitQuestion = nil } })) {
@@ -156,6 +174,32 @@ struct BuildAirportsCard: View {
         } else if card == nil, !fallbackPacks.isEmpty {
             caption(fallbackPacks.joined(separator: ", "))
             caption(Self.backupNote)
+        }
+    }
+
+    /// One switch per airport whose pack may be fitted (#2182): kept for
+    /// that airport's later builds; turning on an airport with a custom
+    /// patch asks first (RULINGS 2026-11-18l).
+    @ViewBuilder private var fitAirportList: some View {
+        if let card, !card.fitAirports.isEmpty, buildModel.supportsAirportFit {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(card.fitAirports) { row in
+                    Toggle(row.customPatch ? "\(row.icao) · \(Self.customPatchTag)" : row.icao,
+                           isOn: Binding(
+                            get: { row.fit },
+                            set: { enable in
+                                if enable, !row.confirm.isEmpty {
+                                    airportQuestion = row
+                                } else {
+                                    buildModel.setAirportFit(row, to: enable)
+                                }
+                            }))
+                        .scaledFont(.caption)
+                        .help(Self.fitAirportTip)
+                }
+            }
+            .padding(.leading, 18)
+            .disabled(fitDisabledReason != nil)
         }
     }
 

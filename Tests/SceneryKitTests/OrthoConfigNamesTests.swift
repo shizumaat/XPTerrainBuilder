@@ -26,6 +26,16 @@ struct OrthoConfigNamesTests {
             try reply(#"{"set_aside": ["/p/HECA.patch.osm.disabled"]}"#),
             command: "use_auto_patch")
         #expect(try setAside.get().setAside == ["/p/HECA.patch.osm.disabled"])
+        // #2179: the elevation notice rides on the tile row; an older
+        // engine sends none.
+        let noticed: Result<O4CustomPatches, Error> = OrthoEngineClient.decodeReply(
+            try reply(#"{"tiles": [{"lat": 30, "lon": 31, "files": ["HECA.patch.osm"], "notices": [{"icao": "HECA", "file": "HECA.patch.osm", "source": "base elevation (Viewfinderpanoramas)", "text": "This custom patch …"}]}]}"#),
+            command: "custom_patches")
+        #expect(try noticed.get().tiles.first?.notices
+                == [O4CustomPatchNotice(icao: "HECA", file: "HECA.patch.osm",
+                                        source: "base elevation (Viewfinderpanoramas)",
+                                        text: "This custom patch …")])
+        #expect(try listed.get().tiles.first?.notices == [])
         #expect(O4CustomPatchText.info(["HECA.patch.osm"])
                 == "HECA.patch.osm — the auto patch does not run for this airport")
     }

@@ -1131,6 +1131,9 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
     "vector": (
     ),
     "mesh": (
+        # the object stage's per-airport "Fit custom airport buildings"
+        # (#2182), outside its auto_patch-only key (#1901)
+        "O4_Airport_Fit",
         "O4_Mesh_IO",
         "O4_Mesh_Pins",
         "O4_Mesh_Utils",

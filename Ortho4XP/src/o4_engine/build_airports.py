@@ -30,7 +30,8 @@ import O4_Custom_Patches as CUSTOM_PATCHES
 #: An object probe stops after this many directory entries per pack (the
 #: Mac app's ``PackObjectProbe`` cap): payware airports run to ~10k
 #: files, and a mis-tagged multi-gigabyte pack must not stall the card.
-__all__ = ["OBJECT_SCAN_CAP", "build_airports", "start_build_airports"]
+__all__ = ["OBJECT_SCAN_CAP", "build_airports", "start_build_airports",
+           "set_airport_fit"]
 
 OBJECT_SCAN_CAP = 40000
 
@@ -121,9 +122,12 @@ def count_objects(content_root: str, cap: int = OBJECT_SCAN_CAP) -> int:
     return count
 
 
-def airport_packs(cells, scenery_dir: str | None = None) -> list:
+def airport_packs(cells, scenery_dir: str | None = None,
+                  homes: dict | None = None) -> list:
     """The enabled custom airport packs with an airport in ``cells`` that
-    ship their own 3-D objects — the packs object fitting may reseat."""
+    ship their own 3-D objects — the packs object fitting may reseat.
+    ``homes``, when given, receives ``{ICAO: (lat, lon)}``: the tile each
+    listed airport lies in (its per-airport Fit switch's tile, #2182)."""
     import O4_Custom_Scenery as SCENERY
 
     if scenery_dir is None:
@@ -136,12 +140,15 @@ def airport_packs(cells, scenery_dir: str | None = None) -> list:
             SCENERY.iter_airport_packs(scenery_dir or "")):
         if not enabled:
             continue
-        icaos = sorted({a.icao for a in airports
-                        if (int(a.lat // 1), int(a.lon // 1)) in wanted})
+        here = {a.icao: (int(a.lat // 1), int(a.lon // 1)) for a in airports
+                if (int(a.lat // 1), int(a.lon // 1)) in wanted}
+        icaos = sorted(here)
         if not icaos:
             continue
         objects = count_objects(content_root)
         if objects:
+            if homes is not None:
+                homes.update(here)
             rows.append({"name": name, "path": path,
                          "airports": icaos, "objects": objects})
     return rows
@@ -171,12 +178,65 @@ def build_airports(cells, custom_build_dir: str = "",
             raise Superseded("superseded by a newer selection")
     total = [round(sum(a["estimate_s"][0] for a in airports), 1),
              round(sum(a["estimate_s"][1] for a in airports), 1)]
+    homes: dict = {}
+    packs = airport_packs(cells, scenery_dir, homes=homes)
     (custom, fit) = _custom_patch_fit(cells, custom_build_dir)
+    rows = _fit_airports(homes, custom_build_dir)
+    if rows:
+        fit = any(row["fit"] for row in rows)
     return {"airports": airports,
-            "packs": airport_packs(cells, scenery_dir),
+            "packs": packs,
             "total_s": total,
             "custom_patches": custom, "fit_buildings": fit,
-            "fit_confirm": CUSTOM_PATCHES.fit_confirm_text(custom)}
+            "fit_confirm": CUSTOM_PATCHES.fit_confirm_text(custom),
+            "fit_airports": rows}
+
+
+def _fit_airports(homes: dict, custom_build_dir: str = "") -> list:
+    """The card's per-airport "Fit custom airport buildings" switches
+    (#2182, owner 2026-11-19T14:15Z): one row per airport whose pack the
+    build may fit, ``{"icao", "tile": [lat, lon], "fit", "custom_patch",
+    "confirm"}`` — ``fit`` what its next build does (its own value, else
+    the tile's; off while its custom patch is new), ``confirm`` the
+    question asked before it turns on ("" without a custom patch)."""
+    import O4_Config_Utils as CFG
+
+    rows = []
+    by_tile: dict = {}
+    for (icao, cell) in homes.items():
+        by_tile.setdefault(cell, []).append(icao)
+    for ((lat, lon), icaos) in sorted(by_tile.items()):
+        tile = CFG.Tile(lat, lon, custom_build_dir)
+        tile.read_from_config()
+        custom = set(CUSTOM_PATCHES.unmodified_airports(lat, lon))
+        for (icao, fit) in CUSTOM_PATCHES.airport_fits(tile, icaos).items():
+            rows.append({
+                "icao": icao, "tile": [lat, lon], "fit": fit,
+                "custom_patch": icao in custom,
+                "confirm": CUSTOM_PATCHES.fit_confirm_text(
+                    [icao] if icao in custom else [])})
+    return rows
+
+
+def set_airport_fit(tile: str, icao: str, fit: bool,
+                    custom_build_dir: str = "") -> dict:
+    """ENGINE COMMAND ``set_airport_fit`` (#2182, capability
+    ``airport_fit``): *icao*'s own "Fit custom airport buildings" value in
+    tile *tile* (``"+39-107"``), kept for every later build of the tile
+    (``O4_Airport_Fit``).  The app asks ``confirm`` first when it turns on
+    an airport with a custom patch (RULINGS 2026-11-18l)."""
+    import O4_Airport_Fit as AIRPORT_FIT
+    import O4_File_Names as FNAMES
+
+    parsed = FNAMES.parse_tile_key(str(tile))
+    if parsed is None or not str(icao).strip():
+        raise ValueError("set_airport_fit needs a tile like +39-107 and an "
+                         "ICAO, not %r / %r" % (tile, icao))
+    (lat, lon) = parsed
+    AIRPORT_FIT.set_fit(FNAMES.build_dir(lat, lon, custom_build_dir),
+                        str(icao).strip(), bool(fit))
+    return {"tile": FNAMES.short_latlon(lat, lon),
+            "icao": str(icao).strip().upper(), "fit": bool(fit)}
 
 
 def _custom_patch_fit(cells, custom_build_dir: str = "") -> tuple:

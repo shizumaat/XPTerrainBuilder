@@ -109,12 +109,13 @@ def deck_holes(pm: PlanarMap) -> list[tuple[tuple[float, float], ...]]:
     the ground the carried route runs on.  A cut's faces are the ones whose
     point stands inside its rim path (``Tunnel.wall_path``), else within
     its half width and rim stand-off of its axis."""
-    # RULINGS 2026-11-19s (1): a generated deck stage 1 withholds
+    # RULINGS 2026-11-19s (1): a generated deck the map withholds
     # (``planar/deck_airside``) is a window too -- the taxiway spans the
     # trench on its own grade law, the bare-earth DEM never reaches it
-    from ..planar.deck_airside import withheld
-    out = [tuple(tuple(p) for p in db.ring)
-           for db in (*(getattr(pm, "decks", ()) or ()), *withheld()) if len(db.ring) >= 3]
+    out = [tuple(tuple(p) for p in db.ring) for db in getattr(pm, "decks", ()) or ()
+           if len(db.ring) >= 3]
+    out += [tuple(tuple(p) for p in r) for r in getattr(pm, "withheld_rings", ()) or ()
+            if len(r) >= 3]
     cuts = [tn for tn in getattr(pm, "structures", ()) or () if getattr(tn, "deck_bridge", "")]
     for tn in cuts:
         fp = tuple(getattr(tn, "footprint", ()) or ())

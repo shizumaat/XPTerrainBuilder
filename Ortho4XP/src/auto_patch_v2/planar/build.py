@@ -687,6 +687,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
                    agp_groups=tuple(getattr(airport, "agp_groups", ()) or ()),
                    decks=tuple(decks),
+                   withheld_rings=tuple(tuple(tuple(q) for q in d.ring) for d in held_back),
                    wing_cuts=tuple(wcuts),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

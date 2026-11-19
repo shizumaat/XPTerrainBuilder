@@ -559,6 +559,10 @@ class PlanarMap:
     #: read by the anchors, the deck rows and the object stage's plate —
     #: whether or not a corridor runs under it.
     decks: tuple = ()
+    #: owner RULINGS 2026-11-19s (1): the rings of the GENERATED decks this
+    #: map WITHHOLDS (stage 1's, ``planar/deck_airside``) -- bridge windows
+    #: every trend over it reads blind (``constraints/deck_anchor.deck_holes``)
+    withheld_rings: tuple = ()
     #: #2099 R2 THE WING CUTS (``planar/wing_cut``; ``model/wing_cut.WingCut``):
     #: the ground beside a grouped mouth's wings, held on their feet by
     #: ``constraints/wing_cut``

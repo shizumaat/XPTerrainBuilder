@@ -6670,11 +6670,11 @@ for _stage, _names in _GROWN.items():
 # planar/deck_width and geom/coons_patch widened these closures.
 _GROWN_BRIDGES: dict[str, str] = {
     'planar': "planar.deck_airside planar.deck_width",
-    'channels': "planar.deck_airside planar.deck_width",
-    'shapes': "planar.deck_airside planar.deck_width",
-    'constraints.runway_mean_slope': "planar.deck_airside planar.deck_width",
-    'constraints.runway_crossing_pin': "planar.deck_airside planar.deck_width",
-    'constraints.deck_anchor': "planar.deck_airside planar.deck_width",
+    'channels': "planar.deck_width",
+    'shapes': "planar.deck_width",
+    'constraints.runway_mean_slope': "planar.deck_width",
+    'constraints.runway_crossing_pin': "planar.deck_width",
+    'constraints.deck_anchor': "planar.deck_width",
     'constraints.road_ramp': "planar.deck_width",
     'constraints.road_contact': "planar.deck_width",
     'constraints.edge_deck': "planar.deck_width",
@@ -6682,7 +6682,7 @@ _GROWN_BRIDGES: dict[str, str] = {
     'constraints.wall_terrace': "planar.deck_width",
     'constraints.shell_datum': "planar.deck_width",
     'constraints.landing_runout': "planar.deck_width",
-    'constraints.eat_anchor_rect': "planar.deck_airside planar.deck_width",
+    'constraints.eat_anchor_rect': "planar.deck_width",
     'constraints.foot_rows': "planar.deck_width",
     'constraints.structures': "planar.deck_width",
     'constraints.rim_level': "planar.deck_width",
@@ -6690,12 +6690,12 @@ _GROWN_BRIDGES: dict[str, str] = {
     'constraints.wing_cut': "planar.deck_width",
     'constraints.deck_stack': "planar.deck_width",
     'constraints.agp_plate': "planar.deck_width",
-    'constraints.assembly': "planar.deck_airside planar.deck_width",
+    'constraints.assembly': "planar.deck_width",
     'solve': "planar.deck_airside planar.deck_width",
     'late_cut': "planar.deck_airside planar.deck_width",
     'late_solve': "planar.deck_airside planar.deck_width",
-    'emit': "planar.deck_airside planar.deck_width",
-    'verify': "planar.deck_airside planar.deck_width",
+    'emit': "planar.deck_width",
+    'verify': "planar.deck_width",
 }
 for _stage, _names in _GROWN_BRIDGES.items():
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_names)}))

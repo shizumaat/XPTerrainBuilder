@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["Face", "Floor", "inner_faces", "project_span", "wall_lines"]
+__all__ = ["Face", "Floor", "inner_faces", "project_span", "stretch_pair", "wall_lines"]
 
 #: face lines closer than this across the road are one line (metres)
 _LINE_BIN_M = 0.5
@@ -107,6 +107,36 @@ def inner_faces(faces: _t.Sequence[Face], s0: float, s1: float, u_mid: float,
     a = [u for u in walls if u < u_mid]
     b = [u for u in walls if u > u_mid]
     return (max(a) if a else None), (min(b) if b else None)
+
+
+def stretch_pair(faces: _t.Sequence[Face], s0: float, s1: float,
+                 own: tuple[float, float], other: tuple[float, float],
+                 floor: "_t.Sequence[Floor] | None" = None
+                 ) -> tuple["float | None", "float | None"]:
+    """The wall pair along the OPEN STRETCH ``[s0, s1]`` between two spans
+    of one frame whose own pairs are ``own`` and ``other``, where no single
+    line covers it (:func:`inner_faces` read ``None`` on a side).  On each
+    side the line is the INNER of the two spans' own lines (the floor never
+    runs under a wall top) when either (a) the faces standing between those
+    lines (one bin either way) together cover :data:`_COVER_MIN` of the
+    stretch -- a wall skewing from one span's line to the other's -- or
+    (b) the frame's FLOOR (K2, ``floor``) runs across the stretch out to
+    that line: the trench the frame models goes on between the spans
+    though it draws no wall there (MEASURED KORD I-190: no wall face on one
+    side across the 48.9 m stretch, the road bed's floor out to
+    1102.3 m, the two spans' lines 1099.2 / 1102.3 m).  ``None`` on a side
+    neither reads."""
+    ext = _floor_extent(floor, s0, s1)
+
+    def side(a: float, b: float, inner: float) -> bool:
+        lo, hi = min(a, b) - _LINE_BIN_M, max(a, b) + _LINE_BIN_M
+        if _covered([f for f in faces if lo <= f[0] <= hi], s0, s1) >= _COVER_MIN:
+            return True
+        return ext is not None and ext[0] - _LINE_BIN_M <= inner <= ext[1] + _LINE_BIN_M
+    ia, ib = max(own[0], other[0]), min(own[1], other[1])
+    ua = ia if side(own[0], other[0], ia) else None
+    ub = ib if side(own[1], other[1], ib) else None
+    return (ua, ub) if ua is None or ub is None or ua < ub else (None, None)
 
 
 def wall_lines(faces: _t.Sequence[Face], s0: float, s1: float,

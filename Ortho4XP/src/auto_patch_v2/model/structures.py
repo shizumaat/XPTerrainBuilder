@@ -563,6 +563,12 @@ class DeckBridge:
     #: (18i (b)); the object stage keeps those bands of the frame and drops
     #: the rest.  ``()`` for every other deck
     span_cut: tuple = ()
+    #: walled-multibridge-frames W7b (RULINGS 2026-11-19m): the trench the
+    #: frame models on past this WALLED piece's ends -- ``((u_a, u_b), (s0,
+    #: s1))`` per stretch, across / along the walls' road
+    #: (``planar/deck_bridge.beyond_stretches``): its floor is the piece's,
+    #: its mouth where the frame's floor ends.  ``()`` for every other deck
+    beyond: tuple = ()
 
     @property
     def depth_a(self) -> float:

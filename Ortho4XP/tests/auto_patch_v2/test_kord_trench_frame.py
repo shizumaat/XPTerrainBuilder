@@ -156,3 +156,94 @@ def test_k2_a_floor_off_the_stretch_is_no_floor():
     along the road leaves the nearest-the-middle pair."""
     far = [(a, b, 100.0, 140.0) for a, b, _s0, _s1 in FLOOR]
     assert inner_faces(WALLS, 0.0, 36.0, 6.5, (-34.0, 47.0), far) == (4.5, 23.0)
+
+
+def _walled_deck(ring_half: float = 20.0, wall_u: float = 15.0):
+    """A deck across a road along x: ring u (y) in [-ring_half, ring_half],
+    s (x) in [0, 10]; walls at u = +-wall_u running the whole stretch."""
+    from auto_patch_v2.model.structures import DeckBridge
+    ring = ((0.0, -ring_half), (10.0, -ring_half), (10.0, ring_half), (0.0, ring_half))
+    sa = tuple((x, -ring_half) for x in (2.0, 5.0, 8.0))
+    sb = tuple((x, ring_half) for x in (2.0, 5.0, 8.0))
+    faces = ((-wall_u, -50.0, 60.0), (wall_u, -50.0, 60.0))
+    return DeckBridge("o", "r.obj", ("o",), ring, sa, sb, 0.0, 0.0, -5.05, 199.0,
+                      walls=((1.0, 0.0), (0.0, 1.0), faces, ()))
+
+
+def test_w3_end_stations_stand_one_step_outside_the_ring_and_rim():
+    from auto_patch_v2.planar.deck_bridge import rim_end_stations
+    a, b = rim_end_stations(_walled_deck(), 5.0, 0.6)
+    assert [p[0] for p in a] == [2.0, 5.0, 8.0]
+    assert all(abs(p[1] + 25.0) < 1e-9 for p in a)       # ring 20 > rim 15.6
+    assert all(abs(p[1] - 25.0) < 1e-9 for p in b)
+
+
+def test_w3_the_rim_wins_where_it_stands_past_the_ring():
+    from auto_patch_v2.planar.deck_bridge import rim_end_stations
+    a, b = rim_end_stations(_walled_deck(ring_half=15.2, wall_u=15.4), 5.0, 0.6)
+    assert all(abs(p[1] + 21.0) < 1e-9 for p in a)       # rim 16.0 > ring 15.2
+    assert all(abs(p[1] - 21.0) < 1e-9 for p in b)
+
+
+def test_w3_a_wall_less_deck_keeps_its_ring_stations():
+    import dataclasses
+
+    from auto_patch_v2.planar.deck_bridge import rim_end_stations
+    assert rim_end_stations(dataclasses.replace(_walled_deck(), walls=()), 5.0, 0.6) is None
+
+
+def test_open_stretch_reads_the_floor_where_one_side_draws_no_wall():
+    from auto_patch_v2.geom.wall_lines import stretch_pair
+    faces = ((0.0, 0.0, 50.0),)                     # one side's wall only
+    floor = ((0.0, 80.0, 0.0, 50.0),)               # the frame's floor across
+    assert stretch_pair(faces, 0.0, 50.0, (0.0, 79.0), (0.0, 80.0), floor) == (0.0, 79.0)
+    assert stretch_pair(faces, 0.0, 50.0, (0.0, 79.0), (0.0, 80.0)) == (0.0, None)
+
+
+def test_open_stretch_takes_a_skewed_wall_at_the_inner_line():
+    from auto_patch_v2.geom.wall_lines import stretch_pair
+    # a wall skewing 79 -> 82 across the stretch, in short faces
+    faces = ((0.0, 0.0, 50.0),) + tuple((79.0 + 0.6 * k, 10.0 * k, 10.0 * k + 10.0)
+                                        for k in range(5))
+    assert stretch_pair(faces, 0.0, 50.0, (0.0, 79.0), (0.0, 82.0)) == (0.0, 79.0)
+
+
+def _floor_map(points, roles):
+    """A map of lone vertices at ``points`` (one face of ``roles[k]`` each)."""
+    faces = {k: types.SimpleNamespace(role=r) for k, r in enumerate(roles)}
+    verts = {k: types.SimpleNamespace(xy=p, incident_faces=(k,)) for k, p in enumerate(points)}
+    return types.SimpleNamespace(vertices=verts, faces=faces)
+
+
+def test_19m_ground_and_roads_between_the_walls_take_the_objects_floor():
+    from auto_patch_v2.constraints.deck_lines import EndLine
+    from auto_patch_v2.constraints.walled_floor import walled_floor_rows
+    law = load_default()
+    db = _walled_deck()
+    # ground and a road inside the floor (|u| < 15), a corridor floor vertex,
+    # ground beyond the walls, a seat
+    pm = _floor_map([(5.0, 0.0), (5.0, 10.0), (5.0, -5.0), (5.0, 18.0), (5.0, -25.0)],
+                    ["graded_strip", "service_road", "tunnel_ramp", "graded_strip", "taxiway"])
+    lines = {"o": [EndLine(db, db.seats_a, ((4, 1.0),), 5.05),
+                   EndLine(db, db.seats_b, ((4, 1.0),), 5.05)]}
+    rows, held = walled_floor_rows(pm, law, lines, lambda v: v == 4, "edge_deck")
+    assert held == {0, 1}                    # never the corridor's, the beyond, a seat
+    lin = [r for r in rows if r.terms[0] == (0, 1.0)]
+    assert lin and abs(lin[0].hi + 5.05) < 1e-9     # z[v] - seat <= -depth (and >=)
+
+
+def test_w7b_the_trench_runs_on_past_the_end_to_the_frames_floor_end():
+    import dataclasses
+
+    from auto_patch_v2.planar.deck_bridge import beyond_stretches
+    db = _walled_deck()
+    # the frame's floor under the deck (s 0..10) and on past its far end to
+    # s 40, then a ramp (no floor solid) beyond; nothing past its near end
+    floor = ((-15.0, 15.0, 0.0, 10.0), (-15.0, 15.0, 10.0, 25.0), (-15.0, 15.0, 25.2, 40.0))
+    db = dataclasses.replace(db, walls=db.walls[:3] + (floor,))
+    (got,) = beyond_stretches([db], 0.6)
+    assert got.beyond == (((-15.0, 15.0), (10.0, 40.0)),)
+    # an end facing another piece of the object is the open stretch's
+    other = dataclasses.replace(db, ring=tuple((x + 60.0, y) for x, y in db.ring))
+    first, _second = beyond_stretches([db, other], 0.6)
+    assert first.beyond == ()

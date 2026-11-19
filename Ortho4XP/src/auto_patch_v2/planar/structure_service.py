@@ -786,7 +786,7 @@ def knee_nodes(cut_lines, chords, grid: float) -> list:
 
 
 def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
-                     grid: float, stats):
+                     grid: float, stats, spans=()):
     """§33 (6) B AMENDED (3) (c) SURFACE ELEMENTS OVER AN OBJECT-DECKED
     TRENCH RIDE THE OBJECT (owner RULINGS 2026-09-15br) — the
     classification's cut lines with every piece INSIDE an object-decked
@@ -827,7 +827,8 @@ def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
     non-runway-family airside cell's area inside the footprint, so the
     ``pavement_m2`` reported per outline is what it takes.  A
     RUNWAY-family cell is exempt from that knife (08-07 ruling 4) and is
-    NAMED rather than silently cut."""
+    NAMED rather than silently cut.  ``spans``: ``(object id, polygon)``
+    of the walled decks' span cuts, trimmed as the cuts are."""
     from shapely.ops import unary_union as _u
     from .structure_geometry import OBJECT_CUT_PREFIX
     pairs = [(t.id, f) for t, f in zip(tunnels, footprints)
@@ -836,6 +837,11 @@ def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
     # carries the taxiway over the trench, and the centreline ends at its rim
     pairs += [(t.id, f) for t, f in zip(tunnels, footprints, strict=False)
               if getattr(t, "deck_bridge", "")]
+    # walled-multibridge-frames W8: a WALLED deck's span cut (``spans``,
+    # ``deck_bridge.walled_span_cuts``) is decked wall to wall, wider than
+    # the road corridor under it -- MEASURED KORD I-190: a taxi centreline
+    # crossed the W span 3 vertices deep on its floor between the walls
+    pairs += [(f"span:{oid}", g) for oid, g in spans]
     if not pairs:
         return list(cut_lines)
     outlines = [f for _ref, f in pairs]

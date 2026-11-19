@@ -30,7 +30,6 @@ def _bad_roles(law) -> set[str]:
 def span_clean(pm, law) -> list[dict]:
     """One record per walled pack deck: ``{object, strip_m2, rows, roles,
     lines, worst_at}`` (module doc)."""
-    from auto_patch_v2.model.planar import face_vertex_ids
     from auto_patch_v2.planar.deck_bridge import _walled_trench, deck_polygon
     from shapely import prepared
     from shapely.geometry import Point
@@ -39,7 +38,8 @@ def span_clean(pm, law) -> list[dict]:
     v_role: dict[int, set[str]] = {}
     for f in pm.faces.values():
         if f.role in bad or str(f.ref).startswith("zone"):
-            for v in face_vertex_ids(f.ring, f.holes):
+            # the face's rings are EDGE cycles: their vertices are the map's
+            for v in {u for ring in (f.ring, *f.holes) for u in pm.ring_vertices(ring)}:
                 v_role.setdefault(int(v), set()).add(str(f.role))
     v_line: dict[int, str] = {}
     for b in (getattr(pm, "breaklines", None) or {}).values():

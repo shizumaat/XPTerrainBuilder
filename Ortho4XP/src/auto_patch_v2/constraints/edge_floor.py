@@ -58,15 +58,23 @@ def edge_seats_of(planar: PlanarMap, law: Law, combine: bool = True):
             return ()
         if not memo:
             from ..model.platform import stage_air_vertices
+            from .deck_lines import end_lines
             from .geometry import nearest_vertex_fn
             memo.append(nearest_vertex_fn(planar, stage_air_vertices(planar, law)))
-        near = memo[0]
+            # a hard deck's end line seats where ``deck_lines.end_lines``
+            # seats it -- the set its rigid rows hold flush (a WALLED deck's
+            # one step outside its rim, walled frames W3), never a second
+            # reading of the ring stations
+            memo.append({(e.deck.object_id, e.line): e.terms
+                         for es in end_lines(planar, law).values() for e in es})
+        near, held = memo
         if near is None:
             return ()
         if not getattr(tn, "deck_bridge", ""):
             return tuple((near(x, y), float(depth)) for _oid, (x, y), depth in seats)
-        ends = tuple((_mean_terms([near(x, y) for x, y in st]), float(depth))
-                     for _oid, st, depth in seats)
+        ends = tuple((held.get((oid, tuple(tuple(p) for p in st)))
+                      or _mean_terms([near(x, y) for x, y in st]), float(depth))
+                     for oid, st, depth in seats)
         if not combine:
             return ends
         return tuple((_mean_terms([], ((a[0], 0.5), (b[0], 0.5))), 0.5 * (a[1] + b[1]))

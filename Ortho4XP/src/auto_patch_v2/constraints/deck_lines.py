@@ -45,17 +45,56 @@ def end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
     near = nearest_vertex_fn(planar, stage_air_vertices(planar, law))
     if near is None:
         return {}
+    rim = _rim_seats(planar, law, decks)
     out: dict[str, list[EndLine]] = {}
     seen: set[tuple] = set()
     for db in decks:
-        for st, depth in ((db.seats_a, db.depth_a), (db.seats_b, db.depth_b)):
+        moved = rim.get(id(db))
+        for k, (st, depth) in enumerate(((db.seats_a, db.depth_a), (db.seats_b, db.depth_b))):
             line = tuple(tuple(p) for p in st)
             if not line or (db.object_id, line) in seen:
                 continue
             seen.add((db.object_id, line))
+            vs = moved[k] if moved is not None and moved[k] else \
+                [near(x, y) for x, y in line]
             out.setdefault(db.object_id, []).append(EndLine(
-                db, line, _mean_terms([near(x, y) for x, y in line]), float(depth)))
+                db, line, _mean_terms(vs), float(depth)))
     return out
+
+
+def _rim_seats(planar: PlanarMap, law: Law, decks) -> dict[int, tuple[list, list]]:
+    """W3 (walled-multibridge-frames spec): per WALLED deck (``id``), the seat
+    vertices of its two end lines read at its stations moved one
+    ``abutment_sample_step_m`` outside the larger of its ring and its rim
+    (``planar/deck_bridge.rim_end_stations``): each the nearest AIRSIDE
+    vertex OFF the cut (no structure face at it) within two steps -- the
+    pavement the taxiway drives onto the deck from.  A station with none
+    seats nowhere; an end line with none keeps its ring stations' seats
+    (:func:`end_lines`).  MEASURED KORD I-190: the ring's own stations
+    seated on the rim and the pit edge."""
+    from ..geom import exact
+    from ..law.tables import is_structure_role
+    from ..model.platform import stage_air_vertices
+    from ..planar.deck_bridge import rim_end_stations
+    from .geometry import nearest_vertex_fn
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    got = {id(db): st for db in decks if (st := rim_end_stations(db, step, gap)) is not None}
+    if not got:
+        return {}
+    off = {v for v in stage_air_vertices(planar, law)
+           if not any(is_structure_role(law, planar.faces[f].role)
+                      for f in planar.vertices[v].incident_faces if f in planar.faces)}
+    near = nearest_vertex_fn(planar, off)
+    if near is None:
+        return {}
+    reach2 = exact.sq(2.0 * step)
+
+    def seats(st) -> list[int]:
+        return [v for x, y in st if (v := near(x, y)) is not None
+                and exact.sq(planar.vertices[v].xy[0] - x)
+                + exact.sq(planar.vertices[v].xy[1] - y) <= reach2]
+    return {k: (seats(a), seats(b)) for k, (a, b) in got.items()}
 
 
 def floor_end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:

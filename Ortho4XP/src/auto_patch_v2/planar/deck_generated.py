@@ -701,14 +701,10 @@ def carried_off(classification, decks, law) -> tuple[_t.Any, list[str]]:
 
     from ..law.tables import rolled_on_roles
     from .cell_knife import knife_cells
-    from .deck_bridge import _walled_trench, deck_polygon
+    from .deck_bridge import deck_polygon, walled_span_cuts
     gen = [d for d in decks if is_generated(d)]
-    gap = float(law.tables.structures.tunnel.wall_gap_m)
-    spans = []
-    for d in decks:
-        got = None if is_generated(d) else _walled_trench(d, gap)
-        if got is not None:
-            spans.append(got[1].intersection(deck_polygon(d)))
+    spans = [g for _oid, g in walled_span_cuts(
+        decks, float(law.tables.structures.tunnel.wall_gap_m))]
     if not (gen or spans) or classification is None:
         return classification, []
     knife = unary_union([deck_polygon(d) for d in gen]

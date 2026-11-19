@@ -132,7 +132,8 @@ from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_w
                               portal_mouth, portal_note, roof_back_mouth, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
-                          deck_polygon, deck_seats, deck_side, deck_under)
+                          deck_polygon, deck_seats, deck_side, deck_under,
+                          walled_span_cuts)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
 from ..model.deck_bank import deck_bank_slope
 from .deck_generated import is_generated
@@ -1915,7 +1916,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # are trimmed at each such outline's rim, one derivation site
     # (``structure_service.decked_exclusion``, which holds the reading).
     cut_lines = _decked_exclusion(classification.cut_lines, tunnels, footprints,
-                                  cells, polys, _cut_roles, grid, stats)
+                                  cells, polys, _cut_roles, grid, stats,
+                                  spans=walled_span_cuts(deck_bridges, law.tables.structures.
+                                                         tunnel.wall_gap_m))
     cut_lines = knee_nodes(cut_lines, knee_chords, grid)   # §34 (7), #449
     by_ref = {c.ref: c for c in cells}
     for role, ref, part, _tid in new_cells:

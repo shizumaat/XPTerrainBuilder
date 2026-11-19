@@ -532,12 +532,18 @@ def _inside_fn(airport: Airport) -> Inside:
 
 def _osm_levelled(w) -> bool:
     """The core's population: a ``highway`` way whose ``bridge`` /
-    ``tunnel`` is not ASSERTED (``bridge=no`` is an ordinary road)."""
+    ``tunnel`` is not ASSERTED (``bridge=no`` is an ordinary road).  A
+    ``tunnel=building_passage`` runs UNDER a building at its own grade
+    (§26: no bore, the ground does not drop) and is levelled as any road
+    (owner RULINGS 2026-11-19l: "roads and rails can pass underneath at
+    their grade" -- MEASURED KPHX Terminal 3: unlevelled, the passages
+    under the sky bridges carried no profile and the objective held them
+    3.1 m over their ground, level with the terminal's pad)."""
     if not w.tags.get("highway") or len(w.points) < 2:
         return False
     for k in ("bridge", "tunnel"):
         v = w.tags.get(k)
-        if v and v != "no":
+        if v and v != "no" and not (k == "tunnel" and v == "building_passage"):
             return False
     return True
 

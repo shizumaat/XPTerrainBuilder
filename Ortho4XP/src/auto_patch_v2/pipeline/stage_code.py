@@ -347,6 +347,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_ground",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -675,6 +676,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_ground",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.ramp_runout",
         "auto_patch_v2.classify.reachability",
@@ -1657,6 +1659,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_ground",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -2485,7 +2488,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    classify.pad_cut_corridor classify.pad_ground classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.taxi_shoulder
@@ -2749,7 +2752,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
+    classify.pad_cut_corridor classify.pad_ground classify.pad_touch classify.ramp_runout
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules
@@ -2952,7 +2955,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
-    classify.pad_cut_corridor classify.pad_touch
+    classify.pad_cut_corridor classify.pad_ground classify.pad_touch
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
@@ -3171,7 +3174,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.car_lot
     classify.gap_band
     classify.gap_mint classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch
+    classify.pad_cut_corridor classify.pad_ground classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
@@ -3336,7 +3339,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    classify.pad_cut_corridor classify.pad_ground classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.taxi_shoulder

@@ -147,6 +147,10 @@ class Floor:
     roof_heights: tuple[float, ...]
     roof_objects: tuple[str, ...]
     walls: tuple[Wall, ...]
+    #: the lowest ``VERTEX`` ``y`` of the floor's mesh segments (RULINGS
+    #: 2026-11-19l: where its walls meet the ground, or how far over it they
+    #: stop); ``None`` when no segment carries a mesh
+    base_y: float | None = None
 
     @property
     def top(self) -> float:
@@ -336,6 +340,14 @@ def parse_facade(path: str, index: _t.Mapping[str, str] | None = None
         if not t:
             continue
         k = t[0]
+        if k == "VERTEX" and seg is not None and len(t) >= 3:
+            try:
+                y = float(t[2])
+            except ValueError:
+                continue
+            f = floor()
+            f["base"] = y if f.get("base") is None else min(f["base"], y)
+            continue
         if k in ("VERTEX", "IDX", "MESH"):
             continue
         try:
@@ -427,7 +439,7 @@ def parse_facade(path: str, index: _t.Mapping[str, str] | None = None
                 both.append(tuple(best[k] for k in sorted(best)))
             walls.append(Wall(w["name"], *w["spec"], tuple(w["sp"]), *both))
         out_floors.append(Floor(f["name"], tuple(f["heights"]),
-                                tuple(f["roof_objs"]), tuple(walls)))
+                                tuple(f["roof_objs"]), tuple(walls), f.get("base")))
     # v800 draws a roof from ``ROOF`` rows or a ``SHADER_ROOF`` block
     # (``uh_metallic01.fac`` carries only the latter)
     roof = (shader_roof and not no_roof_mesh) or v800_roof > 0
@@ -585,4 +597,6 @@ def read_placed(poly: _t.Any, pack_root: str | None,
             edges.append(FacadeEdge(e.a, e.b, float(top.reach[1]),
                                     e.name or "(any fitting wall)",
                                     top.obj, top.vehicle))
-    return FacadeRead(poly.def_path, facade_class(fac), tuple(edges), undecided)
+    fl = floor_for(fac, float(poly.param))
+    return FacadeRead(poly.def_path, facade_class(fac), tuple(edges), undecided,
+                      None if fl is None else fl.base_y)

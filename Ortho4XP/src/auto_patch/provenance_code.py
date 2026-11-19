@@ -711,6 +711,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.classify.neck",
     "auto_patch_v2.classify.open_default",
     "auto_patch_v2.classify.pad_cut_corridor",
+    "auto_patch_v2.classify.pad_ground",
     "auto_patch_v2.classify.pad_road_exit",
     "auto_patch_v2.classify.pad_touch",
     "auto_patch_v2.classify.ramp_runout",

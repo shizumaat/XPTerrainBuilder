@@ -894,6 +894,13 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     parts = _absorb_enclosed(
         parts, float(law.tables.emit.identity.weld_spacing_m)
         if law is not None else 0.0)
+    # A PAD STANDS ONLY WHERE THE BUILDING TOUCHES THE GROUND (owner
+    # RULINGS 2026-11-19l): a lifted facade and the at-grade roads / rails
+    # passing under a building leave the pad less the pack's ground plan --
+    # here, before the jetways join (16b (1) keeps them) and the refs are
+    # minted (``classify/pad_ground``)
+    from .pad_ground import trim_to_ground
+    parts = trim_to_ground(parts, airport, law, rules)
     # THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1)):
     # every jetway the scenery declares joins the pad it serves — here, at
     # the ONE derivation site, so the arrangement's apron cut (23a) and
@@ -1158,8 +1165,13 @@ def _with_jetways(parts: list, airport: Airport, law, cache, runway_union,
         grown = unary_union([out[k], *gs])
         if runway_union is not None and not runway_union.is_empty:
             grown = grown.difference(runway_union)
-        grown = max(polygon_parts(grown), key=lambda q: q.area) \
-            if grown.geom_type != "Polygon" else grown
+        if grown.geom_type != "Polygon":
+            # the part's own pieces stay (a part the ground trim left in
+            # pieces, RULINGS 2026-11-19l, is one ref); a fragment the
+            # runway cut off the jetway alone goes
+            keep = [q for q in polygon_parts(grown) if q.intersects(out[k])]
+            grown = (unary_union(keep) if keep
+                     else max(polygon_parts(grown), key=lambda q: q.area))
         JETWAY_PADS["grown_m2"].append(round(grown.area - out[k].area, 1))
         if gained is not None:
             gained.append(grown.difference(out[k]))

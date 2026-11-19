@@ -269,6 +269,14 @@ class FacadeRead:
     cls: str
     edges: tuple[FacadeEdge, ...] = ()
     undecided: int = 0
+    #: THE FACADE'S FOOT (owner RULINGS 2026-11-19l): the lowest authored
+    #: wall-mesh ``y`` of the floor X-Plane draws for this polygon's height
+    #: (``airport/facade.Floor.base_y``).  Above ``[rebake] elevated_base_m``
+    #: the facade stands OFF the ground (a terminal kit's ``levels`` /
+    #: ``bridge`` facades: an underside at 3.8-4.2 m) and adds no pad.
+    #: ``None``: walls built from the height alone (they stand on ``y = 0``),
+    #: or a capture older than the field.
+    base_m: float | None = None
 
 
 @_dc.dataclass(frozen=True)

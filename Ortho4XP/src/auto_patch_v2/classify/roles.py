@@ -872,6 +872,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
     stats["pads_skirted"] = len(ev.skirted_pads)
     notes.extend(ev.skirted_pads)
+    # owner RULINGS 2026-11-19l: what left the pads for the ground they
+    # do not touch, and the clearance over each passage
+    from .pad_ground import GROUND_TRIMMED, PASSAGE_NOTES
+    stats["pads_ground_trimmed_m2"] = float(GROUND_TRIMMED.get("area_m2", 0.0))
+    notes.extend(PASSAGE_NOTES)
     # ── THE ROAD-FACE MINT, WIDENED: every mapped road in the patch ──
     # (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(3), (6);
     # issue #100).  Minted AFTER §27 and the pads, so no ribbon is read by

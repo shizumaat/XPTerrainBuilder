@@ -659,6 +659,11 @@ class BuildingPad:
     #: #1726 (``geom/foot_planes.is_support``): a walled part whose plan box
     #: spans at most this is a SUPPORT (pole, pier) and founds no storey
     support_max_extent_m: float = 0.0
+    #: RULINGS 2026-11-19l (``classify/pad_ground``): a road / a railway
+    #: passing under a lifted building piece with less clearance than this
+    #: is flagged in the report; ``0`` flags none
+    passage_clearance_road_m: float = 0.0
+    passage_clearance_rail_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

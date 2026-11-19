@@ -41,7 +41,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-__all__ = ["SlopeField", "member_field", "sloped_pads"]
+__all__ = ["SlopeField", "sloped_pads"]
 
 
 @_dc.dataclass(frozen=True)
@@ -72,7 +72,7 @@ def _qualifies(member: _t.Any, rms_max: float) -> bool:
             and getattr(member, "origin", None) is not None)
 
 
-def member_field(member: _t.Any, to_xy: _t.Callable, cap: float) -> SlopeField | None:
+def _member_field(member: _t.Any, to_xy: _t.Callable, cap: float) -> SlopeField | None:
     """The member's authored base plane in the frame ``to_xy(lon, lat)``,
     its magnitude capped at ``cap`` (direction kept); ``None`` for a
     member whose profile carries no gradient."""
@@ -138,7 +138,7 @@ def _cluster_index(airport: _t.Any, law: _t.Any) -> tuple[list, _t.Any]:
         mems = [m for m in (getattr(u, "members", ()) or ()) if str(m.resource) in want]
         field = None
         if mems and all(_qualifies(m, rms_max) for m in mems):
-            fs = [member_field(m, to_xy, cap) for m in mems]
+            fs = [_member_field(m, to_xy, cap) for m in mems]
             if all(f is not None for f in fs) and all(
                     math.hypot(f.gx - fs[0].gx, f.gy - fs[0].gy) <= agree for f in fs):
                 field = fs[0]

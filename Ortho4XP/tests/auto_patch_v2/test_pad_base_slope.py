@@ -24,7 +24,8 @@ CENSUS = [
     ("auto_patch_v2.planar.pad_base_slope", "sloped_pads",
      "SLOPED + rms <= sloped_pad_rms_m -> the plane, per pad", "NEW: the one derivation"),
     ("auto_patch_v2.planar.platform", "platform_split",
-     "which pads are HELD flat at a datum (unit / §4 conforming)", "EDITED: a sloped pad is never held"),
+     "which pads are HELD flat at a datum (unit / §4 conforming)",
+     "EDITED: a sloped pad is never held"),
     ("auto_patch_v2.constraints.pad_relief", "pad_relief_offsets",
      "the per-vertex target above the pad's level", "EDITED: the plane merged in"),
     ("auto_patch_v2.constraints.pad_relief", "pad_slope_offsets",
@@ -34,7 +35,8 @@ CENSUS = [
     ("auto_patch_v2.constraints.pads", "pad_slope_ceiling",
      "the hard 1 % pairs", "EDITED: from the plane, own head (stage 1), + hard one-plane rows"),
     ("auto_patch_v2.constraints.door_pad", "door_pads",
-     "a building on a sloping apron is ONE level (#798)", "EDITED: a sloped-base pad is not a door pad"),
+     "a building on a sloping apron is ONE level (#798)",
+     "EDITED: a sloped-base pad is not a door pad"),
     ("auto_patch_v2.constraints.pads", "pad_frontage_level",
      "contact rows against the pavement's own value", "UNCHANGED (differences only)"),
     ("auto_patch_v2.constraints.platform", "frontage_hold_rows",
@@ -52,6 +54,22 @@ CENSUS = [
      "sidecar pad_relief", "UNCHANGED code: publishes the merged offsets"),
     ("auto_patch_v2.verify.pads", "pad_flat",
      "plane residual / slope on z - pad_relief", "UNCHANGED code: reads the plane via the sidecar"),
+    # 2026-11-19q (1): the apron cap yields to the authored grade under the pad
+    ("auto_patch_v2.constraints.pad_relief", "pad_slope_pair_caps",
+     "the plane's grade along every pair of one sloped pad", "NEW (19q): the one derivation"),
+    ("auto_patch_v2.constraints.apron", "apron_within_shape",
+     "the apron's hard 1.5 % rows",
+     "EDITED (19q): a pad pair's row lifted to the plane (the 11-05a lift)"),
+    ("auto_patch_v2.verify.pads", "sloped_plane_offsets",
+     "which emitted vertices lie on one sloped pad's plane",
+     "NEW (19q): the verify's read of the sidecar"),
+    ("auto_patch_v2.verify.within", "within_shape",
+     "apron / pad pairs at the 1.5 % cap",
+     "EDITED (19q): one sloped pad's pairs at the plane's grade"),
+    ("auto_patch_v2.verify.pads", "planar_relief",
+     "a relief that is ONE plane (census pad_airside_weld + verify)",
+     "NEW (19q): the census's _planar_relief delegates here; the census within-shape already "
+     "reads a pad pair against the plane (check_grade pad_relief_by_nid offsets)"),
 ]
 
 
@@ -79,7 +97,7 @@ def _member(slope=(-0.019, 0.00014), rms=0.001, heading=249.387961, verdict="slo
 
 
 def test_the_authored_gradient_turns_with_the_placement_heading():
-    f = PBS.member_field(_member(), _to_xy, 0.05)
+    f = PBS._member_field(_member(), _to_xy, 0.05)
     # +x of the object points to bearing heading + 90: the base falls that way
     assert f.authored == pytest.approx(0.019, abs=1e-4)
     assert f.gx == pytest.approx(0.00682, abs=5e-5)
@@ -89,7 +107,7 @@ def test_the_authored_gradient_turns_with_the_placement_heading():
 
 
 def test_a_steeper_base_is_capped_at_the_pavement_law_keeping_its_direction():
-    f = PBS.member_field(_member(slope=(0.08, 0.0), heading=90.0), _to_xy, 0.05)
+    f = PBS._member_field(_member(slope=(0.08, 0.0), heading=90.0), _to_xy, 0.05)
     assert f.authored == pytest.approx(0.08, abs=1e-6)
     assert f.grade == pytest.approx(0.05, abs=1e-6)
     assert math.hypot(f.gx, f.gy) == pytest.approx(0.05, abs=1e-6)
@@ -151,3 +169,51 @@ def test_the_census_weld_reads_a_planar_relief_and_only_that():
     assert _planar_relief(pts, plane) == pytest.approx(plane)
     assert _planar_relief(pts, [0.0, 0.5, 0.0, 0.0]) is None       # per-foot (12u)
     assert _planar_relief(pts, [0.0, 0.19, None, 0.24]) is None
+
+
+def test_the_apron_lift_is_the_plane_grade_along_pairs_of_one_pad_only(monkeypatch):
+    """19q (1): ``pad_slope_pair_caps`` lifts the pairs of ONE sloped pad
+    (footprint + shared rim) to the plane's grade along them — never a
+    pair reaching off the pad."""
+    from auto_patch_v2.constraints import pad_relief as PR
+    f = PBS.SlopeField(0.019, 0.0, 0.0, 0.0, 0.019, 0.019, "canopy")
+    xy = {1: (0.0, 0.0), 2: (20.0, 0.0), 3: (0.0, 10.0), 4: (40.0, 0.0)}
+    pm = types.SimpleNamespace(vertices={v: types.SimpleNamespace(xy=p) for v, p in xy.items()})
+    monkeypatch.setattr(PR, "_sloped_groups", lambda *_a: {"building1": (f, {1, 2, 3})})
+    caps = PR.pad_slope_pair_caps(pm, None, None)
+    assert caps[(1, 2)] == pytest.approx(0.019)            # along the axis: the authored grade
+    assert caps[(2, 3)] == pytest.approx(0.38 / math.hypot(20, 10))
+    assert (1, 3) not in caps                              # across the axis: no lift
+    assert all(4 not in k for k in caps)                   # off the pad: unchanged
+
+
+def test_the_apron_hard_row_takes_the_lift_and_keeps_its_preference():
+    from auto_patch_v2.constraints.apron import _Tier
+    from auto_patch_v2.model.constraints import Source
+    t = _Tier(7, "dsf:pol43", 0.015, 0.010, lift={(1, 2): 0.019})
+    src = Source("apron", "common.roles.apron ring edge (2026-08-21b)", ("face:7",))
+    hard, pref = t.rows(2, 1, 20.0, src)
+    assert hard.cap == pytest.approx(0.019) and hard.soft is None
+    assert pref.cap == pytest.approx(0.010) and pref.soft
+    assert t.rows(1, 3, 20.0, src)[0].cap == pytest.approx(0.015)
+
+
+def test_the_verify_reads_one_pads_plane_and_a_shared_rim_vertex_on_both():
+    from auto_patch_v2.verify.pads import sloped_pair_cap
+    # vertex 2 is the rim two sloped pads (shapes 0 and 1) share
+    sloped = {1: {0: 0.0}, 2: {0: 0.38, 1: 0.38}, 3: {1: 0.76}, 4: {}}
+    assert sloped_pair_cap(sloped, 1, 2, 20.0) == pytest.approx(0.019)
+    assert sloped_pair_cap(sloped, 2, 3, 20.0) == pytest.approx(0.019)
+    assert sloped_pair_cap(sloped, 1, 3, 40.0) == 0.0      # two pads: no one plane
+    assert sloped_pair_cap(sloped, 1, 9, 20.0) == 0.0      # off any pad
+
+
+def test_the_census_and_the_verify_share_one_planar_relief_reading():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    from check_grade import _planar_relief
+    from auto_patch_v2.verify.pads import planar_relief
+    pts = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+    for offs in ([0.0, 0.19, 0.05, 0.24], [0.0, 0.5, 0.0, 0.0]):
+        assert _planar_relief(pts, offs) == planar_relief(pts, offs)

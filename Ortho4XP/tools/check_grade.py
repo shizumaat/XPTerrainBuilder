@@ -7589,19 +7589,11 @@ except Exception:                                       # pragma: no cover
 
 def _planar_relief(pts: List[Tuple[float, float]],
                    offs: List[Optional[float]]) -> Optional[List[float]]:
-    """``offs`` when every point carries one and they lie on ONE PLANE
-    (residual within a millimetre) — a SLOPED BASE's plane (owner RULINGS
-    2026-11-19o (1), ``constraints/pad_relief.pad_slope_offsets``) — else
-    ``None`` (no relief, or a per-foot relief: 12u)."""
-    if len(pts) < 3 or any(o is None for o in offs):
-        return None
-    import numpy as _np
-    a = _np.column_stack([_np.ones(len(pts)), _np.asarray(pts, float)])
-    o = _np.asarray(offs, float)
-    coef, *_r = _np.linalg.lstsq(a, o, rcond=None)
-    if float(_np.abs(o - a @ coef).max()) > 1e-3 or not o.any():
-        return None
-    return [float(x) for x in o]
+    """A SLOPED BASE's plane offsets, or ``None`` — THE engine reader
+    (``auto_patch_v2.verify.pads.planar_relief``; one reading, both
+    readers)."""
+    from auto_patch_v2.verify.pads import planar_relief
+    return planar_relief(pts, offs)
 
 
 def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,

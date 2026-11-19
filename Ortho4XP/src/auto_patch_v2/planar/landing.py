@@ -340,10 +340,21 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # every pad reader takes (``geom.cluster_outline.pad_shade_extra``)
     from ..geom.cluster_outline import pad_shade_extra
     _shade = pad_shade_extra(airport)
+    # lane ``lk1fix``: NOR THE GROUND OF A CLUSTER K1 READS AS LYING UNDER
+    # ITS GRADE (a road bed, a fake trench) — it mints no pad, and a landing
+    # over it lifts the tunnel ramp inside it to the deck's foot (MEASURED
+    # KJFK: a refused fake trench's ground took a landing at +3.76 that
+    # pulled the ramp's end 5.08 m out of the trench)
+    from ..geom.sunk_cluster import sunk_ground
+    from ..law.tables import pad_admission
+    _sunk = sunk_ground(getattr(airport, "clusters", ()) or (), to_xy,
+                        pad_admission(law),
+                        float(law.tables.structures.placement.footprint_touch_m))
     base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
                             + [air_u.buffer(_keep) if _keep > 0.0 else air_u]
                             + ([_cut] if _cut is not None else [])
                             + ([_shade] if _shade is not None else [])
+                            + _sunk
                             + [q for q in structures if q is not None and not q.is_empty])
     taken = base_hard
     plats: list = []

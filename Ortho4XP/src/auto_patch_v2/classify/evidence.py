@@ -110,6 +110,15 @@ class Evidence:
     jetway_ground: list[Polygon] = _dc.field(default_factory=list)
     #: THE WALL CLIP (#1158, ``classify/wall_clip``): its stats
     wall_clip: dict = _dc.field(default_factory=dict)
+    #: THE REFUSED GROUND (lane ``lk1fix``, owner RULINGS 2026-11-19k (2)
+    #: with 19m (3)): every candidate footprint the route rule refused — a
+    #: 1202 route passes over it, so it is no building and mints no pad —
+    #: stays OUT of the gap mint, which would otherwise read the freed ground
+    #: as new APRON (``classify/gap_mint``): a refusal is a groundside
+    #: decision and never grows the airside (RULINGS 2026-07-30, airside is
+    #: king; MEASURED LGAV: the freed ring became 31,152 m2 of ``gapapron``
+    #: and moved 123 certified apron nodes up to 0.15 m).
+    refused_ground: list[Polygon] = _dc.field(default_factory=list)
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -355,6 +364,7 @@ def build_evidence(airport: Airport, rules: Rules,
                                    gained=gained)
     if base_pads is not None and _same_pads(base_pads, pads):
         base_pads = None
+    refused_ground = list(_ROUTE_OVER_GROUND)
     jetway_ground = [q for g in gained
                      for q in polygon_parts(g.intersection(pavement_union))
                      if q.area > 0.0]
@@ -367,7 +377,8 @@ def build_evidence(airport: Airport, rules: Rules,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
                     road_chains, parking, skirted, letter_counts, base_pads,
-                    jetway_ground=jetway_ground, wall_clip=wall_clip)
+                    jetway_ground=jetway_ground, wall_clip=wall_clip,
+                    refused_ground=refused_ground)
 
 
 def parking_polys(airport: Airport) -> list[tuple[str, Polygon]]:
@@ -545,6 +556,9 @@ _OBJECT_BUILDING_UNVOUCHED_ROLE = "object_unvouched"
 #: gate refused this pass, for the build's say-line and the sidecar beside
 #: ``CLUSTER_PADS["refused"]`` (the cluster half's own rows).
 PAD_REFUSED: dict[str, object] = {}
+#: lane ``lk1fix``: the footprints the LAST ``_pads`` pass refused because a
+#: 1202 route passes over them (``Evidence.refused_ground``)
+_ROUTE_OVER_GROUND: list[Polygon] = []
 
 
 
@@ -749,6 +763,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     ``[building_pad] min_area_m2`` — the COUNT is unchanged and the
     covered area is the pack's true footprints replacing the footprint
     cache's."""
+    _ROUTE_OVER_GROUND.clear()
     polys = []
     admitted = tuple(rules.buildings.sources)
     # §16g (10) (12) THE BUILDING-EVIDENCE GATE ON THE FALLBACK HALF TOO
@@ -790,6 +805,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # frame's ground, never a pad; one the route ends at is kept
     _routes = RouteWitness(airport)
     _route_over: list[dict] = []
+    _over_ground: list[Polygon] = []
     # #1747 (owner RULINGS 2026-11-06b (6)): a footprint-cache ring the
     # tunnel mouths' walls reach into (deeper than the touch tolerance the
     # footprints chain at) was WELDED from those walls, and a weld's members
@@ -824,12 +840,14 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             _route_over.append({"id": b.id, "source": b.source,
                                 "area_m2": round(p.area, 1),
                                 "route_inside_m": _rin})
+            _over_ground.append(p)
             continue
         polys.append(p)
     PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
     PAD_REFUSED["agp_follower"] = len(_followed) + _n_follow_ev
     PAD_REFUSED["fallback_tunnel_mouth"] = _n_mouth
     PAD_REFUSED["fallback_taxi_route_over"] = _route_over
+    _ROUTE_OVER_GROUND[:] = _over_ground
     # lane ``padgates101b``: the OSM half's own count on this half — the
     # sweep read ``osm_vouched`` 0 everywhere because that counter is the
     # CLUSTER half's alone, and the OSM half was firing here unseen

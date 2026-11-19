@@ -1246,6 +1246,12 @@ class PadAdmission:
     #: the walled height (``chain_min_height_m``) a component must stand
     #: ABOVE grade for the cluster to mint a pad (0 disarms)
     above_grade_min_m: float = 0.0
+    #: K1's below-grade half (lane ``lk1fix``): a component whose top
+    #: stands this far or more under the object's own grade is SUNK
+    #: (``[tunnel.object] floor_sunken_min_m``: less is a structure
+    #: standing ON the ground); K1 refuses only a cluster whose sunk
+    #: components carry most of its area (0 disarms the half)
+    sunk_min_m: float = 0.0
 
     @property
     def armed(self) -> bool:
@@ -1261,7 +1267,8 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)),
-        above_grade_min_m=float(getattr(p, "chain_min_height_m", 0.0)))
+        above_grade_min_m=float(getattr(p, "chain_min_height_m", 0.0)),
+        sunk_min_m=float(law.tables.structures.tunnel.object.floor_sunken_min_m))
 
 
 class SlabLaw(_t.NamedTuple):

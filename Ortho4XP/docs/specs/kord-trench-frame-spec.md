@@ -73,6 +73,22 @@ one. One derivation site, so the mint, the census (`constraints/cluster_pad`) an
 refused, as today. `placement_family`'s `walled` (the CHAINING reading) is NOT changed, and
 neither is the vouch's any-intersection test (HECA's measured basis); 22n is not changed.
 
+**K1 AMENDED (lane `lk1fix`, 2026-11-19).** K1 as first written also refused AT-GRADE landside
+slabs under the walled height (a terminal-zone slab top +1.48 / skirt -1.27, a hub floor, a
+fuel-farm base), and the freed ground moved a neighbouring airside 0.68 m. K1 now refuses only a
+cluster that LIES UNDER its grade: each component carries its authored top
+(`PadEvidence.tops`), a component whose top stands `[tunnel.object] floor_sunken_min_m` (2.0) or
+more under the grade is SUNK, and the cluster is under its grade when its sunk components carry
+more footprint area than the rest (`geom/pad_evidence.mostly_under_grade`). A road bed (top
+-2.28) and a walled fake trench whose floor carries the area stay refused; a slab whose top
+stands at the grade keeps its pad (counted `at_grade_slab`). A SUNK cluster also KEEPS ITS
+GROUND (`geom/sunk_cluster.sunk_ground`): a cluster whose closed outline stands MOSTLY over it
+(a car-park slab over a road-bed trench) mints no pad (`over_sunk`), a pad merely touching it is
+NOT trimmed (an 11 m2 trim of a terminal pad moved its apron plateau 0.19 m), and it is in every
+landing's hard set (`planar/landing`: a viaduct ramp landing over a refused fake trench lifted
+the tunnel ramp inside it 5.08 m). A cluster measured before the tops field is refused as
+before and keeps no ground.
+
 What this says about the frame kinds: walls below grade and a floor below grade are a CUT
 (the trench passes read them); a hard deck at grade is a DECK (already never walled); a
 zero-thickness sheet is nothing. Only a body standing above the ground is a building.

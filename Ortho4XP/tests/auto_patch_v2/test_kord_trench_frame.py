@@ -28,15 +28,16 @@ def _ident(lon: float, lat: float) -> tuple[float, float]:
     return (lon, lat)
 
 
-def _cluster(cid: str, x0, y0, x1, y1, above: float, total: float = 2.72):
+def _cluster(cid: str, x0, y0, x1, y1, above: float, total: float = 2.72,
+             tops: tuple = (), rows: tuple = ()):
     ring = [(y0, x0), (y0, x1), (y1, x1), (y1, x0)]
     area = (x1 - x0) * (y1 - y0)
-    rows = (("slab.obj", total, above, area),)
+    rows = rows or (("slab.obj", total, above, area),)
     ev = PadEvidence(tall_base_fill=0.86, tallest_extent_m=above,
                      evidence_coverage=0.0, hull_area_m2=area,
                      name_vouched=False, evidence_name_vouched=False,
-                     length_m=x1 - x0, width_m=y1 - y0, components=1,
-                     rows=rows)
+                     length_m=x1 - x0, width_m=y1 - y0, components=len(rows),
+                     rows=rows, tops=tuple(tops))
     return types.SimpleNamespace(id=cid, rings=[ring], walled=1, area_m2=area,
                                  floors=(-5.0,), members=("slab.obj",),
                                  evidence=ev, bridges=())
@@ -75,9 +76,45 @@ def test_k1_a_building_standing_above_grade_still_mints_on_the_vouch():
 
 
 def test_k1_half_sunk_structure_under_the_walled_height_loses_its_pad():
-    """0.82 m above grade (a half-sunk parking deck) is under 2.5 m."""
+    """0.82 m above grade is under 2.5 m; measured WITHOUT component tops
+    (a cluster from before the field) it is read as before: refused."""
     got, counts, _r = _outlines([_cluster("park", 0, 0, 20, 17, 0.82)])
     assert got == [] and counts["below_grade"] == 1
+
+
+def test_k1_an_at_grade_slab_keeps_its_pad():
+    """Lane lk1fix: a landside slab whose top stands at its grade (+1.48,
+    a skirt to -1.27) is no road bed: K1 leaves it to the vouch."""
+    got, counts, _r = _outlines([_cluster("zone", 0, 0, 100, 60, 1.48,
+                                          total=2.75, tops=(1.48,))])
+    assert len(got) == 1 and counts["below_grade"] == 0
+    assert counts["at_grade_slab"] == 1 and counts["cache_vouched"] == 1
+
+
+def test_k1_a_road_bed_with_its_top_measured_is_still_refused():
+    """The road bed's top stands 2.28 m under its grade: sunk, refused."""
+    got, counts, _r = _outlines([_cluster("bed", 0, 0, 470, 96, 0.0,
+                                          tops=(-2.28,))])
+    assert got == [] and counts["below_grade"] == 1
+
+
+def test_k1_a_walled_trench_whose_floor_carries_the_area_is_refused():
+    """Walls to +2.4 over 1,000 m2, the floor (top -5.0) over 9,000 m2: the
+    cluster lies under its grade although its walls reach it."""
+    rows = (("trench.obj", 7.4, 2.4, 1000.0), ("trench.obj", 0.6, 0.0, 9000.0))
+    got, counts, _r = _outlines([_cluster("trench", 0, 0, 100, 100, 2.4,
+                                          tops=(2.4, -5.0), rows=rows)])
+    assert got == [] and counts["below_grade"] == 1
+
+
+def test_mostly_under_grade_reads_area_not_count():
+    from auto_patch_v2.geom.pad_evidence import mostly_under_grade
+    rows = (("a", 1.0, 0.0, 10.0), ("a", 1.0, 0.0, 10.0), ("a", 3.0, 1.0, 50.0))
+    ev = types.SimpleNamespace(rows=rows, tops=(-3.0, -3.0, 1.0))
+    assert mostly_under_grade(ev, 2.0) is False
+    ev = types.SimpleNamespace(rows=rows, tops=(-3.0, -3.0, -2.5))
+    assert mostly_under_grade(ev, 2.0) is True
+    assert mostly_under_grade(types.SimpleNamespace(rows=rows, tops=()), 2.0) is None
 
 
 def _airport(*edges):
@@ -260,3 +297,18 @@ def test_w7b_no_road_ramp_row_inside_the_walls():
     counts: dict = {}
     got = release_wall_ramps(rows, pm, law, counts)
     assert got == rows[1:] and counts["walled_floor.ramps_released"] == 1
+
+
+def test_k1_a_slab_mostly_over_a_sunk_cluster_mints_nothing():
+    """Lane lk1fix: the road bed mints nothing; a slab mostly over its
+    ground is a slab of its frame (no pad); one partly over it is left
+    whole (a trim moves the airside around a pad)."""
+    bed = _cluster("bed", 0, 0, 100, 40, 0.0, tops=(-2.28,))
+    lid = _cluster("lid", 10, 20, 30, 60, 0.82, tops=(0.83,))       # 1/2 over: 400/800
+    lid2 = _cluster("lid2", 60, 30, 80, 70, 0.82, tops=(0.83,))     # 1/4 over
+    lid3 = _cluster("lid3", 40, 10, 50, 50, 0.82, tops=(0.83,))     # 3/4 over
+    got, counts, refused = _outlines([bed, lid, lid2, lid3])
+    ids = {i: g for i, _c, g in got}
+    assert counts["below_grade"] == 1 and counts["over_sunk"] == 1
+    assert [r["id"] for r in refused if r["gate"] == "sunk_ground"] == ["lid3"]
+    assert abs(ids["lid2"].area - 800.0) < 1.0 and abs(ids["lid"].area - 800.0) < 1.0

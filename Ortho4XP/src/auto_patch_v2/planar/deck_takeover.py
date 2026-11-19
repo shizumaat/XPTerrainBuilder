@@ -303,8 +303,12 @@ def full_hidden(objects, classification, cache, law) -> tuple[list, _t.Any, list
     the frames the full map hid (:func:`_replaced_ids`, never a second
     reading), their deck plates paved; unchanged anywhere else."""
     from ..model.stage_one import full_map
+    from .deck_airside import withheld
     full = full_map()
-    hid = _replaced_ids(getattr(full, "decks", ()) or ()) if full is not None else frozenset()
+    # the no-bridge arm's full map withholds the decks that carry them
+    # (``planar/deck_airside.no_bridge_arm``)
+    hid = _replaced_ids((*(getattr(full, "decks", ()) or ()), *withheld())) \
+        if full is not None else frozenset()
     if not hid:
         return objects, classification, []
     classification, notes = _paved_over(classification,

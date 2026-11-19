@@ -555,6 +555,11 @@ class DeckBridge:
     #: off them are no ground once hidden (``planar/deck_pack_cover.
     #: hidden_cells_off``)
     hidden_plans: tuple = ()
+    #: owner 2026-11-19T13:51Z (RULINGS 2026-11-19m (2)): the placement ids
+    #: of a pack's WALLED MULTI-BRIDGE FRAME this GENERATED deck takes over
+    #: (``planar/deck_takeover``) -- hidden in the pack copy (``hides``) and
+    #: read by no planar pass, on either map; ``()`` for every other deck
+    replaces: tuple = ()
     #: owner RULINGS 2026-11-18i: a deck piece cut to ONE SPAN of a pack
     #: deck lying at grade elsewhere on the airport's pavement
     #: (``geom/deck_spans``, ``planar/deck_span_cut``): ``(a, b, spans,

@@ -55,6 +55,7 @@ from .grade_separation import road_crossings
 from ..geom.parts import polygon_parts_with_area
 from .deck_generated import carried_off, generated_decks
 from .deck_pack_cover import hidden_cells_off
+from .deck_takeover import attach, full_hidden, roads_under, take_frames
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -283,35 +284,54 @@ def build(airport: Airport, classification: Classification, law: Law,
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
-    # owner RULINGS 2026-11-18i: a pack deck lying at grade on the airport's
-    # taxiway is cut to its spans; its at-grade plan is the airport's own
-    # pavement (``planar/deck_span_cut``)
+    # owner 2026-11-19T13:51Z (RULINGS 2026-11-19m (2)): a pack's walled
+    # multi-bridge frame our generated decks take is HIDDEN -- this build
+    # reads the pack as if the user had hidden it (``planar/deck_takeover``):
+    # stage 1's map hides what the full map hid; the full map reads the pack
+    # once, finds the frames (never an object floor's, W1), and reads it
+    # again without them
+    objects, classification, _tk_notes = full_hidden(objects, classification, cache, law)
+    takes: tuple = ()
     from .deck_span_cut import at_grade_cells
-    classification, _ag_notes = at_grade_cells(classification, airport, law, objects)
-    for _n in _ag_notes:
+    for _tk_pass in (0, 1):
+        # owner RULINGS 2026-11-18i: a pack deck lying at grade on the
+        # airport's taxiway is cut to its spans; its at-grade plan is the
+        # airport's own pavement (``planar/deck_span_cut``)
+        cl_ag, _ag_notes = at_grade_cells(classification, airport, law, objects)
+        # THE CLASSIFICATION-FREE PACK READS, ONCE PER BUILD (issue #362;
+        # ``planar/pack_reads``): the tunnel wall objects (RULINGS
+        # 2026-09-05k-1 — they replace the OSM bores they cover), the
+        # thin-plate wall objects (spec §33 (2); they govern the MOUTH of the
+        # bore they span, owner RULINGS 2026-09-13d item 5), the door wells
+        # and the sunken roads (RULINGS 2026-09-08b/c).  A second pass over
+        # the same pack (the ribbon-free map, #100 (c)) is handed the
+        # first's reading.
+        # THE WALL CORRIDORS' FIELD (spec §12h (4)): ONE record of this
+        # classification's cover, handed to the pool and to the one-core
+        # read alike — FIELD is always READ on the build path
+        field = wall_field(cl_ag, law)
+        pr = pack_reads(airport, objects, cache, law, walls=True, field=field)
+        corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
+                                             pr.plates, pr.plate_stats)
+        wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
+        tstats.plates = pstats.plates
+        # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
+        # read ONCE, here and in the structures replay alike
+        floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
+                                                     tstats, cl_ag)
+        roads, wells = not_floors(roads, floors), not_floors(wells, floors)
+        floor_frame = {pid for f in floors for pid in (f.object_id, *f.covers)}
+        if _tk_pass or full_map() is not None:
+            break
+        objects_tk, cl_tk, takes, _more = take_frames(
+            objects, cache, classification, airport, law, floor_frame, tstats.trench_objects)
+        _tk_notes = [*_tk_notes, *_more]
+        if not takes:
+            break
+        objects, classification = objects_tk, cl_tk
+    classification = cl_ag
+    for _n in [*_tk_notes, *_ag_notes]:
         print(f"[{airport.icao}] hard deck: {_n}")
-    # THE CLASSIFICATION-FREE PACK READS, ONCE PER BUILD (issue #362;
-    # ``planar/pack_reads``): the tunnel wall objects (RULINGS 2026-09-05k-1
-    # — they replace the OSM bores they cover), the thin-plate wall objects
-    # (spec §33 (2); they govern the MOUTH of the bore they span, owner
-    # RULINGS 2026-09-13d item 5), the door wells and the sunken roads
-    # (RULINGS 2026-09-08b/c).  A second pass over the same pack (the
-    # ribbon-free map, #100 (c)) is handed the first's reading.
-    # THE WALL CORRIDORS' FIELD (spec §12h (4)): ONE record of this
-    # classification's cover, handed to the pool and to the one-core read
-    # alike — FIELD is always READ on the build path
-    field = wall_field(classification, law)
-    pr = pack_reads(airport, objects, cache, law, walls=True, field=field)
-    corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
-                                         pr.plates, pr.plate_stats)
-    wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
-    tstats.plates = pstats.plates
-    # A TRENCH OBJECT'S OWN FLOOR IS THE CUT (#1903, owner 2026-11-06):
-    # read ONCE, here and in the structures replay alike
-    floors, corridors, cuts = object_floor_stage(airport, objects, cache, law, corridors,
-                                                 tstats, classification)
-    roads, wells = not_floors(roads, floors), not_floors(wells, floors)
-    floor_frame = {pid for f in floors for pid in (f.object_id, *f.covers)}
     tstats.refused.extend(pstats.refused)
     # the wall corridors are a pack read too (#362): of the classification
     # they read the FIELD's cover alone (and, in the structures replay, the
@@ -379,8 +399,10 @@ def build(airport: Airport, classification: Classification, law: Law,
         gen, gen_notes = generated_decks(
             classification, airport, law, decks,
             [c.footprint for c in corridors] + [f.footprint for f in floors],
-            objects, cache, deck_notes)
-        decks, deck_notes = tuple(decks) + gen, list(deck_notes) + gen_notes
+            objects, cache, deck_notes,
+            covered=roads_under([b for t in takes for b in t.bridges], airport, law))
+        gen, tk_notes = attach(gen, takes, law)
+        decks, deck_notes = tuple(decks) + gen, [*deck_notes, *gen_notes, *tk_notes]
     # a generated deck carries its airside pavement on both maps (A3)
     classification, cut_notes = carried_off(classification, decks, law)
     # the pads and walls read off the pack placements it hides are no ground

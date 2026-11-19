@@ -400,9 +400,9 @@ def build(airport: Airport, classification: Classification, law: Law,
             classification, airport, law, decks,
             [c.footprint for c in corridors] + [f.footprint for f in floors],
             objects, cache, deck_notes,
-            covered=roads_under([r for t in takes for r in t.spans], airport, law))
+            covered=roads_under([b for t in takes for b in t.bridges], airport, law))
         gen, tk_notes = attach(gen, takes, law)
-        decks, deck_notes = tuple(decks) + gen, [*deck_notes, *gen_notes, *_tk_notes, *tk_notes]
+        decks, deck_notes = tuple(decks) + gen, [*deck_notes, *gen_notes, *tk_notes]
     # a generated deck carries its airside pavement on both maps (A3)
     classification, cut_notes = carried_off(classification, decks, law)
     # the pads and walls read off the pack placements it hides are no ground

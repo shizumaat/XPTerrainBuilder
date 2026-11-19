@@ -25,13 +25,13 @@ THE RULE (general: no airport, pack, resource or coordinate is named):
    (``airport/object_floor``: it stays the floor's, walled-multibridge-
    frames W1; RULINGS 2026-11-19m (3)).
 2. It is TAKEN OVER only when, with the frame's placements gone and its deck
-   plates paved (:func:`paved_over`), a GENERATED deck stands on every one
+   plates paved (:func:`_paved_over`), a GENERATED deck stands on every one
    of its taxiway / runway bridges (overlapping it by ``[deck_gen]
    min_area_m2``; a road bridge of the frame is the road-bridge rule's);
    otherwise it stays the pack's and the note names the bridge no generated
    deck takes.
 3. A taken-over frame is HIDDEN: every placement of it leaves the planar
-   build's object list (:func:`without`; no corridor, trench, floor, basin
+   build's object list (:func:`_without`; no corridor, trench, floor, basin
    or wall reads it, on either map: the build runs as if the user had hidden
    it), and the generated decks standing on its bridges carry it
    (:func:`attach`): ``hides`` (the pack copy drops its rows,
@@ -39,7 +39,7 @@ THE RULE (general: no airport, pack, resource or coordinate is named):
    originals puts it back), ``hidden_plans`` (what the classification read
    off it is no ground, ``deck_pack_cover.hidden_cells_off``) and
    ``replaces`` (stage 1's map reads the same hidden set off the full map's
-   decks, :func:`replaced_ids`).
+   decks, :func:`_replaced_ids`).
 
 Build-time impact: one ``deck_bridges`` read over the frames holding two or
 more deck pieces (few per airport) and, only where a frame qualifies, one
@@ -61,16 +61,16 @@ from shapely.ops import linemerge, unary_union
 from ..classify.roles import TAXI_FAMILY
 from ..model.structures import DeckBridge, is_generated
 from .deck_bridge import _frames, _road_dir, _walled_trench, deck_bridges, deck_polygon, \
-    project_span
+    mid_line, project_span
 from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 
-__all__ = ["Takeover", "multibridge_frames", "takeovers", "take_frames", "full_hidden",
-           "paved_over", "roads_under", "without", "attach", "replaced_ids"]
+__all__ = ["take_frames", "full_hidden",
+           "roads_under", "attach"]
 
 
 @_dc.dataclass(frozen=True)
-class Takeover:
+class _Takeover:
     """One hidden walled multi-bridge frame (module doc)."""
 
     #: the frame's deck placement and its resource
@@ -81,8 +81,8 @@ class Takeover:
     members: tuple
     #: the members' plans (frame rings, ``DeckBridge.hidden_plans``)
     plans: tuple
-    #: the frame's bridges (frame rings): a generated deck stands on each
-    spans: tuple
+    #: the frame's bridges (``DeckBridge``): a generated deck stands on each
+    bridges: tuple
 
 
 def _apart(a: DeckBridge, b: DeckBridge, gap: float, trench=None) -> bool:
@@ -118,7 +118,7 @@ def _crossings(db: DeckBridge, roads) -> int:
     return sum(1 for g in getattr(m, "geoms", [m]) if g.length > 1.0)
 
 
-def multibridge_frames(decks: _t.Sequence[DeckBridge], gap: float, trenches=(),
+def _multibridge_frames(decks: _t.Sequence[DeckBridge], gap: float, trenches=(),
                        roads=()) -> list[tuple[DeckBridge, ...]]:
     """Every pack frame of ``decks`` that is a walled multi-bridge frame
     (module doc, rule 1), its bridges in ``decks`` order.  ``gap`` is
@@ -188,25 +188,30 @@ def _trenches(objects, cache, airport, law) -> list:
                                ways + covered_candidates(airport.osm_ways))[0]
 
 
-def roads_under(spans, airport, law) -> list:
-    """The mapped roads under the bridges ``spans`` (frame rings) as covered
-    roads of ``generated_decks``: each road / rail line crossing a bridge
-    by over a metre, clipped to it (once per bridge), its mapped way its
-    parent (the cover is read off the pavement over it,
-    ``deck_generated._whole_cover``)."""
+def roads_under(bridges: _t.Sequence[DeckBridge], airport, law) -> list:
+    """The mapped roads under the pack ``bridges`` as covered roads of
+    ``generated_decks``: each road / rail way passing under a bridge --
+    crossing its midline inside its ring (``deck_bridge.mid_line``, the
+    reading ``planar/deck_bores`` bores a hard deck's road by) -- clipped
+    to the ring (once per bridge), its mapped way its parent (the cover is
+    read off the pavement over it, ``deck_generated._whole_cover``).  A way
+    ending under the deck short of the midline (a 10 m link between two
+    bores) is not under it."""
     from shapely.geometry import LineString
 
     from .deck_generated import _Road
     from .structure_approach import carriageway_width_m
     from .structure_underpass import bore_roads
-    polys = [shapely.Polygon(r).buffer(0.0) for r in spans if len(r) >= 3]
     out = []
-    for w in bore_roads(airport, law, rail=True):
-        ln = LineString(w.points)
-        for p in polys:
+    lines = [(w, LineString(w.points)) for w in bore_roads(airport, law, rail=True)]
+    for db in bridges:
+        p, (r, mid) = deck_polygon(db), mid_line(db)
+        for w, ln in lines:
             x = ln.intersection(p)
             parts = [g for g in getattr(x, "geoms", [x])
-                     if g.geom_type == "LineString" and g.length > 1.0]
+                     if g.geom_type == "LineString" and g.length > 1.0
+                     and min(q[0] * r[0] + q[1] * r[1] for q in g.coords) < mid
+                     < max(q[0] * r[0] + q[1] * r[1] for q in g.coords)]
             if parts:
                 best = max(parts, key=lambda g: g.length)
                 out.append(_Road(str(w.id), dict(w.tags or {}), best, best.length,
@@ -219,8 +224,8 @@ def _taken(span: DeckBridge, polys, a_min: float) -> bool:
     return any(p.intersection(g).area >= a_min for g in polys)
 
 
-def takeovers(objects, cache, classification, airport, law, ground=None, trenches=None,
-              everything=None) -> tuple[tuple[Takeover, ...], list[str]]:
+def _takeovers(objects, cache, classification, airport, law, ground=None, trenches=None,
+              everything=None) -> tuple[tuple[_Takeover, ...], list[str]]:
     """``(every walled multi-bridge frame of ``objects`` taken over, one note
     per frame read and per placement hidden)`` (module doc, rules 1-2).
     ``ground``: the author's ground ``deck_bridges`` reads (``None``: the
@@ -241,22 +246,22 @@ def takeovers(objects, cache, classification, airport, law, ground=None, trenche
     trenches = _trenches(mine, cache, airport, law) if trenches is None else trenches
     decks, _n = deck_bridges(mine, cache, classification, airport, law, trenches,
                              ground=ground)
-    frames = multibridge_frames(decks, float(law.tables.structures.tunnel.wall_gap_m),
+    frames = _multibridge_frames(decks, float(law.tables.structures.tunnel.wall_gap_m),
                                 trenches, _road_lines(airport))
     if not frames:
         return (), []
     gone = {m for fr in frames for m in fr[0].members}
-    paved, _pn = paved_over(classification, [o for o in objects if str(o.id) in gone], law)
+    paved, _pn = _paved_over(classification, [o for o in objects if str(o.id) in gone], law)
     gen, _gn = generated_decks(paved, airport, law, (), (),
                                [o for o in everything if str(o.id) not in gone], cache,
-                               covered=roads_under([p.ring for fr in frames for p in fr],
+                               covered=roads_under([p for fr in frames for p in fr],
                                                    airport, law))
     polys = [deck_polygon(g) for g in gen]
     a_min = float(law.tables.structures.deck_gen.min_area_m2)
     to_ll = airport.frame.transformers()[1]
     by_id = {str(o.id): o for o in everything}
     pack = getattr(getattr(airport, "pack", None), "name", "") or "the pack"
-    out: list[Takeover] = []
+    out: list[_Takeover] = []
     notes: list[str] = []
     for fr in frames:
         db = fr[0]
@@ -272,11 +277,11 @@ def takeovers(objects, cache, classification, airport, law, ground=None, trenche
                          + " (owner 2026-11-19T13:51Z)")
             continue
         placed = [by_id[m] for m in db.members if m in by_id]
-        out.append(Takeover(db.object_id, db.resource,
+        out.append(_Takeover(db.object_id, db.resource,
                             tuple((str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))))
                                   for q in placed),
                             tuple(r for q in placed if (r := _plan(q, cache, law))),
-                            tuple(tuple(p.ring) for p in fr)))
+                            tuple(fr)))
         notes.append(f"{where}: HIDDEN -- our generated decks take every bridge, the lidar "
                      f"sets the trench (owner 2026-11-19T13:51Z, RULINGS 2026-11-19m (2))")
         notes.extend(f"multi-bridge frame hidden: pack {pack}: {q.id} {q.path}" for q in placed)
@@ -285,36 +290,36 @@ def takeovers(objects, cache, classification, airport, law, ground=None, trenche
 
 def full_hidden(objects, classification, cache, law) -> tuple[list, _t.Any, list[str]]:
     """``(objects, classification, notes)`` on stage 1's map: the pack less
-    the frames the full map hid (:func:`replaced_ids`, never a second
+    the frames the full map hid (:func:`_replaced_ids`, never a second
     reading), their deck plates paved; unchanged anywhere else."""
     from ..model.stage_one import full_map
     full = full_map()
-    hid = replaced_ids(getattr(full, "decks", ()) or ()) if full is not None else frozenset()
+    hid = _replaced_ids(getattr(full, "decks", ()) or ()) if full is not None else frozenset()
     if not hid:
         return objects, classification, []
-    classification, notes = paved_over(classification,
+    classification, notes = _paved_over(classification,
                                        [o for o in objects if str(o.id) in hid], law)
-    return without(objects, hid, cache), classification, notes
+    return _without(objects, hid, cache), classification, notes
 
 
 def take_frames(objects, cache, classification, airport, law,
                 skip: _t.AbstractSet[str] = frozenset(), trenches=None
-                ) -> tuple[list, _t.Any, tuple[Takeover, ...], list[str]]:
+                ) -> tuple[list, _t.Any, tuple[_Takeover, ...], list[str]]:
     """``(objects less every hidden frame's placements, the classification
-    with the pavement they drew (:func:`paved_over`), the takeovers, their
+    with the pavement they drew (:func:`_paved_over`), the takeovers, their
     notes)`` on the full map (module doc).  ``skip``: placements an object
     floor reads (that frame stays the floor's, walled-multibridge-frames
     W1); ``trenches``: the pack read's trench objects (``None``: read
     here)."""
-    takes, notes = takeovers([o for o in objects if str(o.id) not in skip], cache,
+    takes, notes = _takeovers([o for o in objects if str(o.id) not in skip], cache,
                              classification, airport, law, trenches=trenches,
                              everything=objects)
     hid = {m[0] for t in takes for m in t.members}
     if not hid:
         return objects, classification, takes, notes
-    classification, more = paved_over(classification, [o for o in objects if str(o.id) in hid],
+    classification, more = _paved_over(classification, [o for o in objects if str(o.id) in hid],
                                       law)
-    return without(objects, hid, cache), classification, takes, notes + more
+    return _without(objects, hid, cache), classification, takes, notes + more
 
 
 #: the roles a hidden deck's plate continues (the pavement drawn beside it),
@@ -323,7 +328,7 @@ _CARRIED = frozenset(TAXI_FAMILY) | {"runway", "runway_crossing"}
 _PAVED = _CARRIED | {"apron", "groundside_pavement"}
 
 
-def paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[str]]:
+def _paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[str]]:
     """``classification`` with the DECK PLATES of the ``hidden`` placements
     paved where no cell owns them: the author drew the airport's pavement
     across the crossing as the deck itself (the apt.dat leaves it out:
@@ -370,7 +375,7 @@ def paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[s
              f"({', '.join(sorted({c.role for c in new}))})"])
 
 
-def without(objects, hidden: _t.AbstractSet[str], cache=None) -> list:
+def _without(objects, hidden: _t.AbstractSet[str], cache=None) -> list:
     """``objects`` less the placements ``hidden`` names -- ONE list per
     ``cache`` and hidden set, so every planar pass of a build hands the pack
     reads (``planar/pack_reads``, memoised on the list's identity) the same
@@ -387,7 +392,7 @@ def without(objects, hidden: _t.AbstractSet[str], cache=None) -> list:
     return out
 
 
-def attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[Takeover], law
+def attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], law
            ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``gen`` (the build's generated decks) with every hidden frame of
     ``takes`` carried by the first deck standing on one of its bridges
@@ -398,7 +403,7 @@ def attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[Takeover], law
     a_min = float(law.tables.structures.deck_gen.min_area_m2)
     polys = [deck_polygon(g) for g in out]
     for t in takes:
-        spans = [shapely.Polygon(r).buffer(0.0) for r in t.spans if len(r) >= 3]
+        spans = [deck_polygon(b) for b in t.bridges]
         hit = [k for k, g in enumerate(polys)
                if any(g.intersection(s).area >= a_min for s in spans)]
         if not hit:
@@ -417,7 +422,7 @@ def attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[Takeover], law
     return tuple(out), notes
 
 
-def replaced_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
+def _replaced_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
     """The placement ids every deck of ``decks`` takes over (stage 1's map
     reads them off the full map's decks)."""
     return frozenset(m for d in decks for m in getattr(d, "replaces", ()) or ())

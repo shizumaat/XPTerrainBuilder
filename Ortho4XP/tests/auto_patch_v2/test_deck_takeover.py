@@ -41,23 +41,23 @@ def _gen(s0: float, hid: str = "g") -> DeckBridge:
 
 
 def test_two_walled_bridges_apart_along_one_trench_are_a_multi_bridge_frame():
-    got = dt.multibridge_frames([_deck(0.0), _deck(60.0)], GAP)
+    got = dt._multibridge_frames([_deck(0.0), _deck(60.0)], GAP)
     assert len(got) == 1 and len(got[0]) == 2
 
 
 def test_one_bridge_is_no_multi_bridge_frame():
-    assert dt.multibridge_frames([_deck(0.0)], GAP) == []
+    assert dt._multibridge_frames([_deck(0.0)], GAP) == []
 
 
 def test_bridges_side_by_side_over_one_crossing_are_no_multi_bridge_frame():
     """Two pieces at the same station along the road (one taxiway over a
     dual carriageway): no open walled stretch between them."""
-    assert dt.multibridge_frames([_deck(0.0, u0=-20.0, u1=-1.0),
+    assert dt._multibridge_frames([_deck(0.0, u0=-20.0, u1=-1.0),
                                   _deck(0.0, u0=1.0, u1=20.0)], GAP) == []
 
 
 def test_wall_less_bridges_are_no_multi_bridge_frame():
-    assert dt.multibridge_frames([_deck(0.0, walls=False), _deck(60.0, walls=False)],
+    assert dt._multibridge_frames([_deck(0.0, walls=False), _deck(60.0, walls=False)],
                                  GAP) == []
 
 
@@ -68,11 +68,11 @@ def test_a_trench_object_states_the_walls_of_its_frame():
     from shapely.geometry import box
     a, b = _deck(0.0, walls=False), _deck(60.0, walls=False)
     tr = types.SimpleNamespace(object_id="o2", outline=box(-5.0, -25.0, 75.0, 25.0))
-    assert len(dt.multibridge_frames([a, b], GAP, [tr])) == 1
+    assert len(dt._multibridge_frames([a, b], GAP, [tr])) == 1
     off = types.SimpleNamespace(object_id="o2", outline=box(-5.0, -25.0, 20.0, 25.0))
-    assert dt.multibridge_frames([a, b], GAP, [off]) == []
+    assert dt._multibridge_frames([a, b], GAP, [off]) == []
     other = types.SimpleNamespace(object_id="zz", outline=box(-5.0, -25.0, 75.0, 25.0))
-    assert dt.multibridge_frames([a, b], GAP, [other]) == []
+    assert dt._multibridge_frames([a, b], GAP, [other]) == []
 
 
 def test_paved_over_paves_a_hidden_plate_where_no_cell_owns_it():
@@ -88,33 +88,33 @@ def test_paved_over_paves_a_hidden_plate_where_no_cell_owns_it():
     cl = _Cl((cell("primary_parallel", "twy", -40.0, -10.0, 0.0, 10.0),
                                       cell("service_road", "road", 10.0, -20.0, 14.0, 20.0)))
     plate = types.SimpleNamespace(hard_deck=box(0.0, -10.0, 30.0, 10.0), id="o")
-    got, notes = dt.paved_over(cl, [plate], load_default())
+    got, notes = dt._paved_over(cl, [plate], load_default())
     new = got.cells[2:]
     assert {c.role for c in new} == {"primary_parallel"} and {c.ref for c in new} == {"twy"}
     import shapely
     assert abs(sum(shapely.Polygon(c.ring).area for c in new) - (600.0 - 80.0)) < 1e-6
     assert "paved" in notes[0]
-    alone, none = dt.paved_over(_Cl(cl.cells[1:]), [plate],
+    alone, none = dt._paved_over(_Cl(cl.cells[1:]), [plate],
                                 load_default())
     assert len(alone.cells) == 1 and none == []
 
 
 def test_two_frames_are_read_apart():
     """Two single-bridge objects over one walled road are two frames."""
-    assert dt.multibridge_frames([_deck(0.0, "a"), _deck(60.0, "b")], GAP) == []
+    assert dt._multibridge_frames([_deck(0.0, "a"), _deck(60.0, "b")], GAP) == []
 
 
 def test_generated_decks_are_never_a_frame():
     g1, g2 = _gen(0.0, "1"), _gen(60.0, "2")
-    assert dt.multibridge_frames([g1, g2], GAP) == []
+    assert dt._multibridge_frames([g1, g2], GAP) == []
 
 
-def _take() -> dt.Takeover:
+def _take() -> dt._Takeover:
     a, b = _deck(0.0), _deck(60.0)
-    return dt.Takeover("o", "frame.obj",
+    return dt._Takeover("o", "frame.obj",
                        (("o", "frame.obj", (-87.9, 41.98)), ("o2", "bed.obj", (-87.9, 41.98))),
                        (((-5.0, -40.0), (75.0, -40.0), (75.0, 40.0), (-5.0, 40.0)),),
-                       (a.ring, b.ring))
+                       (a, b))
 
 
 def test_attach_hides_the_frame_with_the_first_deck_standing_on_it():
@@ -126,7 +126,7 @@ def test_attach_hides_the_frame_with_the_first_deck_standing_on_it():
     assert [h[0] for h in w.hides] == ["o", "o2"] and w.replaces == ("o", "o2")
     assert len(w.hidden_plans) == 1
     assert "o4gen_w, o4gen_e" in notes[0]
-    assert dt.replaced_ids(got) == {"o", "o2"}
+    assert dt._replaced_ids(got) == {"o", "o2"}
 
 
 def test_attach_names_a_frame_no_deck_stands_on():
@@ -137,8 +137,8 @@ def test_attach_names_a_frame_no_deck_stands_on():
 
 def test_without_drops_only_the_hidden_placements():
     objs = [types.SimpleNamespace(id=i) for i in ("o", "o2", "x")]
-    assert [o.id for o in dt.without(objs, {"o", "o2"})] == ["x"]
-    assert dt.without(objs, set()) is objs
+    assert [o.id for o in dt._without(objs, {"o", "o2"})] == ["x"]
+    assert dt._without(objs, set()) is objs
 
 
 def test_stage_one_reads_the_hidden_set_off_the_full_map():
@@ -154,7 +154,7 @@ def test_stage_one_reads_the_hidden_set_off_the_full_map():
 def test_without_hands_every_pass_one_list():
     objs = [types.SimpleNamespace(id=i) for i in ("o", "x")]
     cache = types.SimpleNamespace(placed={})
-    a, b = dt.without(objs, {"o"}, cache), dt.without(objs, {"o"}, cache)
+    a, b = dt._without(objs, {"o"}, cache), dt._without(objs, {"o"}, cache)
     assert a is b and [o.id for o in a] == ["x"]
 
 
@@ -164,7 +164,7 @@ def test_take_frames_leaves_an_object_floors_frame_alone(monkeypatch):
     def fake(objects, *a, **k):
         seen["ids"] = [o.id for o in objects]
         return (), []
-    monkeypatch.setattr(dt, "takeovers", fake)
+    monkeypatch.setattr(dt, "_takeovers", fake)
     objs = [types.SimpleNamespace(id=i) for i in ("o", "x")]
     got = dt.take_frames(objs, None, None, None, load_default(), {"o"}, [])
     assert seen["ids"] == ["x"] and got[0] is objs and got[2] == ()
@@ -185,7 +185,7 @@ def _frames_fixture(monkeypatch, gen_rings):
     monkeypatch.setattr(dt, "_pieces", lambda decks: 2)
     monkeypatch.setattr(dt, "deck_bridges", lambda *a, **k: ((_deck(0.0), _deck(60.0)), []))
     monkeypatch.setattr(dt, "_trenches", lambda *a: [])
-    monkeypatch.setattr(dt, "paved_over", lambda cl, hidden, law: (cl, []))
+    monkeypatch.setattr(dt, "_paved_over", lambda cl, hidden, law: (cl, []))
 
     monkeypatch.setattr(dt, "roads_under", lambda spans, ap, law: [])
 
@@ -194,14 +194,15 @@ def _frames_fixture(monkeypatch, gen_rings):
         return tuple(_gen(s, str(k)) for k, s in enumerate(gen_rings)), []
     monkeypatch.setattr(dt, "generated_decks", gen)
     airport = types.SimpleNamespace(
-        frame=types.SimpleNamespace(transformers=lambda: (None, lambda x, y: (41.0 + y, -87.0 + x))),
+        frame=types.SimpleNamespace(
+            transformers=lambda: (None, lambda x, y: (41.0 + y, -87.0 + x))),
         pack=types.SimpleNamespace(name="Some Pack"), dem=None)
     return objs, airport, seen
 
 
 def test_takeovers_hide_a_frame_every_bridge_of_which_a_generated_deck_takes(monkeypatch):
     objs, airport, seen = _frames_fixture(monkeypatch, (0.0, 60.0))
-    takes, notes = dt.takeovers(objs, object(), types.SimpleNamespace(cells=(1,)), airport,
+    takes, notes = dt._takeovers(objs, object(), types.SimpleNamespace(cells=(1,)), airport,
                                 load_default())
     assert seen["objects"] == ["x"]                 # the probe reads the pack without it
     (t,) = takes
@@ -212,6 +213,20 @@ def test_takeovers_hide_a_frame_every_bridge_of_which_a_generated_deck_takes(mon
 
 def test_takeovers_keep_a_frame_one_bridge_of_which_no_generated_deck_takes(monkeypatch):
     objs, airport, _seen = _frames_fixture(monkeypatch, (0.0,))
-    takes, notes = dt.takeovers(objs, object(), types.SimpleNamespace(cells=(1,)), airport,
+    takes, notes = dt._takeovers(objs, object(), types.SimpleNamespace(cells=(1,)), airport,
                                 load_default())
     assert takes == () and any("KEPT" in n for n in notes)
+
+
+def test_roads_under_take_only_a_way_crossing_the_bridge_midline():
+    """The road under a bridge crosses its midline (``deck_bores``'
+    reading); a short link ending under the deck short of it is not one."""
+    deck = _deck(0.0)                      # ring s 0..10, u -20..20; road along s
+    way = types.SimpleNamespace
+    airport = types.SimpleNamespace(osm_ways=[
+        way(id=-1, tags={"highway": "primary"}, points=[(-30.0, 0.0), (40.0, 0.0)]),
+        way(id=-2, tags={"highway": "service"}, points=[(-30.0, 5.0), (3.0, 5.0)]),
+        way(id=-3, tags={"aeroway": "taxiway"}, points=[(5.0, -40.0), (5.0, 40.0)])])
+    got = dt.roads_under([deck], airport, load_default())
+    assert [r.id for r in got] == ["-1"]
+    assert abs(got[0].line.length - 10.0) < 1e-9 and got[0].parent.length == 70.0

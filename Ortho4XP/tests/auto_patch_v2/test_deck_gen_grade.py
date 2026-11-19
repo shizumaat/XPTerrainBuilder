@@ -16,7 +16,8 @@ LAW = load_default()
 
 def _deck(family="taxi", witness=GENERATED_WITNESS, deck_z=123.0):
     return types.SimpleNamespace(
-        witness=witness, family=family, deck_z=deck_z,
+        witness=witness, family=family, deck_z=deck_z, top_a=0.0, top_b=0.4,
+        seats_a=((0, 0), (0, 30)), seats_b=((40, 0), (40, 30)),
         ring=((0, 0), (40, 0), (40, 30), (0, 30)),
         covered=(("-1", (("highway", "unclassified"),), ((20, -10), (20, 40))),))
 
@@ -53,7 +54,8 @@ def test_clearance_is_a_lower_bound_over_the_highest_road_point():
         assert abs(sum(c for _v, c in r.terms) - 1.0) < 1e-9
 
 
-def test_no_clearance_row_where_the_survey_shows_no_cut():
-    d = _deck(deck_z=120.0)
-    assert clearance_rows("o4gen_x", _ends(d), types.SimpleNamespace(dem=_Dem(115.0)),
-                          LAW, "head", "gen") == []
+def test_the_floor_never_asks_more_than_the_pre_solve_level():
+    d = _deck(deck_z=119.0)
+    rows = clearance_rows("o4gen_x", _ends(d), types.SimpleNamespace(dem=_Dem(115.0)),
+                          LAW, "head", "gen")
+    assert [round(r.lo, 6) for r in rows] == [118.8, 119.2]

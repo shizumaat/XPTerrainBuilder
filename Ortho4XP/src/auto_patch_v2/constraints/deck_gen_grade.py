@@ -19,12 +19,15 @@ Now:
 2. each end line's seat mean stands at least the minimum clearance
    (``[bridge] clearance_minimum_m``) plus the slab (``[deck_gen]
    thickness_m``) over the HIGHEST lidar point of the roads it covers under
-   its ring -- a one-sided row, no upper bound (:func:`clearance_rows`).
-   Read only where the deck's pre-solve level already clears the survey's
-   road (MEASURED KRDU capture: a bound read where the road stood 4.0 m
-   under the cover lifted the deck off its taxiway, 3.28 m relaxed):
-   elsewhere the floor is cut under the deck (the ladder,
-   ``planar/survey_deck_cut``) and clears it by construction.
+   its ring -- a one-sided row, no upper bound (:func:`clearance_rows`) --
+   but never higher than the deck's own pre-solve level at that end (the
+   ground beside its end lines, ``deck_generated._ends_ground``): where that
+   level clears less, the floor is cut under the deck (the ladder,
+   ``planar/survey_deck_cut``) and clears it by construction.  MEASURED on
+   the KRDU capture: a bound past the pre-solve level lifted the deck off
+   its taxiway (3.28 m relaxed); no bound at all let the free level sink
+   into the bare-earth cut (KRDU NTH 6.0 m, KORD 6.2 m under it, the road
+   1-2 m under the slab).
 
 The object stage builds the deck to the solved levels at both end lines
 (``pipeline/generated_publication``).  Nothing here names an airport.
@@ -75,8 +78,9 @@ def _road_top(deck, dem) -> "float | None":
 
 def clearance_rows(oid: str, es: _t.Sequence, airport, law, head: str, gen: str) -> list[Row]:
     """Rule 2 (module doc): per end line of generated deck ``oid`` (its
-    ``deck_lines.EndLine``s ``es``), ``mean z[S] >= road top + clearance +
-    slab``, under ``head`` (a ``[design] hard_rulings`` head)."""
+    ``deck_lines.EndLine``s ``es``), ``mean z[S] >= min(road top +
+    clearance + slab, the pre-solve level there)``, under ``head`` (a
+    ``[design] hard_rulings`` head)."""
     dem = getattr(airport, "dem", None)
     if not es or dem is None or not graded(es[0].deck):
         return []
@@ -86,16 +90,16 @@ def clearance_rows(oid: str, es: _t.Sequence, airport, law, head: str, gen: str)
         return []
     need = road + float(law.tables.structures.bridge.clearance_minimum_m) \
         + float(law.tables.structures.deck_gen.thickness_m)
-    if float(deck.deck_z) < need:
-        # the survey's road stands too high under the pavement: the floor is
-        # cut under the deck (the ladder, ``planar/survey_deck_cut``) and
-        # clears it by construction -- the deck is never lifted off its taxiway
-        return []
+    mid = 0.5 * (float(deck.top_a) + float(deck.top_b))
     rows: list[Row] = []
     for k, e in enumerate(es):
         w = sum(wt for _v, wt in e.terms)
         if w <= 0.0:
             continue
-        rows.append(Linear(tuple((v, wt / w) for v, wt in e.terms), need, None,
+        # never more than the deck's own pre-solve level at this end asks
+        at_a = tuple(map(tuple, e.line)) == tuple(map(tuple, deck.seats_a))
+        top = float(deck.top_a) if at_a else float(deck.top_b)
+        lo = min(need, float(deck.deck_z) + top - mid)
+        rows.append(Linear(tuple((v, wt / w) for v, wt in e.terms), lo, None,
                            Source(gen, head, (oid, f"clearance end {k}"))))
     return rows

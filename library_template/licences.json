@@ -281,6 +281,13 @@
    "evidence": "licence-named",
    "summary": "Data licence Germany Zero 2.0: any use, no conditions."
   },
+  "LUXEMBOURG50CM": {
+   "licence": "Creative Commons Zero 1.0 (public domain)",
+   "attribution": "Administration du cadastre et de la topographie (ACT), Luxembourg",
+   "terms": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "evidence": "read",
+   "summary": "CC0: public-domain dedication, no conditions (data.public.lu BD-L-Lidar2024, read 2026-11-19)."
+  },
   "MECKLENBURG1M": {
    "licence": "Creative Commons Attribution 4.0 (CC BY 4.0)",
    "attribution": "GeoBasis-DE/M-V",

@@ -23,7 +23,7 @@ __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "pane_status", "pane_detail", "built_in_world", "removed_note",
            "world_dsf", "PHOTO_WORDS", "photo_text",
            "LEGEND_OFF", "PANE_OFF", "USE_HERE", "USE_NOTES", "use_offered",
-           "use_on", "use_note"]
+           "use_on", "use_note", "WAITING_NOTE", "RELOAD_NOTE", "waiting_note"]
 
 # --- The map key's World-state sentences (``O4_Map_Key_Text``, #2031:
 # the Build and Fly views say the same; another tool's tile is dotted,
@@ -101,6 +101,13 @@ USE_NOTES = {
     "turning_off": "Tile {tile} turns off once X-Plane lets go of it (fly away or quit X-Plane).",
     "turning_on": "Tile {tile} turns on once X-Plane lets go of it.",
 }
+
+# --- The tile pane's note on a built tile not yet in the pack, or in over
+# the version X-Plane loaded (#2175, RULINGS 2026-11-19e; the engine's
+# ``WorldTilesWaiting``) ---
+WAITING_NOTE = "{tile} is waiting for X-Plane to finish loading it"
+RELOAD_NOTE = ("{tile} is in the World pack; X-Plane shows it at its next "
+               "load, or reload scenery now")
 
 #: The states the pane calls built (a real tile in the World pack).
 _BUILT_STATES = ("full", "mesh_lowres", "drape")
@@ -209,3 +216,14 @@ def cell_text(world) -> str:
     parts = [head, ORIGIN_WORDS.get(world.get("origin", ""), ""),
              _source_text(world.get("source", ""), world.get("volume", ""))]
     return " · ".join(p for p in parts if p)
+
+
+def waiting_note(tile: str, waiting, reload) -> str:
+    """The tile pane's note for tile ``tile`` (``+41-088``) from a
+    ``WorldTilesWaiting``'s ``waiting`` and ``reload`` names; ``""`` for
+    none.  Mac: ``O4WorldStateText.waitingNote``."""
+    if tile in tuple(waiting or ()):
+        return WAITING_NOTE.format(tile=tile)
+    if tile in tuple(reload or ()):
+        return RELOAD_NOTE.format(tile=tile)
+    return ""

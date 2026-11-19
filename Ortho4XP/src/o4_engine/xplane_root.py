@@ -9,24 +9,32 @@ import contextlib
 import subprocess
 import sys
 
-__all__ = ["xplane_root_for", "xplane_root_of", "xplane_running"]
+__all__ = ["xplane_pids", "xplane_root_for", "xplane_root_of", "xplane_running"]
 
 
-def xplane_running() -> bool:
-    """Is an X-Plane process running on this machine (best effort: macOS
-    and Linux process names; ``False`` where it cannot tell)?"""
+def xplane_pids() -> list:
+    """The process ids of the running X-Plane processes (best effort:
+    macOS and Linux process names; ``[]`` where it cannot tell)."""
     import O4_Machine_Memory as MEMORY
     import O4_UI_Utils as UI
     if sys.platform == "win32":
-        return False
+        return []
+    pids = []
     for name in sorted(MEMORY.XPLANE_NAMES):
         with contextlib.suppress(OSError):
             done = subprocess.run(["pgrep", "-x", name], capture_output=True,
-                                  check=False,
+                                  check=False, text=True, encoding="utf-8",
+                                  errors="replace",
                                   **UI.external_tool_keyword_arguments())
             if done.returncode == 0:
-                return True
-    return False
+                pids += [int(pid) for pid in done.stdout.split()
+                         if pid.isdigit()]
+    return pids
+
+
+def xplane_running() -> bool:
+    """Is an X-Plane process running on this machine (:func:`xplane_pids`)?"""
+    return bool(xplane_pids())
 
 
 def xplane_root_for(lat: int, lon: int) -> str | None:

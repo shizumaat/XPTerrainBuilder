@@ -249,6 +249,7 @@ CAPABILITIES: tuple = (
     "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
     "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
     "pack_readonly",                # 2026-11-19, #2174 PackReadOnly + pack_readonly
+    "world_tiles_waiting",          # 2026-11-19, #2175 WorldTilesWaiting (staged tiles)
 )
 
 
@@ -1319,6 +1320,28 @@ class WorldStatus(EngineEvent):
     governor: str = "ok"
     bytes: int = 0
     here: Any = None
+
+
+@dataclass(frozen=True)
+class WorldTilesWaiting(EngineEvent):
+    """The built tiles not yet in the World pack, and the ones that went in
+    over a tile X-Plane loaded (#2175, RULINGS 2026-11-19e; capability
+    ``world_tiles_waiting``): emitted by ``world_staged_sweep`` whenever
+    either list changes, an empty pair clearing the notes.
+
+    ``waiting``: tile names (``+41-088``) staged while X-Plane loads them
+    (they go in within seconds of X-Plane closing their files); the tile
+    pane says "+41-088 is waiting for X-Plane to finish loading it".
+    ``reload``: tile names swapped in over a version X-Plane loaded this
+    session while the "tiles" reload offer stands
+    (``o4_engine.reload_offer``); the tile pane offers "Reload scenery".
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    waiting: tuple = ()
+    reload: tuple = ()
 
 
 @dataclass(frozen=True)

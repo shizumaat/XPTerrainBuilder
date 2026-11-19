@@ -924,6 +924,38 @@ def test_both_tile_panes_read_the_world_pack_first(window):
     assert window.tile_world_row.isHidden()
 
 
+def test_both_tile_panes_say_a_tile_waits_for_x_plane(window):
+    """#2175 (RULINGS 2026-11-19e): the World-pack row says a built tile
+    waits for X-Plane to finish loading it, and offers "Reload scenery"
+    after a swap over a loaded version, in both apps (``WorldTilesWaiting``)."""
+    import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+    import O4_World_State_Text as WORLD_TEXT
+    from o4_engine import events as EV
+    from o4_engine.world_state import WorldTile
+
+    row = (SWIFT / "TileWorldRow.swift").read_text(encoding="utf-8")
+    assert "O4WorldStateText.waitingNote(tile: coord.key, tilesWaiting)" in row
+    assert "O4OnDemandText.reloadSceneryTitle" in row
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    assert "tilesWaiting: buildModel.worldTilesWaiting" in pane
+    assert "reloadScenery: { buildModel.reloadScenery() }" in pane
+    window.map.set_world({(41, -88): WorldTile("placeholder", "", 0.0, "", "")})
+    window._active_changed((41, -88))
+    world_row = window.tile_world_row
+    assert world_row.waiting_label.isHidden()
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting(waiting=("+41-088",)))
+    assert not world_row.waiting_label.isHidden()
+    assert world_row.waiting_label.text() == WORLD_TEXT.WAITING_NOTE.format(
+        tile="+41-088")
+    assert world_row.reload_button.isHidden()
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting(reload=("+41-088",)))
+    assert world_row.waiting_label.text().startswith("+41-088 is in the World pack")
+    assert not world_row.reload_button.isHidden()
+    assert world_row.reload_button.text() == ONDEMAND_TEXT.RELOAD_SCENERY_TITLE
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting())
+    assert world_row.waiting_label.isHidden() and world_row.reload_button.isHidden()
+
+
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     """#1958: one key (the same kinds in the same order; owner
     2026-11-12T22:05Z: one pill in the Build and Fly views) and one

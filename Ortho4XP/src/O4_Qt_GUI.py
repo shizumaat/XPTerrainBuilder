@@ -1015,6 +1015,9 @@ class MainWindow(QMainWindow):
             # Build-ahead (W2): the Fly pane's World line and, in free
             # flight, its drapes on the map (RULINGS 2026-11-11j).
             EV.WorldStatus: self._on_world_status,
+            # #2175: built tiles waiting for X-Plane, or in over a loaded
+            # version (the tile pane's note; mac: TileWorldRow).
+            EV.WorldTilesWaiting: self._on_world_tiles_waiting,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1323,6 +1326,7 @@ class MainWindow(QMainWindow):
             self._rebuild_tile_missing_textures)
         self.tile_world_row.export_requested.connect(self._export_package_at)
         self.tile_world_row.removed.connect(lambda _tile: self.refresh_tiles())
+        self.tile_world_row.reload_requested.connect(self._reload_scenery)
         ig.addRow(self.tile_world_row)
         # Imagery row: the source, plus the mixed-sources warning button
         # that opens the per-source breakdown and its cleanup offer
@@ -2184,6 +2188,14 @@ class MainWindow(QMainWindow):
         self.fly_pane.show_world(event)
         if self._world_swaps.world_status(getattr(event, "last_swap", ())):
             self.refresh_tiles()        # the map shows the swap
+
+    def _on_world_tiles_waiting(self, event):
+        """``WorldTilesWaiting`` (#2175): the tile pane's note; a tile that
+        stopped waiting went in, so the map rescans."""
+        before = set(self.tile_world_row.waiting_tiles())
+        self.tile_world_row.show_waiting(event)
+        if not before <= set(event.waiting):
+            self.refresh_tiles()
 
     def _on_flight_notice(self, event):
         """One ``FlightNotice`` (lane F2): a system notification and the

@@ -36,8 +36,9 @@ __all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "NEAR_M", "carve
 
 #: a path is read this often (m)
 STEP_M = 1.0
-#: the ramp has met the terrain within this (m)
-MEET_M = 0.10
+#: the ramp has met the terrain within this (m): the floor's vertical
+#: curves ride a smoothed survey, a lidar road's noise is a few decimetres
+MEET_M = 0.30
 #: the patch's edge meets the base mesh within this (m)
 EDGE_STEP_M = 0.25
 #: grades are read over this run (m)

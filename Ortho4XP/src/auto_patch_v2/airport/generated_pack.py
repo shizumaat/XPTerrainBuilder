@@ -179,13 +179,18 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
     ``Split`` rows) wrote it split (#2167) -- and every pack placement left
     standing on a deck seated on its top (``deck_ride``, RULINGS
     2026-11-19c; ``pack_root`` reads the models and object strings).
-    Returns ``(text, counts)``."""
+    #2178: only the decks anchored on the dump's tile, and the chains
+    clipped to it (``generated_tile.for_tile``).  Returns ``(text, counts)``."""
     from . import dsf_additions as _add
     from . import dsf_poly_clip as _clip
+    from . import generated_tile as _gt
+    from .split_guard import tile_box
     counts = {"pages_cut": 0, "lines_cut": 0, "area_removed_m2": 0.0, "decks": 0,
               "chains": 0}
     if not rec:
         return text, counts
+    rec, tile_counts = _gt.for_tile(rec, tile_box(text))
+    counts.update(tile_counts)
     for r in regions_of(rec):
         try:
             text, rep = _clip.clip_text(text, r)

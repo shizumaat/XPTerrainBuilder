@@ -826,6 +826,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     if res.dsf is not None:
         _hand.say_seated(plan_.icao, res.dsf)
     if gen is not None:
+        _generated_tile_line(gen, (tile.lat, tile.lon), plan_.icao)
         _generated_apt(gen, target_root, plan_.icao)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
@@ -933,6 +934,23 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
     return rec
 
 
+def _generated_tile_line(rec, tile, icao: str) -> None:
+    """#2178: which of the generated objects / road chains this tile's DSF
+    carries (``generated_tile.for_tile``); one line, only for an airport
+    whose structures reach another tile."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import generated_tile as _gt
+    from auto_patch_v2.airport.split_guard import box_of_tile
+    mine, n = _gt.for_tile(rec, box_of_tile(tile))
+    if any(n.values()):
+        UI.vprint(1, f"  [v2 placement] {icao}: generated: {len(mine['decks'])} deck "
+                     f"object(s) and {len(mine['chains'])} road chain(s) in this tile's "
+                     f"DSF; {n['decks_other_tile']} deck object(s) and "
+                     f"{n['chains_other_tile']} road chain(s) are another tile's"
+                     + (f", {n['chains_clipped']} chain(s) clipped at the tile edge"
+                        if n["chains_clipped"] else ""))
+
+
 def _generated_apt(rec, target_root: str, icao: str) -> None:
     """The apt.dat half of the generated structures: their regions cut out
     of the airport's block (``apt_flatten.write_regions``), recorded and
@@ -950,7 +968,11 @@ def _generated_apt(rec, target_root: str, icao: str) -> None:
         UI.vprint(0, f"  [v2 placement] {icao}: the apt.dat could not be cut for the "
                      f"generated structures ({exc}); it is as it was")
         return
-    if state:
+    if state == "unchanged":
+        UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: already cut for the "
+                     f"{len(regions)} region(s) of the generated decks / road bridges "
+                     f"(written once per airport); nothing written")
+    elif state:
         UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: {len(regions)} region(s) cut "
                      f"for the generated decks / road bridges, {len(dropped)} line "
                      f"piece(s) dropped (redrawn on the decks); the original is kept as "

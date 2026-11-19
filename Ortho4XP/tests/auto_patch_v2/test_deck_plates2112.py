@@ -91,6 +91,36 @@ def test_a_wall_past_both_plates_is_clipped_at_the_band_line(tmp_path):
         assert abs(area - 60.0 * 6.0) < 0.05
 
 
+def test_a_warped_band_writes_the_rows_its_clip_adds(tmp_path):
+    """RULINGS 2026-11-18i (6): a kept span band is clipped at its band
+    line AND warped along its track; the clip appends rows to the vertex
+    table during the walk, so the warp must cover them (KRDU 1.0.562:
+    ``IndexError`` -- STH_TML obj140 and its riders kept WHOLE)."""
+    v: list = []
+    # a slab inside band 0 drawn FIRST (the warp is read before the clip)
+    slab = _quad(v, -50.0, -20.0, 0.0, 30.0, 6.0)
+    b = len(v)
+    v += [(-60.0, 0.0, 0.0), (60.0, 0.0, 0.0), (60.0, 6.0, 0.0), (-60.0, 6.0, 0.0)]
+    path = _write(tmp_path / "wall.obj", v,
+                  [(["ATTR_hard_deck"], slab), ([], [(b, b + 1, b + 2), (b, b + 2, b + 3)])])
+    p = DP._Plates((1.0, 0.0), ((-60.0, -10.0), (10.0, 60.0)), (0.0,), (20.0,))
+    comps = tuple(range(len(obj8.solid_components(obj8.parse_obj8(path)))))
+    track = (("track", ((-60.0, 0.0, 0.5), (60.0, 0.0, 1.5))),)  # D = 1 + x / 120
+    cuts = [OS.BodyCut(k, comps, (0.0, 0.0, 0.0), band=p.band(k), warp=track)
+            for k in (0, 1)]
+    res = OS.split_obj8(path, cuts, "objects/wall.obj")
+    assert not res.kept_whole and len(res.files) == 2
+    for f in res.files:
+        q = tmp_path / f"w{f.body_id}.obj"
+        q.write_text(f.text, encoding="utf-8", newline="\n")
+        g = obj8.parse_obj8(str(q))
+        used = g.vertices[np.unique(g.solid.reshape(-1))]
+        # every row, the clip's corners at x 0 among them, raised by D(x)
+        assert len(used[np.abs(used[:, 0]) < 1e-3]) == 3
+        y = used[:, 1] - (1.0 + used[:, 0] / 120.0)
+        assert all(min(abs(q - h) for h in (0.0, 3.0, 6.0)) < 1e-3 for q in y)
+
+
 def _record(origin=(40.0, -3.0)) -> Split:
     a = AR.Anchor(AR.OTHER, origin[0], origin[1], 4.0, "frame zero", surface_z=104.0,
                   offset=(0.0, 4.0, 0.0))

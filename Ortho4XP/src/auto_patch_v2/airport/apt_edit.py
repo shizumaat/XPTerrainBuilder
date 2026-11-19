@@ -11,6 +11,9 @@ deck's footprint, a road bridge's span -- taken out of an airport block.
 * every ``120`` linear feature R touches is split at R and its inside
   dropped -- returned to the caller as :class:`Dropped` (the deck redraws
   the paint and lights on its top); untouched features stay raw;
+* a ``110`` boundary segment carrying a line or light code (a taxiway's
+  EDGE line drawn on its pavement's own boundary, #2183 (3)) loses its
+  inside the same way, returned as :class:`Dropped` too;
 * nothing else changes (``130`` boundary, taxi routes ``1201``/``1202``,
   runways, signs): a route still crosses the deck.
 
@@ -52,8 +55,9 @@ _ON_SEGMENT_DEG = 1e-7
 
 @_dc.dataclass(frozen=True)
 class Dropped:
-    """A piece of a ``120`` feature inside R: its points and the codes of
-    the segment it came from (``line``, ``light``; 0 = none)."""
+    """A piece of a ``120`` feature (or of a coded ``110`` boundary) inside
+    R: its points and the codes of the segment it came from (``line``,
+    ``light``; 0 = none)."""
 
     feature_line: int
     points: tuple[LonLat, ...]
@@ -155,7 +159,22 @@ def _m2(area_deg2: float, lat: float) -> float:
     return area_deg2 * 111320.0 ** 2 * math.cos(math.radians(lat))
 
 
-def _cut_pavement(f: dict, region: Polygon) -> tuple[list[str], dict] | None:
+def _boundary_paint(f: dict, segs, region: Polygon) -> list[Dropped]:
+    """#2183 (3): the pieces inside ``region`` of ``f``'s boundary segments
+    that carry a line or light code -- the edge paint the cut removes."""
+    out: list[Dropped] = []
+    for s in segs:
+        for pts, codes in s:
+            line, light = _split_codes(codes)
+            if not (line or light) or len(pts) < 2:
+                continue
+            inside = LineString(pts).intersection(region)
+            out += [Dropped(f["start"], tuple(p), line, light)
+                    for p in _ordered_parts(inside, LineString(pts)) if len(p) >= 2]
+    return out
+
+
+def _cut_pavement(f: dict, region: Polygon) -> tuple[list[str], list[Dropped], dict] | None:
     segs = [_segments(c) for c in f["contours"]]
     rings = [_ring(s) for s in segs]
     if len(rings[0]) < 3:
@@ -187,9 +206,11 @@ def _cut_pavement(f: dict, region: Polygon) -> tuple[list[str], dict] | None:
                 code = "113" if j == n - 1 else "111"
                 lines.append(_row(code, p, _codes_on(seg_lines, p, coords[(j + 1) % n])))
     lat = region.centroid.y
-    return lines, {"kind": "pavement_cut", "line": f["start"], "header": f["header"].strip(),
-                   "pieces": len(pieces), "contours_rewritten": rewritten,
-                   "area_removed_m2": round(_m2(poly.area - rest.area, lat), 3)}
+    paint = _boundary_paint(f, segs, region)
+    return lines, paint, {"kind": "pavement_cut", "line": f["start"],
+                          "header": f["header"].strip(),
+                          "pieces": len(pieces), "contours_rewritten": rewritten,
+                          "area_removed_m2": round(_m2(poly.area - rest.area, lat), 3)}
 
 
 def _ordered_parts(geom, along: LineString) -> list[list[LonLat]]:
@@ -266,7 +287,8 @@ def cut_block(block: list[str], region: Polygon) -> CutResult:
         if f["code"] == "110":
             got = _cut_pavement(f, region)
             if got is not None:
-                new, rec = got
+                new, d, rec = got
+                dropped += d
         elif f["code"] == "120":
             got = _cut_line(f, region)
             if got is not None:

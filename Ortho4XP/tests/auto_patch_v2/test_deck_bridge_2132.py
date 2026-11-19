@@ -224,7 +224,7 @@ def test_surface_pages_follow_xplanes_shades():
     assert deck_pavement.carried_surface(apt, ring, "taxi") == 1
 
 
-def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path):
+def test_recipe_draws_the_carried_surface_line_art_and_no_tire_marks_of_ours(tmp_path):
     root, look = _install(tmp_path)
     pub = _pub()
     pub["decks"][0]["route"] = [[17.0, 59.005], [17.01, 59.005]]
@@ -235,9 +235,9 @@ def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path)
     assert "ATTR_hard_deck asphalt" in slab and "ATTR_LOD 0 1200" in slab
     paint = objs[f"{gen.GENERATED_DIR}/deck_t_paint.obj"]
     assert "TEXTURE xp_taxilines.dds" in paint and "LIGHT_NAMED taxi_g " in paint
-    rubber = objs[f"{gen.GENERATED_DIR}/deck_t_rubber.obj"]
-    us = {float(r.split()[7]) for r in rubber.splitlines() if r.startswith("VT")}
-    assert us == {float(G.rubber_u0), float(G.rubber_u1)}
+    # #2183 (2): the author laid nothing (no pack DSF read): no film at all
+    assert sorted(objs) == [f"{gen.GENERATED_DIR}/deck_t.obj",
+                            f"{gen.GENERATED_DIR}/deck_t_paint.obj"]
     for text in objs.values():
         _check_obj8(text)
         # owner sim read 1.0.555: an OBJ is not draped -- no film decal,
@@ -245,7 +245,7 @@ def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path)
         for row in ("DECAL_LIB", "WEATHER_TRANSPARENT", "ATTR_poly_os"):
             assert row not in text
     # each film clear of the one under it at distance (cm, not mm)
-    assert float(G.paint_lift_m) - float(G.rubber_lift_m) >= 0.01 - 1e-9 <= float(G.rubber_lift_m)
+    assert float(G.paint_lift_m) - float(G.film_lift_m) >= 0.01 - 1e-9 <= float(G.film_lift_m)
     assert {f"{gen.GENERATED_DIR}/xp_a_wm.png", f"{gen.GENERATED_DIR}/xp_taxilines.dds"} \
         <= set(rec["links"])
     assert all(os.path.isabs(p) for p in rec["links"].values())

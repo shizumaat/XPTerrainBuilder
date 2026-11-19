@@ -60,20 +60,13 @@ class DeckGenLaw:
     #: SCALE) draws the slab, linked from the user's install
     #: (``airport/deck_skin``); unresolved -> the generated atlas
     concrete_pol: str = "lib/airport/pavement/concrete_4D.pol"
-    #: #2132: the page whose alpha art is the tire marks along the route
-    rubber_pol: str = "lib/airport/default_runways/rubber.pol"
-    #: #2132 / #2141: the tire marks are ONE column of that page's atlas
-    #: (u from ``rubber_u0`` to ``rubber_u1``: the dense centre band; the
-    #: other three columns read as tiled blocks), a strip along the route
-    #: mirrored every repeat
-    rubber_u0: float = 0.25
-    rubber_u1: float = 0.5
     #: #2141 (3): the first X-Plane line page; its folder's
     #: ``<type>_*.lin`` pages draw the dropped apt.dat lines on the deck
     #: (``airport/deck_line_art``); unresolved -> the generated atlas
     line_lib: str = "lib/airport/lines/1_single_taxi.lin"
-    #: the films over the top (m): the tire marks, then the paint over them
-    rubber_lift_m: float = 0.02
+    #: the films over the top (m): the pack author's pages (#2183 (2),
+    #: ``airport/deck_author_art``), then the paint over them
+    film_lift_m: float = 0.02
     paint_lift_m: float = 0.03
     #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
     #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),

@@ -43,7 +43,8 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["EndLift", "law_of", "end_lifts", "lifted", "log_line"]
+__all__ = ["EndLift", "EndSeat", "law_of", "faces_of", "place", "read_seat", "end_lifts",
+           "lifted", "log_line"]
 
 
 #: how far inside the deck an end line's stations read its top (m): past
@@ -97,7 +98,7 @@ def law_of(structures: _t.Any) -> "_Law | None":
 
 # ── the placed geometry ─────────────────────────────────────────────────
 
-def _faces(path: str, memo: dict) -> "np.ndarray | None":
+def faces_of(path: str, memo: dict) -> "np.ndarray | None":
     """The STATIC solid triangles ``(n, 3, 3)`` of authored ``(x, y, z)``
     corners of a resource, read once."""
     if path not in memo:
@@ -116,19 +117,23 @@ def _faces(path: str, memo: dict) -> "np.ndarray | None":
     return memo[path]
 
 
-def _placed(f: np.ndarray, row: _t.Any, origin: tuple[float, float], zero: float
-            ) -> np.ndarray:
-    """``(n, 3, 3)`` of ``(east, north, z)``: metres about ``origin`` at the
-    row's heading (``obj8.placement_affine``'s convention), z the world
-    height at the frame's ``zero``."""
-    from .rebake_plan import _mpd
-    ml, mo = _mpd(float(origin[0]))
-    h = math.radians(float(getattr(row, "heading_deg", 0.0) or 0.0))
+def place(f: np.ndarray, e0: float, n0: float, heading_deg: float, zero: float) -> np.ndarray:
+    """``(n, 3, 3)`` of ``(east, north, z)``: the authored faces ``f`` set
+    at ``(e0, n0)`` at ``heading_deg`` (``obj8.placement_affine``'s
+    convention), z the world height at the frame's ``zero``."""
+    h = math.radians(float(heading_deg or 0.0))
     c, s = math.cos(h), math.sin(h)
     x, y, z = f[..., 0], f[..., 1], f[..., 2]
-    e0 = (float(row.lon) - origin[1]) * mo
-    n0 = (float(row.lat) - origin[0]) * ml
     return np.stack([e0 + x * c - z * s, n0 - (x * s + z * c), zero + y], axis=-1)
+
+
+def _placed(f: np.ndarray, row: _t.Any, origin: tuple[float, float], zero: float
+            ) -> np.ndarray:
+    """:func:`place` at a dump row: metres about ``origin``."""
+    from .rebake_plan import _mpd
+    ml, mo = _mpd(float(origin[0]))
+    return place(f, (float(row.lon) - origin[1]) * mo, (float(row.lat) - origin[0]) * ml,
+                 float(getattr(row, "heading_deg", 0.0) or 0.0), zero)
 
 
 def _plate(f: np.ndarray, law: _Law) -> "tuple[float, np.ndarray] | None":
@@ -305,6 +310,56 @@ def _end_road(edge: np.ndarray, out_dir: np.ndarray, law: _Law, surface: _t.Call
     return zs[len(zs) // 2] if zs else None
 
 
+@_dc.dataclass(frozen=True)
+class EndSeat:
+    """One placed deck read by its own end lines (module doc): its
+    ``plan``, its two END EDGES as stations ON the edge (end order, low
+    ``s`` first), per end the road ``ground`` and the deck ``top`` at the
+    zero it was placed at, the ``flush`` end's index and the ``lift`` onto
+    it."""
+
+    plan: _t.Any
+    edges: tuple[np.ndarray, np.ndarray]
+    ground: tuple[float, float]
+    top: tuple[float, float]
+    flush: int
+    lift: float
+
+
+def read_seat(pf: np.ndarray, f: np.ndarray, mates: _t.Sequence[np.ndarray], law: _Law,
+              end_ground: _t.Callable[[np.ndarray, np.ndarray], "float | None"]
+              ) -> "EndSeat | None":
+    """THE RULE on one placement (module doc), wherever its ground is read:
+    ``pf`` its faces placed (``(east, north, z)``), ``f`` as authored,
+    ``mates`` its frame mates placed, ``end_ground(edge stations, outward
+    direction)`` the road an end lands on (``None``: no road).  The object
+    stage reads the drawn surface's road faces (:func:`end_lifts`); the
+    pack stage predicts it (``airport/stack_end_seat``).  ``None`` where the
+    rule does not seat it."""
+    deck = _deck(pf, f, law)
+    if deck is None:
+        return None
+    plan, axis, flat = deck
+    edges = _end_edges(plan, axis, law.touch_m, HAIR_M)
+    if edges is None:
+        return None
+    roads = [end_ground(out_, sign * axis[0])
+             for (out_, _in), sign in zip(edges, (-1.0, 1.0), strict=True)]
+    tops = [_top_at(flat, in_) for _out, in_ in edges]
+    if any(g is None for g in roads) or any(t is None for t in tops):
+        return None
+    grounds = (float(roads[0]), float(roads[1]))
+    tops_ = (float(tops[0]), float(tops[1]))
+    if any(g - t <= law.tol_m for g, t in zip(grounds, tops_, strict=True)):
+        return None
+    if not _bearing_only(pf, plan, min(tops_), mates, law):
+        return None
+    low = 0 if grounds[0] <= grounds[1] else 1
+    on_edge = tuple(0.5 * (o + i) for o, i in edges)
+    return EndSeat(plan, (on_edge[0], on_edge[1]), grounds, tops_, low,
+                   grounds[low] - tops_[low])
+
+
 def _frame(dump: _t.Any, records) -> list:
     """``(record, row)`` of every object-floor record naming a dump row."""
     from . import dsf as _dsf
@@ -339,35 +394,22 @@ def end_lifts(dump: _t.Any, records: _t.Sequence[_t.Mapping[str, _t.Any]],
 
     placed = []
     for r, row in frame:
-        f = _faces(os.path.join(pack_root, *str(row.def_path).replace("\\", "/").split("/")),
+        f = faces_of(os.path.join(pack_root, *str(row.def_path).replace("\\", "/").split("/")),
                    memo)
         placed.append(None if f is None else (f, _placed(f, row, origin, float(r["elevation"]))))
     out = []
     for k, (r, _row) in enumerate(frame):
-        deck = None if placed[k] is None else _deck(placed[k][1], placed[k][0], law)
-        if deck is None:
-            continue
-        plan, axis, flat = deck
-        zero = float(r["elevation"])
-        edges = _end_edges(plan, axis, law.touch_m, HAIR_M)
-        if edges is None:
-            continue
-        roads = [_end_road(out_, sign * axis[0], law, surface, to_ll)
-                 for (out_, _in), sign in zip(edges, (-1.0, 1.0), strict=True)]
-        tops = [_top_at(flat, in_) for _out, in_ in edges]
-        if any(g is None for g in roads) or any(t is None for t in tops):
-            continue
-        grounds = (float(roads[0]), float(roads[1]))
-        if any(g - t <= law.tol_m for g, t in zip(grounds, tops, strict=True)):
+        if placed[k] is None:
             continue
         mates = [p[1] for j, p in enumerate(placed) if j != k and p is not None]
-        if not _bearing_only(placed[k][1], plan, min(tops), mates, law):
+        got = read_seat(placed[k][1], placed[k][0], mates, law,
+                        lambda edge, d: _end_road(edge, d, law, surface, to_ll))
+        if got is None:
             continue
-        low = 0 if grounds[0] <= grounds[1] else 1
-        lift = grounds[low] - tops[low]
-        out.append(EndLift(str(r["id"]), str(r.get("resource")), zero, round(lift, 3),
-                           grounds, tops, low,
-                           round(grounds[1 - low] - (tops[1 - low] + lift), 3)))
+        g, t, low = got.ground, got.top, got.flush
+        out.append(EndLift(str(r["id"]), str(r.get("resource")), float(r["elevation"]),
+                           round(got.lift, 3), g, t, low,
+                           round(g[1 - low] - (t[1 - low] + got.lift), 3)))
     return tuple(out)
 
 

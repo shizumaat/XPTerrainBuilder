@@ -153,6 +153,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_deck_ends",
         "auto_patch_v2.airport.agp_deck_join",
         "auto_patch_v2.airport.agp_floors",
+        "auto_patch_v2.airport.agp_foot_pads",
         "auto_patch_v2.airport.agp_gap_plates",
         "auto_patch_v2.airport.agp_ground",
         "auto_patch_v2.airport.agp_group",
@@ -210,6 +211,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.facade_seat",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.floor_deck_ends",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -297,6 +299,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_wings",
+        "auto_patch_v2.airport.stack_end_seat",
         "auto_patch_v2.airport.stack_walls",
         "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
@@ -431,6 +434,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_deck_ends",
         "auto_patch_v2.airport.agp_deck_join",
         "auto_patch_v2.airport.agp_floors",
+        "auto_patch_v2.airport.agp_foot_pads",
         "auto_patch_v2.airport.agp_gap_plates",
         "auto_patch_v2.airport.agp_ground",
         "auto_patch_v2.airport.agp_group",
@@ -498,6 +502,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.facade_seat",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.floor_deck_ends",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
         "auto_patch_v2.airport.footed_portal",
@@ -603,6 +608,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_forecourt",
         "auto_patch_v2.airport.split_level_wings",
+        "auto_patch_v2.airport.stack_end_seat",
         "auto_patch_v2.airport.stack_walls",
         "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
@@ -1431,6 +1437,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_deck_ends",
         "auto_patch_v2.airport.agp_deck_join",
         "auto_patch_v2.airport.agp_floors",
+        "auto_patch_v2.airport.agp_foot_pads",
         "auto_patch_v2.airport.agp_gap_plates",
         "auto_patch_v2.airport.agp_ground",
         "auto_patch_v2.airport.agp_group",
@@ -1488,6 +1495,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.facade_seat",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.floor_deck_ends",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -1575,6 +1583,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_wings",
+        "auto_patch_v2.airport.stack_end_seat",
         "auto_patch_v2.airport.stack_walls",
         "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
@@ -2509,6 +2518,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.agp_gap_plates airport.agp_ground airport.agp_group airport.agp_pieces
     airport.agp_plan airport.agp_plates airport.apt_edit airport.bridge_end_state
     airport.bridge_frame airport.bridge_stack airport.deck_ends airport.deck_stack
+    airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat constraints.gap_follow law.deck_gen_schema
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
@@ -2622,6 +2632,7 @@ CODE_MODULES["solve"] = _mods("""
     model.yard_run geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
+    airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     geom.lowest_face geom.plate_heights
     airport.walled_pit airport.portal_floor airport.pit_frame
@@ -2819,6 +2830,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.yard_edge model.yard_run geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
+    airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     geom.lowest_face geom.plate_heights
     constraints.deck_stack
@@ -3180,6 +3192,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.agp_gap_plates airport.agp_ground airport.agp_group airport.agp_pieces
     airport.agp_plan airport.agp_plates airport.apt_edit airport.bridge_end_state
     airport.bridge_frame airport.bridge_stack airport.deck_stack airport.dsf_heights
+    airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.facade_seat airport.footed_portal airport.ground_route_ways
     airport.portal_objects airport.stack_walls airport.touch_graph airport.touch_seat
     airport.tunnel_walls airport.wall_corridor_probe airport.wall_corridors
@@ -3335,6 +3348,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.agp_gap_plates airport.agp_ground airport.agp_group airport.agp_pieces
     airport.agp_plan airport.agp_plates airport.apt_edit airport.bridge_end_state
     airport.bridge_frame airport.bridge_stack airport.deck_ends airport.deck_stack
+    airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat geom.end_line geom.plate_heights
     geom.ramp_profile law.deck_gen_schema model.agp_plate model.deck_ends

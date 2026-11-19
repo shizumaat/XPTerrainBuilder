@@ -112,6 +112,7 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Pack_ReadOnly as QTRO
 import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Gateway_Airports as QTGATE
@@ -995,6 +996,7 @@ class MainWindow(QMainWindow):
             EV.MemoryWait: self._on_memory_wait,
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
+            EV.PackReadOnly: self._on_pack_readonly,
             EV.GatewayAirports: self._on_gateway_airports,
             EV.PackOverlaps: self._on_pack_overlaps,
             # RULINGS 2026-11-11m (4): a pack's shipped .xptb was applied.
@@ -1023,6 +1025,7 @@ class MainWindow(QMainWindow):
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
         self._pack_forests_seen = set()
+        self._pack_readonly_seen = set()
         # #1351: the open slow-step boxes, by (lat, lon, step key).
         self._slow_step_boxes = {}
         # #1707: the same for the "Optimise pack" questions
@@ -3790,6 +3793,14 @@ class MainWindow(QMainWindow):
                         % (repaired, "s" if repaired != 1 else ""))
             label.setToolTip(tip)
             rl.addWidget(label, 1)
+            if pack.get("read_only"):
+                # #2174: left read-only (Not now) — its words, Ask again
+                label.setToolTip("%s — %s" % (pack["pack_name"], QTRO.ROW_STATUS))
+                for w in QTRO.row_widgets(
+                        lambda p=pack: self._ask_pack_readonly(p)):
+                    rl.addWidget(w, 0, Qt.AlignRight)
+                self._modified_airport_rows.addWidget(row)
+                continue
             busy = self._pack_row_busy(pack)
             if pack.get("forests", 0):
                 # #1360: the pack's 3D trees, undone on their own (the mac
@@ -5513,6 +5524,39 @@ class MainWindow(QMainWindow):
             event, ("upgraded", "undone"), getattr(event, "can_update", False),
             QTFOREST.question_key, QTFOREST.pack_forests_box,
             self._pack_forests_seen, "pack_forests")
+
+    def _on_pack_readonly(self, event):
+        """#2174: a read-only airport pack whose writes wait for the answer.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packReadOnly``): ``"found"`` asks once per pack, ``"ask"`` (the
+        row's Ask again) every time; Make writable / Not now both send
+        ``pack_readonly``.  An outcome re-reads the Modified airports rows;
+        ``"writable"`` with ``rebuild`` rebuilds the tile no build waited on.
+        """
+        state = getattr(event, "state", "")
+        if state == "ask":
+            import dataclasses
+            event = dataclasses.replace(event, state="found")
+            self._pack_readonly_seen.discard(QTRO.question_key(event))
+        elif state == "writable" and getattr(event, "rebuild", False):
+            tile = FNAMES.short_latlon(int(event.lat), int(event.lon))
+            reason = (QTRO.RUN_BUSY if self._building
+                      else self.rebuild_patch_tile(tile))
+            if reason:
+                print(QTRO.REBUILD_LATER.format(tile=tile, pack=event.pack,
+                                                reason=reason))
+        self._pack_choice_event(
+            event, ("writable", "not_now", "none", "failed"), True,
+            QTRO.question_key, QTRO.pack_readonly_box,
+            self._pack_readonly_seen, "pack_readonly")
+
+    def _ask_pack_readonly(self, pack):
+        """The read-only row's Ask again (#2174)."""
+        tile = self.map.active_tile()
+        lat, lon = tile if tile is not None else (None, None)
+        self._session.pack_readonly(pack_root=pack["pack_path"], action="ask",
+                                    lat=lat, lon=lon)
 
     def _on_pack_optimise(self, event):
         """#1707: an airport pack "Optimise pack" can lighten.

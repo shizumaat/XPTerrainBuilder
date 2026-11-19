@@ -283,6 +283,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "gateway_airports": session.gateway_airports,
         # #2145 (capability pack_overlaps): completes through PackOverlaps.
         "pack_overlaps": session.pack_overlaps,
+        # #2174 (capability pack_readonly): completes through PackReadOnly.
+        "pack_readonly": session.pack_readonly,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end

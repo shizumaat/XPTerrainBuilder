@@ -202,7 +202,8 @@ def _break_stale_lock(lock_path: str, identity) -> None:
 
 @contextlib.contextmanager
 def hold_file_lock(
-    target_path: str, timeout_seconds: float = 900.0
+    target_path: str, timeout_seconds: float = 900.0, *,
+    denied_raises: bool = False
 ) -> Iterator[bool]:
     """Hold a cross-process advisory lock guarding ``target_path``.
 
@@ -227,13 +228,17 @@ def hold_file_lock(
     (and only when) this call created it, tolerating a concurrent removal
     by another process.
 
+    A lock file that cannot be created at all (its folder is read-only
+    or denied) is never waited for: the block runs unlocked, or with
+    ``denied_raises`` the ``OSError`` is raised at once (#2174).
+
     The caller is responsible for ensuring the parent directory of
     ``target_path`` exists before entering the context.
     """
     lock_path = target_path + ".lock"
     deadline = time.monotonic() + timeout_seconds
     try:
-        acquired = _acquire(lock_path, deadline)
+        acquired = _acquire(lock_path, deadline, denied_raises)
     finally:
         _note_wait(lock_path, False)
     try:
@@ -275,10 +280,11 @@ def _release(lock_path: str) -> None:
             time.sleep(0.01)
 
 
-def _acquire(lock_path: str, deadline: float) -> bool:
+def _acquire(lock_path: str, deadline: float, denied_raises: bool = False) -> bool:
     """:func:`hold_file_lock`'s acquisition loop: True once held, False
     when it proceeds without the lock.  A contended wait is noted for
-    :func:`lock_waits` while it lasts."""
+    :func:`lock_waits` while it lasts.  ``denied_raises``: a lock file
+    that cannot be created at all re-raises the error at once."""
     announced_stale_break = False
     while True:
         try:
@@ -318,13 +324,17 @@ def _acquire(lock_path: str, deadline: float) -> bool:
                 time.sleep(ACQUISITION_POLL_INTERVAL_SECONDS)
                 continue
             # The lock cannot be created at all (a read-only or denied
-            # folder): locking is advisory, so the block runs unlocked and
-            # meets the same folder error itself.
+            # folder): never a wait.  A caller that must not run unlocked
+            # gets the error; otherwise locking is advisory, so the block
+            # runs unlocked and meets the same folder error itself.
+            if denied_raises:
+                raise
             UI.vprint(
                 1,
-                "   WARNING: could not create the cache lock",
+                "   WARNING: could not create the lock file",
                 lock_path,
-                "(%s) - proceeding without it." % error,
+                "(its folder cannot be written: %s) - proceeding without "
+                "it." % error,
             )
             return False
         else:

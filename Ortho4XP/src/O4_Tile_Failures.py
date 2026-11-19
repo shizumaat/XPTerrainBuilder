@@ -529,6 +529,8 @@ EXCEPTION_CODES = {
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",
     "PermissionError": "no_permission",
+    # #2174: a read-only scenery pack (pack_access), asked about in the app
+    "PackReadOnlyError": "no_permission",
     "ProxyError": "proxy_refused",
     "ConnectionError": "network_unavailable",
     "TimeoutError": "network_unavailable",

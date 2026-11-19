@@ -681,6 +681,8 @@ _FORWARDED_EVENT_TYPES = (
     "GatewayAirports",
     # #2145: ... and the large structures two packs both draw.
     "PackOverlaps",
+    # #2174: ... and a read-only pack whose writes wait for the answer.
+    "PackReadOnly",
     # RULINGS 11m (4): ... and the packages the tile's packs ship.
     "PackPackage",
     "Log",

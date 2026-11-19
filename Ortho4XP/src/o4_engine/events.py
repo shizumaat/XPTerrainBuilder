@@ -248,6 +248,7 @@ CAPABILITIES: tuple = (
     "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
     "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
     "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
+    "pack_readonly",                # 2026-11-19, #2174 PackReadOnly + pack_readonly
 )
 
 
@@ -927,6 +928,50 @@ class PackAdjust(EngineEvent):
     error: str = ""
     steps: list = field(default_factory=list)
     rebuild: bool = False
+
+
+@dataclass(frozen=True)
+class PackReadOnly(EngineEvent):
+    """An airport pack whose folders are READ-ONLY (as it was downloaded),
+    so the build cannot adjust it (issue #2174, RULINGS 2026-11-19d).
+
+    Emitted by the object stage (``auto_patch_v2.airport.pack_readonly.
+    gate``) before it writes the pack — the pack's writes then PAUSE in
+    that tile's build until the answer — and as the completion of a
+    ``pack_readonly`` command (capability ``pack_readonly``; it replies
+    ``{"status": "started"}`` at once).  ``state``:
+
+    * ``"found"`` — (build) ask once per pack: **Make writable** sends
+      ``pack_readonly`` with ``action="writable"``, **Not now** with
+      ``action="not_now"`` (the paused writes leave the pack as it is;
+      the tile's row under Modified airports reads "read-only — not
+      adjusted" with Ask again).
+    * ``"ask"`` — (command ``action="ask"``, the row's Ask again) the
+      same question, asked every time.
+    * ``"writable"`` — the engine added the owner's write permission to
+      the pack's folders and files (``changed`` paths); a paused build's
+      writes go on.  ``rebuild``: no build was waiting on the pack — the
+      app rebuilds tile ``lat``/``lon`` so it is adjusted.
+    * ``"not_now"`` / ``"none"`` (writable already) / ``"failed"``
+      (``error`` says why) — a command's outcome.
+
+    ``folders`` are the read-only folders, inside the pack (named first),
+    at most eight.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    folders: list = field(default_factory=list)
+    changed: int = 0
+    rebuild: bool = False
+    state: str = "found"
+    error: str = ""
 
 
 @dataclass(frozen=True)

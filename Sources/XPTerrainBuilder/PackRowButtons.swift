@@ -39,6 +39,29 @@ struct PackRowButtons: View {
         "Wait: the current run is building a tile that writes this pack"
 
     var body: some View {
+        if row.readOnly {
+            readOnlyRow
+        } else {
+            buttons
+        }
+    }
+
+    /// #2174: a pack left read-only (Not now) — its words and Ask again.
+    private var readOnlyRow: some View {
+        HStack(spacing: 4) {
+            Text(O4PackReadOnlyCopy.rowStatus)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+            Button(O4PackReadOnlyCopy.askAgainButton) {
+                buildModel.askPackReadOnlyFromRow(packPath: row.packPath, tile: tile)
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help(O4PackReadOnlyCopy.askAgainHelp)
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
         let busy = buildModel.packRowBusy(tiles: row.tiles, active: tile)
         // #1360: the pack's 3D trees, undone on their own
         if row.forestCount > 0 {

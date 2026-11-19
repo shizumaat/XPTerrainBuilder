@@ -20,13 +20,13 @@ import bisect
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["CoonsPatch", "profile_at", "edge_profiles"]
+__all__ = ["CoonsPatch", "edge_profiles"]
 
 XY = tuple[float, float]
 Profile = tuple[tuple[float, float], ...]
 
 
-def profile_at(prof: Profile, q: float) -> float:
+def _profile_at(prof: Profile, q: float) -> float:
     """``prof`` (sorted ``(parameter, z)``) at ``q``, linear between
     samples, flat past the ends."""
     if not prof:
@@ -68,10 +68,10 @@ class CoonsPatch:
     def z_st(self, s: float, t: float) -> float:
         """The patch at ``(s, t)``, clamped into the parallelogram."""
         s, t = min(1.0, max(0.0, s)), min(1.0, max(0.0, t))
-        za, zb = profile_at(self.a, t), profile_at(self.b, t)
-        z0, z1 = profile_at(self.s0, s), profile_at(self.s1, s)
-        c00, c01 = profile_at(self.a, 0.0), profile_at(self.a, 1.0)
-        c10, c11 = profile_at(self.b, 0.0), profile_at(self.b, 1.0)
+        za, zb = _profile_at(self.a, t), _profile_at(self.b, t)
+        z0, z1 = _profile_at(self.s0, s), _profile_at(self.s1, s)
+        c00, c01 = _profile_at(self.a, 0.0), _profile_at(self.a, 1.0)
+        c10, c11 = _profile_at(self.b, 0.0), _profile_at(self.b, 1.0)
         return ((1 - s) * za + s * zb + (1 - t) * z0 + t * z1
                 - ((1 - s) * (1 - t) * c00 + s * (1 - t) * c10
                    + (1 - s) * t * c01 + s * t * c11))
@@ -119,8 +119,9 @@ def edge_profiles(o: XY, u: XY, w: XY, samples: _t.Iterable[tuple[float, float, 
             s1.append((s, z))
     if not a or not b:
         return None
+    pa, pb = tuple(sorted(a)), tuple(sorted(b))
     if not s0:
-        s0 = [(0.0, profile_at(tuple(sorted(a)), 0.0)), (1.0, profile_at(tuple(sorted(b)), 0.0))]
+        s0 = [(0.0, _profile_at(pa, 0.0)), (1.0, _profile_at(pb, 0.0))]
     if not s1:
-        s1 = [(0.0, profile_at(tuple(sorted(a)), 1.0)), (1.0, profile_at(tuple(sorted(b)), 1.0))]
+        s1 = [(0.0, _profile_at(pa, 1.0)), (1.0, _profile_at(pb, 1.0))]
     return CoonsPatch(o, u, w, *(tuple(sorted(p)) for p in (a, b, s0, s1)))

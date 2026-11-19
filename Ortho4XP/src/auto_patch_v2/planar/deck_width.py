@@ -25,7 +25,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["route_decks", "class_width_m", "route_ends"]
+__all__ = ["route_decks", "route_ends"]
 
 XY = tuple[float, float]
 #: two crossing segments this near and this parallel are one route (m, deg)
@@ -33,7 +33,7 @@ _SAME_ROUTE_M = 3.0
 _SAME_ROUTE_DEG = 20.0
 
 
-def class_width_m(law, letter: "str | None", fallback: "str | None" = None) -> float:
+def _class_width_m(law, letter: "str | None", fallback: "str | None" = None) -> float:
     """The deck width (taxiway plus shoulders, m) of a width class letter."""
     table = dict(law.tables.structures.deck_gen.width_by_class_m)
     for k in (letter, fallback, "C"):
@@ -135,7 +135,7 @@ def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         a_c = (mx * wy - my * wx) / det
         letters = sorted({str(e.width_class).upper() for e in edges if e.width_class})
         letter = letters[-1] if letters else None
-        width = class_width_m(law, letter, common)
+        width = _class_width_m(law, letter, common)
         ha = 0.5 * width / abs(det)
         if pave_at is not None:
             reach = float(law.tables.structures.deck_gen.end_reach_m)

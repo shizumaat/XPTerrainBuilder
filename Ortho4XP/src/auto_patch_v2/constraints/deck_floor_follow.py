@@ -36,6 +36,10 @@ from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]
 
+#: the cut's own floor and ramp roles (``emit/graded.FLOOR_ROLES``'s
+#: tunnel members; ``constraints/edge_deck._FLOOR_ROLES`` reads the ramp)
+_CUT_ROLES = ("tunnel_ramp", "tunnel_trench")
+
 #: a vertex this near a ring (m) stands on it: the planar build snaps a
 #: vertex to its identity lattice (``law.tables.snap_margin_m``, 0.35 m) and
 #: welds a boundary to a pavement edge within ``weld_spacing_m``
@@ -162,10 +166,9 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     from ..model.platform import stage_air_vertices
     air = stage_air_vertices(pm, law) if law is not None else set()
     # a road's and the cut's own vertices are never the abutment's crest
-    from ..emit.graded import FLOOR_ROLES
     from ..law.tables import family
-    low = set(FLOOR_ROLES) | (set(family(law, "road_cross_section").roles)
-                              if law is not None else set())
+    low = set(_CUT_ROLES) | (set(family(law, "road_cross_section").roles)
+                             if law is not None else set())
     fixed: dict[int, float] = {}
     free: set[int] = set()
     tops: dict[str, dict] = {}

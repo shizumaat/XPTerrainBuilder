@@ -10,7 +10,8 @@ import types
 import pytest
 from shapely.geometry import Polygon
 
-from auto_patch_v2.geom.coons_patch import CoonsPatch, edge_profiles, profile_at
+from auto_patch_v2.geom.coons_patch import CoonsPatch, edge_profiles
+from auto_patch_v2.geom.coons_patch import _profile_at as profile_at
 
 
 def _patch():
@@ -55,8 +56,8 @@ def _law(**kw):
 
 def test_one_deck_per_taxiway_at_its_class_width():
     from auto_patch_v2.planar.deck_width import route_decks
-    nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0)),
-             3: types.SimpleNamespace(xy=(60.0, -100.0)), 4: types.SimpleNamespace(xy=(60.0, 100.0))}
+    nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
+             {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (60.0, -100.0), 4: (60.0, 100.0)}.items()}
     def edge(a, b, c, name):
         return types.SimpleNamespace(a=a, b=b, name=name, is_runway=False, width_class=c)
     airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[edge(1, 2, "C", "A"),

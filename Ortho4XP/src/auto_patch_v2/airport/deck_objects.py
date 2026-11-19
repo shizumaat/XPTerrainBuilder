@@ -361,7 +361,8 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     route_xy = list(getattr(route_in, "coords", ())) if route_in is not None and \
         route_in.geom_type == "LineString" else []
     ends = [[frame.to_local(lo, la) for lo, la in rec[k]] for k in ("seats_a", "seats_b")]
-    stats = {"lines": 0, "unpainted": 0, "lights": 0, "parts": 0, "frame": frame}
+    stats = {"lines": 0, "unpainted": 0, "lights": 0, "parts": 0, "frame": frame,
+             "top_y": top_y}
     pieces = _pieces(dropped, R, frame)
     lights = _lights(pieces, float(g.light_spacing_m))
     stats["lights"] = len(lights)

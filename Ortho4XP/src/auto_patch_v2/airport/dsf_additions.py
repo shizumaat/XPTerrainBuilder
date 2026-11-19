@@ -4,7 +4,8 @@ text dump.  ``dsf_write`` EDITS the rows a pack already has; this module
 only ADDS rows, and never renumbers a definition the dump declares.
 
 * :func:`add_object` -- one ``OBJECT_DEF`` appended after the last one
-  and one ``OBJECT_MSL idx lon lat msl heading`` row (the token order of
+  and one ``OBJECT_MSL idx lon lat msl heading`` row (:func:`add_objects`
+  places many in one pass, reusing a definition the dump declares) (the token order of
   ``dsf_write._guest_row``; a DSFTool dump spells it so: LFLB's
   ``OBJECT_MSL 1017 5.870424678 45.627386130 500.000000000 0.000000``);
 * :func:`add_network` -- a ``NETWORK_DEF`` (a DSF holds one) and one
@@ -28,7 +29,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Chain", "add_object", "add_network"]
+__all__ = ["Chain", "add_object", "add_objects", "add_network"]
 
 
 @_dc.dataclass(frozen=True)
@@ -60,18 +61,36 @@ def add_object(text: str, resource: str, lon: float, lat: float, msl: float,
                heading_deg: float) -> tuple[str, int]:
     """``text`` with ``resource`` declared (appended) and placed once at
     ``msl`` metres; returns ``(text, its definition index)``."""
+    text, idx = add_objects(text, [(resource, lon, lat, msl, heading_deg)], reuse=False)
+    return text, idx[0]
+
+
+def add_objects(text: str, rows: _t.Sequence[tuple[str, float, float, float, float]],
+                reuse: bool = True) -> tuple[str, list[int]]:
+    """``text`` with every ``(resource, lon, lat, msl, heading)`` of ``rows``
+    placed as an ``OBJECT_MSL`` row; a resource the dump already declares
+    keeps its definition when ``reuse``, any other is declared once
+    (appended).  Returns ``(text, each row's definition index)``."""
     lines = text.split("\n")
-    n_defs = sum(1 for ln in lines if ln.startswith("OBJECT_DEF "))
+    defs = [ln.split(None, 1)[1].strip() for ln in lines if ln.startswith("OBJECT_DEF ")]
     at = _last_index(lines, "OBJECT_DEF")
     if at < 0:
         at = _defs_end(lines) - 1
-    lines.insert(at + 1, f"OBJECT_DEF {resource}")
-    row = f"OBJECT_MSL {n_defs} {lon:.9f} {lat:.9f} {msl:.4f} {heading_deg:.6f}"
+    known = {d: i for i, d in enumerate(defs)} if reuse else {}
+    new: list[str] = []
+    idx: list[int] = []
+    for res, *_ in rows:
+        if res not in known:
+            known[res] = len(defs) + len(new)
+            new.append(res)
+        idx.append(known[res])
+    lines[at + 1:at + 1] = [f"OBJECT_DEF {r}" for r in new]
     tail = len(lines)
     while tail > 0 and not lines[tail - 1].strip():
         tail -= 1
-    lines.insert(tail, row)
-    return "\n".join(lines), n_defs
+    lines[tail:tail] = [f"OBJECT_MSL {i} {lon:.9f} {lat:.9f} {msl:.4f} {hdg:.6f}"
+                        for i, (_r, lon, lat, msl, hdg) in zip(idx, rows, strict=True)]
+    return "\n".join(lines), idx
 
 
 def add_network(text: str, net_def: str, chains: _t.Sequence[Chain]) -> str:

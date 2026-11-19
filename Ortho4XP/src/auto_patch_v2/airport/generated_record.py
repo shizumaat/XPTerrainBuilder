@@ -46,7 +46,7 @@ SCHEMA = "o4-generated-1"
 #: Where an installed package's record lands in the tile's patch folder.
 _FILENAME = "o4_generated_{icao}.json"
 
-_ROWS = ("decks", "regions", "chains", "hides", "notes")
+_ROWS = ("decks", "regions", "chains", "hides", "notes", "deck_tops")
 
 
 def _publication_sha(pub: _t.Mapping) -> str:

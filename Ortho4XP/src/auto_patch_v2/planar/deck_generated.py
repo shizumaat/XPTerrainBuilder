@@ -372,14 +372,17 @@ def _pack_refusal(airport) -> str:
 
 def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                     blocked: _t.Sequence = (), objects: _t.Sequence = (), cache=None,
-                    deck_notes: _t.Sequence[str] = ()
+                    deck_notes: _t.Sequence[str] = (), covered: _t.Sequence = ()
                     ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(every generated deck, one note per deck or refusal)`` (module
     doc).  ``taken``: the pack's own hard decks (``deck_bridges``);
     ``blocked``: the pack's trench / corridor / floor outlines (frame);
     ``objects`` / ``cache``: the pack read, whose own hard decks and tops
     refuse a piece whether ``deck_bridges`` admitted them or not
-    (``planar/deck_pack_cover``); ``deck_notes``: its notes, naming why."""
+    (``planar/deck_pack_cover``); ``deck_notes``: its notes, naming why;
+    ``covered``: more covered roads (:class:`_Road`) -- those under a pack
+    frame the build hid (``planar/deck_takeover``: its bridges stated the
+    crossing, as a hard deck bores its road, ``planar/deck_bores``)."""
     if classification is None or not classification.cells:
         return (), []
     g = law.tables.structures.deck_gen
@@ -403,7 +406,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     P = unary_union(paved)
     notes: list[str] = []
     roads = []
-    for r in _covered_roads(airport, law, classification):
+    for r in _covered_roads(airport, law, classification) + list(covered):
         # the classification cuts a road's own ribbon out of the pavement
         # over it: the road is under the pavement within its half width
         if r.line.distance(P) > r.half_m + 1.0:

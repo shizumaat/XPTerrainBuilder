@@ -485,7 +485,8 @@ def _floor_pair_note(db: DeckBridge) -> list[str]:
     if old == new:
         return []
     fmt = lambda p: "none" if None in p else f"{p[0]:.2f}..{p[1]:.2f}"  # noqa: E731
-    return [f"{db.object_id} {db.resource.rsplit('/', 1)[-1]} piece {deck_polygon(db).area:,.0f} m2: "
+    name = db.resource.rsplit('/', 1)[-1]
+    return [f"{db.object_id} {name} piece {deck_polygon(db).area:,.0f} m2: "
             f"K2 the wall pair stands at the frame's floor edge, {fmt(old)} -> {fmt(new)} "
             f"across the road (kord-trench-frame-spec)"]
 

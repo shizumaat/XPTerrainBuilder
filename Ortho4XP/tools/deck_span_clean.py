@@ -14,8 +14,6 @@ pickle's map; writes nothing.
 """
 from __future__ import annotations
 
-import typing as _t
-
 __all__ = ["span_clean"]
 
 #: the strip is read this far inside its edge (its rim vertices stand on it)
@@ -32,11 +30,10 @@ def _bad_roles(law) -> set[str]:
 def span_clean(pm, law) -> list[dict]:
     """One record per walled pack deck: ``{object, strip_m2, rows, roles,
     lines, worst_at}`` (module doc)."""
-    from shapely import prepared
-    from shapely.geometry import Point
-
     from auto_patch_v2.model.planar import face_vertex_ids
     from auto_patch_v2.planar.deck_bridge import _walled_trench, deck_polygon
+    from shapely import prepared
+    from shapely.geometry import Point
     bad = _bad_roles(law)
     gap = float(law.tables.structures.tunnel.wall_gap_m)
     v_role: dict[int, set[str]] = {}

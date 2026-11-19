@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["Face", "Floor", "floor_extent", "inner_faces", "project_span",
-           "wall_lines", "wall_parts"]
+__all__ = ["Face", "Floor", "inner_faces", "project_span", "wall_lines"]
 
 #: face lines closer than this across the road are one line (metres)
 _LINE_BIN_M = 0.5
@@ -39,7 +38,7 @@ def _covered(faces: _t.Sequence[Face], s0: float, s1: float) -> float:
     return got / (s1 - s0) if s1 > s0 else 0.0
 
 
-def floor_extent(floor: "_t.Sequence[Floor] | None", s0: float, s1: float
+def _floor_extent(floor: "_t.Sequence[Floor] | None", s0: float, s1: float
                  ) -> "tuple[float, float] | None":
     """``(f_lo, f_hi)``: the extent across the road of the frame's floor
     solids standing on ``[s0, s1]`` (K2), or ``None`` where it models none."""
@@ -59,7 +58,7 @@ def _at_floor_edge(walls: _t.Sequence[float], ext: "tuple[float, float]"
     return (ua, ub) if ua is not None and ub is not None and ua < ub else (None, None)
 
 
-def wall_parts(walls: _t.Sequence[float], ext: "tuple[float, float] | None"
+def _wall_parts(walls: _t.Sequence[float], ext: "tuple[float, float] | None"
                ) -> tuple[list[float], list[float]]:
     """``(walls, dividers)`` of the wall lines (K2): a line with the frame's
     floor ``ext`` on both sides of it is a DIVIDER (a pier standing in the
@@ -89,7 +88,7 @@ def inner_faces(faces: _t.Sequence[Face], s0: float, s1: float, u_mid: float,
 
     K2 (kord-trench-frame-spec): with ``floor`` (the frame's near-horizontal
     bottom solids, :data:`Floor`) modelling a floor across the stretch, the
-    pair is the wall line at each EDGE of that floor (:func:`floor_extent`);
+    pair is the wall line at each EDGE of that floor (:func:`_floor_extent`);
     a line with the floor on both sides is a pier, never the trench's wall.
     A frame modelling no floor there keeps the nearest-the-middle pair."""
     if reach is not None:
@@ -100,7 +99,7 @@ def inner_faces(faces: _t.Sequence[Face], s0: float, s1: float, u_mid: float,
             return None, None
         s0, s1 = span
     walls = _lines(faces, s0, s1, reach is not None)
-    ext = floor_extent(floor, s0, s1)
+    ext = _floor_extent(floor, s0, s1)
     if ext is not None:
         ua, ub = _at_floor_edge(walls, ext)
         if ua is not None:
@@ -116,13 +115,13 @@ def wall_lines(faces: _t.Sequence[Face], s0: float, s1: float,
     line (adjacent bins merged, :func:`inner_faces`) covering
     :data:`_COVER_MIN` of the stretch the faces themselves occupy there
     (#2157 R3, ``planar/deck_span_cut``: a frame's facing wall pairs).
-    K2: with ``floor`` the DIVIDERS (:func:`wall_parts`) are left out --
+    K2: with ``floor`` the DIVIDERS (:func:`_wall_parts`) are left out --
     a pier is never an end of a wall-pair span."""
     span = _occupied(faces, s0, s1)
     if span is None:
         return []
     lines = sorted(_lines(faces, span[0], span[1], True))
-    return wall_parts(lines, floor_extent(floor, s0, s1))[0]
+    return _wall_parts(lines, _floor_extent(floor, s0, s1))[0]
 
 
 def _lines(faces: _t.Sequence[Face], s0: float, s1: float, merge: bool) -> list[float]:

@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import box
-
 from auto_patch_v2.geom import cluster_outlines
 from auto_patch_v2.geom.cluster_outline import CACHE_VOUCHED_SOURCE
 from auto_patch_v2.geom.pad_evidence import PadEvidence
 from auto_patch_v2.geom.route_over_pad import OVER, TOUCH, RouteWitness
+from auto_patch_v2.geom.wall_lines import inner_faces, wall_lines
 from auto_patch_v2.law.tables import load_default, pad_admission
+from shapely.geometry import box
 
 ADMISSION = pad_admission(load_default())
 
@@ -128,8 +128,6 @@ def test_a_route_over_a_cluster_refuses_its_pad_a_door_keeps_it():
 
 
 # ── K2: the trench's walls are the pair at the edge of the frame's floor ──
-
-from auto_patch_v2.geom.wall_lines import inner_faces, wall_lines  # noqa: E402
 
 #: two outer walls (u -33.5, +46.5) and three 1 m piers (faces at
 #: -27/-26, 3.5/4.5, 23/24) along s 0..36, the deck's middle near u 6.5

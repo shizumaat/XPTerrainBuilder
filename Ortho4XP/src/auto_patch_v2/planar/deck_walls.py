@@ -27,7 +27,7 @@ import math
 import numpy as np
 from shapely.geometry import Polygon
 
-from ..geom.wall_lines import inner_faces
+from ..geom.wall_lines import inner_faces, project_span
 
 __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 
@@ -95,13 +95,8 @@ def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, floa
                    min(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]),
                    max(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]))
                   for p, q in kept)
-    floor = tuple(_span(tri, nw) + _span(tri, rw) for tri in flats)
+    floor = tuple(project_span(tri, nw) + project_span(tri, rw) for tri in flats)
     return rw, nw, faces, floor
-
-
-def _span(pts, d) -> tuple[float, float]:
-    vals = [p[0] * d[0] + p[1] * d[1] for p in pts]
-    return min(vals), max(vals)
 
 
 def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, list]:

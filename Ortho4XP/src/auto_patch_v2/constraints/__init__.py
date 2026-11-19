@@ -267,4 +267,7 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     rows = edge_deck.release_governed(rows, counts)
     # #2099 R2: likewise a vertex the wing cut holds on its wings' feet
     rows = edge_deck.release_governed(rows, counts, gen=wing_cut.GEN)
+    # W7b (RULINGS 2026-11-19m): no road ramp row inside a walled frame's walls
+    from .walled_floor import release_wall_ramps
+    rows = release_wall_ramps(rows, planar, law, counts)
     return assemble(rows, counts, walls, planar, law, only, yielded_out)

@@ -247,3 +247,16 @@ def test_w7b_the_trench_runs_on_past_the_end_to_the_frames_floor_end():
     other = dataclasses.replace(db, ring=tuple((x + 60.0, y) for x, y in db.ring))
     first, _second = beyond_stretches([db, other], 0.6)
     assert first.beyond == ()
+
+
+def test_w7b_no_road_ramp_row_inside_the_walls():
+    from auto_patch_v2.constraints.walled_floor import release_wall_ramps
+    from auto_patch_v2.model.constraints import Band, Source
+    law = load_default()
+    pm = _floor_map([(5.0, 15.3), (5.0, 30.0)], ["service_road", "service_road"])
+    pm.decks = (_walled_deck(),)
+    ramp, other = Source("road_ramp", "roads.groundside_road ramp ceiling"), Source("roads", "x")
+    rows = [Band(0, None, 190.0, ramp), Band(1, None, 190.0, ramp), Band(0, None, 1.0, other)]
+    counts: dict = {}
+    got = release_wall_ramps(rows, pm, law, counts)
+    assert got == rows[1:] and counts["walled_floor.ramps_released"] == 1

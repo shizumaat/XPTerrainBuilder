@@ -35,7 +35,7 @@ from ..law import Law
 from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["walled_floor_rows"]
+__all__ = ["walled_floor_rows", "release_wall_ramps"]
 
 #: the floor is read this far inside its edge (its edge is the walls' foot)
 _INSET_M = 0.05
@@ -116,3 +116,48 @@ def walled_floor_rows(planar: PlanarMap, law: Law, lines, skip: _t.Callable[[int
                 held.add(v)
                 break
     return rows, held
+
+
+def release_wall_ramps(rows: list[Row], planar: PlanarMap, law: Law,
+                       counts: "dict[str, int] | None" = None) -> list[Row]:
+    """W7b (walled-multibridge-frames spec): NO RAMP-CAP ROW INSIDE THE WALLS.
+    A road's one-vertex ramp rows (generator ``road_ramp``: its ceiling, its
+    target) are withdrawn at every vertex standing in a walled pack frame's
+    rim -- under its spans, along the open stretch between them and past
+    their ends (``planar/deck_bridge._walled_trench``): the road there is
+    the frame's (its floor, its wall top), and its mouth is where the
+    frame's floor ends.  MEASURED KORD I-190: road -5312's ceiling on the
+    wall top beside the E span's end relaxed the span's whole floor group
+    5.07 m up to the deck."""
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+
+    from ..model.constraints import Band, Linear, Pin
+    from ..model.structures import is_generated
+    from ..planar.deck_bridge import _walled_trench
+    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    decks = [d for d in getattr(planar, "decks", ()) or () if not is_generated(d)]
+    rims = []
+    for d in decks:
+        sib = [o for o in decks if o.object_id == d.object_id and o is not d]
+        for o in (None, *sib):
+            got = _walled_trench(d, gap, o)
+            if got is not None:
+                rims.append(got[1])
+    if not rims:
+        return rows
+    inside = prep(unary_union(rims).buffer(_INSET_M))
+    at = {v for v, vx in planar.vertices.items() if inside.contains(Point(vx.xy))}
+    out: list[Row] = []
+    n = 0
+    for r in rows:
+        if r.source.generator == "road_ramp" and (
+                (isinstance(r, (Pin, Band)) and r.v in at)
+                or (isinstance(r, Linear) and len(r.terms) == 1 and r.terms[0][0] in at)):
+            n += 1
+            continue
+        out.append(r)
+    if counts is not None:
+        counts["walled_floor.ramps_released"] = n
+    return out

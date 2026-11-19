@@ -121,10 +121,33 @@ def test_a_road_bridge_rides_the_deck_within_two_edge_margins():
     assert grown.contains(box(4.5, 1, 9.5, 149))
 
 
+def _plate_obj(oid, ys):
+    """A placed object of flat up-facing 10 m plates at heights ``ys``."""
+    import numpy as np
+    from auto_patch_v2.airport.obj8 import ObjGeometry
+    vs, ts = [], []
+    for k, y in enumerate(ys):
+        x0 = 10.0 * k - 5.0
+        n = len(vs)
+        vs += [(x0, y, -5.0), (x0 + 10, y, -5.0), (x0 + 10, y, 5.0), (x0, y, 5.0)]
+        ts += [(n, n + 2, n + 1), (n, n + 3, n + 2)]
+    tris = np.asarray(ts, dtype=np.int64)
+    g = ObjGeometry("x.obj", np.asarray(vs, dtype=float), tris, np.zeros(len(ts), dtype=np.int8),
+                    np.zeros((0, 3), dtype=np.int64), np.zeros(len(ts), dtype=bool),
+                    np.zeros(len(ts), dtype=bool))
+    o = types.SimpleNamespace(id=oid, path=f"{oid}.obj", resolved=oid, xy=(0.0, 0.0),
+                              heading_deg=0.0, hard_deck=box(-5, -5, 10 * len(ys) - 5, 5),
+                              deck_top_z=100.0 + max(ys), anchor_z=100.0, agl_m=0.0)
+    return o, g
+
+
 def test_a_pack_deck_high_over_the_crossing_refuses_nothing():
-    hi = types.SimpleNamespace(id="sky", hard_deck=box(-5, -5, 5, 5), deck_top_z=130.0)
-    lo = types.SimpleNamespace(id="twy", hard_deck=box(-5, -5, 5, 5), deck_top_z=101.0)
-    assert overhead_decks([hi, lo], box(-10, -10, 10, 10), 100.0, LAW) == frozenset({"sky"})
+    sky, gs = _plate_obj("sky", [30.0])
+    twy, gt = _plate_obj("twy", [0.5, 12.0])       # at grade here, a tall top beside
+    geoms = {"sky": gs, "twy": gt}
+    cache = types.SimpleNamespace(geometry=lambda r: geoms.get(r))
+    region = box(-4, -4, 4, 4)
+    assert overhead_decks([sky, twy], cache, region, 100.0, LAW) == frozenset({"sky"})
 
 
 def test_a_road_bridge_is_published_as_a_narrow_flat_deck():

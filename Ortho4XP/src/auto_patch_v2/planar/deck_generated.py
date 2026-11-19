@@ -534,7 +534,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             continue
         # #2181 item 2: a pack deck standing a road's clearance over the
         # carried pavement passes OVER the crossing (``overhead_decks``)
-        over = overhead_decks(objects, piece, _carried_level(airport, piece), law)
+        over = overhead_decks(objects, cache, piece, _carried_level(airport, piece), law)
         why = _blocked(piece, [d for d in taken if not (over & {d.object_id, *d.members})],
                        blocked, [r.line for r in under],
                        [p for p in packs if p.object_id not in over], law,

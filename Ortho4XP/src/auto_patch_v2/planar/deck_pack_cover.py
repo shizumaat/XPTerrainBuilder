@@ -307,25 +307,44 @@ def _beside(piece: Polygon, packs: _t.Sequence[_PackDeck], law,
     return ""
 
 
-def overhead_decks(objects: _t.Sequence, region, level: "float | None", law) -> frozenset[str]:
-    """The pack hard decks over ``region`` whose rendered top
-    (``PlacedObject.deck_top_z``) stands ``[bridge] clearance_minimum_m``
-    or more over ``level`` -- the carried pavement's: they pass OVER the
-    crossing (a people-mover viaduct over the taxiway), never model it, so
-    they refuse no generated deck (#2181 item 2; MEASURED KPHX 33.434942,
-    -111.992308: ``SkyTrain.obj``'s guideway deck over taxiway bridge
-    ``-96`` refused the deck over the road under it)."""
-    if level is None or region is None or region.is_empty:
+def overhead_decks(objects: _t.Sequence, cache, region, level: "float | None", law
+                   ) -> frozenset[str]:
+    """The pack hard decks over ``region`` that pass OVER the crossing: no
+    up-facing solid face of theirs over ``region`` stands lower than
+    ``[bridge] clearance_minimum_m`` over ``level`` (the carried pavement's)
+    -- a people-mover viaduct over the taxiway, never the crossing's own
+    deck, so they refuse no generated deck (#2181 item 2; MEASURED KPHX
+    33.434942, -111.992308: ``SkyTrain.obj``'s guideway over taxiway bridge
+    ``-96`` refused the deck over the road under it).  Read face by face
+    over the region, never by the object's highest top: KRDU's
+    ``STH_TML.obj`` tops out 10 m over the taxiway it carries at grade."""
+    if level is None or region is None or region.is_empty or cache is None:
         return frozenset()
     clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     out = set()
     for o in objects or ():
         hd, top = getattr(o, "hard_deck", None), getattr(o, "deck_top_z", None)
-        if hd is None or top is None or hd.is_empty:
+        if hd is None or top is None or hd.is_empty or o.resolved is None:
             continue
         try:
-            if hd.intersects(region) and float(top) >= float(level) + clear:
-                out.add(str(o.id))
+            if not hd.intersects(region) or float(top) < float(level) + clear:
+                continue
         except shapely.errors.GEOSException:
             continue
+        g = cache.geometry(o.resolved)
+        if g is None:
+            continue
+        base = float(getattr(o, "anchor_z", 0.0) or 0.0) + float(getattr(o, "agl_m", 0.0) or 0.0)
+        tris = _static_solid(g, g.animated, getattr(g, "under_terrain", _NONE))
+        if not tris.shape[0]:
+            continue
+        v = g.vertices
+        low = (_face_normals_y(v, tris) >= ny_min) & \
+            (v[tris][:, :, 1].max(axis=1) < float(level) + clear - base)
+        polys = [q for q in shapely.polygons(v[tris[low]][:, :, [0, 2]])
+                 if q.is_valid and q.area > 1e-6] if low.any() else []
+        plan = _placed(o, _fe.union(polys, "deck_pack_cover.overhead"), law) if polys else None
+        if plan is None or plan.is_empty or plan.intersection(region).area <= 1.0:
+            out.add(str(o.id))
     return frozenset(out)

@@ -456,9 +456,9 @@ def deck_carve(classification, decks, airport, law, tunnels=()
         if geom is None or geom.is_empty:
             continue
         free = geom.difference(taken)
-        for k, q in enumerate(d for q in polygon_parts_with_area(free)
-                              if q.area > 0.5 and not is_hairline(q, max(spacing, _HAIR_M))
-                              for d in densified_parts(q, NODE_M)):
+        for k, q in enumerate(d for g in polygon_parts_with_area(free)
+                              if g.area > 0.5 and not is_hairline(g, max(spacing, _HAIR_M))
+                              for d in densified_parts(g, NODE_M)):
             new.append(Cell(0, "graded_strip", f"{CARVE_REF}:{oid}:{part}" + (f"#{k}" if k else ""),
                             tuple(q.exterior.coords)[:-1],
                             tuple(tuple(h.coords)[:-1] for h in q.interiors),

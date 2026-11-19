@@ -53,6 +53,7 @@ from ..constraints.taxi import short_pairs
 from ..law.tables import LOT_ROLES, role_cap, snap_margin_m
 from . import chord_work as _cw
 from .frame import Patch, Row, Shape, noise_m, row
+from .pads import sloped_pair_cap, sloped_plane_offsets
 from .steps import joint_index
 
 __all__ = ["apron_over_preference", "within_shape", "read_chords_ahead", "plane_gradient", "crown_by_vertex", "taxi_box",
@@ -359,6 +360,9 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
     for sh in p.shapes:
         if p.is_rigid(sh.role):
             rigid_v.update(sh.ids)
+    # 2026-11-19q (1): an apron (or the pad's own) pair on ONE sloped pad
+    # reads the plane's grade along it, not the 1.5 % apron / pad cap
+    sloped = sloped_plane_offsets(p)
     # THE FRAME'S WHOLE VERTEX MAP, never the outer rings alone: a stretch
     # chain runs through hole-ring vertices too (a taxi centreline entering
     # a gap-interior ring — LEMD face 145 / taxi660, 2026-09-05), exactly
@@ -436,6 +440,8 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
                         route = routed[key]
                         if route is None:
                             continue                   # no route: no law edge (05ab)
+                if sloped and (sh.role == "apron" or p.is_rigid(sh.role)):
+                    pair_cap = max(pair_cap, sloped_pair_cap(sloped, a, b, d))
                 if sh.role in soft and not adjacent and a not in strict \
                         and b not in strict:
                     if sh.role == "apron":

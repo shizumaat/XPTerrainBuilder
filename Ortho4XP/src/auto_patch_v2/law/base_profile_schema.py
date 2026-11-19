@@ -61,3 +61,12 @@ class BaseProfileLaw:
     #: the geometry is not a base at all but RISER geometry (§1 (2): the
     #: KASE cut-slope staircase reads 17 %).
     sloped_max: float = 0.08
+    #: owner RULINGS 2026-11-19o (1): a SLOPED base is a PLANE the pad
+    #: takes (``planar/pad_base_slope``) only where its contact fit's rms
+    #: residual is within this (metres) — the 12y pavement visibility bar
+    #: (0.05 m).  Over it the contact set is uneven ground geometry, not an
+    #: authored plane, and the pad keeps the flat target (09c).  MEASURED
+    #: KASE: ``Objects/test.obj`` (the covered parking, #2184) fits its
+    #: 1.90 % at rms 0.001 m; the eleven other SLOPED members of the pack
+    #: fit at 0.10-0.28 m.  0 disarms the sloped pad.
+    sloped_pad_rms_m: float = 0.05

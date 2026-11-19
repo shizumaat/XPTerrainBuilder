@@ -355,9 +355,13 @@ def mesh_path(tile, patch_dir, name):
         _drop_copy(tile, name)
         if _is_custom(name):
             try:                # #2179: the notice names the source
-                fit = _fit(tile, path)
-                if fit:
-                    _remember(tile, name, path, fit[5])
+                ground = _ground_record(tile, name)
+                if ground is not None:
+                    _remember(tile, name, path, ground.get("reference"))
+                else:
+                    fit = _fit(tile, path)
+                    if fit:
+                        _remember(tile, name, path, fit[5])
             except Exception as exc:    # a notice: never a build failure
                 UI.vprint(2, "   custom patch source not identified (%s)."
                           % exc)
@@ -371,10 +375,16 @@ def mesh_path(tile, patch_dir, name):
         return path
 
 
-def _on_its_source(tile, name):
+def _ground_record(tile, name):
+    """The ``O4_Custom_Patch_Ground.grounds`` record of *name*'s airport,
+    or ``None`` when grounds() does not name it."""
     import O4_Custom_Patch_Ground as CUSTOM_GROUND
 
-    return FNAMES.patch_file_icao(name) in CUSTOM_GROUND.grounds(tile)
+    return CUSTOM_GROUND.grounds(tile).get(FNAMES.patch_file_icao(name))
+
+
+def _on_its_source(tile, name):
+    return _ground_record(tile, name) is not None
 
 
 def read_path(tile, patch_dir, name):

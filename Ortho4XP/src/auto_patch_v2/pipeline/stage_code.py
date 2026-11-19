@@ -861,6 +861,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.overlay",
         "auto_patch_v2.planar.overpass_deck",
         "auto_patch_v2.planar.pack_reads",
+        "auto_patch_v2.planar.pad_base_slope",
         "auto_patch_v2.planar.pad_blocks",
         "auto_patch_v2.planar.pad_cut",
         "auto_patch_v2.planar.pad_fill",
@@ -2800,9 +2801,9 @@ CODE_MODULES["solve"] = _mods("""
     planar.landing
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
-    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.passage_court planar.plate_bays planar.platform planar.ribbon_weld
-    planar.ribbons
+    planar.pack_reads planar.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.passage_court planar.plate_bays planar.platform
+    planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
@@ -3023,9 +3024,9 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.landing
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
-    planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.passage_court planar.plate_bays planar.platform planar.ribbon_weld
-    planar.ribbons
+    planar.pack_reads planar.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.passage_court planar.plate_bays planar.platform
+    planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout

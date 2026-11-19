@@ -1746,6 +1746,7 @@ horizontal_ny         = 0.95   # §1 (1): |n_y| >= this is a HORIZONTAL FACE (an
 roof_support_fraction = 0.25   # §1 (1) THE ROOF TEST: a plane whose unit vertices >= [basin] contact_band_m below it have a convex hull covering this fraction of its polygon is a ROOF/DECK/MEZZANINE, never a base (KASE: the shelter roof reads 156 %, FireStation_7's +3.9 lot 0.2 %)
 sloped_min_extent_m   = 20.0   # §1 (2): a member with no base plane over the area floor reads SLOPED only where its contact set spans this far; below it the verdict is FEET (a column-only shelter is not a ramp)
 sloped_max            = 0.08   # §1 (2) + 10-01k Q5: the HARD CEILING on a sloped base's own gradient (m/m).  Steeper geometry is RISER geometry, not a plane (KASE's cut-slope staircase reads 17 %)
+sloped_pad_rms_m      = 0.05   # owner RULINGS 2026-11-19o (1): a SLOPED base is a plane the pad TAKES (planar/pad_base_slope) only where the contact fit's rms is within this — the 12y pavement visibility bar.  KASE test.obj (#2184) fits 1.90 % at 0.001 m; the pack's other SLOPED members 0.10-0.28 m.  0 disarms
 
 # A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (owner RULINGS 2026-10-27t / 2026-10-27u,
 # #1201; spec docs/specs/walled-plate-rsa-spec.md §3).  A pack object whose flat

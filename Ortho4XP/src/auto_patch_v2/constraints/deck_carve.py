@@ -170,6 +170,26 @@ def _kerb(pm, air, values) -> "tuple[_t.Any, np.ndarray] | None":
     return cKDTree(np.asarray(pts, dtype=np.float64)), np.asarray(zs, dtype=np.float64)
 
 
+def _tunnel_regions(pm, gen: _t.AbstractSet[str]):
+    """``(generated, pack)``: the corridors of the tunnels the structure
+    pass cut under a GENERATED deck (the deck's cut takes them over: one
+    cut, the deck's) and under a pack deck (its floor stays the object's),
+    each a prepared region or ``None``."""
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    parts: dict[bool, list] = {True: [], False: []}
+    for tn in getattr(pm, "structures", ()) or ():
+        oid = str(getattr(tn, "deck_bridge", "") or "")
+        if not oid or len(getattr(tn, "axis", ()) or ()) < 2:
+            continue
+        reg = LineString(tn.axis).buffer(float(tn.half_width_m) + _SNAP_M, cap_style="flat")
+        if len(tn.wall_path) >= 3:
+            reg = reg.union(Polygon(tn.wall_path).buffer(0.0).buffer(_SNAP_M))
+        parts[oid in gen].append(reg)
+    return tuple(prep(unary_union(parts[k])) if parts[k] else None for k in (True, False))
+
+
 def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[int],
                  values: _t.Mapping[int, float], fixed: _t.Mapping[int, float], law
                  ) -> tuple[dict[int, float], dict]:
@@ -214,26 +234,37 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         half = p.half_m + _SNAP_M
         on_floor[m] = np.where(nv <= half, np.minimum(on_floor[m], fz), on_floor[m])
         t[m] = np.minimum(t[m], lateral(fz, nv, half, bank))
-    t = np.where(np.isfinite(on_floor), on_floor, t)
+    floor_v = np.isfinite(on_floor)
+    t = np.where(floor_v, on_floor, t)
+    gen_tn, pack_tn = _tunnel_regions(pm, {d.object_id for d in decks
+                                           if getattr(d, "carve", None) is not None})
     kerb = _kerb(pm, air, {**values, **fixed})
     out: dict[int, float] = {}
     n_fill = 0
     for i in np.nonzero(np.isfinite(t))[0]:
         v = vids[int(i)]
         vx = pm.vertices[v]
-        g = vx.dem_z if vx.dem_z is not None else math.inf
-        cut = min(float(g), float(t[i]))
-        mine = any(str(pm.faces[f].ref).startswith(CARVE_REF + ":") for f in vx.incident_faces)
-        if not (mine or own.contains(Point(vx.xy)) or cut < float(g) - _UNDER_M):
+        pt = Point(vx.xy)
+        g = float(vx.dem_z) if vx.dem_z is not None else math.inf
+        cut = min(g, float(t[i]))
+        inside = own.contains(pt)
+        if not inside and pack_tn is not None and pack_tn.contains(pt):
+            continue            # a pack deck's own cut keeps its floor (19s (4))
+        mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or any(
+            str(pm.faces[f].ref).startswith(CARVE_REF + ":") for f in vx.incident_faces)
+        if not (mine or cut < g - _UNDER_M):
             continue
-        if kerb is not None:
+        if kerb is not None and not floor_v[i]:
+            # the bank never undercuts the airside: under the deck and its
+            # opened pavement it rises to it (the abutment's embankment);
+            # beyond, never over the ground.  A road's floor is never
+            # raised: where the road needs it, the bank is a wall
             tree, kz = kerb
-            k = min(_KERB_K, len(kz))
-            d, j = tree.query(vx.xy, k=k)
+            d, j = tree.query(vx.xy, k=min(_KERB_K, len(kz)))
             lo = float(np.max(np.atleast_1d(kz[j]) - bank * np.atleast_1d(d)))
             if lo > cut:
                 n_fill += 1
-                cut = lo
+                cut = lo if inside else min(g, lo)
         out[v] = round(cut, 4)
     for r in rep.values():
         r["bank_slope"] = round(bank, 3)

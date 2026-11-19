@@ -23,20 +23,23 @@ read off a ``--solved-out`` pickle, per deck and per path of its cut
   crossing, the steepest solved slope over :data:`GRADE_WINDOW_M` between
   the end lines and the floor (the abutment's bank, 1V:1.5H by law).
 
-The surface is read as a linear TIN of the map's solved vertices within
-:data:`NEAR_M` of the path (the emitted mesh adds no vertex).  Pure: reads
+The surface is read over each map face within :data:`NEAR_M` of the path,
+triangulated on its own ring (``tools/deck_bank_perimeter._interp``: the
+way the mesh takes the patch's faces).  Pure: reads
 the pickle's map and ``z``; writes nothing.
 """
 from __future__ import annotations
 
 import math
 
-__all__ = ["STEP_M", "MEET_M", "GRADE_WINDOW_M", "NEAR_M", "carve_bars"]
+__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "NEAR_M", "carve_bars"]
 
 #: a path is read this often (m)
 STEP_M = 1.0
 #: the ramp has met the terrain within this (m)
 MEET_M = 0.10
+#: the patch's edge meets the base mesh within this (m)
+EDGE_STEP_M = 0.25
 #: grades are read over this run (m)
 GRADE_WINDOW_M = 4.0
 #: the surface is triangulated from the vertices this near the path (m)
@@ -44,17 +47,13 @@ NEAR_M = 60.0
 
 
 def _tin(pm, z, xs, ys):
-    import numpy as np
-    from scipy.interpolate import LinearNDInterpolator
-    x0, x1 = min(xs) - NEAR_M, max(xs) + NEAR_M
-    y0, y1 = min(ys) - NEAR_M, max(ys) + NEAR_M
-    pts, zs = [], []
-    for v, vx in pm.vertices.items():
-        if x0 <= vx.xy[0] <= x1 and y0 <= vx.xy[1] <= y1:
-            pts.append(vx.xy)
-            zs.append(float(z[v]))
-    f = LinearNDInterpolator(np.asarray(pts, float), np.asarray(zs, float))
-    return lambda x, y: float(f(x, y))
+    """``surf(x, y)``: the solved surface over the path's reach, each map
+    face triangulated on its own ring (``deck_bank_perimeter._interp``,
+    the way the mesh takes the patch); ``nan`` off every face."""
+    from deck_bank_perimeter import _interp
+    from shapely.geometry import LineString
+    f = _interp(pm, z, LineString(list(zip(xs, ys, strict=True))).buffer(NEAR_M))
+    return lambda x, y: float(f([x], [y])[0])
 
 
 def _top(pm, z, db, law):
@@ -87,6 +86,12 @@ def _ramp(frame, surf, terrain, start: float, sign: float) -> tuple:
         (x, y), _u = frame.at(s)
         q = surf(x, y)
         if q != q:
+            # off the patch: the base mesh at the DEM -- met there, with the
+            # step the patch's edge stands off the ground
+            if zs:
+                step = abs(zs[-1] - float(np.interp(s, ts, tz)))
+                return (round(abs(s - start), 1) if step <= EDGE_STEP_M else None,
+                        round(_grade(ss, zs), 4) if len(ss) > 1 else 0.0)
             break
         ss.append(abs(s - start))
         zs.append(q)

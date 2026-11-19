@@ -247,7 +247,11 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     paths: list[CarvePath] = []
     dirs: list[str] = []
     ring = deck_polygon(db)
+    seen: set[str] = set()
     for way, tags_items, coords in getattr(db, "covered", ()) or ():
+        if str(way) in seen:            # a way read twice (two tiles' extracts)
+            continue
+        seen.add(str(way))
         tags = dict(tags_items)
         kind = _kind(tags)
         cls = tags.get("railway") if kind == "rail" else tags.get("highway")
@@ -350,10 +354,66 @@ def _untouched(c, law) -> bool:
     return c.role in keep
 
 
-def deck_carve(classification, decks, airport, law) -> tuple[_t.Any, tuple, list[str]]:
+def _taken_over(decks, tunnels, past: float):
+    """The ground a generated deck's cut takes over: its ring and opened
+    approaches grown by the bank's run-on, and the corridor of every tunnel
+    the structure pass cut under it."""
+    from .deck_bridge import deck_polygon
+    ids = {d.object_id for d in decks}
+    parts = [unary_union([deck_polygon(d)] + [Polygon(q).buffer(0.0) for q in d.approach
+                                              if len(q) >= 3]).buffer(past, join_style="mitre")
+             for d in decks]
+    for tn in tunnels:
+        if str(getattr(tn, "deck_bridge", "") or "") in ids and len(tn.axis) >= 2:
+            parts.append(LineString(tn.axis).buffer(float(tn.half_width_m) + 0.5,
+                                                    cap_style="flat"))
+            if len(tn.wall_path) >= 3:
+                parts.append(Polygon(tn.wall_path).buffer(0.0))
+    return unary_union(parts)
+
+
+def _split_structures(cells, blade, law) -> tuple[list, int]:
+    """``cells`` with every STRUCTURE cell the cut takes over (a corridor
+    or deck ground under a generated deck) split along ``blade`` -- the
+    roads' floors -- so the mesh carries vertices on each floor's edges
+    (role and ref kept; a second piece takes ``<ref>#<k>``)."""
+    import dataclasses as _dcl
+
+    from ..law.tables import airside_stage_roles
+    from ..model.deck_carve import CARVE_REF as _ref
+    air = set(airside_stage_roles(law))
+    edge = blade.boundary
+    out, n = [], 0
+    for c in cells:
+        if c.kind != "structure" or c.role in air or str(c.ref).startswith(_ref) \
+                or len(c.ring) < 3:
+            out.append(c)
+            continue
+        poly = Polygon(c.ring, c.holes).buffer(0.0)
+        if not poly.intersects(edge):
+            out.append(c)
+            continue
+        pieces = [q for g in (poly.intersection(blade), poly.difference(blade))
+                  for q in polygon_parts_with_area(g) if q.area > 0.5]
+        if len(pieces) < 2:
+            out.append(c)
+            continue
+        n += 1
+        for k, q in enumerate(pieces):
+            q = q.segmentize(NODE_M)
+            out.append(_dcl.replace(c, ref=c.ref if k == 0 else f"{c.ref}#{k}",
+                                    ring=tuple(q.exterior.coords)[:-1],
+                                    holes=tuple(tuple(h.coords)[:-1] for h in q.interiors)))
+    return out, n
+
+
+def deck_carve(classification, decks, airport, law, tunnels=()
+               ) -> tuple[_t.Any, tuple, list[str]]:
     """``(classification with every generated deck's cut cells, decks with
     their :class:`DeckCarve`, notes)`` (module doc).  Unchanged with no
-    generated deck (stage 1's map: withheld)."""
+    generated deck (stage 1's map: withheld).  ``tunnels``: the structure
+    pass's corridors -- those under a generated deck are the deck's cut,
+    split along its roads' floors (:func:`_split_structures`)."""
     from ..classify.roles import Cell
     from ..geom.fixed_overlay import is_hairline
     from ..law.tables import role_side
@@ -405,15 +465,21 @@ def deck_carve(classification, decks, airport, law) -> tuple[_t.Any, tuple, list
                             None, None, role_side(law, "graded_strip"), "structure",
                             {CARVE_REF: 1.0, "area_m2": q.area}))
         taken = taken.union(free)
-    if not new:
-        return classification, tuple(_dc.replace(d, carve=carves.get(d.object_id))
-                                     if is_generated(d) else d for d in decks), notes
-    knife = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in new])
-    cells, n = knife_cells(classification.cells, polys, knife, law, (), cut_pads=False,
-                           mark=CARVE_REF, new_cells=new,
-                           cuts=lambda c: not _untouched(c, law))
+    cells, n = list(classification.cells), 0
+    if new:
+        knife = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in new])
+        cells, n = knife_cells(classification.cells, polys, knife, law, (), cut_pads=False,
+                               mark=CARVE_REF, new_cells=new,
+                               cuts=lambda c: not _untouched(c, law))
+    floors = unary_union([g for _o, part, g in regions if part == "floor" and g is not None])
+    n_split = 0
+    if not floors.is_empty:
+        cells, n_split = _split_structures(cells, floors.intersection(
+            _taken_over(gen, tunnels, past)), law)
+        cells = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     notes.append(f"{len(new)} cut cell(s) minted under {len(gen)} generated deck(s), "
-                 f"{n} groundside cell(s) cut (owner 2026-11-19T23:07Z)")
+                 f"{n} groundside cell(s) cut, {n_split} structure cell(s) under them split "
+                 f"along the roads' floors (owner 2026-11-19T23:07Z)")
     out = tuple(_dc.replace(d, carve=carves.get(d.object_id)) if is_generated(d) else d
                 for d in decks)
     return _dc.replace(classification, cells=tuple(cells)), out, notes

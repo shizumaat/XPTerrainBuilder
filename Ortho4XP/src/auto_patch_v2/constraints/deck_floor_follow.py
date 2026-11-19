@@ -219,6 +219,13 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     free.difference_update(cut)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
+    if cut:
+        # a pin outranks a stage-2 constant (``solve/rows._reduce``): the
+        # pins of a cut the deck took over (its tunnels' floors and mouths)
+        # leave with it
+        kept = tuple(p for p in cs2.pins if p.v not in cut)
+        rep["carve"]["_vertices"]["pins_dropped"] = len(cs2.pins) - len(kept)
+        cs2 = _dc.replace(cs2, pins=kept)
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
 
 

@@ -464,7 +464,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     # owner 2026-11-19T23:07Z: the cut is the GENERATED deck's own -- its
     # floor, banks and ramps back to the terrain along the road's path
     # (``planar/deck_carve``), ribbon or not, mapped road or not
-    classification, decks, carve_notes = deck_carve(classification, decks, airport, law)
+    classification, decks, carve_notes = deck_carve(classification, decks, airport, law,
+                                                     tunnels)
     sstats.hard_decks.extend(carve_notes)
     # #2099 R2: the ground beside a grouped mouth's wings stands on their
     # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs

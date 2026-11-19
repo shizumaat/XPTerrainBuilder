@@ -171,6 +171,20 @@ def test_the_entrance_face_is_seated_on_its_portals_floor_face_by_face():
     assert took == []
 
 
+def test_a_bridge_frame_over_a_bore_takes_its_portals_entrance_seat():
+    """#2188 (ELLX ``Bridge_2``, 1.0.565): a bridge frame whose member is a
+    bore's entrance object is level with that portal's top -- the highest
+    entrance zero of any member -- never its deck's low-side foot in the
+    cut; a frame no entrance seats keeps its own reading (``None``)."""
+    import types
+
+    from auto_patch_v2.airport.entrance_seat import frame_seat
+    zeros = {"dsf:obj9": [(49.0, 6.0, 10.0, 369.13), (49.001, 6.001, 10.0, 368.9)]}
+    deck, walls = types.SimpleNamespace(id="dsf:obj8"), types.SimpleNamespace(id="dsf:obj9")
+    assert frame_seat([deck, walls], zeros) == 369.13
+    assert frame_seat([deck], zeros) is None
+
+
 def test_a_portal_yielding_to_a_taxiway_keeps_the_floor_its_object_states(law):
     """#1903 (KLAX Sepulveda south, ``Underpass_2``): a taxiway at the
     opening slides the mouth out of it (clause 1), but the object still

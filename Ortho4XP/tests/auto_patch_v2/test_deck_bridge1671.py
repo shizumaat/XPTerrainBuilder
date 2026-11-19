@@ -186,7 +186,7 @@ def test_a_walled_deck_cuts_the_floor_to_the_walls_inner_faces(tmp_path):
     ``wall_gap_m`` behind them — no bank climbs the walls; a deck on piers
     keeps the 30b bank."""
     db = _bridge(tmp_path, walls=True)
-    r, n, faces = db.walls
+    r, n, faces = db.walls[:3]
     assert abs(abs(r[1]) - 1.0) < 1e-6 and faces
     floor, rim = DB._walled_trench(db, 0.6)
     assert abs(floor.bounds[0] + 17.0) < 1e-6 and abs(floor.bounds[2] - 17.0) < 1e-6

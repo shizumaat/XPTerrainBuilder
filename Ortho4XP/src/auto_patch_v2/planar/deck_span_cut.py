@@ -88,11 +88,12 @@ def _wall_spans(cut: SpanCut, walls: _t.Any, airport: _t.Any, piece: _t.Any,
     got = walls((-uy, ux), (ux, uy))
     if not got:
         return ()
-    rw, nw, faces = got
+    rw, nw, faces = got[:3]
     sign = 1.0 if nw[0] * ux + nw[1] * uy > 0.0 else -1.0
     at0 = cut.a[0] * nw[0] + cut.a[1] * nw[1]
+    # K2: a pier with the frame's floor on both sides ends no span
     lines = sorted(sign * (u - at0) for u in wall_lines(faces, *project_span(
-        piece.exterior.coords, rw)))
+        piece.exterior.coords, rw), got[3] if len(got) > 3 else None))
     out = []
     for sa, sb in zip(lines, lines[1:]):
         if not any(s0 <= sa and sb <= s1 for s0, s1 in cut.at_grade()):

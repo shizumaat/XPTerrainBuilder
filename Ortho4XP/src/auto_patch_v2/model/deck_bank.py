@@ -66,8 +66,10 @@ def banked(db) -> bool:
     if not walls:
         return True
     from ..geom.wall_lines import inner_faces, project_span
-    r, n, faces = walls
+    r, n, faces = walls[:3]
     u_lo, u_hi = project_span(db.ring, n)
     s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
+    # K2 (kord-trench-frame-spec): the same pair, read at the floor's edge
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi),
+                         walls[3] if len(walls) > 3 else ())
     return ua is None or ub is None

@@ -39,6 +39,10 @@ _ALONG_DEG = 20.0
 #: depth over the frame's bottom, and is a wall when it rises this share
 _REACH_FRAC = 0.25
 _HEIGHT_FRAC = 0.5
+#: K2 (kord-trench-frame-spec): a FLOOR solid is a triangle at least this
+#: near-horizontal (``|normal_y|``; the complement of :data:`_VERTICAL_NY`)
+#: standing wholly within :data:`_REACH_FRAC` of the depth over the bottom
+_FLOOR_NY = 1.0 - _VERTICAL_NY
 
 
 
@@ -56,12 +60,13 @@ def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray] | None":
 
 def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, float],
                n: tuple[float, float]) -> tuple:
-    """``(r_w, n_w, faces)``: the frame's walls (module doc) — ``r_w`` the
-    walls' own direction (the length-weighted mean of the faces running
+    """``(r_w, n_w, faces, floor)``: the frame's walls (module doc) — ``r_w``
+    the walls' own direction (the length-weighted mean of the faces running
     within :data:`_ALONG_DEG` of the road ``r``), ``n_w`` across it on
-    ``n``'s side, and every face as ``(u, s0, s1)`` in that frame — or
+    ``n``'s side, every face as ``(u, s0, s1)`` in that frame and (K2) every
+    FLOOR solid as ``(u_lo, u_hi, s0, s1)`` (``geom/wall_lines.Floor``) — or
     ``()`` with no wall face."""
-    segs = _wall_segments(cache, frame, bottom_y, top_y)
+    segs, flats = _wall_segments(cache, frame, bottom_y, top_y)
     cos_along = math.cos(math.radians(_ALONG_DEG))
     sx = sy = 0.0
     kept = []
@@ -87,17 +92,25 @@ def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, floa
                    min(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]),
                    max(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]))
                   for p, q in kept)
-    return rw, nw, faces
+    floor = tuple(_span(tri, nw) + _span(tri, rw) for tri in flats)
+    return rw, nw, faces, floor
 
 
-def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> list:
-    """The plan segment (its farthest pair of points, frame xy) of every
-    wall triangle of ``frame`` (module doc)."""
+def _span(pts, d) -> tuple[float, float]:
+    vals = [p[0] * d[0] + p[1] * d[1] for p in pts]
+    return min(vals), max(vals)
+
+
+def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, list]:
+    """``(segments, floor)``: the plan segment (its farthest pair of points,
+    frame xy) of every wall triangle of ``frame`` (module doc), and the plan
+    corners of every FLOOR triangle (:data:`_FLOOR_NY`, K2)."""
     from ..airport.obj8 import _to_frame
     depth = top_y - bottom_y
     if depth <= 0.0:
-        return []
+        return [], []
     out: list = []
+    flats: list = []
     for q in frame:
         got = _frame_tris(cache, q)
         if got is None:
@@ -118,7 +131,11 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> list:
                    for p in (a[k], b[k], c[k])]
             out.append(max(((pts[i], pts[j]) for i, j in ((0, 1), (0, 2), (1, 2))),
                            key=lambda e: math.dist(*e)))
-    return out
+        flat = ok & (ny >= _FLOOR_NY) & (hi <= bottom_y + _REACH_FRAC * depth)
+        for k in np.flatnonzero(flat):
+            flats.append(tuple(_to_frame(q.xy, q.heading_deg, float(p[0]), float(p[2]))
+                               for p in (a[k], b[k], c[k])))
+    return out, flats
 
 
 def wall_strip(r: tuple[float, float], n: tuple[float, float], u0: float, u1: float,

@@ -928,10 +928,11 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     taxiway between them)."""
     if not db.walls:
         return None
-    r, n, faces = db.walls
+    r, n, faces = db.walls[:3]
+    floor = db.walls[3] if len(db.walls) > 3 else ()   # K2: the frame's floor
     u_lo, u_hi = project_span(db.ring, n)
     s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi), floor)
     if ua is None or ub is None:
         return None
     floors = [wall_strip(r, n, max(ua, u_lo), min(ub, u_hi), s_lo, s_hi)]
@@ -940,7 +941,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
         o_lo, o_hi = project_span(other.ring, r)
         g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
         if g1 > g0:
-            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
+            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi), (u_lo, u_hi), floor)
             if va is not None and vb is not None:
                 floors.append(wall_strip(r, n, va, vb, g0, g1))
                 rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))

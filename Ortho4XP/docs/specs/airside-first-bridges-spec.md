@@ -75,10 +75,19 @@ deck), its stage 1 identical to the plain replay's.  The 19s bar is
 
 ## 7. Not done in this round (lbridge2)
 
-* The designed carve where no bore runs under the deck (KBNA: the public
-  roads under taxiway L get no bore/corridor in the patch; the ground under
-  the deck is the mesh's lidar) -- the embankment-vs-wall rule and the road
-  ramp back to terrain at its grade cap (rail 1.25 %) are not built there.
-* Embankments: the existing generated-deck bank (`model/deck_bank`,
-  1V:1.5H via `constraints/edge_deck` span/blend rows) stands where a bore
-  cuts under the deck; no new wall rule.
+* THE CARVE UNDER A ROAD THE PATCH DOES NOT DRAW.  A covered PUBLIC road
+  (KBNA taxiway L: -3437/-3439 unclassified, -4944/-4946 primary, mapped
+  tunnels 19 m apart) is drawn by X-Plane's road network on the mesh, not as
+  a patch ribbon: its bore is admitted now (`planar/structures`: the 19 m
+  gap between two tunnels under our decks joins them, one bore; before,
+  both were refused "no portal") but the structure pass mints no corridor
+  cells for a road with no ribbon, so the ground under the deck is still
+  the mesh's lidar -- no designed floor, no embankment, no ramp back at the
+  grade cap.  Needs: corridor cells (floor at min(lidar road, underside -
+  clearance), 1V:1.5H banks at each abutment, the ramp along the road's own
+  path at `[tunnel] ramp_max_grade`, rail 1.25 %) minted for a bore with no
+  ribbon.  Where the covered road IS a ribbon (KRDU, KIAH, KJFK, KPHX,
+  KORD's service roads) the existing corridor carves it and the floor pins
+  follow section 1 row 4.
+* No wall-vs-embankment rule beyond today's generated-deck bank
+  (`model/deck_bank`, 1V:1.5H via `constraints/edge_deck` span/blend rows).

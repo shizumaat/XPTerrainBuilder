@@ -225,8 +225,15 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         # pins of a cut the deck took over (its tunnels' floors and mouths)
         # leave with it
         kept = tuple(p for p in cs2.pins if p.v not in cut)
+        # ... and so does a flat group's (a floor held level with vertices
+        # the deck did not take: its pin would reach them through the group)
+        flats = tuple(f2 for f2 in (_dc.replace(f, group=tuple(v for v in f.group
+                                                               if v not in cut))
+                                    for f in cs2.flats) if len(f2.group) >= 2)
         rep["carve"]["_vertices"]["pins_dropped"] = len(cs2.pins) - len(kept)
-        cs2 = _dc.replace(cs2, pins=kept)
+        rep["carve"]["_vertices"]["flats_left"] = sum(
+            1 for f in cs2.flats if set(f.group) & set(cut))
+        cs2 = _dc.replace(cs2, pins=kept, flats=flats)
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
 
 

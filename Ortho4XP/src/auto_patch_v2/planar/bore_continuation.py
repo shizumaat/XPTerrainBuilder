@@ -28,8 +28,10 @@ arrivals and commercial lanes run from layer-1 bridges through layer -1 /
 
 ONE BORE UNDER A MULTI-BRIDGE DECK (owner RULINGS 2026-11-19a): two tunnel
 ways joined by an open way shorter than the shortest lawful ramp, both of
-whose ends stand at a hard-deck bridge (``planar/deck_bridge``), are one
-road in one cut under the deck's bridges -- it cannot come up to grade
+whose ends stand at a hard-deck bridge whose frame holds a trench object
+(``planar/deck_bridge``; the caller passes those decks only -- KBNA's open
+stretch between its taxiway-L decks stays open sky, #1718), are one road
+in one cut under the deck's bridges -- it cannot come up to grade
 between them.  :func:`deck_gap_ways` hands that open way to the bore set as
 a tunnel, so ``structure_approach.chains`` reads the three as one bore with
 its mouths at the far ends.  MEASURED KRDU CTR_TML: unclassified -254

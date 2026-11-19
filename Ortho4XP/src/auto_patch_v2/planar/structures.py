@@ -281,10 +281,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         tunnel_ways += d_ways
         up_parents.update(d_parents)
         stats.hard_decks.extend(d_notes)
-        # RULINGS 2026-11-19a: an open way between two bores under one
-        # multi-bridge deck joins them (``bore_continuation.deck_gap_ways``)
+        # RULINGS 2026-11-19a: an open way between two bores under the decks
+        # of a frame holding a trench object joins them
+        # (``bore_continuation.deck_gap_ways``; KBNA's open stretch between
+        # its two walled decks stays open sky, #1718)
+        t_ids = {str(t.object_id) for t in trenches or ()}
         g_ways, g_notes = deck_gap_ways(airport.osm_ways, tunnel_ways,
-                                        [deck_polygon(db) for db in deck_bridges], law)
+                                        [deck_polygon(db) for db in deck_bridges
+                                         if t_ids & set(db.members)], law)
         tunnel_ways += g_ways
         stats.hard_decks.extend(g_notes)
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside

@@ -30,7 +30,9 @@ inherits it), read from geometry and tags only, never names:
   read off its file): open ground under its whole plan.
 * THE PASSAGES -- every mapped at-grade road of a ribbon class
   (``osm_roads.ribbon_highways``) but a parking aisle (``service=
-  parking_aisle``: a garage's own floor) and every at-grade railway
+  parking_aisle``: a garage's own floor) and a way mapped a ``layer`` up (a
+  deck road under a terminal canopy, KPHX T4's ``covered`` ``layer=1``
+  departures kerb), and every at-grade railway
   (``osm_roads.railways``; never a bridge, an admitted bore or a cutting,
   ``pad_cut_corridor``'s), as its ribbon (``airport/road_ways``) grown by
   the groundside cut-back every road receives -- where it runs UNDER a
@@ -164,13 +166,13 @@ def passages(airport, law, rules) -> list[tuple[_t.Any, Polygon, str]]:
     for w, ln in road_ways(ways):
         tags = w.tags or {}
         if (tags.get("highway") in classes and tags.get("service") != "parking_aisle"
-                and not _is_cutting(tags, admitted)):
+                and _layer(tags) <= 0 and not _is_cutting(tags, admitted)):
             half = ribbon_half_width_m(tags, law) + cut
             out.append((w, ln.buffer(half, cap_style="flat"), "road"))
     rails = set(getattr(orr, "railways", ()) or ())
     for w in ways:
         tags = getattr(w, "tags", None) or {}
-        if (tags.get("railway") not in rails or len(w.points) < 2
+        if (tags.get("railway") not in rails or len(w.points) < 2 or _layer(tags) > 0
                 or is_bridge_way(tags) or is_tunnel_way(tags, admitted)
                 or _is_cutting(tags, admitted)):
             continue

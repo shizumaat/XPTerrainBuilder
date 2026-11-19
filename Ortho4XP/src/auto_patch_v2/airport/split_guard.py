@@ -43,7 +43,7 @@ from ..model.placement import Kept, PlacementPlan
 
 __all__ = ["tile_box", "off_tile_splits", "refused_point", "split_at",
            "without_splits", "unwritable_splits", "box_of_tile", "on_tile",
-           "ON_TILE_REASON"]
+           "inside", "ON_TILE_REASON"]
 
 _REFUSED = re.compile(r"could not place object\s+(-?[\d.]+)\s*,\s*(-?[\d.]+)")
 #: a refused point is matched to a body anchor within this (deg, ~1 m)
@@ -92,7 +92,8 @@ def box_of_tile(tile: _t.Sequence[int] | None, dsf_path: str = ""
     return float(lo), float(la), float(lo + 1), float(la + 1)
 
 
-def _inside(box: _t.Sequence[float], lat: float, lon: float) -> bool:
+def inside(box: _t.Sequence[float], lat: float, lon: float) -> bool:
+    """Is ``(lat, lon)`` on the tile ``box`` (its edges included)?"""
     w, s, e, n = box
     return w <= lon <= e and s <= lat <= n
 
@@ -119,12 +120,12 @@ def on_tile(record: _t.Any, box: _t.Sequence[float] | None,
     another DSF of the pack can carry it is LEFT where it stands — it is
     written there, on that tile's ground — unless ``zero_of`` gives it the
     exact seat of a cut (an entrance face, #1903)."""
-    if box is None or not _inside(box, record.lat, record.lon):
+    if box is None or not inside(box, record.lat, record.lon):
         return record
     zeros: dict[int, float] = {}
     for k, b in enumerate(record.bodies):
         a = b.anchor
-        if _inside(box, a.lat, a.lon):
+        if inside(box, a.lat, a.lon):
             continue
         z = zero_of(b)
         if z is None and routable is not None and routable(a.lat, a.lon):

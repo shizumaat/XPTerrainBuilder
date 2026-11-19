@@ -142,6 +142,7 @@ from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import generated_pack as _gen
+from . import generated_tile as _gt
 from . import pack_art as _pa
 from . import pack_drapes as _pd
 from . import pack_forests as _pf
@@ -1518,6 +1519,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # spec 2123: the generated decks and road bridges, last
         edited, gen_counts = _gen.apply_text(edited, gen_recipe, splits=composed.splits)
+        # #2178: an object row off the tile never reaches the encoder
+        edited, off_tile = _gt.drop_off_tile_objects(edited, _sg.tile_box(edited))
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
         # ... and a seat is stored at its nearest quantum, never floored
@@ -1535,6 +1538,9 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                 raise
             undone[idx] = "DSFTool could not place a body"
     _undone_notes(plan, undone, notes)
+    if off_tile:
+        notes.append(f"{off_tile} object row(s) outside the tile {base} covers were "
+                     f"left out of it (#2178)")
     notes.extend(f"a hand-set object elevation was not applied: {why}; set it "
                  f"again in the patch editor" for why in refused)
     report = verify_roundtrip(out_dsf, edited, tool)

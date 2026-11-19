@@ -668,8 +668,12 @@ def _station_rows(oid: str, ends: list, flush: float,
     for v in sorted(top_of):
         src = Source(GEN, RIGID, (oid, f"station v{v}"))
         z = held.get(v)
-        out.append(Band(v, z - flush, z + flush, src) if z is not None
-                   else _from_zero(v, top_of, top_of[v], -flush, flush, src))
+        row = Band(v, z - flush, z + flush, src) if z is not None \
+            else _from_zero(v, top_of, top_of[v], -flush, flush, src)
+        # an end line of ONE station read relationally holds nothing (its
+        # own mean): no empty row (a graded deck reads each end alone)
+        if not isinstance(row, Linear) or row.terms:
+            out.append(row)
     return out
 
 

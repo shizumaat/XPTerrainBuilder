@@ -24,6 +24,7 @@ import json
 import os
 import typing as _t
 
+from .deck_piece import DeckPiece
 from .frame import LL
 
 
@@ -239,6 +240,11 @@ class Member:
     #: the frame keeps those bands, each graded, and drops the at-grade rest
     #: (``airport/deck_plates``).  Empty for every other member
     deck_spans: tuple = ()
+    #: walled-multibridge spec W9: EVERY hard-deck piece of the member
+    #: (``model/deck_piece``), each tagged span or rider with its own end
+    #: stations, tops and span cut; ``deck_ring`` stays the largest piece's
+    #: ring for its old readers.  Empty in every plan before W9
+    deck_rings: tuple[DeckPiece, ...] = ()
     anchor_zero: float | None = None
     #: #2065 S2: a FREE BRIDGE's deck (``plate_kind == "free"``,
     #: ``planar/free_bridge``): its bridge's id, the driven layer's top at
@@ -508,6 +514,8 @@ class RebakePlan:
                                        *[list(q) if isinstance(q, tuple) else q
                                          for q in m.deck_spans[3:5]]]}
                        if m.deck_spans else {}),
+                    **({"deck_rings": [p.to_dict() for p in m.deck_rings]}
+                       if m.deck_rings else {}),
                     "free_bridge": m.free_bridge,
                     "deck_end_tops": list(m.deck_end_tops),
                     "deck_end_land": list(m.deck_end_land),
@@ -625,6 +633,7 @@ class RebakePlan:
                 plate_kind=str(m.get("plate_kind") or ""),
                 anchor_zero=None if m.get("anchor_zero") is None else float(m["anchor_zero"]),
                 deck_spans=_spans_of(m.get("deck_spans")),
+                deck_rings=tuple(DeckPiece.from_dict(p) for p in m.get("deck_rings") or ()),
                 free_bridge=str(m.get("free_bridge") or ""),
                 deck_end_tops=tuple(float(x) for x in m.get("deck_end_tops") or ()),
                 deck_end_land=tuple(bool(x) for x in m.get("deck_end_land") or ()),

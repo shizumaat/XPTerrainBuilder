@@ -227,7 +227,13 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
             # off the mean -- a graded band reads its ground less it
             # (``airport/deck_plates._span_grade``)
             rest = [*rest[:3], (*tuple(rest[3])[:4],
-                                tuple(round(by_pt.get(tuple(p), y) - y, 4) for p in st))]
+                                tuple(round(by_pt.get(tuple(p), y) - y, 4) for p in st)),
+                    *rest[4:]]
+        if len(rest) > 4:
+            # walled-multibridge spec W9: each piece's stations' tops too
+            rest = [*rest[:4], tuple(
+                (ring, tag, pts, tuple(round(by_pt.get(p, y) - y, 4) for p in pts), cut)
+                for ring, tag, pts, cut in rest[4])]
         out[oid] = (y, st, *rest)
     _unit_members(out, pm, kept)
     return out
@@ -282,18 +288,40 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     held = [a for a in getattr(pm, "deck_anchors", ()) or () if a.object_id == oid]
     if held and len(rest) < 3:
         rest = [*rest, held[0].z_m - held[0].top_y - bottom]
-    cut = next((e.deck.span_cut for e in es if getattr(e.deck, "span_cut", ())), ())
-    if cut and len(rest) == 3:
+    pieces = _deck_pieces(es, pm)
+    cuts = list(dict.fromkeys(cut for *_r, cut in pieces if cut))
+    if len(cuts) == 1 and len(rest) == 3:
         # owner RULINGS 2026-11-18i: the deck was cut to its spans
-        # (``planar/deck_span_cut``) -- the object stage keeps those bands
-        rest = [*rest, cut]
+        # (``planar/deck_span_cut``) -- the object stage keeps those bands;
+        # pieces cut on two or more axes are cut into cells instead, from
+        # every piece's own cut (walled-multibridge spec W6)
+        rest = [*rest, cuts[0]]
     by_pt = tops.setdefault(oid, {})
     for e in es:
         pts = [tuple(pm.vertices[v].xy) for v, _w in e.terms]
         for p in pts:
             by_pt.setdefault(p, bottom + float(e.depth))
         st = st + [p for p in pts if p not in st]
+    # W9: EVERY piece published, its own stations and span cut
+    while len(rest) < 4:            # an absent anchor zero / span cut
+        rest = [*rest, None if len(rest) == 2 else ()]
+    rest = [*rest[:4], pieces]
     out[oid] = (y, st, *rest)
+
+
+def _deck_pieces(es, pm) -> tuple:
+    """``(ring, tag, stations, span_cut)`` per deck piece of the end lines
+    ``es`` (frame xy; walled-multibridge spec W9): the tag ``road`` for a
+    road deck (W2 (b)), else ``airside``; the stations the seat vertices of
+    its own end lines, in order."""
+    out: dict[int, list] = {}
+    for e in es:
+        d = e.deck
+        rec = out.setdefault(id(d), [tuple(tuple(q) for q in getattr(d, "ring", ())),
+                                     "road" if getattr(d, "family", "") == "road" else "airside",
+                                     [], tuple(getattr(d, "span_cut", ()) or ())])
+        rec[2] += [p for p in (tuple(pm.vertices[v].xy) for v, _w in e.terms) if p not in rec[2]]
+    return tuple((r, t, tuple(pts), c) for r, t, pts, c in out.values())
 
 
 def plate_stations(footprint, standoff_m: float, step_m: float, rim_path=(),

@@ -46,6 +46,15 @@ class Plates:
         hi = math.inf if k == len(self.cuts) else self.cuts[k]
         return (self.axis[0], self.axis[1], lo, hi)
 
+    def axis_of(self, _k: int) -> tuple[float, float]:
+        """Band ``_k``'s axis -- the one axis (``plate_cells.Cells`` answers
+        per cell)."""
+        return self.axis
+
+    def extent_of(self, k: int) -> tuple[float, float]:
+        """Band ``k``'s ``(lo, hi)`` along the axis."""
+        return self.band(k)[2:]
+
 
 def plate_clusters(polys: list, reach_m: float) -> list[list[int]]:
     """Pieces within ``reach_m`` of each other chained into one plate."""

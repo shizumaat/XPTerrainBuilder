@@ -290,7 +290,7 @@ def test_the_object_stage_seats_the_one_zero_at_the_end_lines():
               EndLine(deck, ((5.0, 1.0),), ((3, 1.0),), depth_b)]
         out, tops = {}, {}
         RI._deck_plate(out, oid, es, set(), pm, tops)
-        _y, st, clear, kind = out[oid]
+        _y, st, clear, kind, *_pieces = out[oid]     # W9: the pieces after
         return sum(tops[oid].values()) / len(tops[oid]), st, clear, kind
     y, st, clear, kind = plate("dsf:obj7", 6.2)
     assert (y, clear, kind) == (6.0, 0.0, RI.DECK_PLATE) and len(st) == 3

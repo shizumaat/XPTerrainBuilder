@@ -11,10 +11,10 @@ module
    is sampled at the patch's height points (pads: closed ways with
    ``altitude``; ramps: ``altitude_high``/``altitude_low``, matched to the
    end edges in the better order) and the smallest median |patch - source|
-   wins (:func:`pick_reference`); the patch is re-based only when that is
+   wins (:func:`_pick_reference`); the patch is re-based only when that is
    not the build DEM;
 2. measures the offset build - patch at the height points and low-passes it
-   with a Gaussian of :data:`RADIUS_M` (:class:`OffsetField`), so the
+   with a Gaussian of :data:`RADIUS_M` (:class:`_OffsetField`), so the
    author's shapes shorter than the radius are kept and the patch meets the
    build DEM over longer ones (measured at KASE: build - reference, the
    plan's first form, carried the coarse source's own detail into the
@@ -42,9 +42,8 @@ import numpy
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
-__all__ = ["SETTING_KEY", "RADIUS_M", "BUILD_SOURCE", "height_points",
-           "height_gaps", "pick_reference", "OffsetField", "rebase_text",
-           "dem_sampler", "mesh_path"]
+__all__ = ["SETTING_KEY", "RADIUS_M", "BUILD_SOURCE", "mesh_path",
+           "read_path"]
 
 #: The tile setting (Settings > Elevation & Airports, both apps).
 SETTING_KEY = "rebase_custom_patches"
@@ -60,10 +59,13 @@ BUILD_SOURCE = "build DEM"
 #: A source must cover this share of the height points to be a candidate.
 _MIN_COVER = 0.8
 _FOLDER = "custom_patch_rebase"
+#: The band stays this far inside the tile (degrees, ~1 m): a foot ring
+#: on the tile's own edge would repeat its boundary segments.
+_BOX_MARGIN_DEG = 1e-5
 _M_PER_DEG = 111120.0
 
 
-def height_points(text: str):
+def _height_points(text: str):
     """``(nodes, pads, ramps)`` of a patch's OSM text.  ``nodes`` maps a
     node id to ``(lon, lat)``; a pad is ``(way id, [node ids], altitude)``;
     a ramp ``(way id, [5 node ids], high, low)`` (the 5-node closed way
@@ -109,7 +111,7 @@ def _match(high, low, z):
     return z[0] - high, z[1] - low
 
 
-def height_gaps(nodes, pads, ramps, sample):
+def _height_gaps(nodes, pads, ramps, sample):
     """``(points, source - patch)`` at every height point (NaN where the
     source has no data): a pad's nodes, a ramp's two end-edge middles."""
     pts, gaps = [], []
@@ -124,7 +126,7 @@ def height_gaps(nodes, pads, ramps, sample):
     return numpy.array(pts, dtype=float), numpy.array(gaps, dtype=float)
 
 
-def pick_reference(nodes, pads, ramps, sources):
+def _pick_reference(nodes, pads, ramps, sources):
     """``(name, {name: (median |d|, median, p10, p90)})`` of d = patch -
     source: the source with the smallest median |d| among those covering
     :data:`_MIN_COVER` of the height points (the build DEM wins a tie).
@@ -132,7 +134,7 @@ def pick_reference(nodes, pads, ramps, sources):
     outside its data)."""
     stats = {}
     for name, sample in sources.items():
-        d = -height_gaps(nodes, pads, ramps, sample)[1]
+        d = -_height_gaps(nodes, pads, ramps, sample)[1]
         ok = numpy.isfinite(d)
         if not d.size or ok.mean() < _MIN_COVER:
             continue
@@ -146,7 +148,7 @@ def pick_reference(nodes, pads, ramps, sources):
     return min(stats, key=lambda n: (stats[n][0], n != BUILD_SOURCE)), stats
 
 
-class OffsetField:
+class _OffsetField:
     """The offset build - patch measured at the height points (``points``,
     ``gaps``), low-passed by a Gaussian of ``radius_m`` on a metric grid
     and normalised over the points; :meth:`at` samples it bilinearly."""
@@ -211,7 +213,7 @@ _TAG_RE = re.compile(
     r"v=['\"])([^'\"]*)(['\"])")
 
 
-def rebase_text(text, field, nodes, pads, ramps):
+def _rebase_text(text, field, nodes, pads, ramps):
     """``(new text, stats)``: every pad ``altitude`` plus the field's mean
     over its plan, every ramp's ``altitude_high``/``altitude_low`` plus the
     field at its end edge; every other byte as authored.  ``stats``:
@@ -247,7 +249,7 @@ def rebase_text(text, field, nodes, pads, ramps):
                           "pad_spread": numpy.array(spread, dtype=float)}
 
 
-def dem_sampler(dem, strict):
+def _dem_sampler(dem, strict):
     """``f(lonlat) -> z`` over a DEM object, NaN outside a strict sub-DEM's
     data."""
     def sample(lonlat):
@@ -267,16 +269,16 @@ def _sources(tile):
     import O4_DEM_Utils as DEM
 
     dem = tile.dem
-    sources = {BUILD_SOURCE: dem_sampler(dem, False)}
+    sources = {BUILD_SOURCE: _dem_sampler(dem, False)}
     base = DEM.DEM(tile.lat, tile.lon,
                    (getattr(dem, "source_path", "") or "").split(";")[0],
                    tile.fill_nodata or "to zero",
                    elevation_level=getattr(dem, "elevation_level", "auto"))
     sources["base elevation (%s)" % DEM.base_source_label(base)] = (
-        dem_sampler(base, False))
+        _dem_sampler(base, False))
     for sub in getattr(dem, "subdems", ()) or ():
         name = os.path.basename(getattr(sub, "source_path", "") or "")
-        sources[name or "inset"] = dem_sampler(sub, True)
+        sources[name or "inset"] = _dem_sampler(sub, True)
     return sources
 
 
@@ -285,52 +287,108 @@ def _is_custom(name):
             != FNAMES.edited_patch_name(FNAMES.patch_file_icao(name)))
 
 
+def _copy_path(tile, name):
+    return os.path.join(tile.build_dir, _FOLDER, name)
+
+
 def mesh_path(tile, patch_dir, name):
-    """The path ``include_patches`` reads *name* from: the re-based copy
-    for a custom patch whose reference is not the build DEM (setting on),
-    else the file itself.  Never raises: a failure keeps the user's file
-    and says so."""
+    """The path ``include_patches`` reads *name* from: for a custom patch
+    (setting on) the COPY in the build folder -- re-based when its
+    reference is not the build DEM, and carrying the blend band around its
+    pavement (``O4_Patch_Band``) -- else the file itself.  Never raises: a
+    failure keeps the user's file and says so."""
     path = os.path.join(patch_dir, name)
     if not _is_custom(name) or not getattr(tile, SETTING_KEY, True):
+        _drop_copy(tile, name)
         return path
     try:
-        return _rebased(tile, path, name) or path
+        return _prepared(tile, path, name) or path
     except Exception as exc:  # the user's patch still builds as authored
+        _drop_copy(tile, name)
         UI.vprint(0, "   %s: custom patch not re-based (%s: %s)."
                   % (FNAMES.patch_file_icao(name), type(exc).__name__, exc))
         return path
 
 
-def _rebased(tile, path, name):
+def read_path(tile, patch_dir, name):
+    """The path every later reader of the patch rings takes *name* from
+    (``O4_Bank_Annulus``): the copy :func:`mesh_path` wrote for this
+    build when there is one, else the file itself."""
+    if getattr(tile, "build_dir", None) and _is_custom(name):
+        copy = _copy_path(tile, name)
+        if os.path.exists(copy):
+            return copy
+    return os.path.join(patch_dir, name)
+
+
+def _drop_copy(tile, name):
+    """A copy an earlier build wrote must not outlive the decision."""
+    if not getattr(tile, "build_dir", None):
+        return
+    for path in (_copy_path(tile, name), _copy_path(tile, name) + ".json"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _prepared(tile, path, name):
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
-    nodes, pads, ramps = height_points(text)
+    nodes, pads, ramps = _height_points(text)
     if not pads and not ramps:
+        _drop_copy(tile, name)
         return None
     sources = _sources(tile)
-    ref, stats = pick_reference(nodes, pads, ramps, sources)
+    ref, stats = _pick_reference(nodes, pads, ramps, sources)
     icao = FNAMES.patch_file_icao(name)
+    report = {"reference": ref, "fit": stats, "radius_m": RADIUS_M}
     if ref is None or ref == BUILD_SOURCE:
         UI.vprint(1, "   %s: custom patch fits the build DEM; not re-based."
                   % icao)
-        return None
-    field = OffsetField(*height_gaps(nodes, pads, ramps,
-                                     sources[BUILD_SOURCE]))
-    new_text, out = rebase_text(text, field, nodes, pads, ramps)
-    folder = os.path.join(tile.build_dir, _FOLDER)
-    os.makedirs(folder, exist_ok=True)
-    target = os.path.join(folder, name)
+    else:
+        field = _OffsetField(*_height_gaps(nodes, pads, ramps,
+                                         sources[BUILD_SOURCE]))
+        text, out = _rebase_text(text, field, nodes, pads, ramps)
+        nodes, pads, ramps = _height_points(text)
+        median = float(numpy.median(out["added"]))
+        report.update({"median_added_m": median,
+                       "pad_spread_max_m": float(out["pad_spread"].max(
+                           initial=0.0))})
+        UI.vprint(0, "   %s: custom patch re-based from %s to the %s "
+                  "(median %+.1f m); the tile setting \"Move custom patches "
+                  "onto this build's elevation?\" turns it off."
+                  % (icao, ref, BUILD_SOURCE, median))
+    text = _with_band(tile, text, nodes, pads, ramps, sources, report, icao)
+    target = _copy_path(tile, name)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "w", encoding="utf-8", newline="") as handle:
-        handle.write(new_text)
-    median = float(numpy.median(out["added"]))
+        handle.write(text)
     with open(target + ".json", "w", encoding="utf-8",
               newline="") as handle:
-        json.dump({"reference": ref, "fit": stats, "radius_m": RADIUS_M,
-                   "median_added_m": median,
-                   "pad_spread_max_m": float(out["pad_spread"].max(
-                       initial=0.0))}, handle, indent=1, sort_keys=True)
-    UI.vprint(0, "   %s: custom patch re-based from %s to the %s (median "
-              "%+.1f m); the tile setting \"Move custom patches onto this "
-              "build's elevation?\" turns it off." % (icao, ref, BUILD_SOURCE,
-                                                     median))
+        json.dump(report, handle, indent=1, sort_keys=True)
     return target
+
+
+def _with_band(tile, text, nodes, pads, ramps, sources, report, icao):
+    """*text* with the blend band's foot rings (``O4_Patch_Band``), the
+    band's widths in *report*, one log line."""
+    import O4_Patch_Band as BAND
+
+    margin = _BOX_MARGIN_DEG
+    rings, out = BAND.band_rings(
+        nodes, pads, ramps, sources[BUILD_SOURCE],
+        box=(tile.lon + margin, tile.lat + margin, tile.lon + 1 - margin,
+             tile.lat + 1 - margin))
+    widths = out["widths"]
+    if not rings or not widths.size:
+        return text
+    p50, p90 = (float(v) for v in numpy.percentile(widths, [50, 90]))
+    report["band"] = {"rings": len(rings),
+                      "holes": sum(1 for _, hole in rings if hole),
+                      "width_p50_m": p50, "width_p90_m": p90,
+                      "width_max_m": float(widths.max())}
+    UI.vprint(0, "   %s: custom patch pavement blends into the %s over a "
+              "band %.0f m wide (p90 %.0f m); the ground beyond keeps the "
+              "%s." % (icao, BUILD_SOURCE, p50, p90, BUILD_SOURCE))
+    return BAND.band_osm(text, rings)

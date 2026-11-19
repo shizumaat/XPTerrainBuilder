@@ -72,22 +72,22 @@ def patch_text(source):
 
 
 def test_reference_is_the_authoring_dem():
-    nodes, pads, ramps = R.height_points(patch_text(dem_a))
+    nodes, pads, ramps = R._height_points(patch_text(dem_a))
     assert len(pads) == 33 and len(ramps) == 1
-    ref, stats = R.pick_reference(nodes, pads, ramps,
+    ref, stats = R._pick_reference(nodes, pads, ramps,
                                   {R.BUILD_SOURCE: dem_b, "A": dem_a})
     assert ref == "A"
-    ref, _ = R.pick_reference(*R.height_points(patch_text(dem_b)),
+    ref, _ = R._pick_reference(*R._height_points(patch_text(dem_b)),
                               {R.BUILD_SOURCE: dem_b, "A": dem_a})
     assert ref == R.BUILD_SOURCE
 
 
 def test_rebased_heights_follow_the_build_dem_and_pads_stay_flat():
     text = patch_text(dem_a)
-    nodes, pads, ramps = R.height_points(text)
-    field = R.OffsetField(*R.height_gaps(nodes, pads, ramps, dem_b))
-    new, stats = R.rebase_text(text, field, nodes, pads, ramps)
-    n2, p2, r2 = R.height_points(new)
+    nodes, pads, ramps = R._height_points(text)
+    field = R._OffsetField(*R._height_gaps(nodes, pads, ramps, dem_b))
+    new, stats = R._rebase_text(text, field, nodes, pads, ramps)
+    n2, p2, r2 = R._height_points(new)
     gaps = numpy.array([dem_b(numpy.array([n2[r] for r in refs[:-1]])).mean()
                         - alt for _, refs, alt in p2])
     assert numpy.abs(numpy.median(gaps)) < 0.1

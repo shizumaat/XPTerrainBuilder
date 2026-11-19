@@ -407,7 +407,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # generated bridge -- its decks withheld, their rings filled with the
     # pavement they carry (``planar/deck_airside``); the full map builds them
     from .deck_airside import fill_rings, withheld
-    held_back = withheld()
+    held_back = withheld(decks)
     if held_back:
         _held = {d.object_id for d in held_back}
         decks = tuple(d for d in decks if d.object_id not in _held)

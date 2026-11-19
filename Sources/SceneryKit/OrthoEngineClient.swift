@@ -353,6 +353,9 @@ public enum O4Event: Sendable, Equatable {
     /// airport (capability `pack_overlaps`, #2145): found by the build, the
     /// report, or a `pack_overlaps` command's outcome. See `O4PackOverlaps`.
     case packOverlaps(O4PackOverlaps)
+    /// A read-only airport pack the build cannot adjust, or an answer's
+    /// outcome (capability `pack_readonly`, #2174). See `O4PackReadOnly`.
+    case packReadOnly(O4PackReadOnly)
     /// A package an airport pack ships, applied as a tile built
     /// (capability `pack_packages`, RULINGS 2026-11-11m). See `O4PackPackage`.
     case packPackage(O4PackPackage)
@@ -696,6 +699,10 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match: `class PackReadOnly` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackReadOnly":
+            return .packReadOnly(O4PackReadOnly.parse(object))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:

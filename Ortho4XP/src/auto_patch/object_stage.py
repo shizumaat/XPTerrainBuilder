@@ -768,6 +768,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
     from . import user_seat_stage as _hand
+    from auto_patch_v2.airport import pack_access as _pa
     from auto_patch_v2.airport.backup_state import (BackupUnproven,
                                                     SUPERSEDED_INFIX as
                                                     _BS_SUPERSEDED,
@@ -789,8 +790,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key),
             gen_recipe=gen, guest_ground=_ground.mark)
-    except (BackupUnproven, TimeoutError) as exc:
-        # TimeoutError: another write of the pack held its lock (``pack_lock``)
+    except (BackupUnproven, TimeoutError, _pa.PackReadOnlyError) as exc:
+        # TimeoutError: another write of the pack held its lock (``pack_lock``);
+        # PackReadOnlyError: its folders are read-only (#2174), said at once
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
         # half-written against a DSF we may not touch is torn geometry.
@@ -863,6 +865,18 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest)
         out["overlay_chain_rows"] = c["overlay_chain_rows"]
     return out
+
+
+def _pack_writable_now(pack_root: str, tile) -> bool:
+    """The object stage may write ``pack_root``: not one it would write
+    (``adjust_stage.writes_pack``: absent, disabled, X-Plane's own — its
+    own refusals below name it), or one ``pack_readonly.gate`` lets
+    through (writable, or made writable by the user's answer)."""
+    from auto_patch_v2.airport import pack_readonly as _ro
+
+    from . import adjust_stage as _adjust
+    return (not _adjust.writes_pack(pack_root)
+            or _ro.gate(pack_root, tile.lat, tile.lon))
 
 
 def _generated_in(patch_dir: str, icao: str) -> bool:
@@ -1244,6 +1258,12 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                 # rewritten — and whether or not anything is placed
                 writes = bool(write_enabled and not measure_only
                               and _pack_copy.copy_dir() is None)
+                # #2174: A READ-ONLY PACK IS ASKED ABOUT, before any of
+                # its writes; Not now leaves it (and this airport) as is
+                if writes and not _pack_writable_now(plan_.pack_root, tile):
+                    counts["airports_read_only"] = \
+                        counts.get("airports_read_only", 0) + 1
+                    continue
                 art = _art_stage(plan_, tile, writes=writes,
                                  place=bool(plan_.units))
                 # #1360/#1916: ... and its adjustments — the old flat

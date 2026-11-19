@@ -2190,4 +2190,24 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
             "repaired": (repaired.get(tile, 0) if tile is not None
                          else sum(repaired.values())),
         })
+    return _with_read_only(results, scenery_dir, tile)
+
+
+def _with_read_only(results: list[dict], scenery_dir: str,
+                    tile: str | None) -> list[dict]:
+    """#2174: the packs under ``scenery_dir`` the user left read-only (Not
+    now), each a row with ``read_only`` true ("read-only — not adjusted",
+    Ask again) — an entry already listed is marked, never listed twice."""
+    from auto_patch_v2.airport import pack_readonly as _ro
+    here = os.path.normcase(os.path.abspath(scenery_dir))
+    listed = {os.path.normcase(os.path.abspath(r["pack_path"])): r
+              for r in results}
+    for row in _ro.rows(tile):
+        key = os.path.normcase(os.path.abspath(row["pack_path"]))
+        if os.path.dirname(key) != here:
+            continue
+        if key in listed:
+            listed[key]["read_only"] = True
+        else:
+            results.append(row)
     return results

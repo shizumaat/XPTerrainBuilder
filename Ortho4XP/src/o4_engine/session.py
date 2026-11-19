@@ -52,6 +52,7 @@ from .events import (
     PackAdjust,
     GatewayAirports,
     PackOverlaps,
+    PackReadOnly,
     PackPackage,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
@@ -2574,6 +2575,27 @@ class EngineSession:
 
         threading.Thread(target=work, daemon=True,
                          name="o4-pack-overlaps").start()
+        return {"status": "started"}
+
+    def pack_readonly_event(self, **fields):
+        """A read-only pack, or an answer's outcome (#2174): the
+        ``PackReadOnly`` event (``UI.pack_readonly`` hook)."""
+        self._emit_known(PackReadOnly, fields)
+
+    def pack_readonly(self, pack_root="", action="", lat=None, lon=None):
+        """THE USER'S ANSWER (capability ``pack_readonly``, #2174):
+        ``action`` is ``"writable"`` (add the owner's write permission to
+        the pack inside Custom Scenery; a build waiting on it goes on),
+        ``"not_now"`` or ``"ask"``.  Never refused while a run writes the
+        pack — that run is the one waiting for this answer.  Replies
+        ``{"status": "started"}`` at once and completes with a
+        ``PackReadOnly`` event (``pack_readonly.choice``)."""
+        from auto_patch_v2.airport import pack_readonly as _RO
+        args = (str(pack_root or ""), str(action or ""),
+                None if lat is None else int(lat),
+                None if lon is None else int(lon))
+        threading.Thread(target=_RO.choice, args=args, daemon=True,
+                         name="o4-pack-readonly").start()
         return {"status": "started"}
 
     def _emit_known(self, cls, fields):

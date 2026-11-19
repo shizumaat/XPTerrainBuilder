@@ -228,6 +228,20 @@ def pack_adjust(**fields):
             pass
 
 
+def pack_readonly(**fields):
+    """A read-only airport pack the build cannot adjust, or the outcome of
+    the user's answer (issue #2174).
+
+    ``fields`` are the ``PackReadOnly`` event's.  No-op without an engine
+    session and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_readonly_event(**fields)
+        except Exception:
+            pass
+
+
 def gateway_airports(**fields):
     """Global Airports entries X-Plane flattens / Gateway packs with a
     newer version, or the outcome of the user's answer (issue #1989).

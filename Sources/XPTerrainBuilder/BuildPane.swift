@@ -866,9 +866,12 @@ struct BuildPane: View {
         /// Tiles whose builds wrote the pack: a run building one of them
         /// holds the row's buttons (#2168).
         var tiles: [String] = []
+        /// Left read-only by the user's Not now (#2174): not adjusted.
+        var readOnly = false
 
         /// The row's tooltip (the Qt row's twin text).
         var help: String {
+            if readOnly { return "\(packName) — \(O4PackReadOnlyCopy.rowStatus)" }
             var text = "\(packName) — \(objectCount) object file\(objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground"
             if repairedCount > 0 {
                 text += "; \(repairedCount) vendor defect\(repairedCount == 1 ? "" : "s") repaired (originals kept)"
@@ -910,7 +913,8 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount, tiles: pack.tiles)]
+                    repairedCount: pack.repairedCount, tiles: pack.tiles,
+                    readOnly: pack.readOnly)]
             }
             return names.map { name in
                 ModifiedAirportRow(
@@ -919,7 +923,8 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount, tiles: pack.tiles)
+                    repairedCount: pack.repairedCount, tiles: pack.tiles,
+                    readOnly: pack.readOnly)
             }
         }
         .sorted { $0.label < $1.label }

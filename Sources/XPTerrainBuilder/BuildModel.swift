@@ -1286,6 +1286,8 @@ final class BuildModel: ObservableObject {
             gatewayAirports(offer)
         case .packOverlaps(let offer):
             packOverlaps(offer)
+        case .packReadOnly(let readOnly):
+            packReadOnly(readOnly)
         case .packPackage(let shipped):
             packPackage(shipped)
         case .engineError(let fatal, let text):
@@ -1482,6 +1484,8 @@ final class BuildModel: ObservableObject {
         var repairedCount: Int = 0
         /// Tiles whose builds wrote the pack (#2168).
         var tiles: [String] = []
+        /// Left read-only by the user's Not now (#2174): not adjusted.
+        var readOnly = false
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1513,7 +1517,8 @@ final class BuildModel: ObservableObject {
                         optimisedCount: entry["optimised"]?.intValue ?? 0,
                         repairedCount: entry["repaired"]?.intValue ?? 0,
                         tiles: entry["tiles"]?.arrayValue?
-                            .compactMap(\.stringValue) ?? [])
+                            .compactMap(\.stringValue) ?? [],
+                        readOnly: entry["read_only"]?.boolValue ?? false)
                 })
             }
         }
@@ -2377,6 +2382,57 @@ final class BuildModel: ObservableObject {
         } else {
             gatewayAirportsQueue.append(offer)
         }
+    }
+
+    /// The read-only pack question to present, or nil (#2174).
+    @Published var packReadOnlyPrompt: O4PackReadOnly?
+    private var packReadOnlyQueue: [O4PackReadOnly] = []
+    /// The packs already asked about this session ("found" asks once).
+    private var packReadOnlySeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_readonly`): "found"
+    /// asks once per pack, "ask" (the row's Ask again) every time; an
+    /// outcome refreshes the Modified airports rows, and "writable" with
+    /// `rebuild` rebuilds the tile no build was waiting on.
+    private func packReadOnly(_ readOnly: O4PackReadOnly) {
+        if !readOnly.asks {
+            packForestsChanged += 1
+            if readOnly.state == "writable" && readOnly.rebuild {
+                let coord = TileCoord(lat: readOnly.lat, lon: readOnly.lon)
+                let reason = isBuilding ? O4PackReadOnlyCopy.runBusy : rebuildWithItsImagery(coord)
+                if let reason {
+                    console.append(O4PackReadOnlyCopy.rebuildLater(
+                        tile: coord.key, pack: readOnly.pack, reason: reason))
+                }
+            }
+            return
+        }
+        if readOnly.state == "found" {
+            guard !packReadOnlySeen.contains(readOnly.id) else { return }
+            packReadOnlySeen.insert(readOnly.id)
+        }
+        if packReadOnlyPrompt == nil {
+            packReadOnlyPrompt = readOnly
+        } else if packReadOnlyPrompt?.id != readOnly.id {
+            packReadOnlyQueue.append(readOnly)
+        }
+    }
+
+    /// The answer to the question on screen: "writable" or "not_now" —
+    /// both sent, a build waits on either.
+    func answerPackReadOnlyPrompt(action: String) {
+        if let readOnly = packReadOnlyPrompt {
+            client?.packReadOnly(packRoot: readOnly.packRoot, action: action,
+                                 lat: readOnly.lat, lon: readOnly.lon)
+        }
+        packReadOnlyPrompt = packReadOnlyQueue.isEmpty ? nil : packReadOnlyQueue.removeFirst()
+    }
+
+    /// The read-only row's Ask again.
+    func askPackReadOnlyFromRow(packPath: String, tile: TileCoord) {
+        connectIfNeeded()
+        client?.packReadOnly(packRoot: packPath, action: "ask",
+                             lat: tile.lat, lon: tile.lon)
     }
 
     /// The overlapping-packs question to present, or nil (#2145).

@@ -16,7 +16,9 @@ re-entrant: a writer entry reached while this thread already holds the
 pack's lock raises ``RuntimeError`` — a nested entry is a structure
 defect (an inner step must call the unlocked half), never a second lock
 to wait on.  A lock that cannot be had in :data:`WAIT_SECONDS` REFUSES the
-write with ``TimeoutError``: nothing of the pack is touched.  (Both are
+write with ``TimeoutError``: nothing of the pack is touched.  A lock that
+cannot be CREATED (the pack's folder is read-only, #2174) refuses it at
+once with ``pack_access.PackReadOnlyError`` — never a wait.  (Both are
 the builtin classes: a new exception class would need a user message in
 ``O4_Tile_Failures``, which keys every step and patch build.)
 
@@ -79,7 +81,8 @@ def hold(pack_root: str, *, allow_live_install: bool = False
     """Hold ``pack_root``'s write lock for the block (module doc).
     Raises ``RuntimeError`` when this thread holds it already,
     ``TimeoutError`` when it cannot be had, ``PermissionError`` for a
-    live install without ``allow_live_install``."""
+    live install without ``allow_live_install``, ``PackReadOnlyError``
+    (a ``PermissionError``) at once when the lock file cannot be made."""
     key = _key(pack_root)
     if key in _held():
         raise RuntimeError(
@@ -99,8 +102,18 @@ def hold(pack_root: str, *, allow_live_install: bool = False
             _held().discard(key)
         return
     import O4_File_Lock as _lock
+
+    from .pack_access import PackReadOnlyError, readonly_folders
     target = _lock_path(pack_root)[: -len(".lock")]
-    with _lock.hold_file_lock(target, timeout_seconds=WAIT_SECONDS) as got:
+    with contextlib.ExitStack() as stack:
+        try:
+            got = stack.enter_context(_lock.hold_file_lock(
+                target, timeout_seconds=WAIT_SECONDS, denied_raises=True))
+        except OSError as exc:      # the lock cannot be made: never a wait
+            raise PackReadOnlyError(
+                pack_root, readonly_folders(pack_root)
+                or [os.path.dirname(target)],
+                getattr(exc, "strerror", "") or str(exc)) from exc
         if not got:
             name = os.path.basename(os.path.normpath(pack_root))
             raise TimeoutError(f"another write of the pack {name!r} held its "

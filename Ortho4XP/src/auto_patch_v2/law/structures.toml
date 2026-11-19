@@ -1583,6 +1583,15 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
 touch_gap_m         = 0.1
 touch_seat_min_share = 0.10
 
+# A PLACEMENT SPLITS ONLY PAST THE GROUND BAR (owner RULINGS 2026-11-19j;
+# airport/split_bar.py).  Once every pass has seated its bodies, a placement
+# whose bodies' zeros spread at most this is written WHOLE, as authored, at one
+# zero (its anchor body's: a body seated with another placement -- a touching
+# group, a shared unit, a carrier or rider -- names it); the terrain under it
+# absorbs the rest.  0.5 m: the 12y ground visibility bar ("within 0.5m the
+# terrain should be able to adapt to any discrepancies").  0 disarms.
+split_bar_m         = 0.5
+
 # A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
 # airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
 # stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building

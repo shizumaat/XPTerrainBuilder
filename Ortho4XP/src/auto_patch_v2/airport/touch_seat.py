@@ -220,6 +220,13 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
     return out
 
 
+def _body_key(splits: _t.Sequence[_t.Any], key: tuple[int, int]) -> tuple[str, int]:
+    """``(placement id, body id)`` of the body at ``key`` -- stable over a
+    re-cut, which may drop a body and shift the positions."""
+    rec = splits[key[0]]
+    return (str(rec.placement_id), int(rec.bodies[key[1]].body_id))
+
+
 def _zero_of(b: _t.Any) -> float:
     return float(b.anchor.surface_z) - float(b.anchor.y_zero)
 
@@ -355,6 +362,10 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     pairs, cross = _tg.touch_pairs(nodes, law.touch_m)
     by_name = {(n.frame, n.name): i for i, n in enumerate(nodes)}
     groups = _tg.groups_of(nodes, pairs, by_name)
+    # RULINGS 2026-11-19j: the bodies seated in a group with ANOTHER
+    # placement -- ``split_bar`` keeps their zero when it writes one whole
+    shared = sorted({_body_key(splits, nodes[i].key) for g in groups
+                     if len({nodes[i].key[0] for i in g}) > 1 for i in g})
     stack = _sd.stacked_on(nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
                            walled_m=law.walled_m, tol_m=law.contact_tol_m or law.tol_m,
                            kind_building=_tg.BUILDING)
@@ -392,6 +403,7 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     table["fixed_steps"] = made
     table["inside_steps"] = _inside_steps(nodes, pairs, groups, rows, node_t, law.tol_m)
     table["tilt_levelled"] = level_rows
+    table["shared_bodies"] = shared
     table["connectors"] = _cw.bridges(
         nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
         lambda k: node_t.get(k, nodes[k].zero), stacked=set(stack), tol_m=law.tol_m,

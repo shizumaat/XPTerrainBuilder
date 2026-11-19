@@ -18,7 +18,11 @@ extension BuildModel {
     var gradeAirports: Bool { gradeAirportsThisBuild ?? gradeAirportsByDefault }
 
     /// What the next press fits: this build's switch, else Settings'.
-    var fitBuildings: Bool { fitBuildingsThisBuild ?? modifyCustomAirports }
+    var fitBuildings: Bool { fitBuildingsThisBuild ?? fitBuildingsByDefault }
+
+    /// Settings' value, or the engine's reading of the selected tiles:
+    /// off on a tile a custom patch is new to (RULINGS 2026-11-18l).
+    var fitBuildingsByDefault: Bool { airportsCard?.fitBuildings ?? modifyCustomAirports }
 
     /// A switch back at its Settings value is no override at all.
     func setGradeAirports(_ enabled: Bool) {
@@ -26,7 +30,7 @@ extension BuildModel {
     }
 
     func setFitBuildings(_ enabled: Bool) {
-        fitBuildingsThisBuild = enabled == modifyCustomAirports ? nil : enabled
+        fitBuildingsThisBuild = enabled == fitBuildingsByDefault ? nil : enabled
     }
 
     /// The press's `overrides` (engine keys), and the switches reset to

@@ -59,15 +59,16 @@ struct SettingsView: View {
         }
         .frame(minWidth: 840, idealWidth: 880, minHeight: 560, idealHeight: 620)
         .navigationSubtitle(buildModel.settingsScopeText)
-        .alert(SettingsSelection.confirmTitle,
+        .alert(buildModel.pendingSelectionEdit?.title ?? SettingsSelection.confirmTitle,
                isPresented: Binding(
                    get: { buildModel.pendingSelectionEdit != nil },
                    set: { if !$0 { buildModel.pendingSelectionEdit = nil } }),
-               presenting: buildModel.pendingSelectionEdit) { _ in
-            Button(SettingsSelection.confirmButton) { buildModel.confirmPendingSelectionEdit() }
+               presenting: buildModel.pendingSelectionEdit) { pending in
+            Button(pending.confirmButton) { buildModel.confirmPendingSelectionEdit() }
             Button("Cancel", role: .cancel) { buildModel.pendingSelectionEdit = nil }
+                .keyboardShortcut(.defaultAction)
         } message: { pending in
-            Text(SettingsSelection.confirmMessage(tileCount: pending.tileCount))
+            Text(pending.message)
         }
         // "Edit settings…" in the tile pane (#1350) asks for a pane: the
         // tile's Selected Overrides, whether the window is new or open.

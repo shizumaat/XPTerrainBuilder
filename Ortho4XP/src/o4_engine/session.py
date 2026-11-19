@@ -1816,6 +1816,15 @@ class EngineSession:
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
+                # RULINGS 2026-11-18l (#2172): a custom patch new to the
+                # tile turns "Fit custom airport buildings" off; the
+                # per-build switch below (the user's confirmed "on") wins
+                import O4_Custom_Patches as CUSTOM_PATCHES
+
+                try:
+                    CUSTOM_PATCHES.stand_down_new(tile)
+                except OSError as error:      # the record: never the build
+                    UI.vprint(1, "Custom patch record not written:", error)
                 overrides = self._tile_overrides.get((lat, lon))
                 if overrides:
                     tile.apply_build_overrides(overrides)

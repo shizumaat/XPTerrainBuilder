@@ -28,7 +28,7 @@ import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
 import O4_Version
 from O4_Bank_Annulus import (BANK_RINGS_STATS, _bank_rings_from_patches,
-                              bank_annulus_polygon)
+                              bank_annulus_polygon, patch_paths_read)
 
 if "dar" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "mac", "Triangle4XP ")
@@ -1291,50 +1291,30 @@ def bank_pavement_lines(tile):
     caller then declines to override any pre-valued vertex at all.
     """
     from shapely import geometry
-    from auto_patch import selection as SELECTION
 
     scalx = cos((tile.lat + 0.5) * pi / 180)
     lines = []
-    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
-    if os.path.exists(patch_dir):
-        all_files = [f for f in os.listdir(patch_dir)
-                     if f[-10:] == ".patch.osm"]
-        manual = [f for f in all_files if "_auto.patch.osm" not in f]
-        auto = [f for f in all_files if "_auto.patch.osm" in f]
-        manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
-        mode = SELECTION.resolved_auto_patch_mode(tile)
-        files = list(manual)
-        for name in auto:
-            icao = name.replace("_auto.patch.osm", "").upper()
-            if mode == "None":
+    for name in patch_paths_read(tile):
+        layer = OSM.OSM_layer()
+        try:
+            layer.update_dicosm(name, input_tags=None, target_tags=None)
+        except Exception:
+            continue
+        nodes = layer.dicosmn
+        for wayid in layer.dicosmfirst["w"]:
+            tags = layer.dicosmtags["w"].get(wayid, {})
+            if not any(k in tags for k in BANK_PAVEMENT_TAG_KEYS):
                 continue
-            if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
+            way = layer.dicosmw.get(wayid)
+            if not way or len(way) < 2:
                 continue
-            if icao in manual_icao:
-                continue
-            files.append(name)
-        for name in files:
-            layer = OSM.OSM_layer()
             try:
-                layer.update_dicosm(os.path.join(patch_dir, name),
-                                    input_tags=None, target_tags=None)
+                pts = [((float(nodes[n][0]) - tile.lon) * scalx,
+                        float(nodes[n][1]) - tile.lat) for n in way]
             except Exception:
                 continue
-            nodes = layer.dicosmn
-            for wayid in layer.dicosmfirst["w"]:
-                tags = layer.dicosmtags["w"].get(wayid, {})
-                if not any(k in tags for k in BANK_PAVEMENT_TAG_KEYS):
-                    continue
-                way = layer.dicosmw.get(wayid)
-                if not way or len(way) < 2:
-                    continue
-                try:
-                    pts = [((float(nodes[n][0]) - tile.lon) * scalx,
-                            float(nodes[n][1]) - tile.lat) for n in way]
-                except Exception:
-                    continue
-                if len(pts) >= 2:
-                    lines.append(geometry.LineString(pts))
+            if len(pts) >= 2:
+                lines.append(geometry.LineString(pts))
     roads = _levelled_road_lines(tile, scalx)
     if roads is None:
         return None

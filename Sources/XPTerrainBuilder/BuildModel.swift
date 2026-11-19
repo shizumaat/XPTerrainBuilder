@@ -252,6 +252,9 @@ final class BuildModel: ObservableObject {
     /// A per-tile Settings change waiting for the user's yes: the selected
     /// tiles disagree (#1549, `BuildModel+SelectionSettings.swift`).
     @Published var pendingSelectionEdit: PendingSelectionEdit?
+    /// The Build pane's latest `build_airports` answer for the selection:
+    /// the fit switch's default and its custom-patch question (#2172).
+    @Published var airportsCard: O4BuildAirports?
     /// The next build's detail level: a zoom chosen for the selection, else
     /// the selection's own (each tile's recorded zoom, a never-built tile
     /// the default; disagreeing tiles build at the default, as in the Qt
@@ -3243,7 +3246,17 @@ final class BuildModel: ObservableObject {
             setConfigValue(item.name, to: value)
             return
         }
-        editSelection { [weak self] in self?.writeThroughToSelectedTiles(item.name, value) }
+        let write: () -> Void = { [weak self] in
+            self?.editSelection { [weak self] in self?.writeThroughToSelectedTiles(item.name, value) }
+        }
+        // RULINGS 2026-11-18l (#2172): turning fitting on for tiles with
+        // custom patches asks first, in the engine's words
+        if item.name == "modify_custom_airports", value.boolValue == true,
+           let question = airportsCard?.fitConfirm, !question.isEmpty {
+            pendingSelectionEdit = PendingSelectionEdit(fitQuestion: question, apply: write)
+        } else {
+            write()
+        }
     }
 
     /// Every config variable the current selection actually customizes —

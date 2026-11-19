@@ -5,8 +5,26 @@ import SceneryKit
 /// selected tiles disagree, so it would overwrite their different values.
 struct PendingSelectionEdit: Identifiable {
     let id = UUID()
-    let tileCount: Int
+    let title: String
+    let message: String
+    let confirmButton: String
     let apply: () -> Void
+
+    init(tileCount: Int, apply: @escaping () -> Void) {
+        title = SettingsSelection.confirmTitle
+        message = SettingsSelection.confirmMessage(tileCount: tileCount)
+        confirmButton = SettingsSelection.confirmButton
+        self.apply = apply
+    }
+
+    /// "Fit custom airport buildings" turned on for tiles with custom
+    /// patches (owner RULINGS 2026-11-18l, #2172): the engine's question.
+    init(fitQuestion: String, apply: @escaping () -> Void) {
+        title = O4Glossary.term("fit_buildings")
+        message = fitQuestion
+        confirmButton = BuildAirportsCard.continueButton
+        self.apply = apply
+    }
 }
 
 /// The Settings window follows the map selection (#1549, owner RULINGS

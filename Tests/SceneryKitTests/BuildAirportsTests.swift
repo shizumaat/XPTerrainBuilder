@@ -36,6 +36,24 @@ struct BuildAirportsTests {
         #expect(card.totalSeconds == 180...390)
     }
 
+    /// RULINGS 2026-11-18l (#2172): the custom patches, the fit default
+    /// and the engine's question; an older engine's card has none.
+    @Test func decodesTheCustomPatchQuestion() throws {
+        let event = O4JSON.from([
+            "event": "BuildAirportsReady", "airports": [], "packs": [],
+            "total_s": [0, 0], "custom_patches": ["KASE"],
+            "fit_buildings": false,
+            "fit_confirm": "Custom patches are installed for KASE. Continue?",
+        ] as [String: Any])
+        let card = try O4BuildAirports.decode(event).get()
+        #expect(card.customPatches == ["KASE"])
+        #expect(card.fitBuildings == false)
+        #expect(card.fitConfirm.hasPrefix("Custom patches are installed for KASE"))
+        let old = try O4BuildAirports.decode(O4JSON.from(
+            ["event": "BuildAirportsReady"] as [String: Any])).get()
+        #expect(old.fitBuildings == nil && old.fitConfirm.isEmpty)
+    }
+
     @Test func anErrorIsAFailure() {
         let event = O4JSON.from(["event": "BuildAirportsReady", "error": "no CIFP"] as [String: Any])
         guard case .failure(let error) = O4BuildAirports.decode(event) else {

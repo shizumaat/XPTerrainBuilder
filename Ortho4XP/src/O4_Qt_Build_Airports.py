@@ -24,11 +24,12 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
 )
 
-__all__ = ["AirportsCard", "summary_suffix"]
+__all__ = ["AirportsCard", "confirm_fit", "summary_suffix"]
 
 GRADE_SENTENCE = (
     "Runways, taxiways and aprons are reshaped to meet FAA (USA) or ICAO "
@@ -99,6 +100,20 @@ def fit_by_default() -> bool:
     import O4_Config_Utils as CFG
 
     return bool(getattr(CFG, "modify_custom_airports", True))
+
+
+def confirm_fit(parent, question: str) -> bool:
+    """The user's yes to turning "Fit custom airport buildings" on for
+    tiles with custom patches (owner RULINGS 2026-11-18l, #2172; the
+    engine's words, ``O4_Custom_Patches.fit_confirm_text``).  Cancel is
+    the default; no question (no custom patch) is a yes."""
+    if not question:
+        return True
+    box = QMessageBox(QMessageBox.Warning, GLOSSARY.TERMS["fit_buildings"],
+                      question, QMessageBox.Ok | QMessageBox.Cancel, parent)
+    box.button(QMessageBox.Ok).setText("Continue")
+    box.setDefaultButton(QMessageBox.Cancel)
+    return box.exec() == QMessageBox.Ok
 
 
 class _Bridge(QObject):
@@ -191,12 +206,22 @@ class AirportsCard(QGroupBox):
 
     # ── the per-build switches ─────────────────────────────────────────
     def defaults(self) -> dict:
-        return {GRADE_KEY: grade_by_default(), FIT_KEY: fit_by_default()}
+        """Settings' values; fitting as the engine's card reads the tiles
+        (off on a tile a custom patch is new to, RULINGS 2026-11-18l)."""
+        fit = (self.card or {}).get("fit_buildings")
+        return {GRADE_KEY: grade_by_default(),
+                FIT_KEY: fit_by_default() if fit is None else bool(fit)}
 
     def grading(self) -> bool:
         return self.overrides.get(GRADE_KEY, self.defaults()[GRADE_KEY])
 
     def _switched(self, key, checked):
+        if key == FIT_KEY and checked and not confirm_fit(
+                self, (self.card or {}).get("fit_confirm", "")):
+            self.chk_fit.blockSignals(True)
+            self.chk_fit.setChecked(False)
+            self.chk_fit.blockSignals(False)
+            return
         if self.defaults()[key] == bool(checked):
             self.overrides.pop(key, None)
         else:
@@ -262,7 +287,7 @@ class AirportsCard(QGroupBox):
         if generation != self._generation:
             return                            # a newer selection asks
         (self.card, self._error, self._loading) = (card, error, False)
-        self._render()
+        self.refresh_switches()           # the card's fitting default
         changed = getattr(self, "on_card_changed", None)
         if changed is not None:
             changed()

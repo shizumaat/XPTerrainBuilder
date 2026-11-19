@@ -566,6 +566,7 @@ struct BuildPane: View {
         let tiles = Array(buildModel.selected)
         guard !tiles.isEmpty else {
             airportCard = nil
+            buildModel.airportsCard = nil
             airportCardError = nil
             libraryMatches = nil
             return
@@ -586,6 +587,7 @@ struct BuildPane: View {
             airportCard = nil
             airportCardError = nil
         }
+        buildModel.airportsCard = airportCard
         airportCardLoading = false
         libraryMatches = await buildModel.patchLibraryMatches(for: tiles)
     }

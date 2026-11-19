@@ -82,7 +82,7 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.islands import courtyard_faces
 from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_late_ref, is_osm_ribbon_ref,
                             platform_ref_of)
-from .pad_relief import pad_relief_offsets
+from .pad_relief import pad_relief_offsets, pad_slope_offsets
 from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
@@ -92,7 +92,7 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "CEILING_RULING", "FLAT_AIRSIDE_LED_RULING",
            "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
-           "frontage_leaders", "_two_sided", "frontage_radius_m",
+           "frontage_leaders", "_two_sided", "frontage_radius_m", "SLOPED_CEILING_RULING",
            "pad_fronts_airside",
            "pad_relief_offsets"]
 
@@ -127,6 +127,17 @@ FLAT_AIRSIDE_LED_RULING = "structures.building_pad flat airside-led"
 AIRSIDE_RULING = "structures.building_pad airside skirt"
 #: The ruling HEAD ``[design] hard_rulings`` names for the 1 % tilt ceiling.
 CEILING_RULING = "structures.building_pad pad_slope_max ceiling"
+#: THE SAME CEILING over a pad on a SLOPED BASE (owner RULINGS 2026-11-19o
+#: (1); #2184): the 1 % measured from the object's authored plane
+#: (``pad_relief.pad_slope_offsets``).  Its own head because it is NOT in
+#: ``[design] conforming_hard_rulings``: "the apron grading into it" is the
+#: ruling's own sentence, so stage 1 assembles it over the apron rim the
+#: pad shares, as it assembles a held pad's frontage hold — ranked with the
+#: pad's own hard law (``hard_conflict_ranks``), so an apron or taxi
+#: conflict relaxes it and names it.  MEASURED KASE (``Objects/test.obj``):
+#: as ``CEILING_RULING`` stage 1 never saw it and the covered parking's pad
+#: came out 0.36 m past its 1 % (the apron's own trend decided its rim).
+SLOPED_CEILING_RULING = "structures.building_pad authored base plane ceiling"
 #: THE SENIOR CLAUSE (owner 2026-09-10y): the ONE one-way row per fronting
 #: pad that puts the plane's level at its SENIOR frontage's edge mean
 #: where the plane cannot meet every frontage.  Named by ``[design]
@@ -642,8 +653,12 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     expressed by the ``pad_flat`` TARGET (weight 3,000, ten times
     ``law``), which is where a target belongs."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    off = (pad_relief_offsets(planar, law, airport)
-           if (relief and airport is not None) else {})
+    # 19o (1): a SLOPED base's plane is one plane — the ceiling reads it
+    # too ("the 09c 1 % allowance measured from it"); the per-foot relief
+    # stays the target's alone (12u)
+    plane = pad_slope_offsets(planar, law, airport) if airport is not None else {}
+    off = (pad_relief_offsets(planar, law, airport) if relief else plane) \
+        if airport is not None else {}
     rows: list[Row] = []
     # §30 (4): a TERMINAL CLUSTER's faces are ONE plane — one plate, one
     # ceiling.  Every other pad is its own entry, exactly as before.
@@ -721,6 +736,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
+        sloped_src = (Source(GEN, SLOPED_CEILING_RULING + ruling[len(CEILING_RULING):],
+                             (f"face:{fid}", ref))
+                      if not relief and ruling.startswith(CEILING_RULING) else None)
         plate_fids = [q for q in fids if q in per_face]
         # unit-platform spec §1 (1): a PLATFORM is ONE plane (its hard
         # ``platform plane`` rows carry no relief, RULINGS 12u) — the
@@ -776,7 +794,11 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
             if d <= 0.0:
                 continue
             follows = None
-            if led_here:
+            # 19o (1) "the apron grading into it": a SLOPED pad's plate
+            # LEADS its rim — two-sided, the pairs the airside owns kept —
+            # so the apron's own level wins (a ``Diff`` prices differences
+            # only) and its tilt is drawn to the authored plane
+            if led_here and not (a in plane and b in plane):
                 aa, bb = a in air, b in air
                 if aa and bb:
                     n_dropped += 1       # the airside owns both ends
@@ -784,6 +806,10 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                 if aa or bb:
                     follows = (b,) if aa else (a,)
                     n_led += 1
+            if sloped_src is not None and a in off and b in off:
+                rows.append(Diff(a, b, cap, d, sloped_src,
+                                 rel=off[a] - off[b], follows=follows))
+                continue
             rows.append(Diff(a, b, cap, d,
                              src_led if follows is not None else src,
                              rel=(0.0 if platformed
@@ -1059,16 +1085,46 @@ def _two_sided(terms: tuple[tuple[int, float], ...], src: Source,
                    follows=follows)]
 
 
+def _sloped_plane_rows(planar: PlanarMap, law: Law, airport: Airport | None) -> list[Row]:
+    """A pad on a SLOPED BASE IS ONE PLANE, HARD (owner RULINGS 2026-11-19o
+    (1) with 09c "one plane"): every vertex of the ref on the plane through
+    three basis vertices (``platform.coplanar_rows``, head ``platform
+    plane`` — hard, the pad's tier, assembled by stage 1 like the sloped
+    ceiling).  MEASURED KASE: with the plate's soft pairs alone the covered
+    parking's 230 m strip pad bent 0.10 m off one plane between the apron
+    rows that share its whole rim; the flat held pad it replaces was exact."""
+    from .platform import PLANE_RULING, coplanar_rows
+    plane = pad_slope_offsets(planar, law, airport) if airport is not None else {}
+    if not plane:
+        return []
+    by_ref: dict[str, list[int]] = {}
+    for _fid, ref, group in _pad_groups(planar, law):
+        if group and all(v in plane for v in group):
+            have = by_ref.setdefault(str(ref), [])
+            have.extend(v for v in group if v not in have)
+    xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    rows: list[Row] = []
+    for ref, vs in sorted(by_ref.items()):
+        src = Source(GEN, PLANE_RULING + " (owner RULINGS 2026-11-19o (1): a pad on a "
+                     "sloped base is one plane)", (ref, "sloped"))
+        rows.extend(coplanar_rows(xy, vs, src) or ())
+    return rows
+
+
 def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE HARD 1 % TILT CEILING (owner RULINGS 2026-09-09c): the same
     pairs at ``emit.within_shape.pad_slope_max``, a constraint of the
     design solve's active set (``[design] hard_rulings``).
 
-    IT CARRIES NO AUTHORED RELIEF (owner RULINGS 2026-09-12u, spec §30
-    (1)): ``rel = 0`` on every row — see :func:`_pad_rows`."""
+    IT CARRIES NO PER-FOOT RELIEF (owner RULINGS 2026-09-12u, spec §30
+    (1)) — see :func:`_pad_rows`; a SLOPED base's PLANE it does carry
+    (2026-11-19o (1): the 1 % is measured from the authored plane,
+    ``pad_relief.pad_slope_offsets``).  The rim strip ties stay on the
+    level plane (no sloped pad has met one)."""
     cap = float(law.tables.emit.within_shape.pad_slope_max)
     ruling = CEILING_RULING + " (owner 2026-09-09c; no authored relief 2026-09-12u)"
     rows = _pad_rows(planar, law, cap, ruling, airport, relief=False)
+    rows.extend(_sloped_plane_rows(planar, law, airport))
     # spec §63: the rim strip lies in the pad's plane (:func:`rim_strip_ties`)
     rows.extend(Diff(v, r, cap, d, Source(GEN, ruling, (f"vertex:{v}", "rim_strip")))
                 for v, (r, d) in sorted(rim_strip_ties(planar, law).items()))

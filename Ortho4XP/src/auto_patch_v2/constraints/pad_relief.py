@@ -98,7 +98,7 @@ from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["relief_radius_m", "pad_relief_offsets"]
+__all__ = ["relief_radius_m", "pad_relief_offsets", "pad_slope_offsets"]
 
 
 def relief_radius_m(law: Law) -> float:
@@ -140,15 +140,58 @@ def _otherwise_levelled(planar: PlanarMap, law: Law) -> set[int]:
     return out
 
 
+def pad_slope_offsets(planar: PlanarMap, law: Law, airport: Airport | None
+                      ) -> dict[int, float]:
+    """THE SLOPED BASE'S PLANE (owner RULINGS 2026-11-19o (1); #2184):
+    ``vertex -> metres the pad's authored base plane stands there above
+    its value at the member's origin``, over EVERY vertex of a pad
+    ``planar/pad_base_slope.sloped_pads`` reads as sloped — its rim shared
+    with the pavement included.
+
+    UNLIKE the per-foot relief below this IS one plane, so it is no demand
+    a surface cannot build (12u's objection was a per-foot target dragged
+    onto an apron vertex): the plate's TARGET and its HARD 1 % CEILING
+    both read it (``pads._pad_rows``), so "the 09c 1 % allowance measured
+    from that plane" is exactly the ceiling's own sentence on the level
+    plane, and the pavement shared along the rim takes the pad's slope
+    where its own caps allow — the apron grading into it."""
+    from ..planar.pad_base_slope import sloped_pads
+    from .pads import _pad_polys                       # one derivation
+    if (airport is None or not getattr(airport, "clusters", None)
+            or float(law.tables.structures.base_profile.sloped_pad_rms_m) <= 0.0):
+        return {}
+    pads = _pad_polys(planar, law)
+    fields = sloped_pads([(ref, poly) for _f, ref, _g, poly in pads], airport, law)
+    out: dict[int, float] = {}
+    for _fid, ref, group, _poly in pads:
+        f = fields.get(str(ref))
+        if f is None:
+            continue
+        for v in group:
+            x, y = planar.vertices[v].xy
+            out[v] = f.offset(x, y)
+    return out
+
+
 def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
                        ) -> dict[int, float]:
     """``vertex -> the metres the terrain there stands above the pad's
-    LEVEL`` (module doc).  Empty where the law is disarmed, where no pack
+    LEVEL`` (module doc), with a SLOPED base's plane
+    (:func:`pad_slope_offsets`, 19o) in place of the per-foot read on the
+    pads it covers.  Empty where the law is disarmed, where no pack
     was read, or where no group's feet fall on a pad.
 
     Only vertices of RIGID (pad) faces are ever returned: the relief
     target is the pad law's, and nothing outside a pad carries it.
     """
+    out = _foot_offsets(planar, law, airport)
+    out.update(pad_slope_offsets(planar, law, airport))
+    return out
+
+
+def _foot_offsets(planar: PlanarMap, law: Law, airport: Airport
+                  ) -> dict[int, float]:
+    """The per-FOOT relief target (module doc, 11j / 12u / #1855 / #1905)."""
     radius = relief_radius_m(law)
     groups = getattr(airport, "groups", None)
     if radius <= 0.0 or groups is None or not getattr(groups, "groups", ()):

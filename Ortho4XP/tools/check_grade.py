@@ -7587,8 +7587,26 @@ except Exception:                                       # pragma: no cover
     _HARD_TOL_M = 0.02
 
 
+def _planar_relief(pts: List[Tuple[float, float]],
+                   offs: List[Optional[float]]) -> Optional[List[float]]:
+    """``offs`` when every point carries one and they lie on ONE PLANE
+    (residual within a millimetre) — a SLOPED BASE's plane (owner RULINGS
+    2026-11-19o (1), ``constraints/pad_relief.pad_slope_offsets``) — else
+    ``None`` (no relief, or a per-foot relief: 12u)."""
+    if len(pts) < 3 or any(o is None for o in offs):
+        return None
+    import numpy as _np
+    a = _np.column_stack([_np.ones(len(pts)), _np.asarray(pts, float)])
+    o = _np.asarray(offs, float)
+    coef, *_r = _np.linalg.lstsq(a, o, rcond=None)
+    if float(_np.abs(o - a @ coef).max()) > 1e-3 or not o.any():
+        return None
+    return [float(x) for x in o]
+
+
 def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
-                            tol_m: float) -> List[Violation]:
+                            tol_m: float,
+                            relief: Optional[Dict[str, float]] = None) -> List[Violation]:
     """§16g (10) (6)/(8) EVERY PAD SHARING AN EDGE WITH AIRSIDE WELDS
     SMOOTHLY TO IT (owner RULINGS 2026-09-14ai, verbatim: *"be sure all
     pads sharing an edge with airside must weld smoothly to the
@@ -7617,8 +7635,16 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
 
     The join is NODE IDENTITY, never proximity (memory
     `canonical-identity-join`) — the same join
-    ``tools/role_edge_census.py`` uses for the shared-edge population."""
+    ``tools/role_edge_census.py`` uses for the shared-edge population.
+
+    ``relief`` (sidecar ``pad_relief``) is read as the solve priced the
+    ceiling: a pad on a SLOPED base (owner RULINGS 2026-11-19o (1)) slopes
+    with its object and the 1 % is measured from that PLANE — the pad
+    whose every node carries a relief that is one plane
+    (:func:`_planar_relief`).  A per-FOOT relief is the plate's target
+    only (12u): the ceiling, and this reading, stay on the raw values."""
     out: List[Violation] = []
+    relief = relief or {}
     if not ways or cap <= 0.0:
         return out
     airside_nodes: Dict[str, "Way"] = {}
@@ -7656,6 +7682,9 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
                     shared.append(len(pts) - 1)
         if len(pts) < 2 or not shared:
             continue
+        plane = _planar_relief(pts, [relief.get(n) for n in nid_of])
+        if plane is not None:
+            zs = [z - o for z, o in zip(zs, plane)]
         # the pad's own pairs, decimated the way the plate itself is
         step = max(1, len(pts) // 64)
         others = list(range(0, len(pts), step))
@@ -13200,7 +13229,8 @@ def run_checks(
 
     weld_rows = _fam("pad_airside_weld",
                      _check_pad_airside_weld(ways, nodes, ll_to_m,
-                                             _PAD_SLOPE_MAX, _HARD_TOL_M))
+                                             _PAD_SLOPE_MAX, _HARD_TOL_M,
+                                             pad_relief_by_nid))
     _pv("PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that "
         "edge (owner RULINGS 2026-09-14ai: \"all pads sharing an edge "
         "with airside must weld smoothly to the airside\" — the airside "

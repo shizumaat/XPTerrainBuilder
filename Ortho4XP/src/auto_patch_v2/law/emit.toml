@@ -917,6 +917,7 @@ hard_rulings = [
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
   "rulesets.common.road_max_grade pavement fallback",    # 09-29ac (#105): the ROAD cap is the fallback ceiling of EVERY pavement pair — ring edges and welded neighbours <= 1 m no family caps lower (constraints/pavement_cap.py)
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
+  "structures.building_pad authored base plane ceiling", # 2026-11-19o (1): a pad on a SLOPED base is ONE PLANE within 1 % of the object's authored plane — NOT conforming: stage 1 grades the apron rim into it (constraints/pads.SLOPED_CEILING_RULING)
   "structures.building_pad platform plane",               # unit-platform spec §1 (1) (RULINGS 2026-09-28a (1)): a PLATFORM is ONE plane over all its pieces (constraints/platform.py) — measured: as a target alone the collar's bank rows bent HECA T3's platform 8.3 m
   "structures.building_pad storey shell datum",          # #2062 R3b A (owner 2026-11-15T03:05Z one code path): a floor-led storey shell's block datum tied to its floor's mouth datum, a ground-led one's pinned at its walls' zero (constraints/shell_datum.py)
   "structures.building_pad frontage_hold",               # flat-pad spec §1 (2) (owner RULINGS 2026-09-30y, #128): a held block's welded contact AT its flat datum, and the datum within its reach-band interval — HARD in stage 1 (the priced hold at weight 30, 30u (a), carried a ~5 m 1:2 collar the owner read as a drop/ramp; its reason, KCLT runway movers at weight 300, was the pinless-runway class #119 closed)
@@ -988,6 +989,7 @@ hard_conflict_ranks = [
    "door line keeps the apron cap",
    "rulesets.apron terrace plane at a steep runway"],                                  # #798: the door line is an apron law
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
+   "structures.building_pad authored base plane ceiling",           # 19o (1): the pad's own tier
    "structures.building_pad frontage_hold", "structures.building_pad storey shell datum",
    "structures.walled_plate under-plate cap"],                        # #1201 (27t/u): the plate's ground outranks the groundside rows under it
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",

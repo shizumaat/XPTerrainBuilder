@@ -233,6 +233,16 @@ def platform_split(base_regions, pad_regions, law: Law,
     draped = draped_facade_pads(pad_regions, airport)
     hold = bool(getattr(bp, "frontage_hold", False))
     shell_refs = frozenset(str(sh.pad_ref) for sh in shells)
+    # owner RULINGS 2026-11-19o (1): a pad under a SLOPED base takes the
+    # object's authored plane (``pad_base_slope``), so it is never held FLAT
+    # at a datum — neither a planned unit nor a §4 conforming block; it
+    # stays a §20 plate, contact-led, its target and 1 % ceiling on that
+    # plane (``constraints/pad_relief.pad_slope_offsets``)
+    from .pad_base_slope import sloped_pads
+    sloped = frozenset(sloped_pads(
+        [(str(r.ref), r.polygon) for r in pad_regions
+         if isinstance(r.polygon, Polygon) and not is_bank_ref(r.ref)], airport, law))
+    counts["sloped_unheld"] = len(sloped)
     out: list = []
     unit_ids: set[int] = set()
     for pr in pad_regions:
@@ -244,7 +254,7 @@ def platform_split(base_regions, pad_regions, law: Law,
             out.append(pr)
             continue
         if (P is None or P.is_empty or not isinstance(P, Polygon)
-                or P.area < min_m2 or is_bank_ref(pr.ref)):
+                or P.area < min_m2 or is_bank_ref(pr.ref) or str(pr.ref) in sloped):
             out.append(pr)
             continue
         cand = [air_polys[int(j)] for j in
@@ -320,7 +330,7 @@ def platform_split(base_regions, pad_regions, law: Law,
         for r in out:
             ref = str(r.ref)
             P = r.polygon
-            if (ref in held or is_bank_ref(ref)
+            if (ref in held or is_bank_ref(ref) or ref in sloped
                     or ref in split_units or P is None or P.is_empty
                     or not isinstance(P, Polygon) or P.area < pmin):
                 continue

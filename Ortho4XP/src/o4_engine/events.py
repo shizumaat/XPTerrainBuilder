@@ -1030,7 +1030,11 @@ class PackOverlaps(EngineEvent):
     be disabled: its ``winner`` is ``"disable"`` (that pack's ini row is
     marked ``SCENERY_PACK_DISABLED``; X-Plane must restart), ``"keep"``
     (never asked again) or ``""``; ``lower == ""`` is a report (a pack
-    the ini does not list), never answered.  ``state``:
+    the ini does not list), never answered.  A row with ``"kind":
+    "drapes"`` (RULINGS 2026-11-19h, ``auto_patch.drape_overlap_stage``)
+    is ``lower``'s draped polygons inside the custom airport of
+    ``default`` (the airport pack): ``winner`` the airport pack hides
+    them, ``"both"`` keeps them.  ``state``:
 
     * ``"found"`` — (build) ask, one picker per pair: **Apply** sends
       ``pack_overlaps`` with ``action="choose"`` and ``items``

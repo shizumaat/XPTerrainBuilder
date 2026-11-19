@@ -206,6 +206,10 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
             text, _hide.through_splits(rec["overlap_hides"], splits))
     text, ride, _rides = _ride.ride_text(text, rec.get("deck_tops") or (), pack_root)
     counts.update(ride)
+    if rec.get("drop_network"):
+        # RULINGS 2026-11-19i: our overlay's roads where another pack
+        # replaces the default road network over the tile
+        text, counts["segments_dropped"] = _hide.drop_segments(text)
     for d in rec.get("decks") or ():
         text, _idx = _add.add_object(text, d["resource"], float(d["lon"]), float(d["lat"]),
                                      float(d["msl"]), float(d["hdg"]))

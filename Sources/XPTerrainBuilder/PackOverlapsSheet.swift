@@ -5,7 +5,8 @@ import SwiftUI
 /// `O4_Qt_Pack_Overlaps._PackOverlapsBox`, same copy): per pair its
 /// summary and a picker (either pack, or Keep both) on the remembered
 /// answer, else the airport pack; a same-airport pair (RULINGS 17s) offers
-/// to disable the lower pack. Apply sends every answerable pair's pick.
+/// to disable the lower pack; a drape pair (RULINGS 19h) offers to hide the
+/// lower pack's polygons inside the airport. Apply sends every answerable pair's pick.
 struct PackOverlapsSheet: View {
     let offer: O4PackOverlaps
     /// `[pair key: winner]` (Apply), or nil (Not now).
@@ -18,6 +19,9 @@ struct PackOverlapsSheet: View {
             Text(O4PackOverlapsCopy.body).fixedSize(horizontal: false, vertical: true)
             if offer.hasSameAirport {
                 Text(O4PackOverlapsCopy.sameAirport).fixedSize(horizontal: false, vertical: true)
+            }
+            if offer.hasDrapes {
+                Text(O4PackOverlapsCopy.drapesNote).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(offer.offers) { pair in
                 VStack(alignment: .leading, spacing: 4) {

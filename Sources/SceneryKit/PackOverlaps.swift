@@ -10,6 +10,10 @@ import Foundation
 /// the picker offers to disable `lower` ("disable") or keep both enabled
 /// ("keep"); `lower` empty is a report (a pack the ini does not list): no
 /// picker, nothing sent.
+///
+/// `kind` "drapes" (RULINGS 2026-11-19h): `lower` drapes ground polygons
+/// inside the custom airport of `defaultWinner`; the picker offers to hide
+/// them (winner = the airport pack) or keep both.
 public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let key: String
     public let packs: [String]
@@ -41,6 +45,9 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     /// Two packs defining the same airport (not a structure pair).
     public var sameAirport: Bool { kind == O4PackOverlapsCopy.duplicateKind }
 
+    /// A lower pack's draped polygons inside a custom airport.
+    public var drapes: Bool { kind == O4PackOverlapsCopy.drapesKind }
+
     /// The picker's `(label, winner)` entries: each pack, then both; for a
     /// same-airport pair, disable the lower pack or keep both enabled (none
     /// for a report).
@@ -49,6 +56,13 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
             return lower.isEmpty ? [] : [
                 (O4PackOverlapsCopy.disablePrefix + lower, O4PackOverlapsCopy.disable),
                 (O4PackOverlapsCopy.keepEnabled, O4PackOverlapsCopy.keep),
+            ]
+        }
+        if drapes {
+            return [
+                (O4PackOverlapsCopy.hidePrefix + lower + O4PackOverlapsCopy.hideSuffix,
+                 defaultWinner),
+                (O4PackOverlapsCopy.keepBoth, O4PackOverlapsCopy.both),
             ]
         }
         return packs.map { (O4PackOverlapsCopy.keepPrefix + $0, $0) }
@@ -96,6 +110,8 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     public var answerable: [O4PackOverlap] { offers.filter { !$0.choices.isEmpty } }
     /// A same-airport pair is shown (its words and the restart note).
     public var hasSameAirport: Bool { offers.contains { $0.sameAirport } }
+    /// A drape pair is shown (its words).
+    public var hasDrapes: Bool { offers.contains { $0.drapes } }
 }
 
 /// The copy, VERBATIM and identical to the Qt question
@@ -131,4 +147,13 @@ public enum O4PackOverlapsCopy {
     public static let duplicateKind = "duplicate"
     public static let disable = "disable"
     public static let keep = "keep"
+
+    // A lower pack's draped polygons inside a custom airport (RULINGS 19h).
+    public static let drapesNote = "Some packs lower in scenery_packs.ini drape their own "
+        + "ground polygons inside a custom airport, under the airport's layout. "
+        + "Hiding them leaves them out of that pack's tile; no file is deleted."
+    public static let hidePrefix = "Hide "
+    public static let hideSuffix = "'s polygons inside the airport"
+    /// The row `kind` of a drape pair.
+    public static let drapesKind = "drapes"
 }

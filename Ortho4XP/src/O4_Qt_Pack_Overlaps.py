@@ -10,7 +10,10 @@ remembered answer, else the airport pack (owner 2026-11-17T19:15Z
 "winner"}]``; **Not now** sends nothing.  A row of ``"kind":
 "duplicate"`` is two packs defining the same airport (RULINGS 17s): its
 picker offers to disable the lower pack or keep both enabled, and a
-report row (a pack the ini does not list) has no picker.
+report row (a pack the ini does not list) has no picker.  A row of
+``"kind": "drapes"`` (RULINGS 2026-11-19h) is a lower pack's draped
+polygons inside a custom airport: hide them (the airport pack wins) or
+keep both.
 
 The COPY is identical to the macOS sheet
 (``Sources/SceneryKit/PackOverlaps.swift``); the twin
@@ -51,6 +54,13 @@ RESTART_NOTE = ("Disabling a pack changes only its line in "
 DUPLICATE_KIND = "duplicate"
 DISABLE = "disable"
 KEEP = "keep"
+# a lower pack's draped polygons inside a custom airport (RULINGS 2026-11-19h)
+DRAPES_NOTE = ("Some packs lower in scenery_packs.ini drape their own "
+               "ground polygons inside a custom airport, under the airport's layout. "
+               "Hiding them leaves them out of that pack's tile; no file is deleted.")
+HIDE_PREFIX = "Hide "
+HIDE_SUFFIX = "'s polygons inside the airport"
+DRAPES_KIND = "drapes"
 
 
 def offers(event) -> list[dict]:
@@ -63,13 +73,21 @@ def _same_airport(row) -> bool:
     return row.get("kind") == DUPLICATE_KIND
 
 
+def _drapes(row) -> bool:
+    return row.get("kind") == DRAPES_KIND
+
+
 def _choices(row) -> list[tuple[str, str]]:
     """The picker's ``(label, winner)`` entries: each pack, then both; for
     a same-airport pair, disable the lower pack or keep both enabled (none
-    for a report: a pack the ini does not list)."""
+    for a report: a pack the ini does not list); for a drape pair, hide the
+    lower pack's polygons (the airport pack wins) or keep both."""
     if _same_airport(row):
         lower = row.get("lower") or ""
         return [(DISABLE_PREFIX + lower, DISABLE), (KEEP_ENABLED, KEEP)] if lower else []
+    if _drapes(row):
+        return [(HIDE_PREFIX + (row.get("lower") or "") + HIDE_SUFFIX,
+                 row.get("default") or ""), (KEEP_BOTH, BOTH)]
     return [(KEEP_PREFIX + p, p) for p in row["packs"]] + [(KEEP_BOTH, BOTH)]
 
 
@@ -107,6 +125,8 @@ class _PackOverlapsBox(ChoiceDialog):
         same = any(_same_airport(r) for r in offers(event))
         if same:
             lay.addWidget(_wrapped(SAME_AIRPORT))
+        if any(_drapes(r) for r in offers(event)):
+            lay.addWidget(_wrapped(DRAPES_NOTE))
         self.pickers: dict[str, QComboBox] = {}
         for row in offers(event):
             lay.addWidget(_wrapped(row.get("summary") or " / ".join(row["packs"])))

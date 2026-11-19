@@ -1299,6 +1299,30 @@ def _with_overlap_hides(pack_root: str, dsf_path: str,
     return dict(gen_recipe or {}, overlap_hides=[tuple(h) for h in hides])
 
 
+def _with_road_cover(pack_root: str, dsf_path: str,
+                     gen_recipe: _t.Mapping[str, _t.Any]) -> _t.Mapping[str, _t.Any]:
+    """RULINGS 2026-11-19i (owner 2026-11-19T01:35Z "Yes, skip our overlay
+    roads where simheaven covers"): the recipe with ``drop_network`` when
+    this is one of OUR overlay packs (``O4_Overlay_Pack.is_ours``) and an
+    enabled pack replaces the default road network over the tile
+    (``O4_Overlay_Pack.road_cover``); its forests and buildings stay.  Read
+    on every write, never recorded: the roads are back on the first write
+    after that pack is gone."""
+    import O4_Overlay_Pack as _OP  # lazy: the engine's install reading
+    import O4_UI_Utils as UI
+
+    from .tile_route import tile_of_dsf
+    tile = tile_of_dsf(dsf_path)
+    if tile is None or not _OP.is_ours(pack_root):
+        return gen_recipe
+    cover = _OP.road_cover(os.path.dirname(os.path.normpath(pack_root)), *tile)
+    if cover is None:
+        return gen_recipe
+    UI.vprint(0, f"   {tile[0]:+03d}{tile[1]:+04d}: our overlay leaves its road network "
+                 f"out -- {cover[0]} {cover[1]}.")
+    return dict(gen_recipe or {}, drop_network=cover[0])
+
+
 def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
@@ -1488,7 +1512,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         drapes = _pd.recorded(prior_entry, backup_sha)
     if gen_recipe is None:
         gen_recipe = _gen.recorded(prior_entry, backup_sha)
-    gen_recipe = _with_overlap_hides(pack_root, dsf_path, gen_recipe)
+    gen_recipe = _with_road_cover(pack_root, dsf_path,
+                                  _with_overlap_hides(pack_root, dsf_path, gen_recipe))
     _gen.write_files(pack_root, gen_recipe)
     gen_counts: dict = {}
     # one omission: the missing art the user accepted and the photos hidden

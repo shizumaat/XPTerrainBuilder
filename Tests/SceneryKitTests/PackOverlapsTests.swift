@@ -96,6 +96,27 @@ struct PackOverlapsTests {
         #expect(o.answerable.map(\.key) == ["/CS/same airport/Alpha | Zeta"])
     }
 
+    /// RULINGS 2026-11-19h: a lower pack's draped polygons inside a custom
+    /// airport offer to hide them (the airport pack wins) or keep both.
+    @Test func aDrapePairOffersToHideTheLowerPacksPolygons() {
+        var event = fullEvent
+        event["items"] = [
+            ["key": "/CS/draped polygons +41-088/Airport | World", "kind": "drapes",
+             "packs": ["Airport", "World"], "airport": "Airport", "default": "Airport",
+             "winner": "", "lower": "World", "count": 9, "rows": [0, 9],
+             "summary": "World drapes 9 ground polygons inside XXXX's boundary."],
+        ]
+        guard case .packOverlaps(let o)? = O4Event.parse(object: event) else {
+            Issue.record("PackOverlaps did not decode")
+            return
+        }
+        #expect(o.asks && o.hasDrapes && !o.hasSameAirport)
+        let pair = o.offers[0]
+        #expect(pair.drapes && pair.preselected == "Airport")
+        #expect(pair.choices.map(\.label) == ["Hide World's polygons inside the airport", "Keep both"])
+        #expect(pair.choices.map(\.winner) == ["Airport", "both"])
+    }
+
     @Test func absentFieldsDefaultSafely() {
         guard case .packOverlaps(let o)? = O4Event.parse(object: ["event": "PackOverlaps"]) else {
             Issue.record("PackOverlaps did not decode")

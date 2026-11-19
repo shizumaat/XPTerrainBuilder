@@ -161,7 +161,9 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     rep: dict = {"decks": 0, "pins": 0, "max_drop_m": 0.0, "fixed": 0, "freed": 0,
                  "floor": {}, "top_low": {}, "ring_off": {}, "samples": {}}
     decks = [d for d in getattr(pm, "decks", ()) or () if is_generated(d)]
-    if not decks:
+    from ..planar.deck_airside import withheld
+    held = list(withheld())          # the no-bridge arm's (``deck_airside``)
+    if not decks and not held:
         return cs, _StageTwo(rep)
     from ..model.platform import stage_air_vertices
     air = stage_air_vertices(pm, law) if law is not None else set()
@@ -185,22 +187,12 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
         near = prep(deck_polygon(d).buffer(_ON_RING_M))
         lu = max(1e-9, (patch.u[0] ** 2 + patch.u[1] ** 2) ** 0.5)
-        opened = _opened(d)
-        tin = _tin(stage1, opened) if opened is not None else None
         for v, vx in pm.vertices.items():
+            if not near.contains(Point(vx.xy)):
+                continue
             roles = {pm.faces[f].role for f in vx.incident_faces}
             if low & roles:
                 continue                # a road's or the cut's own vertex: stage 2's
-            if tin is not None and v in air and v not in levels \
-                    and opened.contains(Point(vx.xy)) and not near.contains(Point(vx.xy)):
-                # the pavement edge the opened cut leaves beside the deck:
-                # the no-bridge airside there (``_tin``)
-                z = tin(vx.xy)
-                if z is not None:
-                    fixed[v] = round(z, 6)
-                continue
-            if not near.contains(Point(vx.xy)):
-                continue
             s_, _t = patch.st(*vx.xy)
             on_end = min(abs(s_), abs(s_ - 1.0)) * lu <= _ON_RING_M
             if v in air and v in levels:
@@ -214,20 +206,48 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
                 fixed[v] = round(patch.z(*vx.xy), 6)
             elif v in levels and v not in air:
                 free.add(v)
+    _zone_pins(pm, (*decks, *held), stage1, law, air, levels, low, fixed)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
 
 
-def _opened(d):
-    """The pavement the deck's cut opens beside and past it (its
-    ``approach``), grown by the ring tolerance; ``None`` for none."""
-    from shapely.geometry import Polygon
+def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:
+    """Every full-map AIRSIDE vertex the coordinate join left without a
+    stage-1 level within a deck's ZONE -- its ring and the pavement its
+    cut opens (``approach``), grown by the road's ramp at its grade cap
+    (``floor_min_m / [tunnel] ramp_max_grade``: as far as the carve can
+    reach) -- takes stage 1's surface there (:func:`_tin`), unless the deck
+    already fixed it: the carve's rows never move airside (19s (1); the
+    no-bridge arm pins the same vertices, ``deck_airside.no_bridge_arm``).
+    Never a road's or the cut's own vertex (``low``)."""
+    from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
-    polys = [Polygon(q) for q in getattr(d, "approach", ()) or () if len(q) >= 3]
-    return prep(unary_union([p if p.is_valid else p.buffer(0.0) for p in polys])
-                .buffer(_ON_RING_M)) if polys else None
+
+    from ..planar.deck_bridge import deck_polygon
+    cap = float(law.tables.structures.tunnel.ramp_max_grade) if law is not None else 0.0
+    parts = []
+    for d in decks:
+        reach = float(d.floor_min_m) / cap if cap > 0.0 else 0.0
+        polys = [deck_polygon(d)] + [Polygon(q) for q in getattr(d, "approach", ()) or ()
+                                     if len(q) >= 3]
+        parts.append(unary_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+                     .buffer(reach))
+    if not parts:
+        return
+    zone = prep(unary_union(parts))
+    tin = _tin(stage1, zone)
+    if tin is None:
+        return
+    for v, vx in pm.vertices.items():
+        if v not in air or v in levels or v in fixed or not zone.contains(Point(vx.xy)):
+            continue
+        if low & {pm.faces[f].role for f in vx.incident_faces}:
+            continue
+        z = tin(vx.xy)
+        if z is not None:
+            fixed[v] = round(z, 6)
 
 
 def _tin(stage1, opened) -> "_t.Callable | None":

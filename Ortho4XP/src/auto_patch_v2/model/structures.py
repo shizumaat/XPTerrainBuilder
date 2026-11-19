@@ -502,9 +502,10 @@ class DeckBridge:
     bottom_y: float
     #: the pre-solve rendered deck top: the estimate a mouth plans from
     deck_z: float
-    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``
-    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
-    #: for a deck the pack models no wall under
+    #: the frame's WALLS under the deck, ``(r_w, n_w, faces, floor)``
+    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3); ``floor``
+    #: the frame's bottom solids, K2 of kord-trench-frame-spec, absent on a
+    #: deck read before it); ``()`` for a deck the pack models no wall under
     walls: tuple = ()
     #: the floor is the lower level's ladder (``planar/deck_bridge.
     #: _road_floor``: the frame stops short of the road), not the object's
@@ -562,6 +563,12 @@ class DeckBridge:
     #: (18i (b)); the object stage keeps those bands of the frame and drops
     #: the rest.  ``()`` for every other deck
     span_cut: tuple = ()
+    #: walled-multibridge-frames W7b (RULINGS 2026-11-19m): the trench the
+    #: frame models on past this WALLED piece's ends -- ``((u_a, u_b), (s0,
+    #: s1))`` per stretch, across / along the walls' road
+    #: (``planar/deck_bridge._beyond_stretches``): its floor is the piece's,
+    #: its mouth where the frame's floor ends.  ``()`` for every other deck
+    beyond: tuple = ()
 
     @property
     def depth_a(self) -> float:

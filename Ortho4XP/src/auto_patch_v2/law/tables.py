@@ -1242,6 +1242,10 @@ class PadAdmission:
     building_evidence: bool
     evidence_min_height_m: float
     evidence_min_coverage: float
+    #: K1 (kord-trench-frame-spec): a building rises above its own grade —
+    #: the walled height (``chain_min_height_m``) a component must stand
+    #: ABOVE grade for the cluster to mint a pad (0 disarms)
+    above_grade_min_m: float = 0.0
 
     @property
     def armed(self) -> bool:
@@ -1256,7 +1260,8 @@ def pad_admission(law: Law) -> PadAdmission:
         min_tall_base_fill=float(getattr(p, "min_tall_base_fill", 0.0)),
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
-        evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+        evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)),
+        above_grade_min_m=float(getattr(p, "chain_min_height_m", 0.0)))
 
 
 class SlabLaw(_t.NamedTuple):

@@ -141,6 +141,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     corridor runs under included; ``tunnels``: the trenches under one."""
     from ..model.deck_bank import bank_past_m
     from .deck_lines import end_lines, plate_of
+    from .walled_floor import walled_floor_rows
     flush = float(law.tables.structures.bridge.deck_flush_m)
     lines = end_lines(planar, law)
     seats_of = {oid: {v for e in es for v, _w in e.terms} for oid, es in lines.items()}
@@ -148,8 +149,12 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     # road deck has its own pair (``Tunnel.decks``), a road under or beside
     # the deck is the ground's (PR B round 3, LFPG H18r)
     roads = frozenset(family(law, "road_cross_section").roles)
-    rows: list[Row] = []
-    done: set[int] = set()
+    # RULINGS 2026-11-19m: the ground between a walled frame's walls stands
+    # on the object's floor (``constraints/walled_floor``), never the deck's
+    # level nor the DEM's -- those vertices take no span row
+    all_seats = set().union(*seats_of.values()) if seats_of else set()
+    rows, done = walled_floor_rows(planar, law, lines,
+                                   lambda v: v in air or v in all_seats, GEN)
     for oid, es in sorted(lines.items()):
         ends = [(e.terms, e.depth) for e in es]
         under = [t for t in tunnels if t.deck_bridge == oid]

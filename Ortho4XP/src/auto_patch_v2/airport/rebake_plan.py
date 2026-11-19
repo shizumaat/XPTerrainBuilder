@@ -154,6 +154,34 @@ def _deck_ring_xy(o: _obj8.PlacedObject) -> list[XY]:
     return [(float(x), float(y)) for x, y in poly.exterior.coords[:-1]]
 
 
+def _deck_rings(o: _obj8.PlacedObject, pieces: _t.Sequence[tuple], to_ll) -> tuple:
+    """EVERY hard-deck piece of ``o`` (walled-multibridge spec W9,
+    ``model/deck_piece``): each published piece ``(ring, tag, stations,
+    tops, span_cut)`` (frame xy, ``pipeline/rebake_inputs``) as a span,
+    then each polygon of ``o``'s deck that no published piece covers by
+    half its area as a RIDER."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from ..model.deck_piece import DeckPiece
+    out = []
+    for ring, tag, pts, tops, cut in pieces:
+        out.append(DeckPiece(tuple(to_ll(x, y) for x, y in ring), str(tag),
+                             tuple(to_ll(x, y) for x, y in pts), tuple(tops),
+                             (to_ll(*cut[0]), to_ll(*cut[1]), tuple(tuple(q) for q in cut[2]),
+                              *cut[3:4]) if cut else ()))
+    spans = unary_union([Polygon(r).buffer(0) for r, *_q in pieces]) if pieces else None
+    polys = getattr(o.hard_deck, "geoms", [o.hard_deck])
+    for g in sorted(polys, key=lambda q: -q.area):
+        if g.geom_type != "Polygon" or g.is_empty:
+            continue
+        if spans is not None and g.intersection(spans).area >= 0.5 * g.area:
+            continue
+        out.append(DeckPiece(tuple(to_ll(float(x), float(y))
+                                   for x, y in g.exterior.coords[:-1])))
+    return tuple(out)
+
+
 def _reads_datum(o: _obj8.PlacedObject) -> bool:
     """Does :func:`_with_deck` ask ``deck_datum`` about ``o``?  A hard deck
     that is not a SIGNATURE deck with its plate (R12 reads that one at its
@@ -442,10 +470,13 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     # an EDGE BRIDGE's seat (``pipeline/rebake_inputs._edge_seat_plates``)
     plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
     # deck-end-anchors spec §3: the zero the deck's anchors state
-    anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 else None
+    anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 \
+        and rest[2] is not None else None
     # owner RULINGS 2026-11-18i: a deck cut to its spans (``deck_span_cut``)
     cut = rest[3] if o.id in plates and len(rest) > 3 else ()
     deck_spans = (to_ll(*cut[0]), to_ll(*cut[1]), tuple(cut[2]), *cut[3:5]) if cut else ()
+    deck_rings = _deck_rings(o, rest[4] if o.id in plates and len(rest) > 4 else (), to_ll) \
+        if o.hard_deck is not None and o.deck_top_z is not None else ()
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END
@@ -465,7 +496,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
                        plate_clearance_m=plate_clearance, plate_kind=plate_kind,
-                       anchor_zero=anchor_zero, deck_spans=deck_spans)
+                       anchor_zero=anchor_zero, deck_spans=deck_spans,
+                       deck_rings=deck_rings)
     rec = (free_decks or {}).get(o.id)
     if rec is None or law is None:
         return out

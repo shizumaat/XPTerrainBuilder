@@ -563,5 +563,15 @@
   "path": "Ortho4XP/src/O4_Code_Closure.py",
   "name": "read_digest_table",
   "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/geom/plate_cells.py",
+  "name": "Cell",
+  "reason": "walled-multibridge-frames spec W6 (lane lwfB): the cell records plate_cells' own builders return and airport/deck_plates reads through the Plates protocol (len, band_of) without naming the type; public for the twin tests/auto_patch_v2/test_walled_frame_cells.py"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/geom/plate_cells.py",
+  "name": "Cells",
+  "reason": "walled-multibridge-frames spec W6 (lane lwfB): the cell records plate_cells' own builders return and airport/deck_plates reads through the Plates protocol (len, band_of) without naming the type; public for the twin tests/auto_patch_v2/test_walled_frame_cells.py"
  }
 ]

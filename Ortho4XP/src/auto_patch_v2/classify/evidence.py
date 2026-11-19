@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom.slope_pad import slope_witness
+from ..geom.route_over_pad import OVER, RouteWitness
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     osm_building_evidence, pad_shade_extra)
 from ..airport.slab_faces import witness_faces
@@ -653,7 +654,10 @@ def _cluster_pads(airport: Airport, law, airside=None,
                                    # owner RULINGS 2026-10-19w: a cluster
                                    # under the bar whose seat would float
                                    # over the slope pads anyway
-                                   slope=slope_witness(airport, law) if slope else None)
+                                   slope=slope_witness(airport, law) if slope else None,
+                                   # owner RULINGS 2026-11-19k (2): a taxi
+                                   # route never crosses a building
+                                   routes=RouteWitness(airport))
     CLUSTER_PADS.update(counts)
     # the refusals, LISTED with ref + gate + measured value (and the
     # footprint's length/width, which issue #229 reads)
@@ -781,6 +785,11 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                                         if k not in _followed])
                  if _fallback_gate and _followed else _osm_ev)
     _n_unvouched = _n_osm = _n_mouth = _n_follow_ev = 0
+    # owner RULINGS 2026-11-19k (2): A TAXI ROUTE NEVER CROSSES A BUILDING
+    # -- a footprint a 1202 route passes over is a deck's or a trench
+    # frame's ground, never a pad; one the route ends at is kept
+    _routes = RouteWitness(airport)
+    _route_over: list[dict] = []
     # #1747 (owner RULINGS 2026-11-06b (6)): a footprint-cache ring the
     # tunnel mouths' walls reach into (deeper than the touch tolerance the
     # footprints chain at) was WELDED from those walls, and a weld's members
@@ -810,10 +819,17 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                 and p.buffer(-_touch).intersects(_mouths)):
             _n_mouth += 1
             continue
+        _rk, _rin = _routes.read(p)
+        if _rk == OVER:
+            _route_over.append({"id": b.id, "source": b.source,
+                                "area_m2": round(p.area, 1),
+                                "route_inside_m": _rin})
+            continue
         polys.append(p)
     PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
     PAD_REFUSED["agp_follower"] = len(_followed) + _n_follow_ev
     PAD_REFUSED["fallback_tunnel_mouth"] = _n_mouth
+    PAD_REFUSED["fallback_taxi_route_over"] = _route_over
     # lane ``padgates101b``: the OSM half's own count on this half — the
     # sweep read ``osm_vouched`` 0 everywhere because that counter is the
     # CLUSTER half's alone, and the OSM half was firing here unseen

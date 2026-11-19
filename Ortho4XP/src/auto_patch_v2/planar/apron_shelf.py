@@ -87,6 +87,7 @@ def _outlines(airport, law: Law, min_m2: float):
     from ..airport.slab_faces import witness_faces
     from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
     from ..geom.base_slab import pad_shades
+    from ..geom.route_over_pad import RouteWitness
     from ..law.tables import base_slab_law, pad_admission
     st = law.tables.structures.placement
     small = [c for c in (getattr(airport, "clusters", None) or ())
@@ -105,7 +106,8 @@ def _outlines(airport, law: Law, min_m2: float):
         bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
         admission=pad_admission(law),
         osm_evidence=cluster_building_evidence(
-            getattr(airport, "buildings", ()) or ()))
+            getattr(airport, "buildings", ()) or ()),
+        routes=RouteWitness(airport))
     return got
 
 

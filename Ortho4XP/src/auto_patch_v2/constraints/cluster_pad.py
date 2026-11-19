@@ -36,6 +36,7 @@ from shapely.strtree import STRtree
 
 from ..geom import exact
 from ..geom.slope_pad import slope_witness
+from ..geom.route_over_pad import RouteWitness
 from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
 from ..law import Law
 from ..geom.base_slab import pad_shades, registered_faces
@@ -180,7 +181,9 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             osm_evidence=cluster_building_evidence(
                 getattr(airport, "buildings", ()) or ()),
             # owner RULINGS 2026-10-19w: the SAME slope pads the mint gave
-            slope=slope)
+            slope=slope,
+            # owner RULINGS 2026-11-19k (2): the SAME route guard
+            routes=RouteWitness(airport))
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):

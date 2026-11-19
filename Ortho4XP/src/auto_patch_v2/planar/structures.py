@@ -93,7 +93,7 @@ from ..model.frame import XY
 from ..model.structures import SKIRT_ROLE, Channel, Deck, Tunnel
 from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
-from .bore_continuation import walked_m
+from .bore_continuation import deck_gap_ways, walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .object_floor_cells import add_object_floor_cells
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
@@ -132,7 +132,8 @@ from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_w
                               portal_mouth, portal_note, roof_back_mouth, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
-                          deck_polygon, deck_seats, deck_side, deck_under)
+                          deck_polygon, deck_seats, deck_side, deck_under,
+                          walled_span_cuts)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
 from ..model.deck_bank import deck_bank_slope
 from .deck_generated import is_generated
@@ -281,6 +282,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         tunnel_ways += d_ways
         up_parents.update(d_parents)
         stats.hard_decks.extend(d_notes)
+        # RULINGS 2026-11-19a: an open way between two bores under the decks
+        # of a frame holding a trench object joins them
+        # (``bore_continuation.deck_gap_ways``; KBNA's open stretch between
+        # its two walled decks stays open sky, #1718)
+        t_ids = {str(t.object_id) for t in trenches or ()}
+        g_ways, g_notes = deck_gap_ways(airport.osm_ways, tunnel_ways,
+                                        [deck_polygon(db) for db in deck_bridges
+                                         if t_ids & set(db.members)], law)
+        tunnel_ways += g_ways
+        stats.hard_decks.extend(g_notes)
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
     # it yields to a level seed's passage (§19 S1, ``level_seeds``)
@@ -1905,7 +1916,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # are trimmed at each such outline's rim, one derivation site
     # (``structure_service.decked_exclusion``, which holds the reading).
     cut_lines = _decked_exclusion(classification.cut_lines, tunnels, footprints,
-                                  cells, polys, _cut_roles, grid, stats)
+                                  cells, polys, _cut_roles, grid, stats,
+                                  spans=walled_span_cuts(deck_bridges, law.tables.structures.
+                                                         tunnel.wall_gap_m))
     cut_lines = knee_nodes(cut_lines, knee_chords, grid)   # §34 (7), #449
     by_ref = {c.ref: c for c in cells}
     for role, ref, part, _tid in new_cells:

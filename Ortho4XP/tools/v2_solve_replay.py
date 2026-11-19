@@ -2162,6 +2162,21 @@ def _hold_report_now(pm) -> dict:
     return hold_report(pm.registries.held)
 
 
+def _write_planar_only(res: dict, out: Path) -> None:
+    """``--pad-read --solved-out``: the planar map of a dry re-run, UNSOLVED
+    (``z`` the DEM at each vertex), for the readers that ask the map alone
+    -- which faces and lines stand where -- without paying the solve."""
+    pm, airport = res["pm"], res["airport"]
+    n = max(pm.vertices) + 1 if pm.vertices else 0
+    z = [0.0] * n
+    for v, vx in pm.vertices.items():
+        z[v] = float(airport.dem.z(*vx.xy))
+    with out.open("wb") as fh:
+        pickle.dump({"icao": res["icao"], "airport": airport, "law_icao": res["icao"],
+                     "pm": pm, "z": z, "unsolved": True}, fh)
+    print(f"[{res['icao']}] planar map (unsolved) -> {out}")
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -3367,7 +3382,9 @@ def main() -> int:
                          "(a #1697 choosable role) before the map is built; repeat. "
                          "Needs --from classify or --from planar")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
-                    help="pickle the solved set for --why-from")
+                    help="pickle the solved set for --why-from; with --pad-read, the "
+                         "UNSOLVED planar map (z = the DEM at each vertex) for the map-only "
+                         "readers (tools/deck_probe.py --span-clean)")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
                     help="run --why-hump on a --solved-out pickle (no re-solve of the arm)")
     ap.add_argument("--why-vertex", type=int, help="why on this vertex id instead of --why-hump")
@@ -3576,6 +3593,8 @@ def main() -> int:
                                  rim_diagnostics=a.rim_diagnostics)
             if a.json:
                 a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
+            if a.solved_out is not None:
+                _write_planar_only(res, a.solved_out)
             return 0
         return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
                       method=a.method,

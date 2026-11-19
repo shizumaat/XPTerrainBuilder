@@ -702,17 +702,27 @@ def carried_off(classification, decks, law) -> tuple[_t.Any, list[str]]:
     pack deck's apt.dat leaves a hole under its object; the object stage
     cuts the same region out of the pack's apt.dat).  The ground under the
     ring is then the corridors' and the deck's own
-    (``deck_bridge.deck_ground``)."""
+    (``deck_bridge.deck_ground``).
+
+    THE CLEAN CUT (walled-multibridge-frames spec W8): the same knife takes
+    the airside pavement inside every WALLED pack deck's span cut -- its rim
+    strip (``deck_bridge._walled_trench``) inside its ring -- so the faces
+    under a span are the trench's only, never a taxiway or apron cell over
+    the floor (MEASURED KORD I-190: 12 / 7 pavement vertices inside the two
+    spans' floor strips)."""
     import dataclasses as _dc
 
     from ..law.tables import rolled_on_roles
     from .cell_knife import knife_cells
-    from .deck_bridge import deck_polygon
+    from .deck_bridge import deck_polygon, walled_span_cuts
     gen = [d for d in decks if is_generated(d)]
-    if not gen or classification is None:
+    spans = [g for _oid, g in walled_span_cuts(
+        decks, float(law.tables.structures.tunnel.wall_gap_m))]
+    if not (gen or spans) or classification is None:
         return classification, []
     knife = unary_union([deck_polygon(d) for d in gen]
-                        + [Polygon(q) for d in gen for q in d.approach if len(q) >= 3])
+                        + [Polygon(q) for d in gen for q in d.approach if len(q) >= 3]
+                        + spans)
     polys = []
     for c in classification.cells:
         p = Polygon(c.ring, c.holes) if len(c.ring) >= 3 else Polygon()
@@ -722,4 +732,4 @@ def carried_off(classification, decks, law) -> tuple[_t.Any, list[str]]:
                            mark="generated_deck_cut", cuts=lambda c: c.role in air)
     return (_dc.replace(classification, cells=tuple(cells)),
             [f"generated decks: {n} airside cell(s) cut under {len(gen)} deck ring(s) "
-             f"(spec 2123 A3)"])
+             f"(spec 2123 A3) and {len(spans)} walled span(s) (walled frames W8)"])

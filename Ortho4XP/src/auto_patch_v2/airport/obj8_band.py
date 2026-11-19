@@ -1,14 +1,21 @@
-"""THE DECK-PLATE BANDS OF ONE OBJ8 CUT (#2112; ``airport/deck_plates``).
+"""THE DECK-PLATE BANDS AND CELLS OF ONE OBJ8 CUT (#2112; walled-multibridge
+spec W6; ``airport/deck_plates``).
 
 ``obj8_split`` cuts a file into bodies; a body carrying a ``band`` keeps
-only its source body's geometry inside that band of the authored plan, and
-the bodies cut from one source body by band are SIBLINGS.  This module is
-that one reading: which sibling a point belongs to, and a static triangle
-CLIPPED at the band lines (Sutherland-Hodgman, the new corners appended to
-the source's own ``VT`` table, interpolated position, normal and texture
-coordinate).  The split writer's four rules are untouched: an ``ANIM`` block
-still moves whole (to the band of its middle), and a clipped triangle keeps
-its authored winding.
+only its source body's geometry inside that band -- or CELL -- of the
+authored plan, and the bodies cut from one source body that way are
+SIBLINGS.  A band ``(ux, uz, lo, hi)`` and a cell (its half-planes,
+``geom/plate_cells``) are read alike, as half-planes (``plate_cells.
+planes_of``).  This module is that one reading: which sibling a point
+belongs to, and a static triangle CLIPPED at the cell lines
+(Sutherland-Hodgman, the new corners appended to the source's own ``VT``
+table, interpolated position, normal and texture coordinate; a corner on
+a line is made once, whichever side asks first, so the two sides share
+it).  The split writer's four rules are untouched: an ``ANIM`` block still
+moves whole (to the cell of its middle), and a clipped triangle keeps its
+authored winding.  A band's two planes are the exact negation of its
+``lo <= s < hi`` reading, so a banded cut is the pre-cell cut byte for
+byte.
 """
 from __future__ import annotations
 
@@ -17,7 +24,17 @@ import typing as _t
 
 import numpy as np
 
+from ..geom.plate_cells import holds, planes_of
+
 __all__ = ["Bands"]
+
+
+def _line_key(plane: tuple) -> tuple[float, float, float]:
+    """One key per LINE, whichever side's plane names it."""
+    nx, nz, c = plane[0], plane[1], plane[2]
+    if nx < 0.0 or (nx == 0.0 and nz < 0.0):
+        return (-nx, -nz, -c)
+    return (nx, nz, c)
 
 
 class Bands:
@@ -32,8 +49,7 @@ class Bands:
     EPS_M = 1e-6
 
     def __init__(self, bodies: _t.Sequence[_t.Any], vt: list[str]) -> None:
-        self.band = {b.body_id: tuple(float(q) for q in b.band)
-                     for b in bodies if b.band is not None}
+        self.planes = {b.body_id: planes_of(b.band) for b in bodies if b.band is not None}
         fam: dict[tuple, list[int]] = {}
         for b in bodies:
             if b.band is not None:
@@ -41,7 +57,7 @@ class Bands:
         self.siblings = {bid: tuple(g) for g in fam.values() for bid in g}
         self._vt = vt
         self._rows: dict[int, list[float]] = {}
-        self._cut: dict[tuple[int, int, float], int] = {}
+        self._cut: dict[tuple, int] = {}
 
     def _row(self, v: int) -> list[float]:
         hit = self._rows.get(v)
@@ -54,9 +70,9 @@ class Bands:
             self._rows[v] = hit
         return hit
 
-    def _s(self, v: int, band: tuple) -> float:
+    def _s(self, v: int, plane: tuple) -> float:
         r = self._row(v)
-        return band[0] * r[0] + band[1] * r[2]
+        return plane[0] * r[0] + plane[1] * r[2]
 
     def middle_of(self, tri: _t.Sequence[int]) -> np.ndarray:
         """The plan middle ``(x, y, z)`` of the vertices ``tri``."""
@@ -76,21 +92,22 @@ class Bands:
     def pick(self, bid: int, p: _t.Sequence[float]) -> int:
         """``bid``'s sibling whose band holds the point ``p``; ``bid``
         itself where it has none."""
+        x, z = float(p[0]), float(p[2])
         for s in self.siblings.get(bid, ()):
-            ux, uz, lo, hi = self.band[s]
-            if lo <= ux * float(p[0]) + uz * float(p[2]) < hi:
+            if all(holds(q, q[0] * x + q[1] * z) for q in self.planes[s]):
                 return s
         return bid
 
-    def _corner(self, i: int, j: int, c: float, band: tuple) -> int:
-        """The row on edge ``i``-``j`` where the band coordinate is ``c``."""
+    def _corner(self, i: int, j: int, plane: tuple) -> int:
+        """The row on edge ``i``-``j`` where ``plane``'s line crosses it."""
         if i > j:
             i, j = j, i
-        key = (i, j, c)
+        key = (i, j, _line_key(plane))
         hit = self._cut.get(key)
         if hit is not None:
             return hit
-        si, sj = self._s(i, band), self._s(j, band)
+        c = plane[2]
+        si, sj = self._s(i, plane), self._s(j, plane)
         t = 0.0 if sj == si else (c - si) / (sj - si)
         a, b = self._row(i), self._row(j)
         r = [a[k] + t * (b[k] - a[k]) for k in range(8)]
@@ -103,42 +120,43 @@ class Bands:
         self._cut[key] = len(self._vt) - 1
         return len(self._vt) - 1
 
-    def _half(self, poly: list[int], band: tuple, c: float, keep_ge: bool) -> list[int]:
-        """Sutherland-Hodgman: ``poly`` cut to the side of line ``c``."""
+    def _half(self, poly: list[int], plane: tuple) -> list[int]:
+        """Sutherland-Hodgman: ``poly`` cut to ``plane``'s side."""
         def inside(v: int) -> bool:
-            d = self._s(v, band) - c
-            return d >= -self.EPS_M if keep_ge else d <= self.EPS_M
+            return self._s(v, plane) - plane[2] >= -self.EPS_M
         out: list[int] = []
         for k, cur in enumerate(poly):
             prev = poly[k - 1]
             if inside(cur):
                 if not inside(prev):
-                    out.append(self._corner(prev, cur, c, band))
+                    out.append(self._corner(prev, cur, plane))
                 out.append(cur)
             elif inside(prev):
-                out.append(self._corner(prev, cur, c, band))
+                out.append(self._corner(prev, cur, plane))
         return out
 
     def clip(self, bid: int, tri: tuple[int, int, int]
              ) -> list[tuple[int, tuple[int, int, int]]]:
         """``(sibling, triangle)`` for every piece of ``tri`` in each of
-        ``bid``'s siblings' bands, in the authored winding."""
+        ``bid``'s siblings' cells, in the authored winding."""
         out: list[tuple[int, tuple[int, int, int]]] = []
         for s in self.siblings[bid]:
-            band = self.band[s]
-            sv = [self._s(v, band) for v in tri]
-            lo, hi = band[2], band[3]
-            if min(sv) >= lo - self.EPS_M and max(sv) <= hi + self.EPS_M:
-                if all(lo <= q < hi for q in sv) or lo <= sum(sv) / 3.0 < hi:
+            planes = self.planes[s]
+            sv = [[self._s(v, q) for v in tri] for q in planes]
+            if all(min(x) >= q[2] - self.EPS_M for x, q in zip(sv, planes, strict=True)):
+                # within the cell to EPS: whole, to the one sibling that
+                # holds its corners or its middle (a line is one side's)
+                if all(holds(q, e) for x, q in zip(sv, planes, strict=True) for e in x) \
+                        or all(holds(q, sum(x) / 3.0) for x, q in zip(sv, planes, strict=True)):
                     out.append((s, tri))
                 continue
-            if max(sv) <= lo + self.EPS_M or min(sv) >= hi - self.EPS_M:
+            if any(max(x) <= q[2] + self.EPS_M for x, q in zip(sv, planes, strict=True)):
                 continue
             poly = list(tri)
-            if math.isfinite(lo):
-                poly = self._half(poly, band, lo, True)
-            if len(poly) >= 3 and math.isfinite(hi):
-                poly = self._half(poly, band, hi, False)
+            for q in planes:
+                if len(poly) < 3:
+                    break
+                poly = self._half(poly, q)
             out.extend((s, (poly[0], poly[k], poly[k + 1]))
                        for k in range(1, len(poly) - 1))
         return out

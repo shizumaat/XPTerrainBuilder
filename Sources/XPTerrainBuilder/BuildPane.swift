@@ -383,6 +383,11 @@ struct BuildPane: View {
                     }
                 }
             }
+            // Review this tile's overlapping-packs answers (#2180; the Qt
+            // pane: the same button): the question on every pair.
+            Button(O4PackOverlapsCopy.reviewButton) { buildModel.reviewPackOverlaps(active) }
+                .controlSize(.small)
+                .help(O4PackOverlapsCopy.reviewHelp)
             Toggle("Installed in X-Plane", isOn: Binding(
                 get: { buildModel.isInstalled(active) },
                 set: { buildModel.setInstalled(active, $0) }

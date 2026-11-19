@@ -126,7 +126,11 @@ def test_the_copy_matches_the_mac_app():
     assert joined("static let drapesNote", "static let hidePrefix") == QTOVER.DRAPES_NOTE
     assert joined("static let hidePrefix", "static let hideSuffix") == QTOVER.HIDE_PREFIX
     assert joined("static let hideSuffix", "/// The row `kind` of a drape") == QTOVER.HIDE_SUFFIX
-    assert joined("static let drapesKind", "}") == QTOVER.DRAPES_KIND
+    assert joined("static let drapesKind", "// Reviewing") == QTOVER.DRAPES_KIND
+    assert joined("static let reviewButton", "static let reviewHelp") == QTOVER.REVIEW_BUTTON
+    assert joined("static let reviewHelp", "static let noPairs") == QTOVER.REVIEW_HELP
+    assert joined("static let noPairs", "static let okButton") == QTOVER.NO_PAIRS
+    assert joined("static let okButton", "}") == QTOVER.OK_BUTTON
     for s in (QTOVER.APPLY_BUTTON, QTOVER.NOT_NOW_BUTTON):
         assert '"%s"' % s in text
 
@@ -187,3 +191,70 @@ def test_a_same_airport_pair_offers_to_disable_the_lower_pack(window, monkeypatc
     _button(box, "Apply").click()
     assert sent[0]["items"] == [{"key": DUPS[0]["key"], "winner": "disable"},
                                 {"key": ITEMS[0]["key"], "winner": "Airport"}]
+
+
+def test_the_standard_size_matches_the_mac_sheet():
+    """#2180: one width; more than a few pairs scroll inside one height."""
+    sheet = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "XPTerrainBuilder", "PackOverlapsSheet.swift")
+    if not os.path.exists(sheet):
+        pytest.skip("Swift sources not present in this tree")
+    text = open(sheet, encoding="utf-8").read()
+    assert "listMaxHeight: CGFloat = %d" % QTOVER.LIST_MAX_HEIGHT in text
+    assert "boxWidth: CGFloat = %d" % QTOVER.BOX_WIDTH in text
+    assert "unscrolledPairs = %d" % QTOVER.UNSCROLLED_PAIRS in text
+
+
+def _many(n):
+    return [{"key": "/CS/P%d | Airport" % i, "packs": ["P%d" % i, "Airport"],
+             "airport": "Airport", "default": "Airport", "winner": "",
+             "count": 3, "rows": [1, 2], "summary": "P%d and Airport both draw 3" % i}
+            for i in range(n)]
+
+
+def test_a_long_list_scrolls_and_the_box_keeps_its_size(qapp):
+    """#2180: forty pairs fit a 13-inch screen; the buttons stay outside
+    the scroll area."""
+    box, _buttons = QTOVER.pack_overlaps_box(_event(items=_many(40)))
+    assert box.scroll is not None
+    assert box.scroll.height() == QTOVER.LIST_MAX_HEIGHT
+    assert len(box.pickers) == 40
+    assert all(box.scroll.widget().isAncestorOf(p) for p in box.pickers.values())
+    assert not box.scroll.isAncestorOf(box.apply)
+    assert box.sizeHint().height() < 760
+    assert box.width() == QTOVER.BOX_WIDTH
+    short, _ = QTOVER.pack_overlaps_box(_event(items=_many(QTOVER.UNSCROLLED_PAIRS)))
+    assert short.scroll is None
+
+
+def test_a_report_with_no_pair_says_so(window, monkeypatch):
+    """#2180: the review of a tile with no pair: the words and OK, nothing
+    sent."""
+    from PySide6.QtWidgets import QLabel
+    sent = []
+    monkeypatch.setattr(window._session, "pack_overlaps",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    window._on_engine_event(_event(state="ask", items=[]))
+    [box] = window._pack_art_boxes
+    assert QTOVER.NO_PAIRS in [w.text() for w in box.findChildren(QLabel)]
+    assert [b.text() for b in box.buttons()] == [QTOVER.OK_BUTTON]
+    _button(box, QTOVER.OK_BUTTON).click()
+    assert sent == [] and window._pack_art_boxes == []
+
+
+def test_pack_choices_asks_for_the_active_tiles_report(window, monkeypatch):
+    """#2180: the tile pane's Pack choices... sends "ask"; the report opens
+    the question again, each picker on the stored answer."""
+    sent = []
+    monkeypatch.setattr(window._session, "pack_overlaps",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    monkeypatch.setattr(window.map, "active_tile", lambda: (25, 55))
+    assert window.pack_choices_btn.text() == QTOVER.REVIEW_BUTTON
+    window.pack_choices_btn.click()
+    assert sent == [{"action": "ask", "lat": 25, "lon": 55}]
+    window._on_engine_event(_event())
+    [box] = window._pack_art_boxes
+    _button(box, "Not now").click()
+    window._on_engine_event(_event(state="ask"))
+    [box] = window._pack_art_boxes
+    assert box.pickers[ITEMS[1]["key"]].currentData() == "both"

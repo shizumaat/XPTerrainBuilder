@@ -106,6 +106,8 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     public var offers: [O4PackOverlap] { items.filter { $0.packs.count == 2 && !$0.key.isEmpty } }
     /// A question to ask: a build's or the report's, with a pair in it.
     public var asks: Bool { (state == "found" || state == "ask") && !offers.isEmpty }
+    /// The report of a tile with no pair: shown as "no pairs" (#2180).
+    public var reportsNone: Bool { state == "ask" && offers.isEmpty }
     /// The pairs Apply answers (a report row has no picker).
     public var answerable: [O4PackOverlap] { offers.filter { !$0.choices.isEmpty } }
     /// A same-airport pair is shown (its words and the restart note).
@@ -156,4 +158,12 @@ public enum O4PackOverlapsCopy {
     public static let hideSuffix = "'s polygons inside the airport"
     /// The row `kind` of a drape pair.
     public static let drapesKind = "drapes"
+
+    // Reviewing a tile's answers later (#2180): the tile pane's button
+    // sends `pack_overlaps` "ask" and opens this question on every pair.
+    public static let reviewButton = "Pack choices…"
+    public static let reviewHelp = "Review and change this tile's answers about packs "
+        + "that draw the same structures."
+    public static let noPairs = "No two packs draw the same structures on this tile."
+    public static let okButton = "OK"
 }

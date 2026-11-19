@@ -2454,17 +2454,26 @@ final class BuildModel: ObservableObject {
 
     /// Parity with the Qt window (`O4_Qt_GUI._on_pack_overlaps`).
     /// A question with a pair in it asks once per tile and pair set (the
-    /// report asks again); an outcome asks nothing (the engine's log line
+    /// report asks again, and says so when the tile has no pair); an
+    /// outcome asks nothing (the engine's log line
     /// says what was hidden).
     private func packOverlaps(_ offer: O4PackOverlaps) {
         if offer.state == "ask" { packOverlapsSeen.remove(offer.id) }
-        guard offer.asks, !packOverlapsSeen.contains(offer.id) else { return }
+        guard offer.asks || offer.reportsNone,
+              !packOverlapsSeen.contains(offer.id) else { return }
         packOverlapsSeen.insert(offer.id)
         if packOverlapsPrompt == nil {
             packOverlapsPrompt = offer
         } else {
             packOverlapsQueue.append(offer)
         }
+    }
+
+    /// The tile pane's "Pack choices…" (#2180): the tile's report, every
+    /// pair on its stored answer (or "no pairs"), as the same question.
+    func reviewPackOverlaps(_ tile: TileCoord) {
+        connectIfNeeded()
+        client?.packOverlaps(action: "ask", lat: tile.lat, lon: tile.lon)
     }
 
     /// The user's answer to the question on screen: `winners` (Apply,

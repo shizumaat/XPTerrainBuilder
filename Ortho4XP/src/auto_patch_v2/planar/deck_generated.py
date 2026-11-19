@@ -531,8 +531,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         own = re.compile(re.escape(oid) + r"(?![0-9])")
         return next((n for n in deck_notes if own.search(n)), "")
     out: list[DeckBridge] = []
-    for piece in _route_pieces(R, roads, airport, law, notes,
-                               lambda xy: pave(roles.at_xy(xy))):
+    for piece, beside in _route_pieces(R, roads, airport, law, notes,
+                                       lambda xy: pave(roles.at_xy(xy))):
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
         if not under:
             continue
@@ -610,6 +610,12 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         depth = _depth_m(law, under)
         hid = _deck_id(piece)
         approach = _approaches(piece, under, P, mapped, law)
+        # RULINGS 2026-11-19s (4) (c): the deck is its taxiway's width -- the
+        # pavement over the cut beside it leaves with its ring (the cut runs
+        # open there, as between two parallel taxiways' decks)
+        approach += [q for q in getattr(beside.difference(piece), "geoms",
+                                        [beside.difference(piece)])
+                     if q.geom_type == "Polygon" and q.intersection(P).area > 1.0]
         main = max(under, key=lambda r: r.line.intersection(piece).length)
         x = main.line.intersection(piece)
         road = tuple(x.coords) if x.geom_type == "LineString" else ()
@@ -642,11 +648,14 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     return tuple(out), notes + pair_notes
 
 
-def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None) -> list[Polygon]:
+def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None
+                  ) -> list[tuple[Polygon, _t.Any]]:
     """Each piece of ``R`` (the pavement over the cut) as ONE DECK PER
     TAXI ROUTE across it, at the route's class width (owner RULINGS
     2026-11-19s (3) (b), (4) (c); ``planar/deck_width``) -- never the
-    pavement's width; a piece no taxi route crosses (a runway's) as read."""
+    pavement's width; a piece no taxi route crosses (a runway's) as read.
+    ``(deck ring, the pavement over the cut beside every deck of its
+    piece)`` each: that pavement is opened with the deck's ring."""
     from .deck_width import route_decks
     g = law.tables.structures.deck_gen
     out: list[Polygon] = []
@@ -659,7 +668,9 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None) -> lis
                             airport, law, pave_at)
         c = piece.centroid
         notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for _p, n in decks]
-        out += [p for p, _n in decks if p.area >= float(g.min_area_m2)] or [piece]
+        rings = [p for p, _n in decks if p.area >= float(g.min_area_m2)]
+        beside = piece.difference(unary_union(rings)) if rings else Polygon()
+        out += [(p, beside) for p in rings] or [(piece, Polygon())]
     return out
 
 

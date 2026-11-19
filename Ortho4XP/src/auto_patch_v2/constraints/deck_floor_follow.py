@@ -162,12 +162,24 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
         near = prep(deck_polygon(d).buffer(_ON_RING_M))
         lu = max(1e-9, (patch.u[0] ** 2 + patch.u[1] ** 2) ** 0.5)
+        opened = _opened(d)
+        tin = _tin(stage1, opened) if opened is not None else None
         for v, vx in pm.vertices.items():
+            roles = {pm.faces[f].role for f in vx.incident_faces}
+            if low & roles:
+                continue                # a road's or the cut's own vertex: stage 2's
+            if tin is not None and v in air and v not in levels \
+                    and opened.contains(Point(vx.xy)) and not near.contains(Point(vx.xy)):
+                # the pavement edge the opened cut leaves beside the deck:
+                # the no-bridge airside there (``_tin``)
+                z = tin(vx.xy)
+                if z is not None:
+                    fixed[v] = round(z, 6)
+                continue
             if not near.contains(Point(vx.xy)):
                 continue
             s_, _t = patch.st(*vx.xy)
-            on_end = min(abs(s_), abs(s_ - 1.0)) * lu <= _ON_RING_M \
-                and not low & {pm.faces[f].role for f in vx.incident_faces}
+            on_end = min(abs(s_), abs(s_ - 1.0)) * lu <= _ON_RING_M
             if v in air and v in levels:
                 # the join's own level against the patch: the deck's flushness
                 off = abs(float(levels[v]) - patch.z(*vx.xy))
@@ -182,6 +194,45 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
+
+
+def _opened(d):
+    """The pavement the deck's cut opens beside and past it (its
+    ``approach``), grown by the ring tolerance; ``None`` for none."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    polys = [Polygon(q) for q in getattr(d, "approach", ()) or () if len(q) >= 3]
+    return prep(unary_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+                .buffer(_ON_RING_M)) if polys else None
+
+
+def _tin(stage1, opened) -> "_t.Callable | None":
+    """``z(xy)``: stage 1's levelled surface (a linear TIN of its solved
+    vertices) -- the no-bridge airside a vertex the full map minted where
+    the cut opens pavement takes; ``None`` without a stage-1 answer."""
+    solved = getattr(stage1, "solved", None) if stage1 is not None else None
+    if not solved:
+        return None
+    import numpy as np
+    from scipy.interpolate import LinearNDInterpolator
+    x0, y0, x1, y1 = opened.context.bounds
+    pts, zs = [], []
+    for v, z in solved.items():
+        vx = stage1.pm.vertices.get(v) if isinstance(stage1.pm.vertices, dict) \
+            else stage1.pm.vertices[v]
+        if vx is not None and x0 - 30.0 <= vx.xy[0] <= x1 + 30.0 \
+                and y0 - 30.0 <= vx.xy[1] <= y1 + 30.0:
+            pts.append(vx.xy)
+            zs.append(float(z))
+    if len(pts) < 3:
+        return None
+    f = LinearNDInterpolator(np.asarray(pts, float), np.asarray(zs, float))
+
+    def z_at(xy) -> "float | None":
+        got = float(f(xy[0], xy[1]))
+        return got if got == got else None
+    return z_at
 
 
 def _floor_pins(pm, cs, target: _t.Mapping[str, float], rep: dict):

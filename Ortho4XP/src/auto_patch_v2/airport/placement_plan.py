@@ -1221,13 +1221,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                    walk_max_m=abutment_walk_max_m,
                                    level_tol_m=split_tol_m, counts=counts))
         _bz: list[float] = []
+        # #2188: a bridge frame over a bore is level with its portals' tops
+        _portal = (_ens.frame_seat([st.m for st in staged], _entr)
+                   if bridge is not None else None)
         # #1883: what stands on a deck seated over the pack's cut rides that
         # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)
         _seats = (_cds.cut_seats(bridge.m, getattr(bridge.m, "origin", None) or tuple(u.anchor),
                                  surface, _cuts, abutment_step_m, deck_on_fraction)
                   if bridge is not None and _cuts else [])
 
-        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
+        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats, _p=_portal):
             if _b is None or getattr(mm, "id", "") in _floor_zero:
                 return r
             # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
@@ -1247,14 +1250,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if not _z:
                 # a deck body seated over the pack's own cut (26d) keeps its
                 # seat and states no frame zero (``cut_deck_seat.seated``)
-                z = (_open_zero([b for b in r.bodies if not _cds.seated(b)])
-                     if mm is _b.m else None)
+                z = _p if _p is not None else (
+                    _open_zero([b for b in r.bodies if not _cds.seated(b)])
+                    if mm is _b.m else None)
                 if z is None:
                     return r
                 _z.append(z)
                 counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
+            at = "its portals' entrance seat" if _p is not None else "its deck's zero"
             return _frame_zero(r, mm, _z[0],
-                               f"one bridge frame at its deck's zero {_z[0]:.2f} "
+                               f"one bridge frame at {at} {_z[0]:.2f} "
                                "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
                                keep=_functools.partial(_keeps_seat, None if fz is None
                                                        else fz[2], deck_on_fraction, _s))

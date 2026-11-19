@@ -2,7 +2,34 @@
 pad stands only where the building touches the ground.  A sky bridge over a
 road adds no pad and the road keeps its own ground under it; a building on
 its feet keeps its pad; the facade reader states how far a facade's walls
-stop over the ground.  Synthetic geometry, law values read from the tables."""
+stop over the ground.  Synthetic geometry, law values read from the tables.
+
+THE CONSUMER CENSUS (owner RULINGS 2026-08-30l) -- every pass reading pad
+geometry and what 19l does to it.  The trim lives at the ONE derivation site,
+so every reader inherits it; none re-derives a pad of its own.
+
+* classify/evidence._pads -- cluster outlines (geom/cluster_outline) and the
+  OSM / dsf:object / dsf:fac fallback: TRIMMED HERE (trim_to_ground, before
+  the jetways join and the refs are minted; both calls, slope on and off).
+* geom/slope_pad (19w footprint): feeds _pads, inherits.
+* classify/roles, ribbon_mint, pad_road_exit, frontage_road, storey_edge,
+  airside_edge, facade_mint, fence_yard, floor_yard, sources (ev.pads,
+  pad_union): inherit -- a passage is ribboned through.
+* planar/* building-face readers (overlay clip, pad_cut, pad_terrace,
+  platform, landing, basins, covered_cut, storey_pad, low_level,
+  reach_after_pads, deck_bridge, structures, group_up, ...): inherit.
+* constraints/{pads, pad_relief, pad_frontage_gs, pad_fronting, door_pad,
+  jetway_strip, foot_rows, platform, shell_datum}: inherit.
+* constraints/cluster_pad.cluster_polys (the census outline): unchanged; a
+  trimmed piece keeps its base ref (ref#k), so no mismatch row.
+* planar/apron_shelf (small clusters): unchanged; the shelf is less every
+  held region, so a passage road stays road.
+* airport/agp_plates + agp_foot_pads: unchanged; ground contact already,
+  road corridors out (18j (2)).
+* pipeline/stage_one_map (base pad map) and the object stage's pad seats:
+  inherit.
+* airport/road_profile (preferred_z, not a pad reader): a
+  tunnel=building_passage way is levelled at its own grade."""
 from __future__ import annotations
 
 import types

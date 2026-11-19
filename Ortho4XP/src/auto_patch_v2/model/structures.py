@@ -578,6 +578,11 @@ class DeckBridge:
     #: ids) a GENERATED deck carries on its edge (``planar/deck_gen_pairs.
     #: riders``) -- built as part of the deck, never on their own
     riders: tuple = ()
+    #: owner 2026-11-19T23:07Z: the cut a GENERATED deck owns
+    #: (``model/deck_carve.DeckCarve``, ``planar/deck_carve``) -- its paths,
+    #: floor stretches and the surveyed ground along them; ``None`` for a
+    #: pack deck or before the full map derives it
+    carve: _t.Any = None
 
     @property
     def depth_a(self) -> float:

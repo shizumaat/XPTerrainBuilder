@@ -347,6 +347,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_sunk",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -675,6 +676,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_sunk",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.ramp_runout",
         "auto_patch_v2.classify.reachability",
@@ -1662,6 +1664,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_cut_corridor",
+        "auto_patch_v2.classify.pad_sunk",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -1712,6 +1715,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.object_floor",
         "auto_patch_v2.constraints.pad_frontage_gs",
         "auto_patch_v2.constraints.pad_fronting",
+        "auto_patch_v2.constraints.pad_sunk_level",
         "auto_patch_v2.constraints.pad_ramp",
         "auto_patch_v2.constraints.pad_relief",
         "auto_patch_v2.constraints.pad_warning",
@@ -1921,6 +1925,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "raoa": "strips",
     "pad_flats": "pads",
     "pad_frontage_level": "pads",
+    "pad_sunk_level": "pad_sunk_level",
     "pad_fronting_level": "pad_fronting",
     "pad_slope_ceiling": "pads",
     "platform_collar": "platform",
@@ -2490,7 +2495,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.taxi_shoulder
@@ -2501,6 +2506,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.foot_rows constraints.geometry constraints.groundside
     constraints.hard_plane constraints.steep_apron constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
+    constraints.pad_sunk_level
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
     constraints.public_road_release
@@ -2754,7 +2760,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.ramp_runout
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules
@@ -2957,7 +2963,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
-    classify.pad_cut_corridor classify.pad_touch
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
@@ -3176,7 +3182,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.car_lot
     classify.gap_band
     classify.gap_mint classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
@@ -3341,7 +3347,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.gap_mint classify.gap_stands
     classify.lot_roads
     classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter classify.taxi_shoulder
@@ -3409,6 +3415,9 @@ CODE_MODULES["verify"] = _mods("""
     model.road_clearance
 """)
 
+#: #2188: the held terrace's level reads the pads' own derivations
+_GENERATOR_CLOSURES["pad_sunk_level"] = tuple(sorted(
+    {*_GENERATOR_CLOSURES["pads"], "auto_patch_v2.constraints.pad_sunk_level"}))
 
 def generator_stage(name: str) -> str:
     """The stage-code entry of the constraint generator ``name``."""
@@ -3483,7 +3492,7 @@ _GROWN: dict[str, str] = {
     classify.evidence classify.facade_mint classify.fence_division classify.fence_yard
     classify.floor_yard classify.frontage_road classify.gap_apron classify.gap_band
     classify.gap_mint classify.gap_stands classify.lot_roads classify.neck
-    classify.open_default classify.pad_cut_corridor classify.pad_touch
+    classify.open_default classify.pad_cut_corridor classify.pad_sunk classify.pad_touch
     classify.reachability classify.retaining_wall classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.storey_edge classify.taxi_letter
     classify.taxi_shoulder classify.wall_clip classify.wall_cutback geom.capped_plane
@@ -3600,7 +3609,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback geom.agp_plate geom.author_ground
@@ -3695,7 +3704,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback geom.agp_plate geom.author_ground
@@ -3790,7 +3799,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback geom.agp_plate geom.author_ground
@@ -4344,7 +4353,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -4439,7 +4448,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -4534,7 +4543,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.walled_floor geom.agp_plate
@@ -4631,7 +4640,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -4726,7 +4735,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -5484,7 +5493,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -5580,7 +5589,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -5879,7 +5888,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback geom.agp_plate geom.author_ground
@@ -5974,7 +5983,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -6070,7 +6079,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -6166,7 +6175,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -6262,7 +6271,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -6358,7 +6367,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.deck_lines geom.agp_plate
@@ -6456,7 +6465,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.walled_floor geom.agp_plate
@@ -6552,7 +6561,7 @@ _GROWN: dict[str, str] = {
     classify.fence_division classify.fence_yard classify.floor_yard
     classify.frontage_road classify.gap_apron classify.gap_band classify.gap_mint
     classify.gap_stands classify.lot_roads classify.neck classify.open_default
-    classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.reachability
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.storey_edge classify.taxi_letter classify.taxi_shoulder
     classify.wall_clip classify.wall_cutback constraints.walled_floor geom.author_ground
@@ -6623,10 +6632,12 @@ _GROWN: dict[str, str] = {
     planar.deck_gen_cover planar.deck_gen_pairs
     """,
     'late_cut': """
+    constraints.pad_sunk_level
     constraints.walled_floor geom.plate_cells geom.route_over_pad geom.sunk_cluster
     model.deck_piece planar.deck_gen_cover planar.deck_gen_pairs
     """,
     'late_solve': """
+    constraints.pad_sunk_level
     constraints.walled_floor geom.plate_cells geom.route_over_pad geom.sunk_cluster
     model.deck_piece planar.deck_gen_cover planar.deck_gen_pairs
     """,
@@ -6663,6 +6674,8 @@ _GROWN: dict[str, str] = {
     planar.viaduct_road planar.wall_corridor_ramps
     """,
 }
+# #2188: the held terrace's level grows as the pads' level row does
+_GROWN["constraints.pad_sunk_level"] = _GROWN["constraints.pad_frontage_level"]
 for _stage, _names in _GROWN.items():
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_names)}))
 

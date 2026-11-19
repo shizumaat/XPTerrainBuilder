@@ -978,6 +978,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     notes.extend(f"fence {f} airside on both sides at ({x}, {y})"
                  for f, x, y in _fd.pop("fence_airside_both_sites"))
     stats.update(_fd)
+    # #2188: a pad below the airside it touches is a HELD terrace, cut back
+    # LAST, so every cell above was read against the pad as drawn and the
+    # strip it yields is bare ground (``classify/pad_sunk``)
+    from .pad_sunk import hold_sunk_cells
+    cells, stats["pads_sunk_held"] = hold_sunk_cells(cells, airport, law, rules.cells.min_area_m2)
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),

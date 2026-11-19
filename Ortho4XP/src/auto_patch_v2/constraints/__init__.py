@@ -18,7 +18,8 @@ from ..model.planar import PlanarMap
 from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank,
                flat_site, foot_rows, groundside, hard_plane, door_pad,
                junction_mesh,
-               deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
+               deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting,
+               pad_sunk_level, pads,
                platform,
                proximity, ramp_runout, road_bridge_ceiling, road_ramp, roads, routes,
                runway_chord, runway_mean_slope,
@@ -124,6 +125,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("raoa", strips.raoa),
     ("pad_flats", pads.pad_flats),
     ("pad_frontage_level", pads.pad_frontage_level),
+    # #2188: a held terrace below the airside sits at its own ground
+    ("pad_sunk_level", pad_sunk_level.pad_sunk_level),
     ("pad_fronting_level", pad_fronting.pad_fronting_level),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
     # unit-platform spec §1 (3) / §3 P3 (RULINGS 2026-09-28a (1)): the

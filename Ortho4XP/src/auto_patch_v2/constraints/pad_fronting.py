@@ -160,8 +160,13 @@ def facing(planar: PlanarMap, law: Law, airport: Airport | None = None
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     out: dict[int, dict[int, list[int]]] = {}
     terr = getattr(planar, "pad_terraces", None) or {}
+    # a HELD TERRACE below the airside (#2188, ``classify/pad_sunk``) faces
+    # no apron: it stands at its own ground (``constraints/pad_sunk_level``)
+    sunk = getattr(planar, "sunk_pads", None) or {}
     ref_of = {f.id: str(f.ref) for f in planar.faces.values()}
     for fid, _ref, group, poly in _pad_polys(planar, law):
+        if str(_ref) in sunk:
+            continue
         pad_vs = set(group)
         cand = [aprons[int(i)] for i in
                 a_tree.query(poly, predicate="dwithin", distance=r)]

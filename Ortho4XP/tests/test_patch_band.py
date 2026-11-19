@@ -71,6 +71,10 @@ def tile(tmp_path, monkeypatch):
     build.mkdir()
     monkeypatch.setattr(R.FNAMES, "patch_dir", lambda lat, lon: str(patch_dir))
     monkeypatch.setattr(R, "_sources", lambda t: {R.BUILD_SOURCE: dem})
+    # The band is for a patch moved onto another elevation; an airport
+    # standing on its patch's own source (#2179) is meshed as authored.
+    import O4_Custom_Patch_Ground as GROUND
+    monkeypatch.setattr(GROUND, "grounds", lambda t: {})
     return SimpleNamespace(lat=LAT, lon=LON, build_dir=str(build),
                            auto_patch="All", rebase_custom_patches=True,
                            patch_dir=patch_dir)

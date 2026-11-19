@@ -19,6 +19,20 @@ is built to check if a newer version is available on the gateway."
   ``check_updates``, every Gateway pack the app installed whose Gateway
   recommendation moved on (reason ``"update"``).  An airport the user
   answered "never" for is not listed.
+* :func:`gateway_early` — THE EARLY REPORT (#2169 follow-up; owner
+  2026-11-19T00:21Z: "Can't we detect ahead of time if we need it so we
+  don't have to build the patch twice?"): at run start, before any patch
+  is built, the run's tiles' Global Airports airports that flatten, or
+  whose OSM feeds already on disk show a deck / road-bridge candidate
+  (``auto_patch_v2.planar.offer_witness``), so an Install lands before
+  the patch and the same run builds it against the Gateway pack.
+* ONCE PER RUN (:func:`begin_run`): an airport is asked at most once per
+  run, however many tiles it spans (the early report and every tile's
+  :func:`gateway_stage` share the run's asked set); an airport installed
+  this run whose patch a tile still built against Global Airports
+  (``generated.offer`` on its graded surface) is named by
+  :func:`stale_patches`, and the run builds that tile's vector step again
+  (``o4_engine``), once per tile and airport.
 * :func:`gateway_stage` — the build's call, once a tile is built
   (``o4_engine.session``, on a thread of its own): the report for the
   airports the tile's patches graded, announced as
@@ -44,6 +58,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import time
 import traceback
 import typing as _t
@@ -52,7 +67,8 @@ from auto_patch_v2.airport import pack_choice as _PC
 
 from . import gateway_api as _api
 
-__all__ = ["ACTIONS", "SIDECAR", "gateway_stage", "gateway_choice"]
+__all__ = ["ACTIONS", "SIDECAR", "gateway_stage", "gateway_choice",
+           "gateway_early", "begin_run", "stale_patches"]
 
 #: the actions of the ``gateway_airports`` command
 ACTIONS = ("install", "never", "undo", "ask")
@@ -64,6 +80,25 @@ LATEST_TTL_S = 3600.0
 
 STORE = _PC.Store(_PC.GATEWAY_CHOICES)
 _LATEST: dict[str, tuple[float, int]] = {}
+#: THE RUN'S MEMORY (module doc, :func:`begin_run`): the ICAOs asked, the
+#: ICAOs installed, and the ``(lat, lon, ICAO)`` patches sent back
+_RUN: dict[str, set] = {"asked": set(), "installed": set(), "repatched": set()}
+_RUN_LOCK = threading.Lock()
+
+
+def begin_run() -> None:
+    """A new run: nothing asked, installed or sent back yet."""
+    with _RUN_LOCK:
+        for seen in _RUN.values():
+            seen.clear()
+
+
+def _unasked(rows: list[dict]) -> list[dict]:
+    """``rows`` whose airport this run has not asked about (now asked)."""
+    with _RUN_LOCK:
+        out = [r for r in rows if r["icao"] not in _RUN["asked"]]
+        _RUN["asked"].update(r["icao"] for r in out)
+    return out
 
 
 def _pack_name(icao: str) -> str:
@@ -107,24 +142,66 @@ def _global_flatten(xplane_root: str, icao: str) -> dict | None:
     return _row(icao, _name_of(block), "flatten")
 
 
-def _global_bridges(xplane_root: str, icao: str, patch_dir: str) -> dict | None:
-    """The ``"bridges"`` row of ``icao``, or None: X-Plane draws it from
-    a Global Airports entry and its patch (``patch_dir``) published
-    generated decks / road bridges only a pack of its own can carry
-    (``generated_publication``'s ``"offer"``)."""
+def _global_entry(xplane_root: str, icao: str) -> list[str]:
+    """The Global Airports block X-Plane draws ``icao`` from, ``[]`` when
+    it draws another file."""
     from auto_patch_v2.airport import apt_dat as _apt
-    from auto_patch_v2.model.rebake import graded_surface_path
-    if not patch_dir:
-        return None
     chosen, block = _block(xplane_root, icao)
     if not chosen or chosen not in _apt.global_candidates(xplane_root):
-        return None
+        return []
+    return block
+
+
+def _graded_offer(patch_dir: str, icao: str) -> bool:
+    """The patch of ``icao`` in ``patch_dir`` published generated decks /
+    road bridges only a pack of its own can carry
+    (``generated_publication``'s ``"offer"``)."""
+    from auto_patch_v2.model.rebake import graded_surface_path
+    if not patch_dir:
+        return False
     try:
         with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:
             gen = (json.load(fh).get("provenance") or {}).get("generated") or {}
     except (OSError, ValueError, AttributeError):
+        return False
+    return bool(gen.get("offer"))
+
+
+def _global_bridges(xplane_root: str, icao: str, patch_dir: str) -> dict | None:
+    """The ``"bridges"`` row of ``icao``, or None: X-Plane draws it from
+    a Global Airports entry and its patch (``patch_dir``) published
+    generated decks / road bridges (:func:`_graded_offer`)."""
+    if not patch_dir:
         return None
-    return _row(icao, _name_of(block), "bridges") if gen.get("offer") else None
+    block = _global_entry(xplane_root, icao)
+    if not block or not _graded_offer(patch_dir, icao):
+        return None
+    return _row(icao, _name_of(block), "bridges")
+
+
+def _early_bridges(xplane_root: str, icao: str, osm_root: str,
+                   cache: dict) -> dict | None:
+    """The ``"bridges"`` row of ``icao`` before its patch is built, or
+    None: X-Plane draws it from a Global Airports entry and the tile's OSM
+    feeds show a deck / road-bridge candidate (``planar/offer_witness``)."""
+    block = _global_entry(xplane_root, icao)
+    if not block or not osm_root:
+        return None
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar import offer_witness as _OW
+    law = Law.for_airport(icao)
+    try:
+        record = _OW.read_airport(icao, xplane_root, osm_root, law, cache=cache)
+        notes = _OW.offer_notes(record, law) if record is not None else []
+    except (OSError, ValueError) as exc:
+        _say(2, f"  [gateway] {icao}: the early bridge check could not read "
+                f"it ({exc})")
+        return None
+    if not notes:
+        return None
+    _say(1, f"  [gateway] {icao}: {len(notes)} deck / road-bridge "
+            f"candidate(s) before the patch is built, e.g. {notes[0]}")
+    return _row(icao, _name_of(block), "bridges")
 
 
 def _row(icao: str, name: str, reason: str, installed_id: int = 0,
@@ -246,19 +323,8 @@ def gateway_stage(lat: int, lon: int, xplane_root: str | None,
         check = os.environ.get("O4_PACK_WRITES") is None
         rows = _offers(xplane_root, codes, check_updates=check, fetch=fetch,
                        patch_dir=_patch_dir(lat, lon))
-        for r in rows:
-            _say(0, f"  [gateway] {r['icao']}: "
-                    + ("X-Plane flattens this Global Airports entry "
-                       "(1302 flatten 1), so the graded ground is not what "
-                       "the sim draws; the app offers the Gateway's latest "
-                       "version without the flag"
-                       if r["reason"] == "flatten" else
-                       "its patch has taxiway decks / road bridges that X-Plane's "
-                       "Global Airports entry cannot carry; the app offers the "
-                       "Gateway's latest version as a pack it can modify"
-                       if r["reason"] == "bridges" else
-                       f"the Gateway has a newer version "
-                       f"({r['installed_id']} -> {r['latest_id']})"))
+        rows = _unasked(rows)
+        _say_rows(rows, "its patch has")
         if rows:
             _announce(lat, lon, "found", rows)
         return rows
@@ -266,6 +332,84 @@ def gateway_stage(lat: int, lon: int, xplane_root: str | None,
         _say(1, f"  [gateway] the Gateway airport check failed ({exc})")
         _say(2, traceback.format_exc())
         return []
+
+
+def _say_rows(rows: list[dict], has: str) -> None:
+    for r in rows:
+        _say(0, f"  [gateway] {r['icao']}: "
+                + ("X-Plane flattens this Global Airports entry "
+                   "(1302 flatten 1), so the graded ground is not what "
+                   "the sim draws; the app offers the Gateway's latest "
+                   "version without the flag"
+                   if r["reason"] == "flatten" else
+                   f"{has} taxiway decks / road bridges that X-Plane's "
+                   "Global Airports entry cannot carry; the app offers the "
+                   "Gateway's latest version as a pack it can modify"
+                   if r["reason"] == "bridges" else
+                   f"the Gateway has a newer version "
+                   f"({r['installed_id']} -> {r['latest_id']})"))
+
+
+def gateway_early(tiles: _t.Iterable[tuple[int, int]],
+                  xplane_root_of: _t.Callable[[int, int], str | None],
+                  osm_root: str | None = None) -> list[dict]:
+    """THE EARLY REPORT (module doc) for the run's ``tiles``, before any
+    patch is built: one ``state="found"`` event per tile with a row, each
+    airport once per run.  ``xplane_root_of(lat, lon)`` names the install;
+    ``osm_root`` the OSM feeds (default ``O4_File_Names.OSM_dir``).
+    Never raises."""
+    out: list[dict] = []
+    try:
+        if osm_root is None:
+            import O4_File_Names as FNAMES
+            osm_root = FNAMES.OSM_dir
+        for lat, lon in tiles:
+            root = xplane_root_of(lat, lon)
+            if not root:
+                continue
+            cache: dict = {}            # one parse of a tile's feeds
+            rows = []
+            for icao in _codes_of_tile(root, lat, lon):
+                icao = icao.upper()
+                with _RUN_LOCK:
+                    if icao in _RUN["asked"]:
+                        continue
+                if STORE.choice(_choice_key(root, icao)) == "never":
+                    continue
+                row = _global_flatten(root, icao) \
+                    or _early_bridges(root, icao, osm_root, cache)
+                if row is not None:
+                    rows.append(row)
+            rows = _unasked(rows)
+            _say_rows(rows, "its taxiways cross roads that need")
+            if rows:
+                _announce(lat, lon, "found", rows)
+            out += rows
+    except Exception as exc:
+        _say(1, f"  [gateway] the early Gateway airport check failed ({exc})")
+        _say(2, traceback.format_exc())
+    return out
+
+
+def stale_patches(lat: int, lon: int) -> list[str]:
+    """The airports installed from the Gateway this run whose patch in
+    tile ``lat``/``lon`` was still built against Global Airports (its
+    graded surface publishes ``generated.offer``): the tile's vector step
+    runs again, once per tile and airport.  Cheap when nothing was
+    installed this run.  Never raises."""
+    with _RUN_LOCK:
+        installed = sorted(_RUN["installed"])
+    if not installed:
+        return []
+    try:
+        patch_dir = _patch_dir(lat, lon)
+        stale = [icao for icao in installed if _graded_offer(patch_dir, icao)]
+    except Exception:
+        return []
+    with _RUN_LOCK:
+        stale = [i for i in stale if (int(lat), int(lon), i) not in _RUN["repatched"]]
+        _RUN["repatched"].update((int(lat), int(lon), i) for i in stale)
+    return stale
 
 
 def _write_pack(dest: str, files: dict[str, bytes]) -> None:
@@ -398,6 +542,8 @@ def gateway_choice(xplane_root: str | None, action: str,
                     _say(0, f"  [gateway] {icao}: the install failed ({exc})")
                     continue
                 STORE.remember(_choice_key(xplane_root, icao), "")
+                with _RUN_LOCK:
+                    _RUN["installed"].add(icao)
                 rows.append(_row(icao, "", "installed",
                                  done["scenery_id"], done["scenery_id"],
                                  done["pack"]))

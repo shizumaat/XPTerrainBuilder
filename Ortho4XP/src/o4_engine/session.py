@@ -196,6 +196,36 @@ def _offer_gateway_airports(lat: int, lon: int) -> None:
                      name="o4-gateway-check").start()
 
 
+def _offer_gateway_early(tiles) -> None:
+    """#2169 follow-up: before any patch is built, the run's tiles' Global
+    Airports airports that need the Gateway pack (``gateway_stage.
+    gateway_early``), each asked once per run — on a thread of its own,
+    so reading the feeds never holds up the run's first step."""
+    cells = [(int(t[0]), int(t[1])) for t in tiles]
+
+    def root_of(lat, lon):
+        from .xplane_root import xplane_root_for
+        try:
+            return xplane_root_for(lat, lon)
+        except Exception:
+            return None
+
+    def work():
+        from auto_patch import gateway_stage as _GW
+        _GW.gateway_early(cells, root_of)
+
+    threading.Thread(target=work, daemon=True,
+                     name="o4-gateway-early").start()
+
+
+def _gateway_line(tile, icaos) -> str:
+    """The log line of a tile built again for a Gateway install."""
+    return ("Tile %s: %s was installed from the Gateway during this run "
+            "after its patch was built against Global Airports; building "
+            "its vector step again to patch it against the Gateway pack."
+            % (FNAMES.short_latlon(*tile), ", ".join(icaos)))
+
+
 def _offer_pack_overlaps(lat: int, lon: int) -> None:
     """#2145: once a tile is built, the large structures two packs both
     draw near its airports, offered through a ``PackOverlaps`` event — on
@@ -1209,6 +1239,10 @@ class EngineSession:
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
+        if not self._stepwise_run:
+            from auto_patch import gateway_stage as _GW
+            _GW.begin_run()
+            _offer_gateway_early(tiles)
         self._cancel_all = False
         self._cancelled_tiles = set()
         self._active_tile = None
@@ -1427,6 +1461,7 @@ class EngineSession:
                             missing_art=missing_art, overrides=overrides,
                             priority=priority):
                         self._note_overrides(tiles, overrides)
+                        _offer_gateway_early(tiles)
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -1439,6 +1474,7 @@ class EngineSession:
                         do_vector, do_imagery, do_overlays, overrides,
                         priority)
                     if appended:
+                        _offer_gateway_early(tiles)
                         return True
                     if appended == 0:
                         # A live run refused the whole batch: every tile
@@ -1547,16 +1583,45 @@ class EngineSession:
             if not into or tile in queued or tile not in self._run_items:
                 continue
             skips.pop(tile, None)
-            UI.vprint(0, "Tile %s: an airport crosses into %s, queued after "
-                         "its airports were chosen; building it again to "
-                         "patch it." % (FNAMES.short_latlon(*tile),
-                                        ", ".join(FNAMES.short_latlon(*c)
-                                                  for c in sorted(into))))
-            item = self._run_items[tile]
-            self._cancelled_tiles.discard(tile)
-            self.new_tile_attempt(tile)
-            self._work_queue.append(item)
-            self._eta_add_tiles([tile], *item[1:])
+            self._requeue_built_locked(
+                tile, "Tile %s: an airport crosses into %s, queued after "
+                      "its airports were chosen; building it again to "
+                      "patch it." % (FNAMES.short_latlon(*tile),
+                                     ", ".join(FNAMES.short_latlon(*c)
+                                               for c in sorted(into))))
+
+    def _requeue_built_locked(self, tile, line):
+        """Queue again *tile*, built or building in this in-process run,
+        saying *line*; False when it is queued already or not part of the
+        run.  Caller holds ``_work_queue_lock``."""
+        if (tile in {item[0] for item in self._work_queue}
+                or tile not in self._run_items):
+            return False
+        UI.vprint(0, line)
+        item = self._run_items[tile]
+        self._cancelled_tiles.discard(tile)
+        self.new_tile_attempt(tile)
+        self._work_queue.append(item)
+        self._eta_add_tiles([tile], *item[1:])
+        return True
+
+    def _gateway_repatch(self, tiles):
+        """#2169 (3): after a Gateway install, each of the live run's
+        *tiles* whose patch of the installed airport was built against
+        Global Airports (``gateway_stage.stale_patches``) runs its vector
+        step again in this run."""
+        from auto_patch import gateway_stage as _GW
+        for tile in tiles:
+            icaos = _GW.stale_patches(*tile)
+            if not icaos:
+                continue
+            run = self._parallel
+            if run is not None:
+                run.repatch(tile, icaos, _gateway_line(tile, icaos))
+                continue
+            with self._work_queue_lock:
+                if self._building:
+                    self._requeue_built_locked(tile, _gateway_line(tile, icaos))
 
     def _live_run_cells_locked(self):
         """The in-process run's queued and building tiles (caller holds
@@ -1953,6 +2018,13 @@ class EngineSession:
                         self._requeue_boundary_skips(
                             self._live_run_cells_locked() - {(lat, lon)},
                             [(lat, lon)])
+                        # #2169 (3): a Gateway install this run that came
+                        # after this tile's patch was built
+                        from auto_patch import gateway_stage as _GW
+                        stale = _GW.stale_patches(lat, lon)
+                        if stale:
+                            self._requeue_built_locked(
+                                (lat, lon), _gateway_line((lat, lon), stale))
                     # #564: the airports this tile's MESH was built
                     # without, from the record the vector step published —
                     # a sidecar, because under the parallel orchestrator
@@ -2538,7 +2610,10 @@ class EngineSession:
                 root = xplane_root_for(la, lo) if la is not None else None
             except Exception:
                 root = None
-            _GW.gateway_choice(root, act, la, lo, items=picked, shown=seen)
+            done = _GW.gateway_choice(root, act, la, lo, items=picked,
+                                      shown=seen)
+            if (done or {}).get("state") == "installed":
+                self._gateway_repatch(sorted(self._live_run_cells()))
 
         threading.Thread(target=work, daemon=True,
                          name="o4-gateway-airports").start()

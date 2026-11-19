@@ -120,3 +120,45 @@ def test_carve_levels_the_cut_and_never_an_airside_vertex():
     bank = [v for v, vx in pm.vertices.items() if vx.xy == (0.0, 16.0)][0]
     assert got[bank] >= 173.0 - 4.0 / 1.5 - 1e-6
     assert rep["o4gen_t"]["evidence"] == ["OSM road -1 highway=primary"]
+
+
+def test_a_path_follows_its_mapped_road_and_runs_straight_on_past_its_end():
+    from shapely.geometry import LineString
+
+    from auto_patch_v2.planar.deck_carve import _extended, _road_lines
+    # the covered piece runs east; the mapped road bends north-east past it
+    ways = [types.SimpleNamespace(points=((-50.0, 0.0), (50.0, 0.0)), tags={"highway": "primary"}),
+            types.SimpleNamespace(points=((50.0, 0.0), (90.0, 30.0)), tags={"highway": "primary"})]
+    airport = types.SimpleNamespace(osm_ways=ways)
+    lines, tree = _road_lines(airport)
+    got = _extended(LineString([(-10.0, 0.0), (10.0, 0.0)]), 100.0, lines, tree)
+    from shapely.geometry import Point
+    assert got.distance(Point(90.0, 30.0)) < 1e-6        # followed the bend
+    assert got.coords[-1][0] > 90.0                       # ... and straight on past it
+    assert got.length == pytest.approx(20.0 + 2 * 100.0, abs=0.5)
+    assert got.coords[0][0] < -50.0          # straight on past the map's west end
+
+
+def test_a_deck_with_no_mapped_road_ramps_along_its_own_axis():
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.deck_carve import _deck_paths
+    law = Law.load()
+    d = _deck()
+    import dataclasses
+    d = dataclasses.replace(d, covered=(), replaces=("dsf:obj1",), carve=None)
+    airport = types.SimpleNamespace(osm_ways=(), dem=types.SimpleNamespace(z=lambda x, y: 173.0),
+                                    aeroways=())
+    import auto_patch_v2.planar.structure_underpass as su
+    old = su.aeroway_decks
+    su.aeroway_decks = lambda a, law: []
+    try:
+        dc = _deck_paths(d, [d], airport, law, [], None)
+    finally:
+        su.aeroway_decks = old
+    assert dc.direction.startswith("along the cut's own axis")
+    assert "hidden pack frame" in dc.evidence
+    (p,) = dc.paths
+    assert p.kind == "axis" and p.stretches and len(p.terrain) > 10
+    # the axis runs along the end lines (x), across the taxiway
+    (x0, y0), (x1, y1) = p.coords[0], p.coords[-1]
+    assert abs(y1 - y0) < 1e-6 and abs(x1 - x0) > 100.0

@@ -214,7 +214,8 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     # abutment embankments and ramps back to the terrain, levelled from the
     # top just read (``constraints/deck_carve``); never an airside vertex
     from .deck_carve import carve_levels
-    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law)
+    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law) \
+        if law is not None else ({}, {})
     fixed.update(cut)
     free.difference_update(cut)
     rep["fixed"], rep["freed"] = len(fixed), len(free)

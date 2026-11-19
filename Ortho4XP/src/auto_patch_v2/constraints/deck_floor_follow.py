@@ -120,7 +120,27 @@ def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
         # the fill out): the full map's own airside on it, at stage 1's levels
         smp = _samples(pm, levels, ring)
         got = edge_profiles(*fr, smp, tol=_ON_RING_M)
+    if got is None and solved:
+        # ... else stage 1's surface round the ring, read across it (a TIN)
+        from shapely.prepared import prep
+        tin = _tin(stage1, prep(ring.buffer(_ON_RING_M)))
+        if tin is not None:
+            o, u, w = fr
+            smp = [(x, y, z) for x, y in _edge_points(o, u, w, 2.0)
+                   if (z := tin((x, y))) is not None]
+            got = edge_profiles(*fr, smp, tol=_ON_RING_M)
     return got, len(smp)
+
+
+def _edge_points(o, u, w, step: float) -> list[tuple[float, float]]:
+    """Points every ``step`` metres round the parallelogram ``(o, u, w)``."""
+    import math
+    out = []
+    for a, d in ((o, u), (o, w), ((o[0] + u[0], o[1] + u[1]), w),
+                 ((o[0] + w[0], o[1] + w[1]), u)):
+        n = max(1, int(math.hypot(*d) / step))
+        out += [(a[0] + d[0] * k / n, a[1] + d[1] * k / n) for k in range(n + 1)]
+    return out
 
 
 def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, law=None

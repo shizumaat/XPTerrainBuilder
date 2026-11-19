@@ -8,7 +8,7 @@ from the bridge back to the natural terrain"; RULINGS 2026-11-19s (2)-(4)).
 Every GENERATED deck of the full map (``planar/deck_generated``) mints its
 own cut in the patch, ribbon or not, mapped road or not:
 
-* ITS PATHS (:func:`deck_paths`): each covered road or rail the deck spans
+* ITS PATHS (:func:`_deck_paths`): each covered road or rail the deck spans
   (``DeckBridge.covered``), chained on along its own mapped OSM path
   (straight on where the map ends) as far as its ramp can need
   (:func:`_reach_m`); with none mapped, the cut's own axis -- the deck's
@@ -54,7 +54,7 @@ from ..model.deck_carve import CARVE_REF, CarvePath, DeckCarve
 from ..model.road_clearance import carriageway_width_m, design_clearance_m
 from ..model.structures import is_generated
 
-__all__ = ["deck_paths", "deck_carve", "carve_law"]
+__all__ = ["deck_carve"]
 
 #: the surveyed ground is read along a path this often (m)
 STEP_M = 2.0
@@ -74,7 +74,7 @@ _HAIR_M = 0.3
 XY = tuple[float, float]
 
 
-def carve_law(law, kind: str) -> tuple[float, float]:
+def _carve_law(law, kind: str) -> tuple[float, float]:
     """``(cap, rate)`` of a ``road`` / ``rail`` / ``axis`` path: the road's
     ramp cap (``[tunnel] ramp_max_grade``) or the rail grade (``[tunnel]
     rail_ramp_grade``, 1.25 %), and its vertical curve's grade change per
@@ -234,7 +234,7 @@ def _estimate_floor(db, terrain, s0: float, s1: float, clearance: float, law) ->
     return min([design] + under)
 
 
-def deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
+def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     """The cut's record for the generated deck ``db`` (module doc);
     ``decks``: every generated deck of the map (the stretches)."""
     from .deck_bridge import deck_polygon
@@ -254,7 +254,7 @@ def deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
         evidence.append(f"OSM {kind} {way} {'railway' if kind == 'rail' else 'highway'}={cls}")
         if len(coords) < 2:
             continue
-        cap, rate = carve_law(law, kind)
+        cap, rate = _carve_law(law, kind)
         path = _extended(LineString(coords), _reach_m(db, law, cap, rate), lines, tree)
         paths.append(_path(str(way), kind, carriageway_width_m(tags, law) / 2.0 + sh,
                            design_clearance_m(tags, law), cap, rate, path, decks, past,
@@ -268,7 +268,7 @@ def deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     if not paths:
         ax = _axis(db)
         if ax is not None:
-            cap, rate = carve_law(law, "axis")
+            cap, rate = _carve_law(law, "axis")
             path = _extended(ax, _reach_m(db, law, cap, rate), [], None)
             tn = law.tables.structures.tunnel
             paths.append(_path("", "axis", carriageway_width_m({}, law) / 2.0 + sh,
@@ -363,7 +363,7 @@ def deck_carve(classification, decks, airport, law) -> tuple[_t.Any, tuple, list
     if not gen or classification is None or getattr(airport, "dem", None) is None:
         return classification, tuple(decks), []
     lines, tree = _road_lines(airport)
-    carves = {d.object_id: deck_paths(d, gen, airport, law, lines, tree) for d in gen}
+    carves = {d.object_id: _deck_paths(d, gen, airport, law, lines, tree) for d in gen}
     by_id = {d.object_id: d for d in gen}
     past = bank_past_m(law)
     regions: list[tuple[str, str, _t.Any]] = []

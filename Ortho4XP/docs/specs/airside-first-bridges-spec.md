@@ -75,19 +75,24 @@ deck), its stage 1 identical to the plain replay's.  The 19s bar is
 
 ## 7. Not done in this round (lbridge2)
 
-* THE CARVE UNDER A ROAD THE PATCH DOES NOT DRAW.  A covered PUBLIC road
-  (KBNA taxiway L: -3437/-3439 unclassified, -4944/-4946 primary, mapped
-  tunnels 19 m apart) is drawn by X-Plane's road network on the mesh, not as
-  a patch ribbon: its bore is admitted now (`planar/structures`: the 19 m
-  gap between two tunnels under our decks joins them, one bore; before,
-  both were refused "no portal") but the structure pass mints no corridor
-  cells for a road with no ribbon, so the ground under the deck is still
-  the mesh's lidar -- no designed floor, no embankment, no ramp back at the
-  grade cap.  Needs: corridor cells (floor at min(lidar road, underside -
-  clearance), 1V:1.5H banks at each abutment, the ramp along the road's own
-  path at `[tunnel] ramp_max_grade`, rail 1.25 %) minted for a bore with no
-  ribbon.  Where the covered road IS a ribbon (KRDU, KIAH, KJFK, KPHX,
-  KORD's service roads) the existing corridor carves it and the floor pins
-  follow section 1 row 4.
+* THE CARVE UNDER A ROAD THE PATCH DOES NOT DRAW -- done in lane lcarve,
+  section 8.
 * No wall-vs-embankment rule beyond today's generated-deck bank
   (`model/deck_bank`, 1V:1.5H via `constraints/edge_deck` span/blend rows).
+
+## 8. The cut is the deck's (lane lcarve, 2026-11-19)
+
+Owner 23:07Z: "When we insert a bridge, we know the size and shape of the
+cut needed to provide the clearance under it, whether there's OSM or not
+... we have to add the cut to the patch"; 23:09Z: "If we insert a bridge,
+we need the cut, and the cut needs to grade smoothly away from the bridge
+back to the natural terrain."  Law 19s (2)-(4).
+
+| step | where | what |
+|------|-------|------|
+| record | `planar/deck_carve.deck_paths` -> `DeckBridge.carve` (`model/deck_carve.DeckCarve`) | per generated deck: its EVIDENCE (OSM road / rail per covered way, hidden pack frame, OSM bridge tag, lidar trench) and its PATHS -- each covered road or rail chained on along its own mapped OSM path (straight on past the map's end) as far as its ramp can need (`floor_min_m + 2 m` at the cap, both curves, 20 m; at most `[tunnel] max_ramp_length_m`); with none mapped, the cut's own axis (the deck's road line, else along its end lines). Per path: the floor's half width (carriageway + `[deck_gen] shoulder_m`), the road's clearance (`model/road_clearance`), cap (`[tunnel] ramp_max_grade`; rail `rail_ramp_grade` 1.25 %), vertical-curve rate (`[road_profile] vertical_curve_k_m` / rail), the STRETCH under every generated deck it passes (ring + `bank_past_edge_m`), the surveyed ground along it (`airport.dem`, every 2 m) |
+| cells | `planar/deck_carve.deck_carve` (full map only, after `deck_ground`) | `graded_strip` faces `deck_carve:<deck>:floor/bank/ground`: the floor strip, the banks out to the estimated daylight line (1V:1.5H), the ring and its opened approaches; cut out of every groundside cell they cross, never airside pavement, a runway, a structure, a building pad or a road ribbon; noded every 4 m |
+| levels | `constraints/deck_carve.carve_levels`, called from `deck_floor_follow` once the tops are known | ONE floor per deck: `min(lidar road, least underside - clearance)` over every road under it (the lidar road its lowest survey within `[deck_gen] level_probe_m` of the stretch: a bare-earth survey reads the bridge's fill under the deck); along each path `geom/carve_profile.floor_profile` -- level under each deck, straight through the gap to the next deck over the same road, ramping out at the cap with vertical curves until it meets the surveyed ground (an LP, `O4_Road_Grade._smooth_grade_changes`); across, a vertex on a road's floor (its half width + 0.5 m snap) takes that floor, off every floor the deepest bank at 1V:1.5H; `min(ground, cut)`; never under the cone (1V:1.5H) the airside constants throw down -- the abutment embankment from each end line. Every groundside vertex on the cut's cells, under the ring / approaches, or where the cut stands under the ground is a STAGE-2 CONSTANT (`stage2_fixed`); airside never |
+
+Bars: `tools/deck_probe.py --carve` (library `tools/deck_carve_bars.py`).
+

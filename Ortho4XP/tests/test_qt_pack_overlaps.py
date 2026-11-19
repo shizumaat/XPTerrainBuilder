@@ -85,6 +85,20 @@ def test_each_pair_has_a_picker_on_its_answer_else_the_airport_pack(qapp):
     assert set(buttons) == {"choose"}
 
 
+def test_a_drape_row_offers_to_hide_the_lower_packs_polygons(qapp):
+    """RULINGS 2026-11-19h: the airport pack wins by default (Hide), or
+    Keep both; the note is shown once."""
+    row = {"key": "/CS/draped polygons +41-088/Airport | World", "kind": "drapes",
+           "packs": ["Airport", "World"], "airport": "Airport", "default": "Airport",
+           "winner": "", "lower": "World", "count": 9, "rows": [0, 9], "summary": "s"}
+    box, _buttons = QTOVER.pack_overlaps_box(_event(items=[row]))
+    (pick,) = box.pickers.values()
+    assert [pick.itemText(i) for i in range(pick.count())] == [
+        "Hide World's polygons inside the airport", "Keep both"]
+    assert pick.currentData() == "Airport"
+    assert box.answer_extra("choose") == {"items": [{"key": row["key"], "winner": "Airport"}]}
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackOverlaps.swift")
@@ -108,7 +122,11 @@ def test_the_copy_matches_the_mac_app():
     assert joined("static let restartNote", "/// The row") == QTOVER.RESTART_NOTE
     assert joined("static let duplicateKind", "static let disable ") == QTOVER.DUPLICATE_KIND
     assert joined("static let disable ", "static let keep ") == QTOVER.DISABLE
-    assert joined("static let keep ", "}") == QTOVER.KEEP
+    assert joined("static let keep ", "// A lower pack") == QTOVER.KEEP
+    assert joined("static let drapesNote", "static let hidePrefix") == QTOVER.DRAPES_NOTE
+    assert joined("static let hidePrefix", "static let hideSuffix") == QTOVER.HIDE_PREFIX
+    assert joined("static let hideSuffix", "/// The row `kind` of a drape") == QTOVER.HIDE_SUFFIX
+    assert joined("static let drapesKind", "}") == QTOVER.DRAPES_KIND
     for s in (QTOVER.APPLY_BUTTON, QTOVER.NOT_NOW_BUTTON):
         assert '"%s"' % s in text
 

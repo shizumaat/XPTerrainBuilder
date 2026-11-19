@@ -28,6 +28,11 @@ to take priority."
   ``dsf_write._with_overlap_hides``; its original stays the backup and
   Restore originals puts it back).
 
+A lower pack's draped polygons inside a custom airport (owner
+2026-11-19T01:35Z, RULINGS 19h) are rows of ``"kind": "drapes"`` in the
+same event (``drape_overlap_stage``): a pair whose airport pack winning
+hides them.
+
 Two packs that define the same airport are asked about by
 ``duplicate_stage`` (owner 2026-11-17T23:37Z, RULINGS 17s: disable the
 lower one?) in the same event, rows of ``"kind": "duplicate"``, and are
@@ -143,6 +148,12 @@ def _remember(scenery_dir: str, key: str, lat: int, lon: int, aname: str,
             _rewrite(scenery_dir, n, lat, lon)
 
 
+def _remember_in(scenery_dir: str) -> _t.Callable[..., None]:
+    """:func:`_remember` bound to a scenery folder (a drape pair's)."""
+    return lambda key, lat, lon, aname, pair: _remember(scenery_dir, key, lat, lon,
+                                                        aname, pair)
+
+
 def _context(xplane_root: str) -> dict:
     from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport import obj8 as _obj8
@@ -198,16 +209,20 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
     """THE TILE'S READING (module doc): one row per pack pair."""
     from auto_patch_v2.airport import apt_flatten as _af
 
+    from . import drape_overlap_stage as _dov
     from . import duplicate_stage as _ds
     from .drape_stage import _folder_packs
     airports, packs = _candidates(scenery_dir, lat, lon)
-    dups = _ds.rows(scenery_dir, [os.path.basename(os.path.normpath(p))
+    pairs = _ds.rows(scenery_dir, [os.path.basename(os.path.normpath(p))
                                   for p in _folder_packs(scenery_dir, lat, lon)])
     if not airports or len(packs) < 2:
-        return dups
-    ctx = _context(xplane_root)
+        return pairs
     anames = [os.path.basename(os.path.normpath(a)) for a in airports]
-    asked = _asked(scenery_dir, anames, {frozenset(r["packs"]) for r in dups})
+    same = _ds.family(scenery_dir, anames)[0]
+    pairs += _dov.rows(scenery_dir, lat, lon, airports, packs, same, _remember_in(scenery_dir))
+    ctx = _context(xplane_root)
+    asked = _asked(scenery_dir, anames, {frozenset(r["packs"]) for r in pairs
+                                         if r["kind"] == _ds.KIND})
     rows: dict[str, dict] = {}
     roots = {os.path.basename(os.path.normpath(p)): p for p in packs}
     for ap in airports:
@@ -222,7 +237,7 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
                 pair = _grown(pair, roots, by_pack, lat, lon, frame, region, ctx)
                 _remember(scenery_dir, key, lat, lon, aname, pair)
                 rows[key] = _row(key, aname, pair, scenery_dir, anames)
-    return dups + list(rows.values())
+    return pairs + list(rows.values())
 
 
 def overlap_stage(lat: int, lon: int, xplane_root: str | None) -> list[dict]:

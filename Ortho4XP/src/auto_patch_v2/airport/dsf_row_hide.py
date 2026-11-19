@@ -8,7 +8,9 @@ rows name the PRISTINE placements; one the object stage split is written
 as its bodies (their own files and anchors), so :func:`through_splits`
 names those too (#2167, MEASURED KJFK 1.0.560: the four faked-cut
 placements under the generated decks were split, and the hide matched
-none of them).  The
+none of them).  :func:`drop_segments` leaves a whole road network out
+(RULINGS 2026-11-19i: our overlay where another pack replaces the default
+roads over the tile).  The
 definition stays declared (the write drops an unused one).  One pass over
 the text for any number of rows.
 """
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["TOL_DEG", "hide_rows", "through_splits"]
+__all__ = ["TOL_DEG", "hide_rows", "through_splits", "drop_segments"]
 
 #: how close an anchor must be to name a row (degrees, ~0.2 m)
 TOL_DEG = 2e-6
@@ -104,4 +106,24 @@ def hide_rows(text: str, rows: _t.Iterable[_t.Sequence], tol_deg: float = TOL_DE
         keep.append(ln)
     if held:
         keep += held
+    return "\n".join(keep), n
+
+
+def drop_segments(text: str) -> tuple[str, int]:
+    """``text`` without its road network's segments (every ``BEGIN_SEGMENT``
+    .. ``END_SEGMENT`` block; the ``NETWORK_DEF`` stays declared); returns
+    ``(text, segments removed)``."""
+    if "\nBEGIN_SEGMENT" not in text and not text.startswith("BEGIN_SEGMENT"):
+        return text, 0
+    keep: list[str] = []
+    inside = False
+    n = 0
+    for ln in text.split("\n"):
+        if inside:
+            inside = not ln.startswith("END_SEGMENT")
+            continue
+        if ln.startswith("BEGIN_SEGMENT"):
+            inside, n = True, n + 1
+            continue
+        keep.append(ln)
     return "\n".join(keep), n

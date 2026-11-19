@@ -29,15 +29,21 @@ import O4_DSF_Header as DSFH
 import O4_Scenery_Packs as SP
 import O4_World_Pack as WP
 
-__all__ = ["PACK_NAME", "MARKER", "dsf_path", "covering_pack", "exclusion_boxes",
-           "has_row", "ini_install", "install"]
+__all__ = ["PACK_NAME", "MARKER", "LEGACY_PACK_NAME", "dsf_path", "covering_pack",
+           "road_cover", "is_ours", "exclusion_boxes", "has_row", "ini_install",
+           "install"]
 
 PACK_NAME = "yXPTerrainBuilder Overlays"
 #: Written into the pack's root by :func:`install`: the app manages it.
 MARKER = "XPTerrainBuilder_overlays.json"
+#: The shared overlay folder an Ortho4XP build writes (``O4_Scenery_Links.
+#: OVERLAY_LINK_NAME``; a twin pins the two): ours as well.
+LEGACY_PACK_NAME = "yOrtho4XP_Overlays"
 #: Exclusion boxes are given in degrees; this much short of the tile's
 #: edge still counts as the whole tile.
 _EDGE_TOLERANCE_DEG = 1e-6
+#: why a pack that excludes the default road network over the tile covers it
+_ROADS_WHY = "replaces the default road network over the whole tile"
 
 
 def dsf_path(scenery_dir: str, lat: int, lon: int) -> str:
@@ -87,10 +93,26 @@ def _why_covering(pairs, lat: int, lon: int,
     if props.get("sim/overlay") != "1":
         return None
     if _network_excluded(pairs, lat, lon):
-        return "replaces the default road network over the whole tile"
+        return _ROADS_WHY
     if default_agent and props.get("sim/creation_agent") == default_agent:
         return "already holds the default scenery's roads, forests and buildings"
     return None
+
+
+def _tile_overlays(scenery_dir: str, lat: int, lon: int):
+    """``(pack, header pairs)`` of every enabled Custom Scenery pack, other
+    than this one and the World pack, with a DSF of the tile (by name).
+    One ``stat`` per pack; only a DSF that exists has its header read."""
+    if not scenery_dir or not os.path.isdir(scenery_dir):
+        return
+    disabled = SP.disabled_pack_names(scenery_dir)
+    relative = WP.dsf_relpath(lat, lon)
+    for entry in sorted(os.listdir(scenery_dir)):
+        if entry in (PACK_NAME, WP.PACK_NAME) or entry in disabled:
+            continue
+        dsf = os.path.join(scenery_dir, entry, relative)
+        if os.path.isfile(dsf):
+            yield entry, DSFH.dsf_property_pairs(dsf) or []
 
 
 def covering_pack(scenery_dir: str, lat: int, lon: int,
@@ -112,23 +134,35 @@ def covering_pack(scenery_dir: str, lat: int, lon: int,
 
     An airport or landmark overlay does neither and covers nothing: the
     tile still gets its overlay.  A pack disabled in ``scenery_packs.ini``
-    is not read.  One ``stat`` per pack; only a DSF that exists has its
-    header read."""
-    if not scenery_dir or not os.path.isdir(scenery_dir):
-        return None
-    disabled = SP.disabled_pack_names(scenery_dir)
-    relative = WP.dsf_relpath(lat, lon)
-    for entry in sorted(os.listdir(scenery_dir)):
-        if entry in (PACK_NAME, WP.PACK_NAME) or entry in disabled:
-            continue
-        dsf = os.path.join(scenery_dir, entry, relative)
-        if not os.path.isfile(dsf):
-            continue
-        why = _why_covering(DSFH.dsf_property_pairs(dsf) or [], lat, lon,
-                            default_agent)
+    is not read (:func:`_tile_overlays`)."""
+    for entry, pairs in _tile_overlays(scenery_dir, lat, lon):
+        why = _why_covering(pairs, lat, lon, default_agent)
         if why:
             return entry, why
     return None
+
+
+def road_cover(scenery_dir: str, lat: int, lon: int) -> Optional[tuple]:
+    """``(pack, why)`` of the first enabled overlay pack (not ours) that
+    replaces the default road network over the whole tile
+    (:func:`_network_excluded`), else ``None`` -- where it does, OUR
+    overlay of the tile leaves its road network out (owner
+    2026-11-19T01:35Z, RULINGS 2026-11-19i: "skip our overlay roads where
+    simheaven covers"); forests and buildings stay."""
+    for entry, pairs in _tile_overlays(scenery_dir, lat, lon):
+        if is_ours(os.path.join(scenery_dir, entry)):
+            continue
+        if dict(pairs).get("sim/overlay") == "1" and _network_excluded(pairs, lat, lon):
+            return entry, _ROADS_WHY
+    return None
+
+
+def is_ours(pack_root: str) -> bool:
+    """Is ``pack_root`` one of our overlay packs: this pack (or one
+    carrying :data:`MARKER`) or the shared Ortho4XP overlay folder?"""
+    name = os.path.basename(os.path.normpath(pack_root or ""))
+    return (name in (PACK_NAME, LEGACY_PACK_NAME)
+            or os.path.isfile(os.path.join(pack_root or "", MARKER)))
 
 
 def _is_row(line: str, name: str) -> bool:

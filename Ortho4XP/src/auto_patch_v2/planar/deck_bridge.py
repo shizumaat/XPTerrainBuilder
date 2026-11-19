@@ -409,6 +409,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                                    family=fam, route=route, route_ref=ref, span_cut=span))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
+        objs: list[DeckBridge] = []
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
             db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
             if solid:
@@ -420,9 +421,73 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
                                  top_b=_end_top(plate, db.seats_b, reach, db.top_b))
             r, n = _road_dir(db), across_dir(db)
-            out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
-                                                        0.5 * (db.top_a + db.top_b), r, n)))
+            db = _dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
+                                                  0.5 * (db.top_a + db.top_b), r, n))
+            notes.extend(_floor_pair_note(db))
+            objs.append(db)
+        out.extend(_walled_zero(objs, airport, step,
+                                float(law.tables.structures.tunnel.wall_gap_m), notes))
     return tuple(out), notes
+
+
+def _walled_zero(objs: list[DeckBridge], airport, step: float, gap: float,
+                 notes: list[str]) -> list[DeckBridge]:
+    """``objs`` (one object's pieces) with the pre-solve zero read one sample
+    ``step`` OUTSIDE the larger of each walled piece's ring and its trench
+    rim (walled-multibridge-frames spec W3): a ring ending on the rim reads
+    the rim and the pit floor together (KORD's I-190 frame: 196.28 against
+    the taxiway's 199.0-199.2), and the survey's at-grade test
+    (``deck_bores``, #2128 R5) then reads a 5 m trench as 2.1-2.6 m.  A
+    wall-less piece keeps its stations."""
+    moved = [p for db in objs for p in _outside_rim(db, step, gap)]
+    z = _deck_z(airport, moved, None) if moved else None
+    if z is None or not objs:
+        return objs
+    notes.append(f"{objs[0].object_id} {objs[0].resource.rsplit('/', 1)[-1]}: the zero is read "
+                 f"{step:g} m outside its walled rim, {objs[0].deck_z:.2f} -> {z:.2f} "
+                 f"(walled frames W3)")
+    return [_dc.replace(db, deck_z=z) for db in objs]
+
+
+def _outside_rim(db: DeckBridge, step: float, gap: float) -> list[XY]:
+    """The end-line stations of a WALLED piece moved across the road to one
+    ``step`` past the larger of its ring and its rim (the K2 wall pair less /
+    plus ``gap``), or none for a piece with no wall pair (:func:`_walled_zero`)."""
+    if _walled_trench(db, gap) is None:
+        return []
+    r, n, faces = db.walls[:3]
+    floor = db.walls[3] if len(db.walls) > 3 else ()
+    u_lo, u_hi = project_span(db.ring, n)
+    s_lo, s_hi = project_span(db.ring, r)
+    mid = 0.5 * (u_lo + u_hi)
+    ua, ub = inner_faces(faces, s_lo, s_hi, mid, (u_lo, u_hi), floor)
+    lo, hi = min(u_lo, ua - gap) - step, max(u_hi, ub + gap) + step
+    out = []
+    for x, y in tuple(db.seats_a) + tuple(db.seats_b):
+        u = x * n[0] + y * n[1]
+        du = (lo if u < mid else hi) - u
+        out.append((x + du * n[0], y + du * n[1]))
+    return out
+
+
+def _floor_pair_note(db: DeckBridge) -> list[str]:
+    """K2 (kord-trench-frame-spec): one note where the frame's floor moves
+    the deck's wall pair off the nearest-the-middle one -- the pair before
+    and after, so a replay lists every deck the rule reaches."""
+    if len(db.walls) < 4 or not db.walls[3]:
+        return []
+    r, n, faces, floor = db.walls
+    u_lo, u_hi = project_span(db.ring, n)
+    s_lo, s_hi = project_span(db.ring, r)
+    mid, reach = 0.5 * (u_lo + u_hi), (u_lo, u_hi)
+    old = inner_faces(faces, s_lo, s_hi, mid, reach)
+    new = inner_faces(faces, s_lo, s_hi, mid, reach, floor)
+    if old == new:
+        return []
+    fmt = lambda p: "none" if None in p else f"{p[0]:.2f}..{p[1]:.2f}"  # noqa: E731
+    return [f"{db.object_id} {db.resource.rsplit('/', 1)[-1]} piece {deck_polygon(db).area:,.0f} m2: "
+            f"K2 the wall pair stands at the frame's floor edge, {fmt(old)} -> {fmt(new)} "
+            f"across the road (kord-trench-frame-spec)"]
 
 
 def _frame_walls(cache, frame, bottom: float, top: float, r, n) -> tuple:

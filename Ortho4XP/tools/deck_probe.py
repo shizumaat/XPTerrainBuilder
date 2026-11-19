@@ -128,6 +128,10 @@ def main(argv=None) -> int:
                     help="the bank round every BANKED deck (tools/deck_bank_perimeter): "
                          "the worst step, grade, jags and slope break along offset "
                          "lines round its ring")
+    ap.add_argument("--span-clean", action="store_true",
+                    help="nothing of the pavement inside a walled span's cut "
+                         "(tools/deck_span_clean, walled frames W8): rows per walled deck; "
+                         "exit 1 on any")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -199,6 +203,15 @@ def main(argv=None) -> int:
             print(f"BANK-PERIMETER {q['object']}: step {q['step_m']} m grade {q['grade']} "
                   f"jags {q['jags']} break {q['break']} off-patch {q['off']} "
                   f"at {q.get('ll')} | {per}")
+    if a.span_clean:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_span_clean import span_clean
+        res["span_clean"] = span_clean(pm, Law.for_airport(pm.icao))
+        for q in res["span_clean"]:
+            rc |= q["rows"] > 0
+            print(f"SPAN-CLEAN {'FAIL' if q['rows'] else 'PASS'} {q['object']}: strip "
+                  f"{q['strip_m2']} m2, {q['rows']} vertex(es) {q['roles']} {q['lines']} "
+                  f"{q['vertices']}")
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, default=str))
     return rc

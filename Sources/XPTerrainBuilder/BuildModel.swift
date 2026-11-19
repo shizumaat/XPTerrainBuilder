@@ -426,6 +426,9 @@ final class BuildModel: ObservableObject {
     /// `overrides` and cleared once sent — never written to a cfg.
     @Published var gradeAirportsThisBuild: Bool?
     @Published var fitBuildingsThisBuild: Bool?
+    /// Bumped when an airport's own Fit switch was written (#2182): the
+    /// Build pane asks the engine for the card again.
+    @Published var airportFitGeneration = 0
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()

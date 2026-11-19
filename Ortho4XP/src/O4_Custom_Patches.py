@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 
+import O4_Airport_Fit as AIRPORT_FIT
 import O4_File_Names as FNAMES
 
 __all__ = ["CUSTOM_PATCH_TITLE", "USE_AUTO_PATCH_TITLE", "SET_ASIDE_SUFFIX",
@@ -39,6 +40,7 @@ __all__ = ["CUSTOM_PATCH_TITLE", "USE_AUTO_PATCH_TITLE", "SET_ASIDE_SUFFIX",
            "use_auto_patch", "info_text", "use_auto_patch_help",
            "notice_seen",
            "FIT_KEY", "unmodified_airports", "stand_down_new", "fit_state",
+           "airport_fits",
            "fit_confirm_text"]
 
 #: The tile info's label (``BuildPane.customPatchTitle`` in the Mac app).
@@ -232,10 +234,9 @@ def notice_seen(lat: int, lon: int, file: str,
 
 
 # ── "Fit custom airport buildings" and a custom patch (owner RULINGS
-# 2026-11-18l, #2172) ─────────────────────────────────────────────────────
-#: The tile setting the Build card's "Fit custom airport buildings to the
-#: new ground" switch and Settings' row edit.
-FIT_KEY = "modify_custom_airports"
+# 2026-11-18l, #2172; per airport since #2182, ``O4_Airport_Fit``) ─────────
+#: The tile setting each airport's own value falls back to.
+FIT_KEY = AIRPORT_FIT.FIT_KEY
 #: The tile's record of the custom patches a build has seen, in its build
 #: folder: ``{file name: [mtime_ns, size]}``.
 _SEEN_RECORD = "custom_patches_seen.json"
@@ -284,27 +285,32 @@ def _new_airports(tile) -> list[str]:
 
 
 def stand_down_new(tile) -> list[str]:
-    """At a build's start: a custom patch the tile has not seen turns its
-    "Fit custom airport buildings" OFF (in memory and in the tile cfg),
-    logged in one line naming the airports; the patches are recorded as
-    seen.  Returns the new airports.  A per-build switch the user turns on
-    afterwards (``Tile.apply_build_overrides``) still wins."""
+    """At a build's start: a custom patch the tile has not seen turns
+    "Fit custom airport buildings" OFF for ITS airport (the airport's own
+    value, ``O4_Airport_Fit``; #2182: the tile's other airports keep
+    theirs), logged in one line naming the airports; the patches are
+    recorded as seen.  Returns the new airports.  A per-build switch the
+    user turns on afterwards (``Tile.apply_build_overrides``) still wins."""
     import json
 
     signature = _signature(tile.lat, tile.lon)
     if signature == _seen(tile):
         return []
     new = _new_airports(tile)
-    if new and getattr(tile, FIT_KEY, False):
-        import O4_Settings_Model as SM
+    turned = [icao for icao in new if AIRPORT_FIT.fits(tile, icao)]
+    own = AIRPORT_FIT.read(tile.build_dir)
+    for icao in new:
+        if own.get(icao) is not False:   # off as its own value, not the tile's
+            AIRPORT_FIT.set_fit(tile.build_dir, icao, False)
+    if turned:
         import O4_UI_Utils as UI
 
-        setattr(tile, FIT_KEY, False)
-        SM.write_tile(tile.lat, tile.lon, tile.custom_build_dir,
-                      {FIT_KEY: False})
         UI.vprint(0, "Custom patch new for %s: \"Fit custom airport buildings "
-                     "to the new ground\" is turned off for this tile — the "
-                     "airport's pack is used unmodified." % ", ".join(new))
+                     "to the new ground\" is turned off for %s — the "
+                     "airport's pack is used unmodified; the tile's other "
+                     "airports keep their own setting." % (
+                         ", ".join(turned),
+                         "this airport" if len(turned) == 1 else "these airports"))
     os.makedirs(tile.build_dir, exist_ok=True)
     with open(os.path.join(tile.build_dir, _SEEN_RECORD), "w",
               encoding="utf-8", newline="") as handle:
@@ -312,11 +318,26 @@ def stand_down_new(tile) -> list[str]:
     return new
 
 
+def airport_fits(tile, icaos) -> dict:
+    """``{ICAO: fit}`` for a configured tile's next build: each airport's
+    own value (``O4_Airport_Fit.fits``) — off when its custom patch is new
+    to the tile (the build's :func:`stand_down_new` will turn it off)."""
+    new = set(_new_airports(tile))
+    return {icao: icao not in new and AIRPORT_FIT.fits(tile, icao)
+            for icao in sorted(set(icaos))}
+
+
 def fit_state(tile) -> tuple[list[str], bool]:
-    """``(custom-patch airports, fit)`` for a configured tile: what its
-    next build fits — off when a custom patch is new to it."""
-    fit = bool(getattr(tile, FIT_KEY, False)) and not _new_airports(tile)
-    return (unmodified_airports(tile.lat, tile.lon), fit)
+    """``(custom-patch airports, fit)`` for a configured tile: whether its
+    next build fits any of the airports it knows (its custom patches' and
+    those with a value of their own; else the tile's setting).  The Build
+    card reads each pack airport's own value (:func:`airport_fits`); this
+    is its answer when no pack is listed."""
+    custom = unmodified_airports(tile.lat, tile.lon)
+    known = set(custom) | set(AIRPORT_FIT.read(tile.build_dir))
+    if not known:
+        return (custom, AIRPORT_FIT.any_fits(tile))
+    return (custom, any(airport_fits(tile, known).values()))
 
 
 def fit_confirm_text(icaos) -> str:

@@ -104,7 +104,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
             await refreshCustomAirportPacks()
         }
-        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)") {
+        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)|\(buildModel.airportFitGeneration)") {
             await refreshAirportCard()
         }
         .task(id: imageryAuditKey) {

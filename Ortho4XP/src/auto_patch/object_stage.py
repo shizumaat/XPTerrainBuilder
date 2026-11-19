@@ -1114,7 +1114,11 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
     # read and every other print, and its own line is ``vprint(2)`` — the
     # console at default verbosity carries NO ``[v2 rebake]`` line at all,
     # while ``-v2`` still names the switch for anyone debugging.
-    if not getattr(tile, "modify_custom_airports", True):
+    # PER AIRPORT since #2182 (``O4_Airport_Fit``): the stage stands down
+    # whole only when no airport of the tile fits; an airport whose own
+    # switch is off is skipped in the loop below, the others are placed.
+    import O4_Airport_Fit as AIRPORT_FIT
+    if not AIRPORT_FIT.any_fits(tile):
         UI.vprint(_STAND_DOWN_VERBOSITY,
                   "  [v2 rebake] modify_custom_airports is off — "
                   "placement stage skipped entirely (no pack is read, "
@@ -1249,6 +1253,15 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                     UI.vprint(1, f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
                     counts["airports_custom_patch"] = \
                         counts.get("airports_custom_patch", 0) + 1
+                    continue
+                if not AIRPORT_FIT.fits(tile, icao):
+                    # #2182: this airport's own switch is off — its pack
+                    # is left as it is; the tile's other airports are not
+                    UI.vprint(_STAND_DOWN_VERBOSITY,
+                              f"  [v2 rebake] {icao}: modify_custom_airports "
+                              f"is off for this airport — not placed")
+                    counts["airports_fit_off"] = \
+                        counts.get("airports_fit_off", 0) + 1
                     continue
                 edited = _SELECTION.manual_patch_files_for(patch_dir, icao)
                 if edited:
@@ -1550,12 +1563,15 @@ def _custom_patch_airports(patch_dir: str) -> dict:
     return out
 
 
-def _pack_stand_down(tile) -> str:
-    """Why no pack file may be written by this build, or ``""`` — the
-    object stage's three switches, in one place for the unpatched-airport
-    restore (the placement loop below words its own lines)."""
+def _pack_stand_down(tile, icao: str | None = None) -> str:
+    """Why no pack file may be written by this build (for *icao*, or for
+    any airport of the tile), or ``""`` — the object stage's three
+    switches, in one place for the unpatched-airport restore (the
+    placement loop below words its own lines)."""
+    import O4_Airport_Fit as AIRPORT_FIT
     from .config import DSF_OBJECT_REANCHOR
-    if not getattr(tile, "modify_custom_airports", True):
+    if not (AIRPORT_FIT.fits(tile, icao) if icao
+            else AIRPORT_FIT.any_fits(tile)):
         return '"Modify custom airports" is off'
     if os.environ.get("O4_PACK_WRITES") == "measure_only":
         return "this is a lane build (O4_PACK_WRITES=measure_only)"
@@ -1600,8 +1616,9 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
         # unmodified too — the patch was likely designed for it
         custom = set(_custom_patch_airports(
             os.path.dirname(object_anchor_worklist_path(tile))))
+        import O4_Airport_Fit as AIRPORT_FIT
         for icao in sorted(custom):     # silent when the box is off (#42)
-            UI.vprint(0 if getattr(tile, "modify_custom_airports", True) else 2,
+            UI.vprint(0 if AIRPORT_FIT.fits(tile, icao) else 2,
                       f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
         unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)] + sorted(custom)
         if not unpatched:
@@ -1610,7 +1627,6 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
             import O4_Config_Utils as CFG
             scenery_dir = getattr(CFG, "custom_scenery_dir", "") or ""
         tile_name = FNAMES.short_latlon(tile.lat, tile.lon)
-        stand_down = _pack_stand_down(tile)
         for pack in _OR.modified_packs(scenery_dir, tile_name):
             pack_root = pack["pack_path"]
             if _is_protected_scenery_root(pack_root) \
@@ -1622,6 +1638,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                         tile_name + ".dsf")
                 for icao in sorted(set(unpatched)
                                    & set(_up.seated_airports(dsf_path))):
+                    stand_down = _pack_stand_down(tile, icao)
                     if stand_down:
                         out = _up.Outcome(_up.UNPROVEN, dsf_path, reason=(
                             "it was not restored because " + stand_down))
@@ -1673,6 +1690,8 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                          f"longer carries this tile's "
                                          f"objects of the airport")
     except Exception as exc:
-        UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
+        import O4_Airport_Fit as AIRPORT_FIT     # silent when the box is off (#42)
+        UI.vprint(1 if AIRPORT_FIT.any_fits(tile) else _STAND_DOWN_VERBOSITY,
+                  f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())
     return counts

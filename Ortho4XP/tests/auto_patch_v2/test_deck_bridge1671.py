@@ -122,16 +122,35 @@ def test_a_deck_the_taxiway_only_touches_is_no_bridge(tmp_path):
     assert got == () and "no pavement runs across it" in notes[0]
 
 
-def test_a_co_placed_trench_object_states_the_walls_and_the_walls_define_the_cut(tmp_path):
-    """Q-A as ruled (EDDF ``Bridge_3`` + ``Tunnel_3``): where the pack
-    models walls, the walls define the cut — the frame is the trench
-    object's, never a hard-deck bridge here."""
+def test_a_co_placed_trench_object_sets_the_cut_width_and_the_deck_is_still_a_bridge(tmp_path):
+    """RULINGS 2026-11-19a (amending the reading of 10-30b; Q-A's EDDF
+    ``Bridge_3`` + ``Tunnel_3``): the trench object's walls set the cut's
+    WIDTH only -- the deck is a bridge seated at its two end lines, its depth
+    its frame's own solids under it, never the trench's deepest part."""
     deck = _placed(_deck(tmp_path), "dsf:obj7")
     trench = _placed(_deck(tmp_path), "dsf:obj8", kind="")
     trench.path = "objects/trench.obj"
-    t = types.SimpleNamespace(object_id="dsf:obj8", depth_m=6.0)
-    got, notes = _read(tmp_path, objs=[deck, trench], trenches=[t])
-    assert got == () and "they define the cut" in notes[0]
+    t = types.SimpleNamespace(object_id="dsf:obj8", depth_m=13.6)
+    (db,), notes = _read(tmp_path, objs=[deck, trench], trenches=[t])
+    assert any("19a" in n for n in notes)
+    assert abs(db.bottom_y + 0.2) < 1e-6 and db.walls
+
+
+def test_a_walled_multi_bridge_frame_reads_each_piece_depth(tmp_path):
+    """19a: two deck plates of one walled frame, one over a 6 m pit, read
+    their own bottoms (KRDU CTR_TML: -1.25 / -6.07, trench -13.57)."""
+    path = _write(tmp_path / "two.obj",
+                  [_box(-20.0, -20.0, 40.0, 40.0, 0.3, y0=5.7),
+                   _box(-10.0, -10.0, 4.0, 4.0, 5.0, y0=-6.0),
+                   _box(80.0, -20.0, 40.0, 40.0, 0.3, y0=5.7),
+                   _box(90.0, -10.0, 4.0, 4.0, 5.0, y0=-1.0)], hard=(0, 2))
+    o = _placed(path, "dsf:obj9")
+    cache = O.ResourceCache(THICK)
+    frame = [o]
+    from shapely.geometry import box as b
+    assert DB._piece_bottom(cache, frame, b(-20, -20, 20, 20), LAW, 6.0) == -6.0
+    assert DB._piece_bottom(cache, frame, b(80, -20, 120, 20), LAW, 6.0) == -1.0
+    assert DB._piece_bottom(cache, frame, b(200, -20, 240, 20), LAW, 6.0) == 6.0
 
 
 def _bridge(tmp_path, walls=False):
@@ -473,3 +492,21 @@ def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
                                Source("structures", "x", ()))[::2]
     assert len(two) == 2 and all(r.lo is None and abs(r.hi + 5.0) < 1e-12 for r in two)
     assert all(dict(r.terms)[v] == 1.0 for r, v in zip(two, (9, 10), strict=True))
+
+
+def test_an_open_way_between_two_bores_under_hard_decks_joins_them():
+    """19a: tunnel -254 (under one bridge), open -233 (10 m), tunnel -255
+    (under the next) -- the open way enters the bore set as a tunnel; an
+    open way off the decks, or as long as a lawful ramp, does not."""
+    from auto_patch_v2.model.airport import OsmWay
+    from auto_patch_v2.planar.bore_continuation import deck_gap_ways
+    from shapely.geometry import box as b
+    tun = {"highway": "unclassified", "tunnel": "yes", "layer": "-1"}
+    t1 = OsmWay(-254, "small_roads", ((-60.0, 0.0), (-5.0, 0.0)), False, tun)
+    t2 = OsmWay(-255, "small_roads", ((5.0, 0.0), (60.0, 0.0)), False, tun)
+    gap = OsmWay(-233, "small_roads", ((-5.0, 0.0), (5.0, 0.0)), False,
+                 {"highway": "unclassified"})
+    decks = [b(-40, -20, -4, 20), b(4, -20, 40, 20)]
+    got, notes = deck_gap_ways((t1, gap, t2), (t1, t2), decks, LAW)
+    assert [w.id for w in got] == [-233] and got[0].tags["tunnel"] == "yes" and notes
+    assert deck_gap_ways((t1, gap, t2), (t1, t2), [b(-40, -20, -30, 20)], LAW) == ([], [])

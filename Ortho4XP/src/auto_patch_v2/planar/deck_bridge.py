@@ -32,8 +32,9 @@ the object stage's plate):
   ``[tunnel] wall_gap_m`` inside the deck's edge (:func:`deck_cut`): the
   corridor's VOID face spans that ground, its rim at deck level, and the
   mesh makes the bank.  A frame whose co-placed trench object states its
-  walls is no hard-deck bridge here: the walls define the cut, and the
-  trench object's own reading governs (``planar/covered_bores``).
+  walls is still a hard-deck bridge (RULINGS 2026-11-19a, amending the
+  reading of 10-30b): the walls set the cut's WIDTH only (WALLS below), the
+  trench object's depth its floor.
 * WALLS (owner RULINGS 2026-10-30f (3), #1692): where the frame itself
   models abutment walls under the deck (``planar/deck_walls``: vertical
   faces rising from its bottom along the road), the floor runs to the
@@ -237,6 +238,40 @@ def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bo
     return (min(ys) if ys else top), False
 
 
+def _piece_bottom(cache, frame, piece, law, top: float) -> float:
+    """RULINGS 2026-11-19a: the lowest solid triangle of the frame's members
+    standing in deck piece ``piece`` (its ring shrunk by ``[tunnel]
+    wall_gap_m``), else ``top`` -- a piece whose frame models nothing under
+    it states no level, and :func:`_road_floor`'s ladder sets its floor.
+    A frame carrying several bridges over one trench object reads each
+    bridge's own depth, never the trench's deepest part elsewhere
+    (MEASURED KRDU CTR_TML: -13.57 m at its far ramp, -1.25 / -6.07 under
+    its two taxiway bridges)."""
+    import numpy as np
+    import shapely
+
+    from ..airport.obj8 import placement_affine
+    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    inner = piece.buffer(-gap)
+    inner = piece if inner.is_empty else inner
+    low = math.inf
+    for q in frame:
+        g = cache.geometry(q.resolved) if q.resolved else None
+        if g is None or g.solid is None or not len(g.solid):
+            continue
+        t = np.asarray(g.vertices, dtype=float)[:, :3][np.asarray(g.solid)]   # (m, 3, 3)
+        # a triangle stands in the piece when a corner, an edge midpoint or
+        # its centroid does (a wall's corners all lie past the piece's ends)
+        pts = np.concatenate([t, 0.5 * (t + np.roll(t, 1, axis=1)),
+                              t.mean(axis=1, keepdims=True)], axis=1)
+        a, b, c, e, xo, yo = placement_affine(q.xy, q.heading_deg)
+        inside = shapely.contains_xy(inner, a * pts[..., 0] + b * pts[..., 2] + xo,
+                                     c * pts[..., 0] + e * pts[..., 2] + yo).any(axis=1)
+        if inside.any():
+            low = min(low, float(t[inside, :, 1].min()))
+    return low if math.isfinite(low) else top
+
+
 def _solid_lows(cache, q, under) -> list[float]:
     """Every genuine component's ``min_y`` of placement ``q`` when ``q``
     stands UNDER the deck -- one component's plan centroid inside ``under``
@@ -328,11 +363,13 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         under = u.buffer(-float(law.tables.structures.tunnel.wall_gap_m))
         bottom, walled = _bottom_y(cache, frame, trenches, top, u if under.is_empty else under)
         if walled:
-            # Q-A AS RULED: where the pack models walls the walls define the
-            # cut — the co-placed trench object's own reading governs
+            # RULINGS 2026-11-19a: a co-placed trench object's walls set the
+            # cut's WIDTH only (10-30b, 30f (3): ``wall_faces`` below reads
+            # them with the frame); the deck is still a bridge, seated, welded
+            # and cut span by span like any other
             notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: a co-placed trench "
-                         f"object states its walls — they define the cut (Q-A as ruled)")
-            continue
+                         f"object states its walls -- they set the cut's width, the deck "
+                         f"is a bridge (RULINGS 2026-11-19a)")
         mine: list[DeckBridge] = []
         walls = functools.partial(_frame_walls, cache, frame, bottom, top)
         for piece, span in _span_pieces(u, airport, law, notes, d, walls):
@@ -363,9 +400,12 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             if high:
                 notes.append(f"{where}: {high}")
                 continue
+            # 19a: a walled frame's depth is its own solids' UNDER THIS PIECE
+            # (a multi-bridge frame's trench reaches far deeper elsewhere)
+            pb = _piece_bottom(cache, frame, piece, law, top) if walled else bottom
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
-                                   float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
+                                   float(pb), float(d.deck_top_z) - top + 0.5 * (ta + tb),
                                    family=fam, route=route, route_ref=ref, span_cut=span))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)

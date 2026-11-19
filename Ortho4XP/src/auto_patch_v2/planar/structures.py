@@ -93,7 +93,7 @@ from ..model.frame import XY
 from ..model.structures import SKIRT_ROLE, Channel, Deck, Tunnel
 from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
-from .bore_continuation import walked_m
+from .bore_continuation import deck_gap_ways, walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .object_floor_cells import add_object_floor_cells
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
@@ -281,6 +281,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         tunnel_ways += d_ways
         up_parents.update(d_parents)
         stats.hard_decks.extend(d_notes)
+        # RULINGS 2026-11-19a: an open way between two bores under one
+        # multi-bridge deck joins them (``bore_continuation.deck_gap_ways``)
+        g_ways, g_notes = deck_gap_ways(airport.osm_ways, tunnel_ways,
+                                        [deck_polygon(db) for db in deck_bridges], law)
+        tunnel_ways += g_ways
+        stats.hard_decks.extend(g_notes)
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
     # it yields to a level seed's passage (§19 S1, ``level_seeds``)

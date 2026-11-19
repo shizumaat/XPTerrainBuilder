@@ -190,6 +190,15 @@ def _foreign_shells(shells: _t.Sequence, pin) -> list:
     return [sl for sl in shells if pin.object_id not in sl.member_ids]
 
 
+def _generated_reach(db):
+    """A generated deck's ring with the pavement its cut opens (its
+    ``approach``) -- the outline the gap between two of its tunnels joins."""
+    from shapely.ops import unary_union
+    polys = [deck_polygon(db)] + [Polygon(q).buffer(0.0) for q in getattr(db, "approach", ())
+                                  or () if len(q) >= 3]
+    return unary_union(polys)
+
+
 def build_structures(airport: Airport, classification: Classification, law: Law,
                      objects: _t.Sequence = (), corridors: _t.Sequence = (),
                      extra_groups: _t.Sequence[Group] = (),
@@ -287,9 +296,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # (``bore_continuation.deck_gap_ways``; KBNA's open stretch between
         # its two walled decks stays open sky, #1718)
         t_ids = {str(t.object_id) for t in trenches or ()}
+        # RULINGS 2026-11-19s (3) (b): under OUR decks the cut runs straight
+        # through the gap between them -- a deck's own outline there is its
+        # ring and the pavement its cut opens (``DeckBridge.approach``: the
+        # tunnel's stretch past the ring); KBNA taxiway L 1.0.565: two mapped
+        # tunnels 19 m apart under two decks were each refused "no portal"
+        # and no cut stood under either
         g_ways, g_notes = deck_gap_ways(airport.osm_ways, tunnel_ways,
                                         [deck_polygon(db) for db in deck_bridges
-                                         if t_ids & set(db.members)], law)
+                                         if t_ids & set(db.members)]
+                                        + [_generated_reach(db) for db in deck_bridges
+                                           if is_generated(db)], law)
         tunnel_ways += g_ways
         stats.hard_decks.extend(g_notes)
     # RULINGS 2026-11-19s (1): no road is bored under a generated deck stage

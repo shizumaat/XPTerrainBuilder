@@ -31,7 +31,8 @@ from . import patch_file as PF
 
 __all__ = ["patch_list", "patch_load", "patch_staleness", "patch_save",
            "patch_revert",
-           "custom_patches", "use_auto_patch", "law_identity"]
+           "custom_patches", "use_auto_patch", "custom_patch_notice_seen",
+           "law_identity"]
 
 
 def law_identity() -> tuple[float, int]:
@@ -218,8 +219,10 @@ def patch_revert(tile: str, icao: str) -> dict:
 
 def custom_patches() -> dict:
     """ENGINE COMMAND ``custom_patches``: every tile of the data root with a
-    custom patch, ``{"tiles": [{"lat", "lon", "files"}]}`` — the map's
-    band and the tile info's "Custom patch" line (#1229)."""
+    custom patch, ``{"tiles": [{"lat", "lon", "files", "notices"}]}`` —
+    the map's band, the tile info's "Custom patch" line (#1229) and the
+    once-per-patch elevation notice (#2179, capability
+    ``custom_patch_notice``: ``O4_Custom_Patches.elevation_notices``)."""
     return {"tiles": CUSTOM.custom_patch_tiles()}
 
 
@@ -230,3 +233,12 @@ def use_auto_patch(tile: str, icao: str = "") -> dict:
     custom patch is refused with the user's sentence."""
     lat, lon = _tile(tile)
     return {"set_aside": CUSTOM.use_auto_patch(lat, lon, icao or None)}
+
+
+def custom_patch_notice_seen(tile: str, file: str) -> dict:
+    """ENGINE COMMAND ``custom_patch_notice_seen`` (#2179): the user
+    answered *file*'s elevation notice; it is not shown again until the
+    file changes."""
+    lat, lon = _tile(tile)
+    CUSTOM.notice_seen(lat, lon, file)
+    return {"tile": FNAMES.short_latlon(lat, lon), "file": file}

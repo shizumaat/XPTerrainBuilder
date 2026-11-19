@@ -79,6 +79,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// A read-only pack asked about (#2174): `PackReadOnly` +
     /// `pack_readonly`, and `reanchor_status` rows with `read_only`.
     public static let packReadOnly = "pack_readonly"
+    /// The once-per-patch elevation notice (#2179): `custom_patches`
+    /// rows' `notices` + `custom_patch_notice_seen`.
+    public static let customPatchNotice = "custom_patch_notice"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

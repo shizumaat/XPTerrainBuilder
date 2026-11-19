@@ -84,3 +84,53 @@ def test_use_auto_patch_waits_only_for_its_own_tile(window, tiles_dir):  # noqa:
     window._refresh_custom_patch(tile)
     assert not window.use_auto_patch_btn.isEnabled()
     window._building = False
+
+
+@pytest.mark.parametrize("answer", ["use", "keep"])
+def test_the_elevation_notice_is_asked_once(window, tiles_dir, monkeypatch,  # noqa: F811
+                                           answer):
+    """#2179: the engine's notice, its two answers in the engine's words
+    (the Mac app's alert: ``O4CustomPatchText``), remembered either way;
+    "Use auto patch" sets that airport's patch aside."""
+    import O4_Qt_GUI as GUI
+
+    tile = (45, 5)
+    os.makedirs(FNAMES.patch_dir(*tile))
+    custom = os.path.join(FNAMES.patch_dir(*tile), "LFLS.patch.osm")
+    with open(custom, "w", encoding="utf-8", newline="") as handle:
+        handle.write("<osm/>")
+    notice = {"icao": "LFLS", "file": "LFLS.patch.osm", "source": "x",
+              "text": CUSTOM._notice_text("LFLS.patch.osm", "x")}
+    asked, seen = [], []
+    monkeypatch.setattr(CUSTOM, "custom_patch_tiles", lambda: [
+        {"lat": 45, "lon": 5, "files": ["LFLS.patch.osm"],
+         "notices": [] if seen else [notice]}])
+    monkeypatch.setattr(CUSTOM, "notice_seen",
+                        lambda lat, lon, file: seen.append(file))
+
+    class Box:
+        Information = GUI.QMessageBox.Information
+        AcceptRole = GUI.QMessageBox.AcceptRole
+        RejectRole = GUI.QMessageBox.RejectRole
+
+        def __init__(self, icon, title, text, parent=None):
+            asked.append((title, text))
+            self.buttons = []
+
+        def addButton(self, label, role):
+            self.buttons.append(label)
+            return label
+
+        def exec(self):
+            assert self.buttons == [CUSTOM.USE_AUTO_PATCH_TITLE,
+                                    CUSTOM.KEEP_CUSTOM_PATCH_TITLE]
+
+        def clickedButton(self):
+            return self.buttons[0 if answer == "use" else 1]
+
+    monkeypatch.setattr(GUI, "QMessageBox", Box)
+    window._refresh_custom_patch_tiles()
+    window._refresh_custom_patch_tiles()          # answered: not again
+    assert asked == [(CUSTOM.CUSTOM_PATCH_TITLE, notice["text"])]
+    assert seen == ["LFLS.patch.osm"]
+    assert os.path.exists(custom) == (answer == "keep")

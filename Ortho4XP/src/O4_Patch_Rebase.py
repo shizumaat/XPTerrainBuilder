@@ -24,6 +24,11 @@ module
    writes the re-based COPY into the tile's build folder (the user's file
    is never edited), saying one line in the build log.
 
+Whichever way the setting is, the fit's reference is recorded per file in
+the build folder (:data:`SOURCES_RECORD`, #2179): both apps then tell the
+user once which elevation the patch was built for
+(``O4_Custom_Patches``).
+
 The mesh reads the copy through :func:`mesh_path` (``O4_Vector_Map.
 include_patches``).  The tile setting :data:`SETTING_KEY` (default on)
 turns it off.  Auto patches and the editor's ``_edited`` patch are never
@@ -41,8 +46,8 @@ import numpy
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
-__all__ = ["SETTING_KEY", "RADIUS_M", "BUILD_SOURCE", "mesh_path",
-           "read_path"]
+__all__ = ["SETTING_KEY", "RADIUS_M", "BUILD_SOURCE", "SOURCES_RECORD",
+           "mesh_path", "read_path"]
 
 #: The tile setting (Settings > Elevation & Airports, both apps).
 SETTING_KEY = "rebase_custom_patches"
@@ -58,6 +63,9 @@ BUILD_SOURCE = "build DEM"
 #: A source must cover this share of the height points to be a candidate.
 _MIN_COVER = 0.8
 _FOLDER = "custom_patch_rebase"
+#: The build folder's record of which elevation each custom patch was
+#: built for (#2179), ``{file: {"source", "signature"}}``.
+SOURCES_RECORD = "custom_patch_sources.json"
 #: The band stays this far inside the tile (degrees, ~1 m): a foot ring
 #: on the tile's own edge would repeat its boundary segments.
 _BOX_MARGIN_DEG = 1e-5
@@ -281,6 +289,48 @@ def _sources(tile):
     return sources
 
 
+def _remember(tile, name, path, ref):
+    """Record which elevation *name* was built for (#2179) in the build
+    folder's :data:`SOURCES_RECORD`, keyed by the file's ``[mtime_ns,
+    size]``: the build DEM, when it is only the base raster, goes by the
+    base's name.  ``O4_Custom_Patches._elevation_notices`` reads it."""
+    if not getattr(tile, "build_dir", None) or ref is None:
+        return
+    dem = getattr(tile, "dem", None)
+    if ref == BUILD_SOURCE and not (getattr(dem, "subdems", None) or ()):
+        import O4_DEM_Utils as DEM
+
+        ref = "base elevation (%s)" % DEM.base_source_label(dem)
+    record_path = os.path.join(tile.build_dir, SOURCES_RECORD)
+    try:
+        with open(record_path, encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        record = {}
+    try:                        # a notice: never a build failure
+        st = os.stat(path)
+        record[name] = {"source": ref,
+                        "signature": [st.st_mtime_ns, st.st_size]}
+        os.makedirs(tile.build_dir, exist_ok=True)
+        with open(record_path, "w", encoding="utf-8", newline="") as handle:
+            json.dump(record, handle, indent=1, sort_keys=True)
+    except OSError as exc:
+        UI.vprint(2, "   custom patch source not recorded (%s)." % exc)
+
+
+def _fit(tile, path):
+    """``(text, nodes, pads, ramps, sources, reference, stats)`` of the
+    patch at *path*, or ``None`` when it states no height."""
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    nodes, pads, ramps = _height_points(text)
+    if not pads and not ramps:
+        return None
+    sources = _sources(tile)
+    ref, stats = _pick_reference(nodes, pads, ramps, sources)
+    return text, nodes, pads, ramps, sources, ref, stats
+
+
 def _is_custom(name):
     return (FNAMES.is_manual_patch_name(name) and name
             != FNAMES.edited_patch_name(FNAMES.patch_file_icao(name)))
@@ -299,6 +349,14 @@ def mesh_path(tile, patch_dir, name):
     path = os.path.join(patch_dir, name)
     if not _is_custom(name) or not getattr(tile, SETTING_KEY, True):
         _drop_copy(tile, name)
+        if _is_custom(name):
+            try:                # #2179: the notice names the source
+                fit = _fit(tile, path)
+                if fit:
+                    _remember(tile, name, path, fit[5])
+            except Exception as exc:    # a notice: never a build failure
+                UI.vprint(2, "   custom patch source not identified (%s)."
+                          % exc)
         return path
     try:
         return _prepared(tile, path, name) or path
@@ -332,14 +390,12 @@ def _drop_copy(tile, name):
 
 
 def _prepared(tile, path, name):
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    nodes, pads, ramps = _height_points(text)
-    if not pads and not ramps:
+    fit = _fit(tile, path)
+    if fit is None:
         _drop_copy(tile, name)
         return None
-    sources = _sources(tile)
-    ref, stats = _pick_reference(nodes, pads, ramps, sources)
+    text, nodes, pads, ramps, sources, ref, stats = fit
+    _remember(tile, name, path, ref)
     icao = FNAMES.patch_file_icao(name)
     report = {"reference": ref, "fit": stats, "radius_m": RADIUS_M}
     if ref is None or ref == BUILD_SOURCE:

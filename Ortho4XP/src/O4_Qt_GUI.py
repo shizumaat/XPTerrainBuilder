@@ -4065,6 +4065,39 @@ class MainWindow(QMainWindow):
         except Exception:
             rows = []
         self.map.set_custom_patched({(r["lat"], r["lon"]) for r in rows})
+        self._ask_custom_patch_notices(rows)
+
+    def _ask_custom_patch_notices(self, rows):
+        """Once per custom patch (#2179; the Mac app's
+        ``CustomPatchNoticeAlert``): which elevation it was built for, and
+        "Use auto patch" or "Keep custom patch".  Either answer is
+        remembered (``O4_Custom_Patches.notice_seen``)."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        if getattr(self, "_asking_custom_patch", False):
+            return
+        self._asking_custom_patch = True
+        try:
+            for row in rows:
+                for notice in row.get("notices") or ():
+                    tile = (row["lat"], row["lon"])
+                    box = QMessageBox(QMessageBox.Information,
+                                      CUSTOM_PATCHES.CUSTOM_PATCH_TITLE,
+                                      notice["text"], parent=self)
+                    use = box.addButton(CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
+                                        QMessageBox.AcceptRole)
+                    box.addButton(CUSTOM_PATCHES.KEEP_CUSTOM_PATCH_TITLE,
+                                  QMessageBox.RejectRole)
+                    box.exec()
+                    try:
+                        CUSTOM_PATCHES.notice_seen(tile[0], tile[1],
+                                                   notice["file"])
+                    except (OSError, ValueError):
+                        pass
+                    if box.clickedButton() is use:
+                        self._use_auto_patch(tile, notice["icao"])
+        finally:
+            self._asking_custom_patch = False
 
     def _refresh_custom_patch(self, tile):
         """The tile pane's Custom patch row for the active tile."""
@@ -4109,15 +4142,16 @@ class MainWindow(QMainWindow):
         self.use_auto_patch_btn.setEnabled(
             tile is not None and not self._tile_in_run(tile))
 
-    def _use_auto_patch(self):
-        """Use auto patch: set the active tile's custom patches aside."""
+    def _use_auto_patch(self, tile=None, icao=None):
+        """Use auto patch: set the active tile's custom patches aside (or
+        *tile*'s, *icao*'s only, from the custom-patch notice)."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
-        tile = self._custom_patch_tile
+        tile = tile if isinstance(tile, tuple) else self._custom_patch_tile
         if tile is None or self._tile_in_run(tile):
             return
         try:
-            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
+            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1], icao)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
                                 str(exc))

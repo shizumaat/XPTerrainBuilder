@@ -250,6 +250,7 @@ CAPABILITIES: tuple = (
     "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
     "pack_readonly",                # 2026-11-19, #2174 PackReadOnly + pack_readonly
     "world_tiles_waiting",          # 2026-11-19, #2175 WorldTilesWaiting (staged tiles)
+    "custom_patch_notice",          # 2026-11-19, #2179 custom_patches notices + custom_patch_notice_seen
 )
 
 

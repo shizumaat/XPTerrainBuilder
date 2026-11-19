@@ -12,8 +12,15 @@ the tile info, and the tile info offers "Use auto patch", which renames
 each custom patch to ``….disabled`` (``.disabled.2`` … when that name is
 taken).  Nothing here ever deletes a patch or overwrites a file.
 
+Once per custom patch (owner 2026-11-19T13:42Z, #2179) both apps say which
+elevation it was built for — the build's fit (``O4_Patch_Rebase``)
+records it — and that the auto patch gives this airport higher-resolution
+elevation, with "Use auto patch" and "Keep custom patch" as the answers
+(:func:`_elevation_notices`, :func:`notice_seen`).
+
 The Qt app calls these functions in process; the Mac app through the
-engine's ``custom_patches`` and ``use_auto_patch`` commands
+engine's ``custom_patches``, ``use_auto_patch`` and
+``custom_patch_notice_seen`` commands
 (``o4_engine.patch_commands``).  Nothing a build step imports may import
 this module: it is outside the auto-patch code closure, so its wording can
 change without staling an airport patch.
@@ -22,12 +29,15 @@ change without staling an airport patch.
 from __future__ import annotations
 
 import os
+import re
 
 import O4_File_Names as FNAMES
 
 __all__ = ["CUSTOM_PATCH_TITLE", "USE_AUTO_PATCH_TITLE", "SET_ASIDE_SUFFIX",
+           "KEEP_CUSTOM_PATCH_TITLE",
            "custom_patches", "custom_patch_tiles", "set_aside",
            "use_auto_patch", "info_text", "use_auto_patch_help",
+           "notice_seen",
            "FIT_KEY", "unmodified_airports", "stand_down_new", "fit_state",
            "fit_confirm_text"]
 
@@ -35,6 +45,9 @@ __all__ = ["CUSTOM_PATCH_TITLE", "USE_AUTO_PATCH_TITLE", "SET_ASIDE_SUFFIX",
 CUSTOM_PATCH_TITLE = "Custom patch"
 #: The tile info's button (``BuildPane.useAutoPatchTitle``).
 USE_AUTO_PATCH_TITLE = "Use auto patch"
+#: The custom-patch notice's other button (#2179; ``O4CustomPatchText.
+#: keepTitle``): the patch stays, the notice is not shown again.
+KEEP_CUSTOM_PATCH_TITLE = "Keep custom patch"
 #: What a custom patch set aside is renamed with; the build reads only
 #: names ending ``.patch.osm``.
 SET_ASIDE_SUFFIX = ".disabled"
@@ -52,8 +65,9 @@ def custom_patches(lat: int, lon: int) -> list[str]:
 
 
 def custom_patch_tiles() -> list[dict]:
-    """Every tile with a custom patch: ``[{"lat", "lon", "files"}]``,
-    sorted by tile, read from ``Patches/<10°>/<1°>/`` of the data root."""
+    """Every tile with a custom patch: ``[{"lat", "lon", "files",
+    "notices"}]`` (:func:`_elevation_notices`), sorted by tile, read from
+    ``Patches/<10°>/<1°>/`` of the data root."""
     out = []
     root = FNAMES.Patch_dir
     try:
@@ -74,7 +88,8 @@ def custom_patch_tiles() -> list[dict]:
                 continue
             files = custom_patches(lat, lon)
             if files:
-                out.append({"lat": lat, "lon": lon, "files": files})
+                out.append({"lat": lat, "lon": lon, "files": files,
+                            "notices": _elevation_notices(lat, lon)})
     return out
 
 
@@ -133,6 +148,89 @@ def use_auto_patch_help() -> str:
             "so the next build auto-patches the airport.")
 
 
+# ── Which elevation a custom patch was built for (owner 2026-11-19T13:42Z,
+# #2179) ─────────────────────────────────────────────────────────────────
+#: The tile's record of the notices the user has answered, in its build
+#: folder: ``{file name: [mtime_ns, size]}``.
+_NOTICES_SEEN = "custom_patch_notices_seen.json"
+_BASE_SOURCE = re.compile(r"^base elevation \((.*)\)$")
+
+
+def _source_text(source: str) -> str:
+    """The user's words for an elevation source the build's fit named
+    (``O4_Patch_Rebase``): the base raster by its name and resolution —
+    Viewfinderpanoramas called the Ortho4XP default — an inset by its file
+    name."""
+    base = _BASE_SOURCE.match(source or "")
+    if base:
+        name = base.group(1)
+        if name.lower().startswith("viewfinder"):
+            return name + " (the Ortho4XP default)"
+        return name
+    if source == "build DEM":
+        return "this tile's high-resolution elevation"
+    return source or "an unknown elevation source"
+
+
+def _notice_text(file: str, source: str) -> str:
+    """The notice both apps show once per custom patch (the Mac app shows
+    the engine's text as is)."""
+    return ("This custom patch (%s) was built for %s. For higher-resolution "
+            "elevation data at this airport, use the auto patch."
+            % (file, _source_text(source)))
+
+
+def _read_json(path: str) -> dict:
+    import json
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _elevation_notices(lat: int, lon: int, custom_build_dir: str = "") -> list:
+    """``[{"icao", "file", "source", "text"}]``: each custom patch of the
+    tile whose elevation source a build identified (``O4_Patch_Rebase.
+    SOURCES_RECORD``, for the file as it is now) and whose notice the user
+    has not answered (:func:`notice_seen`), sorted by file."""
+    import O4_Patch_Rebase as REBASE
+
+    folder = FNAMES.build_dir(lat, lon, custom_build_dir)
+    found = _read_json(os.path.join(folder, REBASE.SOURCES_RECORD))
+    seen = _read_json(os.path.join(folder, _NOTICES_SEEN))
+    out = []
+    for (name, stamp) in sorted(_signature(lat, lon).items()):
+        row = found.get(name)
+        if (isinstance(row, dict) and row.get("signature") == stamp
+                and seen.get(name) != stamp):
+            source = str(row.get("source") or "")
+            out.append({"icao": FNAMES.patch_file_icao(name), "file": name,
+                        "source": source, "text": _notice_text(name, source)})
+    return out
+
+
+def notice_seen(lat: int, lon: int, file: str,
+                custom_build_dir: str = "") -> None:
+    """Remember that the user answered *file*'s notice: it is not shown
+    again until the file changes."""
+    import json
+
+    stamp = _signature(lat, lon).get(file)
+    if stamp is None:
+        raise ValueError("tile %s has no custom patch %s"
+                         % (FNAMES.short_latlon(lat, lon), file))
+    folder = FNAMES.build_dir(lat, lon, custom_build_dir)
+    path = os.path.join(folder, _NOTICES_SEEN)
+    seen = _read_json(path)
+    seen[file] = stamp
+    os.makedirs(folder, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        json.dump(seen, handle, sort_keys=True)
+
+
 # ── "Fit custom airport buildings" and a custom patch (owner RULINGS
 # 2026-11-18l, #2172) ─────────────────────────────────────────────────────
 #: The tile setting the Build card's "Fit custom airport buildings to the
@@ -173,15 +271,7 @@ def _signature(lat: int, lon: int) -> dict:
 
 
 def _seen(tile) -> dict:
-    import json
-
-    try:
-        with open(os.path.join(tile.build_dir, _SEEN_RECORD),
-                  encoding="utf-8") as handle:
-            seen = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    return seen if isinstance(seen, dict) else {}
+    return _read_json(os.path.join(tile.build_dir, _SEEN_RECORD))
 
 
 def _new_airports(tile) -> list[str]:

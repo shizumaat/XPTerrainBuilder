@@ -60,6 +60,30 @@ def _end_length(st, d, side: str, top: float, law) -> float:
     return min(hi, max(lo, run + float(law.tables.structures.bridge.abutment_sample_step_m)))
 
 
+def _swept(line, far, depth: float) -> Polygon:
+    """An end EDGE's stations swept ``depth`` metres outward along the span
+    (away from the ``far`` end's middle): the ground one step past every
+    station of a skew or kinked end, where :func:`_beyond`'s chord between
+    the line's two ends cuts across its corner (#2116 item 3)."""
+    mx = sum(p[0] for p in line) / len(line) - sum(p[0] for p in far) / max(1, len(far))
+    my = sum(p[1] for p in line) / len(line) - sum(p[1] for p in far) / max(1, len(far))
+    n = math.hypot(mx, my) or 1.0
+    ox, oy = mx / n * depth, my / n * depth
+    p = Polygon([*line, *((x + ox, y + oy) for x, y in reversed(line))])
+    return p if p.is_valid else p.buffer(0.0)
+
+
+def _seated_bank_m(st, d, side: str, top: float, law) -> float:
+    """The bank round an end-seated deck's apron: ``max(bank_min_width_m,
+    |G_e - (zero + top_e)| / bank_slope)`` (the free stack's bank rule),
+    at most ``2 x platform_collar_max_m``."""
+    de = law.tables.emit.design
+    g = st.ground_m(d.object_id, d.piece, side)
+    gap = 0.0 if g is None else abs(g - (st.zero_z + top))
+    hi = 2.0 * float(law.tables.structures.building_pad.platform_collar_max_m)
+    return min(hi, max(float(de.bank_min_width_m), gap / float(de.bank_slope)))
+
+
 def _beyond(line, rect: Polygon, depth: float) -> Polygon:
     """The plate's width beyond an end line, ``depth`` metres outward
     (away from the deck's rectangle)."""
@@ -88,7 +112,13 @@ def end_aprons(st, law) -> list[Polygon]:
         return [a for _d, _s, _t, a, _sl in _free_footprint(st, law)["aprons"]
                 if not a.is_empty]
     return [_beyond(line, _deck_rect(d), _end_length(st, d, side, top, law))
-            for d in st.decks for side, line, top in _ends(d)]
+            for d in (*st.decks, *_end_seated(st)) for side, line, top in _ends(d)]
+
+
+def _end_seated(st) -> tuple:
+    """A trench stack's decks seated by their own end lines (#2116 item 3,
+    ``DeckStack.end_seated``): their aprons and nothing else."""
+    return tuple(getattr(st, "end_seated", ()) or ())
 
 
 def path_line(e, length: float):
@@ -282,6 +312,19 @@ def ground_footprint(st, law) -> dict:
         zones.append(_deck_zone(st, d, rect, law))
         ends += [(d, side, top, _beyond(line, rect, _end_length(st, d, side, top, law)),
                   _beyond(line, rect, H)) for side, line, top in _ends(d)]
+    for d in _end_seated(st):
+        # #2116 item 3 (RULINGS 2026-11-18c, 22m): an end-seated deck's
+        # aprons at its plate top, after the stack's own decks' (they yield),
+        # off its own plan (a skew end's chord runs inside it), each in a
+        # bank so its edge is no toe; no shadow under it (the gap over the
+        # frame it rests on is accepted)
+        plan = ring_polygon(d.ring) or Polygon()
+        for side, line, top in _ends(d):
+            far = d.end_b if side == "a" else d.end_a
+            apron = _swept(line, far, _end_length(st, d, side, top, law)).difference(plan)
+            ends.append((d, side, top, apron, _swept(line, far, H).difference(plan)))
+            zones.append(apron.buffer(_seated_bank_m(st, d, side, top, law),
+                                      join_style="mitre"))
     aprons = []
     for d, side, top, g, slab in ends:      # on a fine grid: an apron shares its end line
         g = shapely.difference(shapely.difference(g, taken, grid_size=1e-6), keep,

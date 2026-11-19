@@ -183,6 +183,16 @@ class DeckStack:
     #: stands over, carrying a stop (``Tunnel.carried``): kept graded end or
     #: not; its flush, graded and unread ends are rowed as a free stack's
     over_floor: tuple[str, ...] = ()
+    #: #2116 item 3 (RULINGS 2026-11-18c with 2026-10-22m): the frame
+    #: members of a TRENCH stack seated by their own end lines, PREDICTED at
+    #: the pack stage (``airport/stack_end_seat``), each a deck whose
+    #: ``top_a`` / ``top_b`` are over the zero WITH its predicted lift.  Read
+    #: by the end aprons and the end-line roads ONLY (``geom/deck_ground``,
+    #: ``model/deck_ends``): no level, no shadow, no R3, no carried stretch
+    end_seated: tuple[StackDeck, ...] = ()
+    #: ``(object id, piece, "a"|"b", ground)``: the road each end-seated
+    #: deck's end lands on, as predicted (:meth:`ground_m`)
+    end_seated_ground: tuple[tuple[str, int, str, float], ...] = ()
 
     @property
     def access_key(self) -> "tuple[str, float] | None":
@@ -243,8 +253,12 @@ class DeckStack:
 
     def ground_m(self, object_id: str, piece: int, side: str) -> "float | None":
         """The ground one sample step outside an end line (G_e), as read
-        into the zero; ``None`` where it was not."""
+        into the zero -- or, for an end-seated deck, the road it lands on;
+        ``None`` where it was not."""
         for oid, k, s, g, _top in self.end_zeros:
+            if oid == object_id and k == piece and s == side:
+                return float(g)
+        for oid, k, s, g in self.end_seated_ground:
             if oid == object_id and k == piece and s == side:
                 return float(g)
         return None

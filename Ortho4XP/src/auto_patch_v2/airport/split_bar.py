@@ -57,7 +57,7 @@ import typing as _t
 from .placement_boxes import hull_of
 from .placement_geom import GEOM_PTS_MAX, thin_points
 from .placement_motion import ground_contact_feet
-from .placement_targets import _zero    # the body's zero (``tilt_float`` reads it too)
+from .placement_targets import _zero  # the body's zero (``tilt_float`` reads it too)
 
 __all__ = ["law_of", "keep_whole", "REASON", "SAME_ZERO_M"]
 

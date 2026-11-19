@@ -8,11 +8,10 @@ import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Custom_Patches as CP  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Settings_Model as SM  # noqa: E402
+import pytest  # noqa: E402
 
 
 @pytest.fixture

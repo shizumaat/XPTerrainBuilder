@@ -97,7 +97,7 @@ def test_rebased_heights_follow_the_build_dem_and_pads_stay_flat():
     want = dem_b(R._ends(n2, r2[0][1]))
     assert abs(high - want[0]) < 1.0 and abs(low - want[1]) < 1.0
     # Only height values changed.
-    changed = [a for a, b in zip(text.splitlines(), new.splitlines())
+    changed = [a for a, b in zip(text.splitlines(), new.splitlines(), strict=False)
                if a != b]
     assert changed and all("altitude" in line for line in changed)
 

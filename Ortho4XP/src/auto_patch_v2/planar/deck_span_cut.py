@@ -94,7 +94,7 @@ def _wall_spans(cut: SpanCut, walls: _t.Any, airport: _t.Any, piece: _t.Any,
     lines = sorted(sign * (u - at0) for u in wall_lines(faces, *project_span(
         piece.exterior.coords, rw)))
     out = []
-    for sa, sb in zip(lines, lines[1:]):
+    for sa, sb in zip(lines, lines[1:], strict=False):
         if not any(s0 <= sa and sb <= s1 for s0, s1 in cut.at_grade()):
             continue
         drops = _crossing_drops(cut, sa, sb, airport, piece)

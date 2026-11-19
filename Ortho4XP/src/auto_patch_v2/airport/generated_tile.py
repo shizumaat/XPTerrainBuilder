@@ -74,7 +74,7 @@ def _clip_chain(junctions: _t.Sequence[_t.Sequence], box: Box) -> list[list[list
     the tile ``box``, in order, each of two junctions or more."""
     pieces: list[list[list]] = []
     cur: list[list] = []
-    for a, b in zip(junctions[:-1], junctions[1:]):
+    for a, b in zip(junctions[:-1], junctions[1:], strict=False):
         got = _crossings(a, b, box)
         if got is None or got[0] >= got[1]:
             pieces.append(cur)

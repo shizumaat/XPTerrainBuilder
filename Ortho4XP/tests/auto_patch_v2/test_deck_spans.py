@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import Polygon
-
 from auto_patch_v2.airport import deck_plates as dp
 from auto_patch_v2.geom.deck_spans import _profile_spans, span_cut, span_pieces
+from shapely.geometry import Polygon
 
 
 def _ground(x: float, _y: float) -> float:

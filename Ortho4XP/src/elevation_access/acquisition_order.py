@@ -30,7 +30,7 @@ _NAME_YEAR = re.compile(r"(?:^|[_\s])((?:19|20)\d{2})(?=$|[_\s])")
 _DELIVERY_CODE = re.compile(r"_[A-Z](\d{2})(?=$|[_\s])")
 
 
-def project_directory(download_url):
+def _project_directory(download_url):
     """The project (work unit) directory a staged raster lives in, or None
     for a URL that is not a 3DEP staged product."""
     url = str(download_url or "").split("?", 1)[0]
@@ -39,15 +39,15 @@ def project_directory(download_url):
     return url.rsplit("/TIFF/", 1)[0]
 
 
-def metadata_url(download_url):
+def _metadata_url(download_url):
     """The FGDC XML staged beside a 3DEP raster, or None."""
-    if project_directory(download_url) is None:
+    if _project_directory(download_url) is None:
         return None
     (head, name) = str(download_url).split("?", 1)[0].rsplit("/TIFF/", 1)
     return "%s/metadata/%s.xml" % (head, name.rsplit(".", 1)[0])
 
 
-def acquisition_date_from_fgdc(text):
+def _acquisition_date_from_fgdc(text):
     """``YYYY-MM-DD`` (or coarser): the latest date of the first FGDC time
     period -- the acquisition, not the publication -- or None."""
     period = _TIME_PERIOD.search(text or "")
@@ -58,7 +58,7 @@ def acquisition_date_from_fgdc(text):
     return max(dates) if dates else None
 
 
-def year_from_project_name(title):
+def _year_from_project_name(title):
     """The acquisition year a 3DEP project name carries, or None: a
     four-digit year (``IL_4_County_QL1_LiDAR_2016_B16`` -> 2016), else a
     delivery code (``IL_MidNorth_D22`` -> 2022)."""
@@ -92,18 +92,18 @@ def order_newest_acquired(sources, read_text=None):
     per project directory and only when the listing spans more than one.
     """
     read_text = read_text or _read_metadata_text
-    directories = {project_directory(s.get("download_url")) for s in sources}
+    directories = {_project_directory(s.get("download_url")) for s in sources}
     ask = len(directories) > 1
     by_directory = {}
     for source in sources:
-        directory = project_directory(source.get("download_url"))
+        directory = _project_directory(source.get("download_url"))
         if ask and directory is not None and directory not in by_directory:
-            text = read_text(metadata_url(source.get("download_url")))
-            by_directory[directory] = acquisition_date_from_fgdc(text)
+            text = read_text(_metadata_url(source.get("download_url")))
+            by_directory[directory] = _acquisition_date_from_fgdc(text)
         date = by_directory.get(directory)
         basis = "metadata" if date else None
         if date is None:
-            date = year_from_project_name(source.get("title"))
+            date = _year_from_project_name(source.get("title"))
             basis = "project_name" if date else None
         source["acquisition_date"] = date
         source["acquisition_basis"] = basis

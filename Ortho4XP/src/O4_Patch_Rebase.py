@@ -38,7 +38,6 @@ import re
 from math import cos, pi
 
 import numpy
-
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 

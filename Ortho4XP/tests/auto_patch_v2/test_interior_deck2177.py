@@ -12,7 +12,6 @@ from __future__ import annotations
 import random
 
 import pytest
-
 from auto_patch_v2.airport import bridge_family as BF
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.basin_witness import read_objects

@@ -12,13 +12,13 @@ from __future__ import annotations
 import dataclasses as dc
 import types
 
-from test_touch_seat2110 import LAW as TOUCH, SURFACE, _ll, _ring
-
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import split_bar as SB
 from auto_patch_v2.airport import touch_seat as TS
 from auto_patch_v2.airport.placement_record import Body, Split
 from auto_patch_v2.model.rebake import Part
+from test_touch_seat2110 import LAW as TOUCH
+from test_touch_seat2110 import SURFACE, _ll, _ring
 
 BAR = SB._BarLaw(bar_m=0.5, contact_tol_m=0.3)
 

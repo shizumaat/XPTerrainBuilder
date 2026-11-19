@@ -77,7 +77,7 @@ def _decks(airport, law, P) -> list[str]:
     lines = [LineString(r.points) for r in roads]
     for d in aeroway_decks(airport, law):
         deck = LineString(d.points)
-        for r, ln in zip(roads, lines):
+        for r, ln in zip(roads, lines, strict=False):
             x = deck.intersection(ln)
             if x.is_empty or x.distance(P) > 1.0:
                 continue

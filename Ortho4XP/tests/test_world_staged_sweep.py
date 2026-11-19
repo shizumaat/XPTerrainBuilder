@@ -20,7 +20,6 @@ from o4_engine import world_publish as PUBLISH
 from o4_engine import world_staged_sweep as SWEEP
 from o4_engine import xplane_open_files as XOPEN
 from o4_engine.events import WorldTilesWaiting
-
 from tests.test_world_commands import _build, world  # noqa: F401  (fixture)
 
 HERE = os.path.dirname(os.path.abspath(__file__))

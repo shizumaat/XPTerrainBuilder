@@ -336,7 +336,7 @@ class DeckPrint:
             w = _bary(self.tris[q], lat, lon)
             if w is None:
                 continue
-            y = sum(wi * yi for wi, yi in zip(w, self.ys[q]))
+            y = sum(wi * yi for wi, yi in zip(w, self.ys[q], strict=False))
             if best is None or y > best:
                 best = y
         if best is not None or reach_m <= 0.0:
@@ -736,6 +736,7 @@ def _touch_components(p: DeckPrint, gap_m: float) -> list[int]:
     (``deck_touch.touch_components``): the same partition (issue #1213's
     per-triangle rounds before it), bounded by the groups."""
     import numpy as np
+
     from .deck_touch import touch_components
     ml, mo = p._ml, p._mo                                    # noqa: SLF001
     xy = np.array([[(q[0] * ml, q[1] * mo) for q in t] for t in p.tris],
@@ -840,7 +841,7 @@ def landing_pieces(p: DeckPrint, band_m: float
     lo = min(y for t in p.ys for y in t)
     cut = lo + float(band_m)
     out = []
-    for t, ys in zip(p.tris, p.ys):
+    for t, ys in zip(p.tris, p.ys, strict=False):
         if min(ys) > cut:
             continue
         pts: list = []

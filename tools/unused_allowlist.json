@@ -548,5 +548,20 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/pack_patch_witness.py",
   "name": "patch_files",
   "reason": "#2157 lkrdu partial: finds the pack patch files read_pads reads; wired in the next #2157 round"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Object_Stage_Code.py",
+  "name": "write_freeze_digest",
+  "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Code_Closure.py",
+  "name": "write_digest_file",
+  "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Code_Closure.py",
+  "name": "read_digest_table",
+  "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
  }
 ]

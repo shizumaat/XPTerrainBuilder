@@ -148,8 +148,9 @@ def test_the_early_report_asks_before_the_patch_and_once_per_run(xp):
     assert GW.gateway_early([(45, -124)], lambda la, lo: xp.root, xp.osm) == []
     patches = xp.tmp / "Patches"
     _graded(patches, "KYYY", {"offer": ["generated deck ...: REFUSED -- ..."]})
-    import O4_File_Names as FNAMES
     import unittest.mock as M
+
+    import O4_File_Names as FNAMES
     with M.patch.object(FNAMES, "patch_dir", lambda lat, lon: str(patches)):
         assert GW.gateway_stage(44, -124, xp.root, ["KYYY"]) == []
     assert len(xp.events) == 1
@@ -166,8 +167,9 @@ def test_no_feeds_on_disk_leaves_the_build_time_offer(xp, tmp_path):
 
 
 def test_two_tiles_report_one_airport_once(xp, tmp_path):
-    import O4_File_Names as FNAMES
     import unittest.mock as M
+
+    import O4_File_Names as FNAMES
     for tile in ("a", "b"):
         _graded(tmp_path / tile, "KYYY", {"offer": ["x"]})
     dirs = {(30, -96): str(tmp_path / "a"), (29, -96): str(tmp_path / "b")}
@@ -239,6 +241,7 @@ def test_the_parallel_run_reselects_the_tile():
 
 def test_an_install_command_repatches_the_live_run(monkeypatch):
     import time
+
     from o4_engine import session as S
     from o4_engine import xplane_root as PO
     session = S.EngineSession()

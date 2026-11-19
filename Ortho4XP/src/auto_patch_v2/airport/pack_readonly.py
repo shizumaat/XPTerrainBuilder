@@ -30,6 +30,8 @@ import os
 import time
 import typing as _t
 
+import O4_File_Names as _FN
+
 from . import pack_access as _pa
 
 __all__ = ["FILE", "WAIT_SECONDS", "gate", "rows", "choice"]
@@ -44,22 +46,14 @@ POLL_SECONDS = 0.5
 WAITING, NOT_NOW, WRITABLE = "waiting", "not_now", "writable"
 
 
+def _key_of(pack_root: str) -> str:
+    from . import pack_choice as _PC
+    return _PC.pack_key(pack_root)
+
+
 def _path() -> str:
     from . import pack_choice as _PC
     return _PC.store_path(FILE)
-
-
-def _key(pack_root: str) -> str:
-    return os.path.normcase(os.path.abspath(pack_root or ""))
-
-
-def _read() -> dict:
-    try:
-        with open(_path(), encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
 
 
 def _write(doc: dict) -> None:
@@ -76,7 +70,7 @@ def _write(doc: dict) -> None:
 
 def _entry(pack_root: str) -> dict:
     """The pack's recorded state (``{}`` when none)."""
-    got = _read().get(_key(pack_root))
+    got = _FN.read_json_dict(_path()).get(_key_of(pack_root))
     return got if isinstance(got, dict) else {}
 
 
@@ -84,8 +78,8 @@ def _answer(pack_root: str, state: str, lat=None, lon=None) -> None:
     """Record the pack's state (``WAITING`` / ``NOT_NOW`` / ``WRITABLE``),
     adding tile ``lat``/``lon`` to those it was asked for, or forget the
     pack (``""``)."""
-    doc = _read()
-    key = _key(pack_root)
+    doc = _FN.read_json_dict(_path())
+    key = _key_of(pack_root)
     if not state:
         doc.pop(key, None)
     else:
@@ -186,7 +180,7 @@ def rows(tile: str | None = None) -> list[dict]:
     ``modified_packs``' entry shape with ``read_only`` true; with
     ``tile`` (``+41-087``) only the packs asked about for it."""
     out = []
-    for key, got in sorted(_read().items()):
+    for key, got in sorted(_FN.read_json_dict(_path()).items()):
         if not isinstance(got, dict) or got.get("state") != NOT_NOW:
             continue
         tiles = list(got.get("tiles") or [])

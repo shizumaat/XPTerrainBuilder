@@ -9,10 +9,15 @@ is a stub.
 """
 
 import numpy
-
 from elevation_access import acquisition_order as AO
 from tests.test_round13_border_fetch import (
-    BBOX, DEFINITION, _local_strategy, _source, _values_of, requires_gdal)
+    BBOX,
+    DEFINITION,
+    _local_strategy,
+    _source,
+    _values_of,
+    requires_gdal,
+)
 
 OLD_DIR = ("https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/"
            "Projects/IL_4_County_QL1_LiDAR_2016_B16")
@@ -50,18 +55,18 @@ def _kord_pair():
 
 
 def test_the_fgdc_period_end_is_the_acquisition_not_a_later_source_date():
-    assert AO.acquisition_date_from_fgdc(
+    assert AO._acquisition_date_from_fgdc(
         _fgdc("20220321", "20220628")) == "2022-06-28"
-    assert AO.acquisition_date_from_fgdc("<metadata/>") is None
-    assert AO.acquisition_date_from_fgdc(None) is None
+    assert AO._acquisition_date_from_fgdc("<metadata/>") is None
+    assert AO._acquisition_date_from_fgdc(None) is None
 
 
 def test_the_project_name_year_and_delivery_code():
-    assert AO.year_from_project_name(
+    assert AO._year_from_project_name(
         "USGS 1 Meter 16 x42y465 IL_4_County_QL1_LiDAR_2016_B16") == "2016"
-    assert AO.year_from_project_name(
+    assert AO._year_from_project_name(
         "USGS 1 Meter 16 x42y465 IL_MidNorth_D22") == "2022"
-    assert AO.year_from_project_name("USGS 1 Meter 16 x42y465") is None
+    assert AO._year_from_project_name("USGS 1 Meter 16 x42y465") is None
 
 
 def test_newer_acquisition_beats_newer_publication():

@@ -7,12 +7,11 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import box
-
 from auto_patch_v2.geom.wall_lines import inner_faces
 from auto_patch_v2.model.deck_bank import banked
 from auto_patch_v2.planar import deck_bridge as DB
 from auto_patch_v2.planar.deck_span_cut import _on_airside
+from shapely.geometry import box
 
 # a two-span frame along the road (u across it): the W span's walls at
 # u = -275 (whole) and -224 (40 m long, 0.3 m out of straight: two bins),
@@ -93,10 +92,9 @@ def test_a_wall_pair_over_a_road_in_an_at_grade_stretch_is_a_span():
     both flanks, are a span; without the drop on a flank they are not."""
     import types
 
-    from shapely.geometry import Polygon
-
     from auto_patch_v2.geom.deck_spans import SpanCut
     from auto_patch_v2.planar.deck_span_cut import _wall_spans
+    from shapely.geometry import Polygon
     piece = Polygon([(0, -20), (300, -20), (300, 20), (0, 20)])
     cut = SpanCut((0.0, 0.0), (300.0, 0.0), ((40.0, 80.0),))
     faces = tuple((u, -20.0, 20.0) for u in (40.0, 80.0, 200.0, 212.0))

@@ -12,6 +12,7 @@ import os
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
 
+from elevation_access.acquisition_order import order_newest_acquired
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.definitions import _parse_boolean, _parse_float
 from elevation_access.discovery import (
@@ -408,7 +409,9 @@ class TnmCloudOptimizedGeoTiffStrategy:
                     % len(items),
                 )
             return None
-        # Newest project first (spec: prefer the newest publicationDate).
+        # Newest PUBLISHED first: the listing's own order, which the
+        # ladder records.  The mosaic re-orders by ACQUISITION in
+        # :meth:`fetch` (RULINGS 2026-11-19g).
         sources.sort(
             key=lambda source: source["publication_date"], reverse=True
         )
@@ -633,6 +636,10 @@ class TnmCloudOptimizedGeoTiffStrategy:
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
+        # NEWEST GROUND WINS (RULINGS 2026-11-19g): a project published
+        # later may have been FLOWN earlier (KORD: a 2017 survey of the
+        # O'Hare earthworks, published 2024, over the 2022 one).
+        sources = order_newest_acquired(sources)
         scratch_paths = []
         try:
             staged = self._stage_archives(definition, sources,
@@ -710,7 +717,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
                 def warp_input_for(source):                  # noqa: F811
                     return (prefetched.get(source.get("download_url"))
                             or remote_input_for(source))
-        oldest_first = list(reversed(sources))   # discover sorts newest first
+        oldest_first = list(reversed(sources))   # fetch sorts newest first
         warp_inputs = []
         for source in oldest_first:
             warp_input = warp_input_for(source)
@@ -797,6 +804,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
             "source_ids": [source["source_id"] for source in recorded],
             "project_titles": [source["title"] for source in recorded],
             "publication_date": recorded[0]["publication_date"],
+            "acquisition_date": recorded[0].get("acquisition_date"),
             "sources_used": [
                 _source_contribution_entry(source) for source in used
             ],

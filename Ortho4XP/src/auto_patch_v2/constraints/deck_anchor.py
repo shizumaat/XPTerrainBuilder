@@ -78,6 +78,7 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.stage_one import full_map
 from ..model.structures import DeckAnchor
+from .deck_gen_grade import graded as gen_graded
 from .deck_lines import cut_faces
 from .geometry import project_to_chain
 from .precedence import view
@@ -303,7 +304,10 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
         d0 = rows[0][1]
         # RULINGS 2026-11-18i (b): a graded span's end lines each read their
         # own profile (``edge_deck._graded_rows``)
-        graded = any(getattr(e[3], "span_cut", ()) for e in ends) and not gov
+        # owner 2026-11-19T17:02Z: our own taxiway bridge slopes at the
+        # taxiway's grade too (``constraints/deck_gen_grade``)
+        ours = any(gen_graded(e[3]) for e in ends)
+        graded = (any(getattr(e[3], "span_cut", ()) for e in ends) or ours) and not gov
         for k, (seats, depth, rwid, v, p, _mid, line) in enumerate(rows):
             z = p if graded else (gov[0] if gov else zero) + depth
             a = DeckAnchor(oid, ("AB"[k] if k < 2 else str(k)) + tag, v, tuple(seats),
@@ -317,8 +321,12 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
             # the road's cut under it, and the free level sank into it
             # (MEASURED ESSA replay l2123a/a3: U2 deck 3.6 m under its
             # taxiway's trend, its floor 3 m under the deck)
+            # -- but OUR taxiway bridge's level is the solve's (owner
+            # 2026-11-19T16:59Z / 17:02Z: "The bridges just need minimum
+            # clearances, they are allowed to have more"): no pin, the
+            # clearance floor under it (``deck_gen_grade.clearance_rows``)
             out.append(a if any(getattr(e[3], "witness", "") == "generated"
-                                 for e in ends) else _solved_level(a))
+                                 for e in ends) and not ours else _solved_level(a))
     return tuple(_one_per_vertex(out))
 
 

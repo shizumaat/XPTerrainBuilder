@@ -283,14 +283,21 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # ``-5106``: 0 roads bored; ``-67``'s cells stood over ``-450`` only,
         # ``-25635`` beside it in the hole unbored)
         twy = taxi_half_width_m(law, None)
-        centre = ln.buffer(max(half_clip, (twy or 0.0) - rim_off - grid), **_MITRE)
+        w_twy = max(half_clip, (twy or 0.0) - rim_off - grid)
         if ribbon is None:
-            ribbon = centre
+            ribbon = ln.buffer(w_twy, **_MITRE)
         else:
-            air = [polys[k] for k, c in enumerate(cells)
-                   if c.role in cut_roles and polys[k].intersects(centre)]
-            hole = centre.difference(unary_union(air)) if air else centre
-            ribbon = unary_union([ribbon, hole]) if hole.area > 1.0 else ribbon
+            # only ALONG the bridge where no cell's stations reach, never
+            # beside a cell's kerbs (its graded strip, §34 (5) (b))
+            open_ = ln.difference(ribbon)
+            bits = [g.buffer(w_twy, cap_style="flat") for g in getattr(open_, "geoms", [open_])
+                    if g.geom_type == "LineString" and g.length > grid]
+            centre = unary_union(bits) if bits else None
+            if centre is not None and not centre.is_empty:
+                air = [polys[k] for k, c in enumerate(cells)
+                       if c.role in cut_roles and polys[k].intersects(centre)]
+                hole = centre.difference(unary_union(air)) if air else centre
+                ribbon = unary_union([ribbon, hole]) if hole.area > 1.0 else ribbon
         pieces: list[tuple[OsmWay, LineString]] = []
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)

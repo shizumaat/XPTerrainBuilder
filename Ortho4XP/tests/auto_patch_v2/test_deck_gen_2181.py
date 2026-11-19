@@ -142,3 +142,17 @@ def test_a_road_bridge_is_published_as_a_narrow_flat_deck():
     lats = [p[1] for p in d["ring"]]
     assert abs((max(lats) - min(lats)) * 1e5 - 2 * w) < 1e-6
     assert all("junctions" not in k for k in kept)     # no X-Plane chain is written
+
+
+def test_the_object_stage_writes_a_road_deck_and_no_chain():
+    from auto_patch_v2.airport.generated_pack import recipe
+    frame = types.SimpleNamespace(
+        transformers=lambda: (None, lambda x, y: (40.0 + y * 1e-5, -80.0 + x * 1e-5)))
+    b = {"id": "-301", "axis_xy": [[0.0, 0.0], [30.0, 0.0]], "half_m": 3.0,
+         "levels": [344.1, 345.3], "ground": [], "junctions": [[0, 0, 0]], "subtype": 50,
+         "net": "x", "span_wkt": box(-80.0, 40.0, -79.9997, 40.00005).wkt}
+    decks, kept = road_deck_records([b], set(), LAW, types.SimpleNamespace(frame=frame))
+    rec = recipe({"decks": decks, "road_bridges": kept}, "", "TEST", LAW, xplane_root="")
+    assert rec["chains"] == []
+    assert rec["decks"] and all(r["resource"].endswith(".obj") for r in rec["decks"])
+    assert abs(rec["decks"][0]["msl"] - 344.1) < 1e-6

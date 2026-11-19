@@ -192,6 +192,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Config_Utils",
     "O4_Console_Encoding",
     "O4_Coral_Atlas",
+    "O4_Custom_Patch_Ground",
     "O4_Custom_Scenery",
     "O4_DDS_Decode",
     "O4_DDS_Encode",

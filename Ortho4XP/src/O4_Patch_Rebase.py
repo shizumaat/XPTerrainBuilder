@@ -294,10 +294,14 @@ def mesh_path(tile, patch_dir, name):
     """The path ``include_patches`` reads *name* from: for a custom patch
     (setting on) the COPY in the build folder -- re-based when its
     reference is not the build DEM, and carrying the blend band around its
-    pavement (``O4_Patch_Band``) -- else the file itself.  Never raises: a
-    failure keeps the user's file and says so."""
+    pavement (``O4_Patch_Band``) -- else the file itself.  The file itself
+    too when the airport stands on the elevation its patch was made for
+    (``O4_Custom_Patch_Ground.grounds``, RULINGS 2026-11-19n (2)): as
+    authored, no re-base, no band.  Never raises: a failure keeps the
+    user's file and says so."""
     path = os.path.join(patch_dir, name)
-    if not _is_custom(name) or not getattr(tile, SETTING_KEY, True):
+    if (not _is_custom(name) or not getattr(tile, SETTING_KEY, True)
+            or _on_its_source(tile, name)):
         _drop_copy(tile, name)
         return path
     try:
@@ -307,6 +311,12 @@ def mesh_path(tile, patch_dir, name):
         UI.vprint(0, "   %s: custom patch not re-based (%s: %s)."
                   % (FNAMES.patch_file_icao(name), type(exc).__name__, exc))
         return path
+
+
+def _on_its_source(tile, name):
+    import O4_Custom_Patch_Ground as CUSTOM_GROUND
+
+    return FNAMES.patch_file_icao(name) in CUSTOM_GROUND.grounds(tile)
 
 
 def read_path(tile, patch_dir, name):

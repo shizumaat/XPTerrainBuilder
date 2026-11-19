@@ -41,21 +41,24 @@ _REACH_FRAC = 0.25
 _HEIGHT_FRAC = 0.5
 #: K2 (kord-trench-frame-spec): a FLOOR solid is a triangle at least this
 #: near-horizontal (``|normal_y|``; the complement of :data:`_VERTICAL_NY`)
-#: standing wholly within :data:`_REACH_FRAC` of the depth over the bottom
+#: standing wholly within :data:`_REACH_FRAC` of the depth over the bottom,
+#: of a component holding no wall triangle (a wall block's own bottom cap
+#: is the wall, never the floor beside it)
 _FLOOR_NY = 1.0 - _VERTICAL_NY
 
 
 
-def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray] | None":
-    """``(vertices, triangles)`` of placement ``q``'s genuine static
-    components, or ``None``."""
+def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
+    """``(vertices, triangles, component of each)`` of placement ``q``'s
+    genuine static components, or ``None``."""
     if not q.resolved:
         return None
     g = cache.geometry(q.resolved)
     comps = cache.genuine(q.resolved)
     if g is None or not comps:
         return None
-    return g.vertices[:, :3], np.concatenate([c.tris for c in comps])
+    return (g.vertices[:, :3], np.concatenate([c.tris for c in comps]),
+            np.concatenate([np.full(len(c.tris), k) for k, c in enumerate(comps)]))
 
 
 def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, float],
@@ -115,7 +118,7 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, l
         got = _frame_tris(cache, q)
         if got is None:
             continue
-        v, tris = got
+        v, tris, owner = got
         a, b, c = v[tris[:, 0]], v[tris[:, 1]], v[tris[:, 2]]
         nrm = np.cross(b - a, c - a)
         ln = np.linalg.norm(nrm, axis=1)
@@ -131,7 +134,8 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, l
                    for p in (a[k], b[k], c[k])]
             out.append(max(((pts[i], pts[j]) for i, j in ((0, 1), (0, 2), (1, 2))),
                            key=lambda e: math.dist(*e)))
-        flat = ok & (ny >= _FLOOR_NY) & (hi <= bottom_y + _REACH_FRAC * depth)
+        flat = ok & (ny >= _FLOOR_NY) & (hi <= bottom_y + _REACH_FRAC * depth) \
+            & ~np.isin(owner, owner[keep])
         for k in np.flatnonzero(flat):
             flats.append(tuple(_to_frame(q.xy, q.heading_deg, float(p[0]), float(p[2]))
                                for p in (a[k], b[k], c[k])))

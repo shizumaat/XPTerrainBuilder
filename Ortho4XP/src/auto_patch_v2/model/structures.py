@@ -502,9 +502,10 @@ class DeckBridge:
     bottom_y: float
     #: the pre-solve rendered deck top: the estimate a mouth plans from
     deck_z: float
-    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``
-    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
-    #: for a deck the pack models no wall under
+    #: the frame's WALLS under the deck, ``(r_w, n_w, faces, floor)``
+    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3); ``floor``
+    #: the frame's bottom solids, K2 of kord-trench-frame-spec, absent on a
+    #: deck read before it); ``()`` for a deck the pack models no wall under
     walls: tuple = ()
     #: the floor is the lower level's ladder (``planar/deck_bridge.
     #: _road_floor``: the frame stops short of the road), not the object's

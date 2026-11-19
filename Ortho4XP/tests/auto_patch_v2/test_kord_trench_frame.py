@@ -125,3 +125,36 @@ def test_a_route_over_a_cluster_refuses_its_pad_a_door_keeps_it():
     door = RouteWitness(_airport(((20.0, -30.0), (20.0, 0.0))))
     got, counts, _r = _outlines([tall], routes=door)
     assert len(got) == 1 and counts["taxi_route_touch"] == 1
+
+
+# ── K2: the trench's walls are the pair at the edge of the frame's floor ──
+
+from auto_patch_v2.geom.wall_lines import inner_faces, wall_lines  # noqa: E402
+
+#: two outer walls (u -33.5, +46.5) and three 1 m piers (faces at
+#: -27/-26, 3.5/4.5, 23/24) along s 0..36, the deck's middle near u 6.5
+WALLS = [(u, 0.0, 36.0) for u in (-33.5, -27.0, -26.0, 3.5, 4.5, 23.0, 24.0, 46.5)]
+#: the road bed between the outer walls (bays split at the piers, as a
+#: mesh of triangles would be)
+FLOOR = [(-33.5, -27.0, 0.0, 36.0), (-26.0, 3.5, 0.0, 36.0),
+         (4.5, 23.0, 0.0, 36.0), (24.0, 46.5, 0.0, 36.0)]
+
+
+def test_k2_without_a_floor_the_pair_is_the_nearest_the_middle():
+    assert inner_faces(WALLS, 0.0, 36.0, 6.5, (-34.0, 47.0)) == (4.5, 23.0)
+
+
+def test_k2_with_a_floor_the_pair_is_the_floors_edges():
+    assert inner_faces(WALLS, 0.0, 36.0, 6.5, (-34.0, 47.0), FLOOR) == (-33.5, 46.5)
+
+
+def test_k2_piers_are_dividers_never_span_ends():
+    assert wall_lines(WALLS, 0.0, 36.0) == sorted(u for u, _a, _b in WALLS)
+    assert wall_lines(WALLS, 0.0, 36.0, FLOOR) == [-33.5, 46.5]
+
+
+def test_k2_a_floor_off_the_stretch_is_no_floor():
+    """The floor is read over the stretch asked: one standing elsewhere
+    along the road leaves the nearest-the-middle pair."""
+    far = [(a, b, 100.0, 140.0) for a, b, _s0, _s1 in FLOOR]
+    assert inner_faces(WALLS, 0.0, 36.0, 6.5, (-34.0, 47.0), far) == (4.5, 23.0)

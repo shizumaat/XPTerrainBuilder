@@ -49,6 +49,10 @@ _UNDER_M = 0.01
 _STEP_M = 2.0
 #: the airside cone is read off this many nearest pavement vertices
 _KERB_K = 24
+#: the ramp is designed at this share of its cap: the mesh between the
+#: floor's edge vertices (noded every ``planar/deck_carve.NODE_M``) reads a
+#: few tenths of a per cent steeper over a short run than the profile
+_CAP_SHARE = 0.95
 #: a floor-edge vertex stands this far off its line at most (the planar
 #: build snaps a vertex to its identity lattice, ``law.tables.snap_margin_m``)
 _SNAP_M = 0.5
@@ -114,7 +118,29 @@ def _deck_floors(decks, tops, law) -> tuple[dict, dict]:
                 srep[(id(p), a)] = {"deck": oid, "s": [round(a, 1), round(b, 1)],
                                     "lidar_floor": round(got[1], 3),
                                     "underside": round(got[2], 3), "need": p.clearance_m}
-    return floors, srep
+    return _one_cut(decks, floors), srep
+
+
+def _one_cut(decks, floors: dict[str, float]) -> dict[str, float]:
+    """Decks whose cuts share a road are ONE cut (19s (3) (b): "the cut
+    running straight through" between parallel taxiways' decks): every
+    deck of a group takes the deepest floor of the group, so every road's
+    floor through it is one level and no two roads' floors cross at
+    different heights."""
+    from ..geom.union_find import find_root
+    ids = sorted(floors)
+    at = {oid: k for k, oid in enumerate(ids)}
+    parent = list(range(len(ids)))
+    for d in decks:
+        for p in getattr(getattr(d, "carve", None), "paths", ()) or ():
+            ks = [at[oid] for _a, _b, oid in p.stretches if oid in at]
+            for k in ks[1:]:
+                parent[find_root(parent, k)] = find_root(parent, ks[0])
+    low: dict[int, float] = {}
+    for oid in ids:
+        r = find_root(parent, at[oid])
+        low[r] = min(low.get(r, math.inf), floors[oid])
+    return {oid: low[find_root(parent, at[oid])] for oid in ids}
 
 
 def _profiles(decks, tops, law) -> tuple[list, dict]:
@@ -137,7 +163,7 @@ def _profiles(decks, tops, law) -> tuple[list, dict]:
                 continue
             frame = PathFrame(p.coords)
             s, r = _path_stations(p)
-            z = floor_profile(s, r, st, p.cap, p.rate)
+            z = floor_profile(s, r, st, p.cap * _CAP_SHARE, p.rate)
             ra, rb = ramp_lengths(s, z, r, st)
             g = np.abs(np.diff(z)) / np.maximum(np.diff(s), 1e-9)
             stretches = []

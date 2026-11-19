@@ -470,6 +470,10 @@ class DeckAnchor:
     #: #2112: the deck PLATE this end line holds (``constraints/deck_lines.
     #: plate_of``): an object in disjoint plates has one zero per plate
     plate: int = 0
+    #: owner RULINGS 2026-11-18i (b): a span cut out of a pack deck lying at
+    #: grade (``DeckBridge.span_cut``) -- each end line its OWN level, the
+    #: span graded between them (``constraints/edge_deck._graded_rows``)
+    graded: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -550,6 +554,14 @@ class DeckBridge:
     #: off them are no ground once hidden (``planar/deck_pack_cover.
     #: hidden_cells_off``)
     hidden_plans: tuple = ()
+    #: owner RULINGS 2026-11-18i: a deck piece cut to ONE SPAN of a pack
+    #: deck lying at grade elsewhere on the airport's pavement
+    #: (``geom/deck_spans``, ``planar/deck_span_cut``): ``(a, b, spans,
+    #: cap)`` -- the source piece's axis (frame xy), every span ``(s_a,
+    #: s_b)`` along it and the grade a span may take between its end lines
+    #: (18i (b)); the object stage keeps those bands of the frame and drops
+    #: the rest.  ``()`` for every other deck
+    span_cut: tuple = ()
 
     @property
     def depth_a(self) -> float:

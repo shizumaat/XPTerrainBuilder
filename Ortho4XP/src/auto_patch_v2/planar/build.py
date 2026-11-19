@@ -283,6 +283,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
+    # owner RULINGS 2026-11-18i: a pack deck lying at grade on the airport's
+    # taxiway is cut to its spans; its at-grade plan is the airport's own
+    # pavement (``planar/deck_span_cut``)
+    from .deck_span_cut import at_grade_cells
+    classification, _ag_notes = at_grade_cells(classification, airport, law, objects)
+    for _n in _ag_notes:
+        print(f"[{airport.icao}] hard deck: {_n}")
     # THE CLASSIFICATION-FREE PACK READS, ONCE PER BUILD (issue #362;
     # ``planar/pack_reads``): the tunnel wall objects (RULINGS 2026-09-05k-1
     # — they replace the OSM bores they cover), the thin-plate wall objects

@@ -45,7 +45,10 @@ is held to the first one's by the deck-top difference between them —
 (``PlanarMap.decks``, deck redesign §1), whether or not a trench runs under
 one, and each station of an end line its anchor holds stands at that
 anchor's level (:func:`_station_rows`).  The taxiway on each side is
-graded to the deck; the deck never tilts or shears.  The ground under the
+graded to the deck; the deck never tilts or shears -- but a SPAN cut out
+of a pack deck lying at grade (``DeckBridge.span_cut``, owner RULINGS
+2026-11-18i (b)) takes the grade between its own end lines, each flush
+across itself, up to the taxiway cap (:func:`_graded_rows`).  The ground under the
 deck that is no trench floor — the bank's top along its edge — takes the
 span pair to its nearest seat (:func:`_deck_span`).
 """
@@ -162,20 +165,31 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         # (``deck_lines.plate_of``), each held at its own end lines
         plates = plate_of(es, law)
         groups = sorted(set(plates))
+        graded = {plates[i] for i, e in enumerate(es) if getattr(e.deck, "span_cut", ())}
         tops = None
-        if len(groups) > 1:
+        if len(groups) > 1 or graded:
             tops = {}
             for g in groups:
-                tg = _station_tops([ends[i] for i, q in enumerate(plates) if q == g])
-                tops.update({v: tg for v in tg})
+                idx = [i for i, q in enumerate(plates) if q == g]
+                # a GRADED span reads each end line from its own level
+                for part in ([[i] for i in idx] if g in graded else [idx]):
+                    tg = _station_tops([ends[i] for i in part])
+                    tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
                                _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law)))
         held = _held_levels(planar, oid, es)
         for g in groups:
             idx = [i for i, q in enumerate(plates) if q == g]
             eg = [ends[i] for i in idx]
+            name = oid if len(groups) == 1 else f"{oid} plate {g}"
+            if g in graded:
+                for i in idx:
+                    rows.extend(_station_rows(oid, [ends[i]], flush, [held[i]]))
+                rows.extend(_graded_rows(name, eg, [es[i].line for i in idx],
+                                         law.ruleset.taxi.longitudinal.value(None, None)))
+                continue
             rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx]))
-            rows.extend(_rigid_rows(oid if len(groups) == 1 else f"{oid} plate {g}", eg))
+            rows.extend(_rigid_rows(name, eg))
     return rows
 
 
@@ -558,14 +572,9 @@ def _rigid_rows(oid: str, ends: list) -> list[Row]:
     the deck-top difference — ``mean z[S_k] − mean z[S_0] = top_k − top_0``
     — a two-sided pair under :data:`RIGID`."""
     rows: list[Row] = []
-    for k, (terms, top) in enumerate(ends[1:], 1):
+    for k, (_terms, top) in enumerate(ends[1:], 1):
         src = Source(GEN, RIGID, (oid, f"end {k}"))
-        acc: dict[int, float] = {}
-        for v, w in terms:
-            acc[v] = acc.get(v, 0.0) + w
-        for v, w in ends[0][0]:
-            acc[v] = acc.get(v, 0.0) - w
-        ts = tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
+        ts = _end_difference(ends, k)
         if not ts:
             continue
         rhs = top - ends[0][1]
@@ -573,6 +582,44 @@ def _rigid_rows(oid: str, ends: list) -> list[Row]:
         rows.append(Linear(tuple((v, -c) for v, c in ts), None, -rhs, src))
     return rows
 
+
+
+def _graded_rows(oid: str, ends: list, lines: list, cap: "float | None") -> list[Row]:
+    """A SPAN TAKES ITS OWN GRADE (owner RULINGS 2026-11-18i (b), #2157
+    KRDU: "each kept bridge span follows its own real grade"): a deck span
+    cut out of a pack deck lying at grade (``DeckBridge.span_cut``) has no
+    one zero -- each end line is flush across itself
+    (:func:`_station_rows` per line) at the level the airside solve builds
+    there, and the PAVEMENT takes the straight grade between them, held to
+    the taxiway longitudinal ``cap``: ``|mean z[S_k] - mean z[S_0]| <= cap *
+    L_k``, ``L_k`` the run between the two end lines' middles -- one
+    two-sided row under :data:`RIGID`.  The cap is the driven surface's
+    grade, never the bend off the object's own authored deck (owner
+    2026-11-18T23:04Z, RULINGS 2026-11-18i (7)): the object stage warps the
+    span as far as the pavement needs (``airport/deck_plates._span_grade``).
+    Without a cap the deck is rigid (:func:`_rigid_rows`)."""
+    if cap is None:
+        return _rigid_rows(oid, ends)
+    rows: list[Row] = []
+    mid = [(sum(p[0] for p in ln) / len(ln), sum(p[1] for p in ln) / len(ln)) for ln in lines]
+    for k in range(1, len(ends)):
+        ts = _end_difference(ends, k)
+        if ts:
+            run = float(cap) * dist(mid[0], mid[k])
+            rows.append(Linear(ts, -run, run,
+                               Source(GEN, RIGID, (oid, f"graded end {k}"))))
+    return rows
+
+
+def _end_difference(ends: list, k: int) -> tuple:
+    """The terms of ``mean z[S_k] − mean z[S_0]`` (``ends[k]``'s seat
+    terms less the first end line's)."""
+    acc: dict[int, float] = {}
+    for v, w in ends[k][0]:
+        acc[v] = acc.get(v, 0.0) + w
+    for v, w in ends[0][0]:
+        acc[v] = acc.get(v, 0.0) - w
+    return tuple((v, c) for v, c in sorted(acc.items()) if abs(c) > 1e-12)
 
 
 def _bridge_ground(planar: PlanarMap, vx) -> bool:

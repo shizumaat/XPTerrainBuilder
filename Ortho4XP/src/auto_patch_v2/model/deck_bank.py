@@ -69,5 +69,5 @@ def banked(db) -> bool:
     r, n, faces = walls
     u_lo, u_hi = project_span(db.ring, n)
     s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
+    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi))
     return ua is None or ub is None

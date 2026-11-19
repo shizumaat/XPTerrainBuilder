@@ -443,6 +443,9 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
     # deck-end-anchors spec §3: the zero the deck's anchors state
     anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 else None
+    # owner RULINGS 2026-11-18i: a deck cut to its spans (``deck_span_cut``)
+    cut = rest[3] if o.id in plates and len(rest) > 3 else ()
+    deck_spans = (to_ll(*cut[0]), to_ll(*cut[1]), tuple(cut[2]), *cut[3:5]) if cut else ()
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END
@@ -462,7 +465,7 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
                        plate_clearance_m=plate_clearance, plate_kind=plate_kind,
-                       anchor_zero=anchor_zero)
+                       anchor_zero=anchor_zero, deck_spans=deck_spans)
     rec = (free_decks or {}).get(o.id)
     if rec is None or law is None:
         return out

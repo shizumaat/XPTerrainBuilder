@@ -7,15 +7,14 @@ The cliff overlay's precedent (``O4_Cliff_Library``): read a resource of
 the user's X-Plane install by its LIBRARY path, and place its texture in
 the pack ONCE as a link to the install (``O4_World_Pack.share_file``:
 symbolic link, else hard link, else one copy) -- never shipped, never
-re-drawn.  A generated deck reads two of X-Plane's airport pavement pages:
+re-drawn.  A generated deck reads X-Plane's airport pavement pages:
 
 * ``[deck_gen] concrete_pol`` -- the slab: the page's ``TEXTURE`` (a
   1024 x 2048 albedo of slabbed, stained concrete), its ``TEXTURE_NORMAL``
   and its ``SCALE`` (the metres one repeat covers), so the deck's top tiles
   exactly as an apt.dat concrete taxiway beside it does;
-* ``[deck_gen] rubber_pol`` -- the tire marks: the runway rubber page's
-  alpha texture (``SCALE`` 30 x 30 m), laid as a film along the carried
-  route's centreline.
+* the pack author's pages on the taxiway at both ends (#2183 (2),
+  ``deck_author_art``), each laid as a film over the top.
 
 A page the install does not resolve (no X-Plane beside the pack or in the
 app's settings, a renamed library entry) leaves the deck on the generated

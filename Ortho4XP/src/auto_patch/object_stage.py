@@ -781,7 +781,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # DSF of the pack (``tile_route``), in the SAME write as this one's
     # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
     # bridges the patch published, written in the same pack write
-    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key, patch_dir)
+    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key, patch_dir,
+                            read_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c))
     try:
         res = _pw.apply_routed(
             plan, files, _DSFR._dsftool_path() or "DSFTool",
@@ -898,13 +899,14 @@ def _generated_in(patch_dir: str, icao: str) -> bool:
 
 
 def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str,
-                      patch_dir: str = ""):
+                      patch_dir: str = "", read_dump=None):
     """The airport's generated decks / road bridges as a write recipe
     (``generated_pack.recipe``), ``None`` for a companion plan or a patch
     that published none (the record's recipe is then kept as it is).
     #2140: an installed package's record of this very publication
     (``generated_record.installed_recipe``) is the recipe as it is: the
-    generator does not run."""
+    generator does not run.  ``read_dump(dsf path)``: the pack DSF's text
+    dump (the stage's cache), for the pack author's art on each deck (#2183)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import apt_flatten as _af
     from auto_patch_v2.airport import generated_pack as _gen
@@ -924,7 +926,7 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
         return rec
     try:
         rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law,
-                          resolve_library=_agp.resolve_library_path)
+                          resolve_library=_agp.resolve_library_path, read_dump=read_dump)
     except Exception as exc:                     # never fails the pack
         UI.vprint(0, f"  [v2 placement] {icao}: the generated decks / road bridges "
                      f"could not be made ({exc}); none written")

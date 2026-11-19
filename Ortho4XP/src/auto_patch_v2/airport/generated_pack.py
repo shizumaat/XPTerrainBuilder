@@ -11,12 +11,13 @@ applies it in the same write as every other placement edit
 * each DECK becomes an OBJ8 (``deck_obj8``: an ``ATTR_hard_deck`` top,
   ``thickness_m`` slab, the dropped apt.dat paint redrawn as X-Plane's own
   stripes, ``deck_paint``; the green centreline lights kept as
-  ``taxi_g`` / ``taxi_g_rev``) under ``objects/o4_generated/`` with its
+  ``taxi_g`` / ``taxi_g_rev``; the pack author's pages and lines on and
+  around it, ``deck_author_art``, #2183) under ``objects/o4_generated/`` with its
   texture (``deck_texture``), placed by one ``OBJECT_MSL`` row at the
   deck's solved zero; where the user's X-Plane install resolves them
   (#2132, ``deck_skin``) the slab is drawn in X-Plane's own concrete
-  page and the paint + lights and the tire marks (the runway rubber page)
-  are overlay objects at the same anchor, the art LINKED into the folder;
+  page and the paint + lights and the author's films are overlay objects
+  at the same anchor, the art LINKED into the folder;
 * every pack ``.pol`` / ``.lin`` page is clipped by the deck's ring and by
   each bridge's span corridor (``dsf_poly_clip``; a UV-mapped page under
   one refuses that structure by name);
@@ -64,13 +65,16 @@ def _is_generated_file(path: str) -> bool:
 
 
 def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
-           xplane_root: "str | None" = None, resolve_library=None) -> dict:
+           xplane_root: "str | None" = None, resolve_library=None,
+           read_dump: "_t.Callable[[str], str | None] | None" = None) -> dict:
     """The write recipe of an airport's generated structures (module doc):
     ``xplane_root`` the install whose art draws the decks (#2132), ``None``
     to find it (``deck_skin.install_root``), ``""`` for none (the atlas);
     ``resolve_library`` the install's library lookup
     (``deck_skin.Resolver``; the object stage hands in X-Plane's merged
-    index), ``None`` for none (the atlas).
+    index), ``None`` for none (the atlas); ``read_dump(dsf path)`` the
+    path of a DSF's text dump (the caller's cache), ``None`` for none (the
+    decks then carry none of the pack author's art, #2183).
     ``{"decks": [placement rows], "regions": [WKT], "chains": [...],
     "files": {pack-relative path: bytes}, "notes": [...]}``; empty lists
     where nothing was generated."""
@@ -100,14 +104,16 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
         except OSError as exc:
             out["notes"].append(f"apt.dat unreadable ({exc}): no paint redrawn")
     g = law.tables.structures.deck_gen
-    art = _install(apt_path, g, xplane_root, resolve_library) if decks else None
+    root = _install_root(apt_path, xplane_root) if decks else None
+    art = _objs.install_art(g, root, resolve_library) if decks else None
     apt = _apt_block(apt_path, icao) if decks else None
+    author = _Author(apt_path, root, resolve_library, read_dump)
     for k, d in enumerate(decks):
-        code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or "")) \
-            if apt is not None else None
+        code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or ""),
+                                    d.get("route")) if apt is not None else None
         runway = _pav.carried_runway(apt, ring_polygon(d["ring"])) if apt is not None else None
         objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code,
-                                      runway=runway)
+                                      runway=runway, authored=author.of(d))
         rel = str(d["resource"])
         frame = st["frame"]
         # RULINGS 2026-11-19c: the pack's placements on the deck ride its top
@@ -129,6 +135,9 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
                             f"{len(objs)} object(s)"
                             + (f", {st['runway_marks']} runway mark(s)"
                                if st.get("runway_marks") else "")
+                            + f", author film(s) {st.get('films') or 'none'}"
+                            + (f", {st['author_lines']} author line run(s)"
+                               if st.get("author_lines") else "")
                             + (f", {st['unpainted']} line(s) of a type not painted"
                                if st["unpainted"] else ""))
     if art is not None:
@@ -146,12 +155,67 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     return out
 
 
-def _install(apt_path: str, g, root: "str | None", resolve):
-    """#2132: X-Plane's own art for the decks (``deck_objects.install_art``)
-    from the install the pack stands in, else the app's (``deck_skin``)."""
+def _install_root(apt_path: str, root: "str | None") -> "str | None":
+    """#2132: the install whose art draws the decks: ``root`` as given,
+    else the one the pack stands in, else the app's (``deck_skin``)."""
     from . import deck_skin as _skin
-    root = _skin.install_root(apt_path) if root is None else root
-    return _objs.install_art(g, root, resolve)
+    return _skin.install_root(apt_path) if root is None else root
+
+
+class _Author:
+    """The pack author's art per deck (``deck_author_art``, #2183): the
+    pack DSF's pages read once per tile from its PRISTINE dump."""
+
+    def __init__(self, apt_path: str, root, resolve, read_dump) -> None:
+        from . import deck_author_art as _aa
+        from . import deck_skin as _skin
+        self.pack = os.path.dirname(os.path.dirname(apt_path)) if apt_path else ""
+        self.root, self.read_dump = root, read_dump
+        self.look = _aa.pack_first(self.pack, _skin.laminar_first(resolve) if root else resolve)
+        self.pages: dict = {}
+
+    def _pages(self, lon: float, lat: float) -> list:
+        import math
+
+        from . import deck_author_art as _aa
+        from .backup_state import pristine_dsf_path
+        from .dsf import dsf_path_in_pack
+        key = (math.floor(lat), math.floor(lon))
+        if key not in self.pages:
+            self.pages[key] = []
+            dsf = pristine_dsf_path(dsf_path_in_pack(self.pack, *key))
+            dump = self.read_dump(dsf) if os.path.isfile(dsf) else None
+            if dump:
+                with open(dump, encoding="utf-8", errors="replace") as fh:
+                    self.pages[key] = _aa.pack_pages(fh.read())
+        return self.pages[key]
+
+    def of(self, d: _t.Mapping) -> "_objs.Authored | None":
+        """The :class:`deck_objects.Authored` of deck record ``d``."""
+        from . import deck_author_art as _aa
+        from . import deck_line_art as _la
+        from . import deck_skin as _skin
+        if not (self.pack and self.root and self.read_dump):
+            return None
+        R = ring_polygon(d["ring"])
+        pages = self._pages(R.centroid.x, R.centroid.y)
+        arts = []
+        for p in _aa.end_pages(pages, R, d.get("route")):
+            art = _skin.page_art(p, self.root, self.look)
+            if art is not None:
+                arts.append((_aa.draw_order(self.look(p, self.root) or ""), art))
+        # X-Plane's draw order: layer group, then the DSF's own order
+        films = tuple(a for _o, a in sorted(arts, key=lambda t: t[0]))
+        lines = []
+        for path, pts in _aa.deck_lines(pages, R):
+            try:
+                phys = self.look(path, self.root)
+            except (OSError, ValueError):
+                phys = None
+            page = _la.read_page(phys) if phys else None
+            if page is not None:
+                lines.append((page, pts))
+        return _objs.Authored(films, tuple(lines))
 
 
 def _apt_block(apt_path: str, icao: str):

@@ -78,6 +78,7 @@ import math
 import os
 import typing as _t
 
+from .deck_author_art import layer_order
 from .pack_art import MissingDef, _lines, decision_key
 
 __all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE",
@@ -266,23 +267,6 @@ def _image_opaque(pol_path: str, header: _t.Mapping[str, str]) -> bool:
     return frac is None or frac >= MIN_OPAQUE
 
 
-#: the draw order of X-Plane's layer groups (``LAYER_GROUP name offset``)
-_GROUPS = ("terrain", "beaches", "shoulders", "taxiways", "runways",
-           "markings", "airports", "roads", "objects", "light_objects", "cars")
-
-
-def _layer(header: _t.Mapping[str, str]) -> float:
-    """The draw order of a ``.pol`` (group rank, then offset)."""
-    toks = header.get("LAYER_GROUP", "").split()
-    if not toks or toks[0].lower() not in _GROUPS:
-        return float(_GROUPS.index("markings") * 100)
-    try:
-        off = float(toks[1]) if len(toks) > 1 else 0.0
-    except ValueError:
-        off = 0.0
-    return _GROUPS.index(toks[0].lower()) * 100 + off
-
-
 class _PhotoLayers(_t.NamedTuple):
     """One dump's draped polygons as the photo rule reads them."""
     defs: list[str]                       # every POLYGON_DEF path
@@ -323,7 +307,7 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
         texture = image_name(header)
         if not turns or turns[len(turns) // 2] > NORTH_UP_DEG:
             ground += [u.box for u in uses[i]]
-            kin.append(Layer(i, path, texture, (), False, _layer(header)))
+            kin.append(Layer(i, path, texture, (), False, layer_order(header)))
             continue                                    # (4)
         photo = "LOAD_CENTER" in header
         on = [u for u in uses[i] if u.mapped and any(_overlaps(u.box, a) for a in areas)]
@@ -333,7 +317,7 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
         layers.append(Layer(i, path, texture,
                             tuple(u.box for u in uses[i] if u.mapped),
                             over and _image_opaque(local, header),  # (6)
-                            _layer(header)))
+                            layer_order(header)))
     if small:
         layers = _grid_sized(layers, small)
     return _PhotoLayers(defs, uses, layers, ground, kin)

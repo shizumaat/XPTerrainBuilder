@@ -3,8 +3,9 @@ deck surface matches the pavement it carries" -- a runway deck gets the
 runway's apt.dat surface, a taxiway deck its taxiway's).
 
 The apt.dat surface code of the pavement under a deck's ring -- the row
-``110`` polygon covering most of it (a taxiway deck), or the row ``100``
-runway strip (a runway deck) -- and X-Plane's own page for that code:
+``110`` pavement X-Plane draws on its carried route (a taxiway deck,
+#2183 (1); the polygon covering most of the ring where the route reads
+none), or the row ``100`` runway strip (a runway deck) -- and X-Plane's own page for that code:
 ``lib/airport/default_runways/<shade>/{taxiway,runway}.pol``, the page
 X-Plane drapes for the apt.dat pavement beside the deck.  The shade of a
 code is X-Plane's apt.dat 1200 specification ("Surface Type Codes",
@@ -25,6 +26,9 @@ import math
 from shapely.geometry import LineString, Polygon
 
 __all__ = ["surface_page", "carried_surface", "carried_runway"]
+
+#: stations read along the carried route across a deck (:func:`_on_route`)
+_ROUTE_SAMPLES = 21
 
 _SHADES: tuple[tuple[range, str], ...] = (
     (range(20, 24), "asphalt_L"), (range(24, 27), "asphalt"), (range(27, 31), "asphalt_D"),
@@ -81,22 +85,58 @@ def carried_runway(apt, ring_ll: Polygon):
     return None if best is None else best[1]
 
 
-def carried_surface(apt, ring_ll: Polygon, family: str) -> "int | None":
-    """The apt.dat surface code of the pavement a deck carries: for a
-    ``runway`` deck the row-100 runway covering most of ``ring_ll`` (lon,
-    lat), else the row-110 polygon covering most of it; ``None`` when
-    nothing paved covers it (``apt`` an ``apt_dat.AptAirport``)."""
-    if family == "runway":
-        rw = carried_runway(apt, ring_ll)
-        if rw is not None and _shade_of(rw.surface) is not None:
-            return int(rw.surface)
-    best: "tuple[float, int] | None" = None
+def _pavement_polys(apt) -> list[tuple[int, Polygon]]:
+    """``(surface, polygon)`` of every paved row-110 pavement, in FILE order."""
+    out = []
     for pv in getattr(apt, "pavements", ()) or ():
         if not pv.rings or len(pv.rings[0]) < 3 or _shade_of(pv.surface) is None:
             continue
         p = Polygon(pv.rings[0], [r for r in pv.rings[1:] if len(r) >= 3])
-        p = p if p.is_valid else p.buffer(0.0)
+        out.append((int(pv.surface), p if p.is_valid else p.buffer(0.0)))
+    return out
+
+
+def _on_route(pavs, ring_ll: Polygon, route) -> "int | None":
+    """#2183 (1) (owner 2026-11-19T14:31Z: "the bridge should use the
+    pavement texture at the taxiroute centerline, not the one at the
+    edge"): the surface X-Plane draws ON the carried route across the
+    ring -- at each of :data:`_ROUTE_SAMPLES` stations the FIRST pavement
+    in file order that holds it (the apt.dat 1100 specification: the
+    sequence of the pavement definitions is their layering, top-down, so
+    the first one listed is drawn over the rest), the most stations
+    winning; ``None`` when the route misses every pavement."""
+    if route is None or len(route) < 2:
+        return None
+    on = LineString(route).intersection(ring_ll)
+    pieces = [g for g in getattr(on, "geoms", [on]) if g.geom_type == "LineString"]
+    votes: dict[int, int] = {}
+    for g in pieces:
+        for k in range(_ROUTE_SAMPLES):
+            q = g.interpolate((k + 0.5) / _ROUTE_SAMPLES, normalized=True)
+            code = next((c for c, p in pavs if p.contains(q)), None)
+            if code is not None:
+                votes[code] = votes.get(code, 0) + 1
+    return max(votes, key=lambda c: (votes[c], -c)) if votes else None
+
+
+def carried_surface(apt, ring_ll: Polygon, family: str, route=None) -> "int | None":
+    """The apt.dat surface code of the pavement a deck carries: for a
+    ``runway`` deck the row-100 runway covering most of ``ring_ll`` (lon,
+    lat); else the pavement drawn on its carried ``route`` (lon, lat
+    points; :func:`_on_route`), else the row-110 polygon covering most of
+    the ring; ``None`` when nothing paved covers it (``apt`` an
+    ``apt_dat.AptAirport``)."""
+    if family == "runway":
+        rw = carried_runway(apt, ring_ll)
+        if rw is not None and _shade_of(rw.surface) is not None:
+            return int(rw.surface)
+    pavs = _pavement_polys(apt)
+    code = _on_route(pavs, ring_ll, route)
+    if code is not None:
+        return code
+    best: "tuple[float, int] | None" = None
+    for surface, p in pavs:
         a = p.intersection(ring_ll).area
         if a > 0.0 and (best is None or a > best[0]):
-            best = (a, int(pv.surface))
+            best = (a, surface)
     return None if best is None else best[1]

@@ -534,8 +534,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             continue
         # #2181 item 2: a pack deck standing a road's clearance over the
         # carried pavement passes OVER the crossing (``overhead_decks``)
-        over = overhead_decks(objects, piece, _deck_z(airport, piece.exterior.coords, None),
-                              law)
+        over = overhead_decks(objects, piece, _carried_level(airport, piece), law)
         why = _blocked(piece, [d for d in taken if not (over & {d.object_id, *d.members})],
                        blocked, [r.line for r in under],
                        [p for p in packs if p.object_id not in over], law,
@@ -624,6 +623,20 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                                for f in fakes))
     out, pair_notes = one_cut(out, mapped, law, lambda tags: _reach_of(tags, law))
     return tuple(out), notes + pair_notes
+
+
+def _carried_level(airport, piece: Polygon) -> "float | None":
+    """The carried pavement's level over ``piece``: the HIGHEST ground on
+    its ring -- the ring stands on the pavement beside the cut, and a
+    bare-earth survey reads the cut under it (#2181 item 2; a mean read
+    the cut and took KRDU's own ``STH_TML.obj`` taxiway deck, 4 m over it,
+    for a structure passing over the crossing)."""
+    dem = getattr(airport, "dem", None)
+    if dem is None:
+        return None
+    zs = [float(dem.z(x, y)) for x, y in piece.exterior.coords]
+    zs = [z for z in zs if math.isfinite(z)]
+    return max(zs) if zs else None
 
 
 def _over_holes(R, ribbons, g):

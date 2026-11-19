@@ -200,6 +200,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
         "auto_patch_v2.airport.deck_surface",
+        "auto_patch_v2.airport.deck_touch",
         "auto_patch_v2.airport.deck_track_bend",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -225,6 +226,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
+        "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
@@ -490,6 +492,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
         "auto_patch_v2.airport.deck_surface",
+        "auto_patch_v2.airport.deck_touch",
         "auto_patch_v2.airport.deck_track_bend",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_production",
@@ -522,6 +525,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
+        "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
@@ -984,6 +988,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
+        "auto_patch_v2.airport.deck_touch",
         "auto_patch_v2.airport.deck_track_bend",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -1005,6 +1010,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
+        "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
@@ -1204,6 +1210,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
+        "auto_patch_v2.airport.deck_touch",
         "auto_patch_v2.airport.deck_track_bend",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -1226,6 +1233,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
+        "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
@@ -1496,6 +1504,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
         "auto_patch_v2.airport.deck_surface",
+        "auto_patch_v2.airport.deck_touch",
         "auto_patch_v2.airport.deck_track_bend",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
@@ -1521,6 +1530,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
+        "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
@@ -2416,6 +2426,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.apt_flatten
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
+    airport.deck_touch airport.interior_deck
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem geom.water_level airport.dem_witness airport.dsf
     airport.deck_family_contact
@@ -2557,6 +2568,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.apt_flatten
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
+    airport.deck_touch airport.interior_deck
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem_witness airport.dsf airport.extension_cache
     airport.deck_family_contact
@@ -2666,6 +2678,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
+    airport.deck_touch airport.interior_deck
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
     airport.deck_family_contact
@@ -2867,6 +2880,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
+    airport.deck_touch airport.interior_deck
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
     airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
     airport.deck_family_contact
@@ -3092,6 +3106,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
+    airport.deck_touch airport.interior_deck
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
     airport.deck_family_contact
@@ -3260,6 +3275,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.apt_flatten
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
+    airport.deck_touch airport.interior_deck
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
     airport.deck_family_contact airport.deck_signature airport.dem airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry

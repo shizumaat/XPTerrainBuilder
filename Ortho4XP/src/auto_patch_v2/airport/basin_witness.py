@@ -108,6 +108,12 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          water=getattr(airport.dem, "water_many", None),
                                          hidden=_hidden_terrain(airport),
                                          airside=_floor_witness(airport, law))
+    # EVERYTHING INSIDE A BUILDING MOVES WITH THE BUILDING (owner RULINGS
+    # 2026-11-19f, #2177): a flagged floor inside a building of its frame
+    # is no deck — before the signature, which reads its family as the
+    # unflagged family it then is
+    from . import interior_deck as _interior_deck
+    objs = _interior_deck.mark(objs, cache, law)
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,

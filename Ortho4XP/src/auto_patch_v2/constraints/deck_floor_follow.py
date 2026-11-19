@@ -33,6 +33,8 @@ import typing as _t
 
 from ..geom.coons_patch import CoonsPatch, edge_profiles
 from .edge_floor import DECK_FLOOR
+from ..geom.exact import hypot
+from ..geom.rotated_rect import rotated_rectangle
 
 __all__ = ["floor_follow_rewrite"]
 
@@ -83,7 +85,7 @@ def _deck_frame(db) -> "tuple[tuple, tuple, tuple] | None":
         return None
     pts = list(poly.exterior.coords)[:-1]
     if len(pts) != 4:
-        pts = list(poly.minimum_rotated_rectangle.exterior.coords)[:-1]
+        pts = list(rotated_rectangle(poly).exterior.coords)[:-1]
     if len(pts) != 4:
         return None
     sa = getattr(db, "seats_a", ()) or ()
@@ -138,11 +140,10 @@ def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
 
 def _edge_points(o, u, w, step: float) -> list[tuple[float, float]]:
     """Points every ``step`` metres round the parallelogram ``(o, u, w)``."""
-    import math
     out = []
     for a, d in ((o, u), (o, w), ((o[0] + u[0], o[1] + u[1]), w),
                  ((o[0] + w[0], o[1] + w[1]), u)):
-        n = max(1, int(math.hypot(*d) / step))
+        n = max(1, int(hypot(*d) / step))
         out += [(a[0] + d[0] * k / n, a[1] + d[1] * k / n) for k in range(n + 1)]
     return out
 
@@ -186,7 +187,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         rep["top_low"][d.object_id] = round(patch.low(), 3)
         rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
         near = prep(deck_polygon(d).buffer(_ON_RING_M))
-        lu = max(1e-9, (patch.u[0] ** 2 + patch.u[1] ** 2) ** 0.5)
+        lu = max(1e-9, hypot(patch.u[0], patch.u[1]))
         for v, vx in pm.vertices.items():
             if not near.contains(Point(vx.xy)):
                 continue

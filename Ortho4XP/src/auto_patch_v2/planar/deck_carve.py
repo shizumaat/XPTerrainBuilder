@@ -48,7 +48,7 @@ from shapely.strtree import STRtree
 
 from ..geom.carve_profile import PathFrame, floor_profile, smoothed
 from ..geom.exact import hypot
-from ..geom.parts import polygon_parts_with_area
+from ..geom.parts import densified_parts, polygon_parts_with_area
 from ..model.deck_bank import bank_past_m, deck_bank_slope
 from ..model.deck_carve import CARVE_REF, CarvePath, DeckCarve
 from ..model.road_clearance import carriageway_width_m, design_clearance_m
@@ -393,14 +393,14 @@ def _split_structures(cells, blade, law) -> tuple[list, int]:
         if not poly.intersects(edge):
             out.append(c)
             continue
-        pieces = [q for g in (poly.intersection(blade), poly.difference(blade))
-                  for q in polygon_parts_with_area(g) if q.area > 0.5]
+        pieces = [d for g in (poly.intersection(blade), poly.difference(blade))
+                  for q in polygon_parts_with_area(g) if q.area > 0.5
+                  for d in densified_parts(q, NODE_M)]
         if len(pieces) < 2:
             out.append(c)
             continue
         n += 1
         for k, q in enumerate(pieces):
-            q = q.segmentize(NODE_M)
             out.append(_dcl.replace(c, ref=c.ref if k == 0 else f"{c.ref}#{k}",
                                     ring=tuple(q.exterior.coords)[:-1],
                                     holes=tuple(tuple(h.coords)[:-1] for h in q.interiors)))
@@ -456,9 +456,9 @@ def deck_carve(classification, decks, airport, law, tunnels=()
         if geom is None or geom.is_empty:
             continue
         free = geom.difference(taken)
-        for k, q in enumerate(q for q in polygon_parts_with_area(free)
-                              if q.area > 0.5 and not is_hairline(q, max(spacing, _HAIR_M))):
-            q = q.segmentize(NODE_M)
+        for k, q in enumerate(d for q in polygon_parts_with_area(free)
+                              if q.area > 0.5 and not is_hairline(q, max(spacing, _HAIR_M))
+                              for d in densified_parts(q, NODE_M)):
             new.append(Cell(0, "graded_strip", f"{CARVE_REF}:{oid}:{part}" + (f"#{k}" if k else ""),
                             tuple(q.exterior.coords)[:-1],
                             tuple(tuple(h.coords)[:-1] for h in q.interiors),

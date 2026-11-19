@@ -22,18 +22,21 @@ Promoted on its second use by lane ``lpadfeet`` (RULINGS ``7e90032``).
 """
 from __future__ import annotations
 
-import os as _o4os, sys as _o4sys                                    # noqa: E402
+import os as _o4os
+import sys as _o4sys
+
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
-import argparse
-import dataclasses as _dc
-import json
-import pickle
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import dataclasses as _dc  # noqa: E402
+import json  # noqa: E402
+import pickle  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -86,11 +89,11 @@ def _pads(airport, law, rules, armed: bool):
 
 
 def survey(pkl: Path, site=None, top: int = 15) -> dict:
-    from shapely.geometry import Point
-    from shapely.ops import unary_union
     from auto_patch_v2.classify import load_rules
     from auto_patch_v2.law import Law
     from auto_patch_v2.planar.cluster import clusters as derive_clusters
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
     with pkl.open("rb") as fh:
         cap = pickle.load(fh)
     icao, airport = cap["icao"], cap["airport"]

@@ -72,8 +72,7 @@ import typing as _t
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
-__all__ = ["GROUND_TRIMMED", "PASSAGE_NOTES", "ground_plan", "passages",
-           "trim_to_ground"]
+__all__ = ["GROUND_TRIMMED", "PASSAGE_NOTES", "trim_to_ground"]
 
 #: the last run's counts: pad parts trimmed, m2, lifted pieces, passages
 GROUND_TRIMMED: dict[str, float] = {}
@@ -82,12 +81,9 @@ PASSAGE_NOTES: list[str] = []
 
 
 def _ring(ring, to_xy) -> Polygon | None:
-    if len(ring) < 3:
-        return None
-    g = Polygon([to_xy(lo, la) for la, lo in ring])
-    if not g.is_valid:
-        g = g.buffer(0.0)
-    return None if g.is_empty else g
+    """A plan part's ``(lat, lon)`` ring in the frame (``geom/deck_ground``)."""
+    from ..geom.deck_ground import ring_polygon
+    return ring_polygon([to_xy(lo, la) for la, lo in ring])
 
 
 def _facade_polys(airport, storey_m: float):
@@ -115,7 +111,7 @@ def _facade_polys(airport, storey_m: float):
     return ground, lifted
 
 
-def ground_plan(airport, law):
+def _ground_plan(airport, law):
     """``(ground, facades, over)`` (module doc): the ground plan as one
     closed, court-filled geometry (or ``None``), the lifted facades and the
     footless OBJ parts a storey up, each as ``[(polygon, lift, m)]``."""
@@ -151,7 +147,7 @@ def ground_plan(airport, law):
     return g, facades, over
 
 
-def passages(airport, law, rules) -> list[tuple[_t.Any, Polygon, str]]:
+def _passages(airport, law, rules) -> list[tuple[_t.Any, Polygon, str]]:
     """``[(way, corridor, "road" | "rail")]`` (module doc)."""
     from ..airport.deck_signature import is_bridge_way, is_tunnel_way
     from ..airport.road_ways import mapped_width_m, ribbon_half_width_m, road_ways
@@ -256,15 +252,15 @@ def trim_to_ground(parts: list, airport, law, rules) -> list:
     if law is None or not parts or airport is None:
         return parts
     pads = unary_union(parts)
-    ground, facades, over = ground_plan(airport, law)
+    ground, facades, over = _ground_plan(airport, law)
     facades = [(g, z) for g, z in facades if g.intersects(pads)]
-    ways = [(w, c, k) for w, c, k in passages(airport, law, rules) if c.intersects(pads)]
+    ways = [(w, c, k) for w, c, k in _passages(airport, law, rules) if c.intersects(pads)]
     if not facades and not ways:
         return parts
     lifted = unary_union([g for g, _z in over + facades if g.intersects(pads)])
     above = _layered_buildings(airport)
     under = [_under(w, c, lifted, above) for w, c, _k in ways]
-    ways = [(w, c, k) for (w, c, k), u in zip(ways, under) if u is not None]
+    ways = [(w, c, k) for (w, c, k), u in zip(ways, under, strict=True) if u is not None]
     open_ = unary_union([g for g, _z in facades] + [u for u in under if u is not None])
     if open_.is_empty:
         return parts

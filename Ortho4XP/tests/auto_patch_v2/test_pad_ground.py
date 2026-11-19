@@ -10,8 +10,7 @@ import types
 import pytest
 from auto_patch_v2.airport.facade import ROOFED, parse_facade
 from auto_patch_v2.classify import load_rules
-from auto_patch_v2.classify.pad_ground import (GROUND_TRIMMED, PASSAGE_NOTES,
-                                               trim_to_ground)
+from auto_patch_v2.classify.pad_ground import GROUND_TRIMMED, PASSAGE_NOTES, trim_to_ground
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Building, FacadeRead, OsmWay
 from auto_patch_v2.model.rebake import Part

@@ -37,7 +37,7 @@ import typing as _t
 
 import numpy as np
 
-from ..geom.carve_profile import PathFrame, floor_profile, ramp_lengths, smoothed
+from ..geom.carve_profile import PathFrame, floor_profile, lateral, ramp_lengths, smoothed
 from ..model.deck_bank import deck_bank_slope
 from ..model.deck_carve import CARVE_REF
 
@@ -49,6 +49,9 @@ _UNDER_M = 0.01
 _STEP_M = 2.0
 #: the airside cone is read off this many nearest pavement vertices
 _KERB_K = 24
+#: a floor-edge vertex stands this far off its line at most (the planar
+#: build snaps a vertex to its identity lattice, ``law.tables.snap_margin_m``)
+_SNAP_M = 0.5
 
 
 def _path_stations(p) -> tuple[np.ndarray, np.ndarray]:
@@ -57,12 +60,15 @@ def _path_stations(p) -> tuple[np.ndarray, np.ndarray]:
     return s, r
 
 
-def _stretch_floor(p, frame: PathFrame, s, r, a: float, b: float, top, inside, slab: float
-                   ) -> "tuple[float, float, float] | None":
-    """``(floor, lidar floor, least underside)`` of the stretch ``[a, b]``:
-    the deeper of the lidar road and the underside less the clearance over
-    every station under the ring (``inside``)."""
-    lidar = [float(z) for sk, z in zip(s, r, strict=True) if a <= sk <= b]
+def _stretch_floor(p, frame: PathFrame, s, r, a: float, b: float, top, inside, slab: float,
+                   probe: float) -> "tuple[float, float, float] | None":
+    """``(floor, lidar floor, least underside)`` the path asks of the
+    stretch ``[a, b]``: the deeper of the lidar road -- the lowest surveyed
+    road within ``probe`` of the stretch along the path (a bare-earth
+    survey reads the deck or its fill under the bridge itself; the road
+    stands open at its ends) -- and the underside less the road's clearance
+    over every station under the ring (``inside``)."""
+    lidar = [float(z) for sk, z in zip(s, r, strict=True) if a - probe <= sk <= b + probe]
     unders = []
     n = max(2, int((b - a) / _STEP_M) + 1)
     for k in range(n):
@@ -76,48 +82,73 @@ def _stretch_floor(p, frame: PathFrame, s, r, a: float, b: float, top, inside, s
     return floor, (min(lidar) if lidar else math.inf), under
 
 
-def _profiles(decks, tops, law) -> tuple[list, dict]:
-    """Per path of every deck's cut: ``(path, frame, s, floor z, half,
-    cap)``, and the per-deck report."""
-    from ..planar.deck_bridge import deck_polygon
+def _deck_floors(decks, tops, law) -> tuple[dict, dict]:
+    """``({deck id: floor}, {(path id, s0): stretch report})``: ONE floor
+    per deck, the deepest any road under it asks (a small road beside a
+    primary is cut to the primary's floor, as ``deck_generated.
+    _shared_depths`` sizes the deck)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
+
+    from ..planar.deck_bridge import deck_polygon
     slab = float(law.tables.structures.deck_gen.thickness_m)
+    probe = float(law.tables.structures.deck_gen.level_probe_m)
     rings = {d.object_id: prep(deck_polygon(d)) for d in decks}
+    floors: dict[str, float] = {}
+    srep: dict = {}
+    for d in decks:
+        for p in getattr(getattr(d, "carve", None), "paths", ()) or ():
+            if len(p.terrain) < 2:
+                continue
+            frame = PathFrame(p.coords)
+            s, r = _path_stations(p)
+            for a, b, oid in p.stretches:
+                if tops.get(oid) is None or oid not in rings:
+                    continue
+                got = _stretch_floor(p, frame, s, r, a, b, tops[oid],
+                                     lambda x, y, ring=rings[oid]: ring.contains(Point(x, y)),
+                                     slab, probe)
+                if got is None:
+                    continue
+                floors[oid] = min(floors.get(oid, math.inf), got[0])
+                srep[(id(p), a)] = {"deck": oid, "s": [round(a, 1), round(b, 1)],
+                                    "lidar_floor": round(got[1], 3),
+                                    "underside": round(got[2], 3), "need": p.clearance_m}
+    return floors, srep
+
+
+def _profiles(decks, tops, law) -> tuple[list, dict]:
+    """Per path of every deck's cut: ``(path, frame, s, floor z)``, and the
+    per-deck report."""
+    floors, srep = _deck_floors(decks, tops, law)
     out, rep = [], {}
     for d in decks:
         dc = getattr(d, "carve", None)
         if dc is None:
             continue
         drep = rep.setdefault(d.object_id, {"evidence": list(dc.evidence),
-                                            "direction": dc.direction, "paths": []})
+                                            "direction": dc.direction,
+                                            "floor": (round(floors[d.object_id], 3)
+                                                      if d.object_id in floors else None),
+                                            "paths": []})
         for p in dc.paths:
-            if len(p.terrain) < 2 or not p.stretches:
+            st = [(a, b, floors[oid]) for a, b, oid in p.stretches if oid in floors]
+            if len(p.terrain) < 2 or not st:
                 continue
             frame = PathFrame(p.coords)
             s, r = _path_stations(p)
-            st, srep = [], []
-            for a, b, oid in p.stretches:
-                top = tops.get(oid)
-                if top is None or oid not in rings:
-                    continue
-                ring = rings[oid]
-                got = _stretch_floor(p, frame, s, r, a, b, top,
-                                     lambda x, y, ring=ring: ring.contains(Point(x, y)), slab)
-                if got is not None:
-                    st.append((a, b, got[0]))
-                    srep.append({"deck": oid, "s": [round(a, 1), round(b, 1)],
-                                 "floor": round(got[0], 3), "lidar_floor": round(got[1], 3),
-                                 "underside": round(got[2], 3),
-                                 "clearance": round(got[2] - got[0], 3)})
-            if not st:
-                continue
             z = floor_profile(s, r, st, p.cap, p.rate)
             ra, rb = ramp_lengths(s, z, r, st)
             g = np.abs(np.diff(z)) / np.maximum(np.diff(s), 1e-9)
+            stretches = []
+            for a, _b, oid in p.stretches:
+                q = srep.get((id(p), a))
+                if q is not None and oid in floors:
+                    stretches.append({**q, "floor": round(floors[oid], 3),
+                                      "clearance": round(q["underside"] - floors[oid], 3)})
             drep["paths"].append({"way": p.way, "kind": p.kind, "cap": p.cap,
                                   "half_m": p.half_m, "need_m": p.clearance_m,
-                                  "stretches": srep,
+                                  "stretches": stretches,
                                   "ramp_m": [None if math.isinf(ra) else round(ra, 1),
                                              None if math.isinf(rb) else round(rb, 1)],
                                   "max_grade": round(float(g.max()) if len(g) else 0.0, 4)})
@@ -150,8 +181,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     from shapely.ops import unary_union
     from shapely.prepared import prep
 
-    from ..planar.deck_bridge import deck_polygon
     from ..model.deck_bank import bank_past_m
+    from ..planar.deck_bridge import deck_polygon
     profs, rep = _profiles(decks, tops, law)
     if not profs:
         return {}, rep
@@ -164,13 +195,13 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # a vertex farther off every path than its floor and the deepest bank
     # can reach is never the cut's
     reach = max(p.half_m for p, _f, _s, _z in profs) + 40.0
-    vids = []
-    for v, vx in pm.vertices.items():
-        if v in air or v in fixed:
-            continue
-        vids.append(v)
+    vids = [v for v in pm.vertices if v not in air and v not in fixed]
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)
     ys = np.array([pm.vertices[v].xy[1] for v in vids], dtype=np.float64)
+    # THE FLOOR FIRST: a vertex on a road's floor takes that road's floor
+    # (the lowest of the floors it stands on), never another road's bank
+    # -- each road keeps its own ramp; off every floor, the deepest bank
+    on_floor = np.full(len(vids), np.inf)
     t = np.full(len(vids), np.inf)
     for p, frame, s, z in profs:
         x0, y0 = np.min(frame.a, axis=0) - reach
@@ -180,7 +211,10 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             continue
         sv, nv = frame.project(xs[m], ys[m])
         fz = np.interp(sv, s, z)
-        t[m] = np.minimum(t[m], fz + bank * np.maximum(0.0, nv - p.half_m))
+        half = p.half_m + _SNAP_M
+        on_floor[m] = np.where(nv <= half, np.minimum(on_floor[m], fz), on_floor[m])
+        t[m] = np.minimum(t[m], lateral(fz, nv, half, bank))
+    t = np.where(np.isfinite(on_floor), on_floor, t)
     kerb = _kerb(pm, air, {**values, **fixed})
     out: dict[int, float] = {}
     n_fill = 0

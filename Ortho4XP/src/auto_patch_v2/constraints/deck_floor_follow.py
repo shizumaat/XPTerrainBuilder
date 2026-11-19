@@ -32,9 +32,9 @@ import dataclasses as _dc
 import typing as _t
 
 from ..geom.coons_patch import CoonsPatch, edge_profiles
-from .edge_floor import DECK_FLOOR
 from ..geom.exact import hypot
 from ..geom.rotated_rect import rotated_rectangle
+from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]
 
@@ -175,6 +175,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     fixed: dict[int, float] = {}
     free: set[int] = set()
     tops: dict[str, dict] = {}
+    patches: dict[str, CoonsPatch] = {}
     target: dict[str, float] = {}
     for d in decks:
         patch, n_smp = _patch(d, stage1, pm, levels)
@@ -183,6 +184,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
             continue
         tops[d.object_id] = {"o": list(patch.o), "u": list(patch.u), "w": list(patch.w),
                              **patch.as_record()}
+        patches[d.object_id] = patch
         target[d.object_id] = patch.low() - float(d.floor_min_m)
         rep["top_low"][d.object_id] = round(patch.low(), 3)
         rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
@@ -208,6 +210,13 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
             elif v in levels and v not in air:
                 free.add(v)
     _zone_pins(pm, (*decks, *held), stage1, law, air, levels, low, fixed)
+    # owner 2026-11-19T23:07Z: the cut is the deck's -- its floor, banks,
+    # abutment embankments and ramps back to the terrain, levelled from the
+    # top just read (``constraints/deck_carve``); never an airside vertex
+    from .deck_carve import carve_levels
+    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law)
+    fixed.update(cut)
+    free.difference_update(cut)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops)

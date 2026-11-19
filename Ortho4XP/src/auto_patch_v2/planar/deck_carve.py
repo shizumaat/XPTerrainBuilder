@@ -40,7 +40,6 @@ few hundred DEM samples, one small LP per path and a shapely knife.
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
@@ -48,6 +47,7 @@ from shapely.ops import substring, unary_union
 from shapely.strtree import STRtree
 
 from ..geom.carve_profile import PathFrame, floor_profile, smoothed
+from ..geom.exact import hypot
 from ..geom.parts import polygon_parts_with_area
 from ..model.deck_bank import bank_past_m, deck_bank_slope
 from ..model.deck_carve import CARVE_REF, CarvePath, DeckCarve
@@ -117,7 +117,7 @@ def _onward(end: Point, heading: XY, lines, tree) -> "LineString | None":
                 c.reverse()
             far = LineString(c).interpolate(min(5.0, LineString(c).length))
             dx, dy = far.x - end.x, far.y - end.y
-            n = math.hypot(dx, dy)
+            n = hypot(dx, dy)
             if n < 1e-6:
                 continue
             cos = (dx * heading[0] + dy * heading[1]) / n
@@ -135,7 +135,7 @@ def _grow(coords: list[XY], reach: float, lines, tree) -> list[XY]:
         if left <= 0.0:
             break
         (x0, y0), (x1, y1) = out[-2], out[-1]
-        n = max(math.hypot(x1 - x0, y1 - y0), 1e-9)
+        n = max(hypot(x1 - x0, y1 - y0), 1e-9)
         heading = ((x1 - x0) / n, (y1 - y0) / n)
         nxt = _onward(Point(x1, y1), heading, lines, tree)
         if nxt is None:
@@ -170,10 +170,10 @@ def _axis(db) -> "LineString | None":
     else:
         return None
     (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
-    n = max(math.hypot(x1 - x0, y1 - y0), 1e-9)
+    n = max(hypot(x1 - x0, y1 - y0), 1e-9)
     c = ring.centroid
     u = ((x1 - x0) / n, (y1 - y0) / n)
-    h = 0.5 * math.hypot(*(ring.bounds[2] - ring.bounds[0], ring.bounds[3] - ring.bounds[1]))
+    h = 0.5 * hypot(*(ring.bounds[2] - ring.bounds[0], ring.bounds[3] - ring.bounds[1]))
     return LineString([(c.x - u[0] * h, c.y - u[1] * h), (c.x + u[0] * h, c.y + u[1] * h)])
 
 
@@ -223,9 +223,12 @@ def _terrain(frame: PathFrame, dem) -> tuple[tuple[float, float], ...]:
 
 def _estimate_floor(db, terrain, s0: float, s1: float, clearance: float, law) -> float:
     """The planar estimate of the floor under ``db`` (stage 2 re-reads it
-    from the solved top): the deeper of the lidar road under the stretch
-    and the pre-solve top less the slab and clearance."""
-    under = [z for s, z in terrain if s0 <= s <= s1]
+    from the solved top, ``constraints/deck_carve``): the deeper of the
+    lidar road -- its lowest survey within ``[deck_gen] level_probe_m`` of
+    the stretch, the road open past the bridge -- and the pre-solve top
+    less the slab and clearance."""
+    probe = float(law.tables.structures.deck_gen.level_probe_m)
+    under = [z for s, z in terrain if s0 - probe <= s <= s1 + probe]
     slab = float(law.tables.structures.deck_gen.thickness_m)
     design = float(db.deck_z) - slab - clearance
     return min([design] + under)

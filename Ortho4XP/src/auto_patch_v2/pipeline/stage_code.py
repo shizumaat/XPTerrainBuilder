@@ -6702,5 +6702,11 @@ _GROWN_BRIDGES: dict[str, str] = {
 for _stage, _names in _GROWN_BRIDGES.items():
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_names)}))
 
+# lcarve (2026-11-19, the cut is the deck's): planar/deck_carve and its
+# geom / model records widened these closures.
+_GROWN_CARVE = "geom.carve_profile model.deck_carve planar.deck_carve"
+for _stage in ("planar", "solve", "late_cut", "late_solve"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_GROWN_CARVE)}))
+
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

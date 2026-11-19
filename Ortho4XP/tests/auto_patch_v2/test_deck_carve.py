@@ -1,0 +1,122 @@
+"""The cut is the deck's (owner 2026-11-19T23:07Z / 23:09Z; RULINGS
+2026-11-19s (2)-(4)): every generated deck owns its cut -- the floor at
+``min(lidar road floor, underside - clearance)``, ramps back along the
+road (or the cut's own axis) at the grade cap with vertical curves until
+they meet the terrain, the abutments' embankments at 1V:1.5H -- and stage
+2 levels it without touching an airside vertex.  Headless, synthetic."""
+from __future__ import annotations
+
+import types
+
+import numpy as np
+import pytest
+
+from auto_patch_v2.geom.carve_profile import PathFrame, floor_profile, lateral, ramp_lengths
+
+CAP, RATE = 0.10, 0.01 / 3.0
+
+
+def test_floor_is_level_under_the_deck_and_ramps_out_at_the_cap():
+    s = np.arange(-200.0, 201.0, 2.0)
+    terrain = np.full(len(s), 173.0)
+    z = floor_profile(s, terrain, [(-20.0, 20.0, 165.3)], CAP, RATE)
+    under = z[(s >= -20.0) & (s <= 20.0)]
+    assert np.allclose(under, 165.3, atol=1e-6)            # the rule's floor, level
+    g = np.diff(z) / np.diff(s)
+    assert np.abs(g).max() <= CAP + 1e-6                   # the grade cap
+    assert np.abs(np.diff(g)).max() / 2.0 <= RATE + 1e-6   # the vertical curves
+    before, after = ramp_lengths(s, z, terrain, [(-20.0, 20.0, 165.3)])
+    # 7.7 m at 10 % is 77 m, plus half of each of the two curves (30 m)
+    assert 77.0 <= before <= 120.0 and before == after
+    assert z.max() <= 173.0 + 0.3                          # never fills over the ground
+
+
+def test_two_decks_over_one_road_share_one_cut_straight_through_the_gap():
+    s = np.arange(-200.0, 201.0, 2.0)
+    terrain = np.full(len(s), 173.0)
+    st = [(-50.0, -20.0, 165.3), (0.0, 30.0, 165.6)]
+    z = floor_profile(s, terrain, st, CAP, RATE)
+    gap = z[(s > -20.0) & (s < 0.0)]
+    assert gap.max() <= 165.6 + 0.05                       # no crest between the decks
+
+
+def test_the_ramp_follows_the_lidar_road_where_it_is_lower():
+    s = np.arange(-150.0, 151.0, 2.0)
+    terrain = np.maximum(173.0 - 0.05 * np.abs(s), 160.0)  # the road falls away
+    z = floor_profile(s, terrain, [(-20.0, 20.0, 165.0)], CAP, RATE)
+    far = np.abs(s) > 120.0
+    assert np.all(z[far] <= terrain[far] + 0.3)
+
+
+def test_lateral_bank_and_projection():
+    f = PathFrame([(0.0, 0.0), (100.0, 0.0)])
+    s, n = f.project([50.0, 10.0], [4.0, -9.0])
+    assert s.tolist() == pytest.approx([50.0, 10.0])
+    assert n.tolist() == pytest.approx([4.0, 9.0])
+    z = lateral([165.0, 165.0], n, 5.0, 1.0 / 1.5)
+    assert z[0] == pytest.approx(165.0)                    # on the floor
+    assert z[1] == pytest.approx(165.0 + 4.0 / 1.5)        # on the bank
+
+
+def _deck():
+    from auto_patch_v2.model.deck_carve import CarvePath, DeckCarve
+    from auto_patch_v2.model.structures import GENERATED_WITNESS, DeckBridge
+    # the taxiway runs along y over a road along x; the ring is 40 m along
+    # the taxiway (y -20..20) and 25 m across it (x -12.5..12.5)
+    ring = ((-12.5, -20.0), (12.5, -20.0), (12.5, 20.0), (-12.5, 20.0))
+    sa = ((-12.5, -17.6), (12.5, -17.6))
+    sb = ((-12.5, 17.6), (12.5, 17.6))
+    terrain = tuple((float(s), 173.0) for s in np.arange(0.0, 401.0, 2.0))
+    p = CarvePath("-1", "road", 5.0, 5.0, CAP, RATE,
+                  ((-200.0, 0.0), (200.0, 0.0)), ((185.0, 215.0, "o4gen_t"),), terrain)
+    dc = DeckCarve(("OSM road -1 highway=primary",), "along OSM road -1 (primary)", (p,))
+    return DeckBridge("o4gen_t", "x.obj", (), ring, sa, sb, 0.0, 0.0, -6.0, 173.0,
+                      walls=(), floor_min_m=6.0, witness=GENERATED_WITNESS, family="taxi",
+                      covered=(("-1", (("highway", "primary"),), ((-100.0, 0.0), (100.0, 0.0))),),
+                      carve=dc)
+
+
+class _Top:
+    """A flat top at 173.0 over the ring (``CoonsPatch``'s ``z``)."""
+
+    def z(self, x, y):
+        return 173.0
+
+
+def _pm():
+    xs = np.arange(-120.0, 121.0, 4.0)
+    ys = np.arange(-40.0, 41.0, 4.0)
+    verts, faces, air = {}, {0: types.SimpleNamespace(ref="deck_carve:o4gen_t:floor")}, set()
+    k = 0
+    for x in xs:
+        for y in ys:
+            verts[k] = types.SimpleNamespace(xy=(float(x), float(y)), dem_z=173.0,
+                                             incident_faces=(0,))
+            if abs(y) >= 20.0 and abs(x) <= 12.5:
+                air.add(k)          # the taxiway beyond the deck's ends
+            k += 1
+    return types.SimpleNamespace(vertices=verts, faces=faces), air
+
+
+def test_carve_levels_the_cut_and_never_an_airside_vertex():
+    from auto_patch_v2.constraints.deck_carve import carve_levels
+    from auto_patch_v2.law import Law
+    law = Law.load()
+    pm, air = _pm()
+    values = {v: 173.0 for v in air}
+    got, rep = carve_levels(pm, [_deck()], {"o4gen_t": _Top()}, air, values, {}, law)
+    assert got and not (set(got) & air)                    # 19s (1)
+    path = rep["o4gen_t"]["paths"][0]
+    st = path["stretches"][0]
+    # the floor is the underside (173 - 1.0 slab) less the 5 m clearance
+    assert st["floor"] == pytest.approx(173.0 - 1.0 - 5.0)
+    assert st["clearance"] >= 5.0 - 1e-6
+    assert path["max_grade"] <= CAP + 1e-6
+    assert all(r is not None for r in path["ramp_m"])
+    centre = [v for v, vx in pm.vertices.items() if vx.xy == (0.0, 0.0)][0]
+    assert got[centre] == pytest.approx(167.0, abs=0.01)   # the floor under the deck
+    # the abutment's embankment: 4 m inside the ring from the end line at
+    # y = 20 the cut stands no deeper than the bank from the pavement allows
+    bank = [v for v, vx in pm.vertices.items() if vx.xy == (0.0, 16.0)][0]
+    assert got[bank] >= 173.0 - 4.0 / 1.5 - 1e-6
+    assert rep["o4gen_t"]["evidence"] == ["OSM road -1 highway=primary"]

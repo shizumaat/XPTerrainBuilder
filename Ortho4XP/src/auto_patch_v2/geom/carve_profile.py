@@ -30,6 +30,8 @@ import typing as _t
 
 import numpy as np
 
+from .exact import hypot_array, sq
+
 __all__ = ["PathFrame", "floor_profile", "lateral", "ramp_lengths", "smoothed"]
 
 XY = tuple[float, float]
@@ -42,7 +44,7 @@ class PathFrame:
         p = np.asarray(coords, dtype=np.float64)
         self.a = p[:-1]
         self.d = p[1:] - p[:-1]
-        self.len = np.hypot(self.d[:, 0], self.d[:, 1])
+        self.len = hypot_array(self.d[:, 0], self.d[:, 1])
         self.s0 = np.concatenate(([0.0], np.cumsum(self.len)[:-1]))
         self.length = float(self.len.sum())
 
@@ -51,12 +53,12 @@ class PathFrame:
         distance off it (both ``np.ndarray``)."""
         x = np.asarray(xs, dtype=np.float64)[:, None]
         y = np.asarray(ys, dtype=np.float64)[:, None]
-        l2 = np.maximum(self.len ** 2, 1e-12)
+        l2 = np.maximum(sq(self.len), 1e-12)
         t = ((x - self.a[:, 0]) * self.d[:, 0] + (y - self.a[:, 1]) * self.d[:, 1]) / l2
         t = np.clip(t, 0.0, 1.0)
         px = self.a[:, 0] + t * self.d[:, 0]
         py = self.a[:, 1] + t * self.d[:, 1]
-        dist = np.hypot(x - px, y - py)
+        dist = hypot_array(x - px, y - py)
         k = np.argmin(dist, axis=1)
         rows = np.arange(len(k))
         return self.s0[k] + t[rows, k] * self.len[k], dist[rows, k]

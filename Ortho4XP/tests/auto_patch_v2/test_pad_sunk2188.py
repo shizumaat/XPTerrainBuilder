@@ -8,7 +8,7 @@ import types
 import pytest
 from shapely.geometry import Polygon
 
-from auto_patch_v2.classify.pad_sunk import SUNK_KEY, authored_top_m, hold_sunk_cells
+from auto_patch_v2.classify.pad_sunk import SUNK_KEY, _authored_top_m, hold_sunk_cells
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 
@@ -98,7 +98,7 @@ def test_an_at_grade_object_keeps_the_weld(law):
 
 def test_a_cluster_mostly_outside_the_pad_is_not_its_witness():
     outside = _cluster(140.0, 50.0, 300.0, 90.0, (-20.0,), (100.0,))
-    assert authored_top_m(PAD, [outside], _frame().entry()) is None
+    assert _authored_top_m(PAD, [outside], _frame().entry()) is None
 
 
 def test_the_held_levels_ride_the_cells():

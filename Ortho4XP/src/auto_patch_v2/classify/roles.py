@@ -109,6 +109,7 @@ from .gap_stands import holds_stand as _holds_startup   # the one 1300-containme
 from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
+from .neck_road import road_beyond_routes
 from .open_default import (apron_witness, narrow_road, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
@@ -686,6 +687,21 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                     scored.append((part, rest, ref, None,
                                    dict(tev, near_route=0.0), net))
             continue
+        if role == "junction" and is_neck and prox is not None:
+            # owner sim read 2026-11-19 (ELLX pav47): a neck's road leg
+            # beyond its taxi routes' territory is the road (``neck_road``)
+            territory = _route_territory(face, prox, corridors, rules)[0]
+            keep, roads = road_beyond_routes(
+                face, territory, rules, lambda p: _holds_startup(p, start_tree))
+            if roads:
+                stats["neck_roads"] = stats.get("neck_roads", 0) + len(roads)
+                for part, w in roads:
+                    scored.append((part, "service_road", ref, None,
+                                   dict(evid, neck_road=1.0, narrow_road_width_m=w), net))
+                for part in polygon_parts(keep):
+                    if part.area >= rules.cells.min_area_m2:
+                        scored.append((part, role, ref, letter, evid, net))
+                continue
         scored.append((face, rest if role == "apron" else role, ref, letter, evid, net))
 
     # ── groundside: the runway touch-chain ─────────────────────────

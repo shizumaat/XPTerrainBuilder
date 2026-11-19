@@ -10,7 +10,7 @@ DEM where it meets the airside — the apron's own height — so a pad cut into
 the hill below the apron reads no step at all.  Two witnesses of the pad's
 OWN level are read here instead, one derivation each:
 
-* (b) THE PAD'S AREA DEM (:func:`ground_dem_m`, the median over its
+* (b) THE PAD'S AREA DEM (:func:`_ground_dem_m`, the median over its
   area — its rim is where the apron or a bund's crest stands) against the median DEM along its rim within the frontage radius of the
   airside (``pad_touch._median_dem``, the datum ``dem_step_m`` reads);
 * (a) THE AUTHORED HEIGHT of the objects the pad carries
@@ -45,13 +45,13 @@ from ..law import Law
 from ..law.tables import is_value_role
 from .pad_touch import _median_dem, is_held_step
 
-__all__ = ["SUNK_KEY", "authored_top_m", "ground_dem_m", "hold_sunk_cells", "sunk_levels"]
+__all__ = ["SUNK_KEY", "hold_sunk_cells", "sunk_levels"]
 
 #: the pad cell's evidence key: ``{"airside_m", "dem_m", "authored_top_m"}``
 SUNK_KEY = "pad_sunk_terrace"
 
 
-def ground_dem_m(pad: Polygon, dem, samples: int = 32) -> float | None:
+def _ground_dem_m(pad: Polygon, dem, samples: int = 32) -> float | None:
     """(b) THE PAD'S OWN GROUND: the median DEM over its AREA, sampled on
     a grid of about ``samples`` x ``samples`` points inside it — never its
     rim, which is where the apron (or a bund's crest) stands.  ``None``
@@ -65,7 +65,7 @@ def ground_dem_m(pad: Polygon, dem, samples: int = 32) -> float | None:
     return statistics.median(zs) if zs else None
 
 
-def authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy) -> float | None:
+def _authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy) -> float | None:
     """The area-weighted AUTHORED TOP (m over the objects' own grade) of
     the components of every cluster whose outline lies mostly inside
     ``pad``; ``None`` where no such cluster carries measured tops."""
@@ -110,8 +110,8 @@ def _held_parts(P: Polygon, wit, law: Law, min_area: float
     if P.distance(air_u) > r:
         return None
     lvl = _median_dem(P.boundary.intersection(wide), dem, r)
-    own = ground_dem_m(P, dem)
-    top = authored_top_m(P, clusters, to_xy)
+    own = _ground_dem_m(P, dem)
+    top = _authored_top_m(P, clusters, to_xy)
     steps = [s for s in ((None if lvl is None or own is None else lvl - own),
                          (None if top is None else -top)) if s is not None and s > 0.0]
     if not any(is_held_step(law, s) for s in steps):

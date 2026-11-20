@@ -528,11 +528,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     # the road's COVER is its whole stretch under the pavement
     from .structure_underpass import bore_roads
     mapped = bore_roads(airport, law, rail=True)
-    from .road_bridge_gen import _is_road_bridge
-    from .structure_underpass import aeroway_decks
+    from .structure_underpass import aeroway_decks, is_road_bridge
     spans = [LineString(a.points) for a in aeroway_decks(airport, law)] + [
         LineString(w.points) for w in getattr(airport, "osm_ways", ()) or ()
-        if len(w.points) >= 2 and _is_road_bridge(w.tags)]
+        if len(w.points) >= 2 and is_road_bridge(w.tags)]
     opened: list = []
     roads, long_notes = _whole_cover(roads, P, float(g.max_cover_m), mapped, spans, opened)
     notes += long_notes

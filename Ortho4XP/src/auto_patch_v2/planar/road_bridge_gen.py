@@ -54,6 +54,7 @@ from shapely.strtree import STRtree
 from .deck_generated import GLOBAL_OFFER, global_only
 from .road_bridge_clear import clearance_plan, span_cuts, witnessed
 from .structure_approach import carriageway_width_m
+from .structure_underpass import is_road_bridge as _is_road_bridge
 
 __all__ = ["attach_road_bridges", "span_cells"]
 
@@ -65,10 +66,6 @@ def _layer(tags) -> int:
         return 0
 
 
-def _is_road_bridge(tags) -> bool:
-    b = str((tags or {}).get("bridge", "")).strip()
-    return bool(b) and b != "no" and bool((tags or {}).get("highway")) \
-        and not (tags or {}).get("aeroway")
 
 
 def _pages(airport) -> list[Polygon]:

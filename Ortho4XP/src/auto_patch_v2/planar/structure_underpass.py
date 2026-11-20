@@ -50,7 +50,8 @@ from .structure_service import airside_cut_roles
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent", "is_aeroway_bridge",
+__all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent",
+           "is_aeroway_bridge", "is_road_bridge",
            "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE", "bore_roads"]
 
 #: §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): the RUNWAY family
@@ -140,6 +141,15 @@ def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:
 #: The tag a synthesised UNDERPASS bore carries, so the reports and the
 #: approach walk can tell it from a mapped ``tunnel=yes`` way.
 UNDERPASS_TAG = "o4_underpass"
+
+
+def is_road_bridge(tags: _t.Mapping[str, str]) -> bool:
+    """A mapped ROAD on a bridge (``highway`` + ``bridge`` not ``no``, no
+    aeroway): ``planar/road_bridge_gen``'s candidates, and the mapped
+    bridges that split an over-long cover (``deck_generated``)."""
+    b = str((tags or {}).get("bridge", "")).strip()
+    return bool(b) and b != "no" and bool((tags or {}).get("highway")) \
+        and not (tags or {}).get("aeroway")
 
 
 def aeroway_decks(airport: Airport, law: Law) -> list[OsmWay]:

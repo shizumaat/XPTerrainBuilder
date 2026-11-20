@@ -408,7 +408,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # 12 % over 10 m along the ramp)
     from ..law.tables import family
     road_roles = set(family(law, "road_cross_section").roles)
-    road_v = np.array([any(getattr(pm.faces[f], "role", "") in road_roles for f in pm.vertices[v].incident_faces)
+    road_v = np.array([any(getattr(pm.faces[f], "role", "") in road_roles
+                           for f in pm.vertices[v].incident_faces)
                        for v in vids], dtype=bool)
     flare = _ROAD_FLARE_M
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)

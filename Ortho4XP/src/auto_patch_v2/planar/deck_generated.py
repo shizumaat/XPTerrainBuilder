@@ -705,7 +705,7 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
                                                           for r in under]),
                                         airport, law, pave_at, cover, avoid)))
     # every two decks, of one piece or two, stand apart (``deck_width.parted``)
-    parted([sp for _p, specs in held for sp in specs], law)
+    parted([sp for _p, specs in held for sp in specs], law, avoid)
     for piece, specs in held:
         decks = rings(specs)
         c = piece.centroid

@@ -259,3 +259,20 @@ def test_neighbouring_decks_give_up_their_shoulders_to_stay_apart():
     assert ra.distance(rb) == pytest.approx(gap, abs=1.0)
     assert ra.bounds[0] == pytest.approx(-(ra.bounds[2]))          # about its centreline
     assert ra.bounds[2] - ra.bounds[0] >= 25.0 - 1e-6              # never under the taxiway
+
+
+def test_a_deck_gives_up_shoulder_over_a_structure_beside_it():
+    """A shoulder never stands over a corridor or pack frame its taxiway
+    does not (KRDU ``o4gen_c18ee4b1``: a tunnel ramp 7.9 m under it)."""
+    from auto_patch_v2.planar.deck_width import parted, rings, route_specs
+    nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
+        a=1, b=2, name="A", is_runway=False, width_class="C")])
+    law = _law()
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+    ramp = Polygon([(18, 5), (40, 5), (40, 30), (18, 30)])          # beside the taxiway
+    road = Polygon([(-200, -3), (200, -3), (200, 3), (-200, 3)])    # its own road's corridor
+    (ring, note), = rings(parted(route_specs(piece, (1.0, 0.0), airport, law), law,
+                                 ramp.union(road)))
+    assert ring.bounds[2] <= 18.0 + 1e-6 and ring.bounds[0] == pytest.approx(-ring.bounds[2])
+    assert ring.bounds[2] >= 12.5 - 1e-6 and "narrowed" in note

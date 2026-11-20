@@ -352,9 +352,11 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         refs = [str(pm.faces[f].ref) for f in vx.incident_faces]
         mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or any(
             r.startswith(CARVE_REF + ":") for r in refs)
-        # the trench (its floor and banks) never lands
-        trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0]
-                     in ("floor", "bank") for r in refs)
+        # the trench's floor never lands; its banks past an end line do (they
+        # ran out to the daylight line beyond it: KPHX o4gen_566de1cd, 1.9 m
+        # under its end 0.6 m past it)
+        trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0] == "floor"
+                     for r in refs)
         land = -math.inf if floor_v[i] or trench else _landing(rings, vx.xy, bank, landing)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
             continue

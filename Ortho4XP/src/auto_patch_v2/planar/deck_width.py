@@ -176,15 +176,25 @@ def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
     return [(_ring(u, d), d[6]) for u, d in specs]
 
 
-def parted(specs: list[tuple[XY, list]], law) -> list[tuple[XY, list]]:
+def parted(specs: list[tuple[XY, list]], law, avoid=None) -> list[tuple[XY, list]]:
     """``specs`` with every two decks standing at least ``[deck_gen]
     parallel_gap_m`` apart (owner RULINGS 2026-11-19s (3) (b): "two parallel
     taxiways have to have a minimum gap between them which always leave a
     gap between two bridges"): both give up their shoulders a metre at a
     time, about their own centrelines, never below their taxiway's width.
     MEASURED KRDU at twice the class width: two taxiways over one curving
-    road 64 m apart, their 76 m decks overlapping 422 m2."""
+    road 64 m apart, their 76 m decks overlapping 422 m2.  So does a deck
+    whose shoulders reach onto a part of ``avoid`` (the pack's decks and
+    frames, the structure pass's corridors) its taxiway does not stand on
+    (KRDU ``o4gen_c18ee4b1``: a shoulder over a tunnel ramp 7.9 m under it)."""
     gap = float(law.tables.structures.deck_gen.parallel_gap_m)
+    parts = [q for q in getattr(avoid, "geoms", [avoid]) if q.geom_type == "Polygon"] \
+        if avoid is not None and not avoid.is_empty else []
+    for u, d in specs:
+        # what the taxiway itself stands on (its own road's corridor) is its
+        far = [q for q in parts if not q.intersects(_core(u, d))]
+        while any(_ring(u, d).intersection(q).area > 1.0 for q in far) and _narrow(u, d):
+            pass
     for _ in range(_PART_STEPS):
         moved = False
         for i in range(len(specs)):
@@ -212,8 +222,8 @@ def _narrow(u: XY, d: list) -> bool:
         return False
     d[2], d[3] = a0, a1
     if "narrowed to part" not in d[6]:
-        d[6] += "; narrowed to part from a neighbouring deck (parallel_gap_m, RULINGS " \
-                "2026-11-19s (3) (b))"
+        d[6] += "; narrowed to part from a neighbouring deck or structure (parallel_gap_m, " \
+                "RULINGS 2026-11-19s (3) (b))"
     return True
 
 

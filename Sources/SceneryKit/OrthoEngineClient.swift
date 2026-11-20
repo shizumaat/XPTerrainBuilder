@@ -1253,9 +1253,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// with a `packOldForests` event. An engine older than 1.21 replies
     /// ok=false: nothing changes.
     public func packForests(packRoot: String, action: String,
-                            lat: Int? = nil, lon: Int? = nil) {
+                            lat: Int? = nil, lon: Int? = nil,
+                            completion: (@Sendable (O4Reply) -> Void)? = nil) {
         sendPackChoice("pack_forests", packRoot: packRoot, action: action,
-                       lat: lat, lon: lon)
+                       lat: lat, lon: lon, completion: completion)
     }
 
     // MARK: - Optimise pack (protocol 1.31)
@@ -1268,10 +1269,11 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// event. An engine older than 1.24 replies ok=false: nothing changes.
     public func packOptimise(packRoot: String, action: String,
                              lat: Int? = nil, lon: Int? = nil,
-                             steps: [String]? = nil) {
+                             steps: [String]? = nil,
+                             completion: (@Sendable (O4Reply) -> Void)? = nil) {
         sendPackChoice("pack_optimise", packRoot: packRoot, action: action,
                        lat: lat, lon: lon,
-                       extra: steps.map { ["steps": $0] } ?? [:])
+                       extra: steps.map { ["steps": $0] } ?? [:], completion: completion)
     }
 
     // MARK: - Package adjustments (capability pack_adjust)
@@ -1287,13 +1289,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
     public func packAdjust(packRoot: String, action: String,
                            lat: Int? = nil, lon: Int? = nil,
                            items: [String]? = nil, shown: [String]? = nil,
-                           steps: [String]? = nil) {
+                           steps: [String]? = nil,
+                           completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var extra: [String: Any] = [:]
         if let items { extra["items"] = items }
         if let shown { extra["shown"] = shown }
         if let steps { extra["steps"] = steps }
         sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
-                       lat: lat, lon: lon, extra: extra)
+                       lat: lat, lon: lon, extra: extra, completion: completion)
     }
 
     // MARK: - Gateway airports (capability gateway_airports)
@@ -1322,25 +1325,27 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// `pack_overlaps_default`, #2190) sets the condensed answer for all
     /// tiles ("" clears it; nil leaves it).
     public func packOverlaps(action: String, lat: Int, lon: Int,
-                             winners: [String: String] = [:], defaultMode: String? = nil) {
+                             winners: [String: String] = [:], defaultMode: String? = nil,
+                             completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var arguments: [String: Any] = ["action": action, "lat": lat, "lon": lon]
         arguments["items"] = winners.keys.sorted().map { ["key": $0, "winner": winners[$0] ?? ""] }
         if let defaultMode { arguments["default"] = defaultMode }
-        send(command: "pack_overlaps", arguments: arguments)
+        send(command: "pack_overlaps", arguments: arguments, completion: completion)
     }
 
     /// A per-pack choice command (`pack_forests`, `pack_optimise`, `pack_adjust`): the
     /// tile's DSF with lat/lon, the whole pack without.
     private func sendPackChoice(_ command: String, packRoot: String,
                                 action: String, lat: Int?, lon: Int?,
-                                extra: [String: Any] = [:]) {
+                                extra: [String: Any] = [:],
+                                completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
         arguments.merge(extra) { _, new in new }
         if let lat, let lon {
             arguments["lat"] = lat
             arguments["lon"] = lon
         }
-        send(command: command, arguments: arguments)
+        send(command: command, arguments: arguments, completion: completion)
     }
 
     // MARK: - Slow-step alert (protocol 1.26)

@@ -39,6 +39,9 @@ __all__ = [
     "PACK_KINDS",
     "disabled_pack_names",
     "airport_points_by_tile",
+    "folder_state",
+    "tile_pack_names",
+    "held",
     "iter_packs",
     "pack_tiles",
     "pack_kind",
@@ -310,25 +313,77 @@ def iter_airport_packs(scenery_dir: str) -> Iterator[tuple]:
 _POINTS: dict = {}
 
 
+def folder_state(scenery_dir: str) -> tuple:
+    """THE KEY every folder-wide reading here is held under (#2200): the
+    third-party entries' names and ``scenery_packs.ini``'s stat identity
+    -- one listing of the folder, no pack opened.  This app's own entries
+    are left out, so a build installing a tile link keeps every reading;
+    installing, removing, renaming, enabling or disabling a pack moves it.
+    ``None`` when the folder is not there."""
+    try:
+        names = os.listdir(scenery_dir) if scenery_dir else None
+    except OSError:
+        names = None
+    if names is None:
+        return None
+    try:
+        st = os.stat(os.path.join(scenery_dir, _scenery_packs.INI_FILENAME))
+        ini = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        ini = None
+    return (tuple(sorted(n for n in names if not _is_our_pack(n))), ini)
+
+
+def held(memo: dict, scenery_dir: str, compute) -> object:
+    """``compute()`` held in ``memo`` while the folder's
+    :func:`folder_state` stays."""
+    state = folder_state(scenery_dir)
+    key = os.path.realpath(scenery_dir or "")
+    hit = memo.get(key)
+    if hit is not None and hit[0] == state:
+        return hit[1]
+    value = compute()
+    memo[key] = (state, value)
+    return value
+
+
+#: ``{folder: (folder_state, {(lat, lon): names})}``
+_TILE_PACKS: dict = {}
+
+
+def tile_pack_names(scenery_dir: str, lat: int, lon: int) -> tuple:
+    """The enabled packs of ``scenery_dir`` (names, sorted) with a DSF on
+    the tile -- read once per tile and :func:`folder_state` (#2200: the
+    pack questions read the selected tile's packs, never the whole folder
+    on every ask)."""
+    tiles = held(_TILE_PACKS, scenery_dir, dict)
+    tile = (int(lat), int(lon))
+    if tile not in tiles:
+        tiles[tile] = _read_tile_packs(scenery_dir, *tile)
+    return tiles[tile]
+
+
+def _read_tile_packs(scenery_dir: str, lat: int, lon: int) -> tuple:
+    from auto_patch_v2.airport import dsf as _dsf2
+    try:
+        names = sorted(_scenery_packs.enabled_pack_names(scenery_dir))
+    except OSError:
+        return ()
+    return tuple(n for n in names if os.path.isfile(
+        _dsf2.dsf_path_in_pack(os.path.join(scenery_dir, n), lat, lon)))
+
+
 def airport_points_by_tile(scenery_dir: str) -> dict:
     """``{(lat, lon): [(icao, lat, lon), ...]}``: the airports of every
     ENABLED custom airport pack of ``scenery_dir``
     (:func:`iter_airport_packs`), by the one-degree tile holding each.
-    Read once per state of the folder and its ``scenery_packs.ini``."""
+    Read once per :func:`folder_state`."""
     if not scenery_dir or not os.path.isdir(scenery_dir):
         return {}
-    stamp = []
-    for path in (scenery_dir,
-                 os.path.join(scenery_dir, _scenery_packs.INI_FILENAME)):
-        try:
-            st = os.stat(path)
-            stamp.append((st.st_mtime_ns, st.st_size))
-        except OSError:
-            stamp.append(None)
-    key = os.path.realpath(scenery_dir)
-    held = _POINTS.get(key)
-    if held is not None and held[0] == stamp:
-        return held[1]
+    return held(_POINTS, scenery_dir, lambda: _airport_points(scenery_dir))
+
+
+def _airport_points(scenery_dir: str) -> dict:
     out: dict = {}
     for _name, _path, _root, enabled, airports in iter_airport_packs(scenery_dir):
         if not enabled:
@@ -340,7 +395,6 @@ def airport_points_by_tile(scenery_dir: str) -> dict:
             point = ((apt.icao or "").upper(), float(apt.lat), float(apt.lon))
             if point not in out.setdefault(tile, []):
                 out[tile].append(point)
-    _POINTS[key] = (stamp, out)
     return out
 
 

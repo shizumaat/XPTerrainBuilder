@@ -28,10 +28,11 @@ from __future__ import annotations
 import os
 import typing as _t
 
+import O4_Custom_Scenery as _CS
 import O4_UI_Utils as UI
 from auto_patch_v2.airport import pack_duplicate as _pd
 
-__all__ = ["KIND", "family", "rows", "answer"]
+__all__ = ["KIND", "family", "rows", "answer", "stored"]
 
 #: the ``kind`` of a same-airport row
 KIND = "duplicate"
@@ -46,11 +47,7 @@ def family(scenery_dir: str, airports: _t.Collection[str] = ()
     from auto_patch_v2.airport import pack_family as _pf
 
     from .drape_stage import _runway_apt
-    try:
-        names = sorted(n for n in os.listdir(scenery_dir)
-                       if os.path.isdir(os.path.join(scenery_dir, n)))
-    except OSError:
-        names = []
+    names = _CS.held(_NAMES, scenery_dir, lambda: _pack_dirs(scenery_dir))
     seen: dict[str, bool] = dict.fromkeys(airports, True)
 
     def is_airport(name: str) -> bool:
@@ -61,9 +58,33 @@ def family(scenery_dir: str, airports: _t.Collection[str] = ()
     return (lambda a, b: _pf.same_family(a, b, names, is_airport)), is_airport
 
 
+#: ``O4_Custom_Scenery.held`` memos (#2200): the folder's pack folders
+#: and every enabled pack's idents, read once per folder state
+_NAMES: dict = {}
+_IDENTS: dict = {}
+
+
+def _pack_dirs(scenery_dir: str) -> list[str]:
+    try:
+        return sorted(n for n in os.listdir(scenery_dir)
+                      if os.path.isdir(os.path.join(scenery_dir, n)))
+    except OSError:
+        return []
+
+
+def stored(key: str) -> str:
+    """A same-airport row's stored answer (``""`` none)."""
+    return _pd.STORE.choice(key)
+
+
 def _idents(scenery_dir: str) -> dict[str, tuple[str, ...]]:
     """Every enabled pack's airport idents (packs with none left out):
-    not Global Airports, not the app's own overlay pack."""
+    not Global Airports, not the app's own overlay pack.  Read once per
+    folder state (``O4_Custom_Scenery.held``)."""
+    return _CS.held(_IDENTS, scenery_dir, lambda: _read_idents(scenery_dir))
+
+
+def _read_idents(scenery_dir: str) -> dict[str, tuple[str, ...]]:
     import O4_Overlay_Pack as _OP
     import O4_Scenery_Packs as _SP
     from auto_patch_v2.airport import apt_dat as _ad
@@ -109,7 +130,7 @@ def rows(scenery_dir: str, on_tile: _t.Collection[str]) -> list[dict]:
         out.append({"key": key, "kind": KIND, "packs": list(d.packs),
                     "airport": ", ".join(d.idents),
                     "default": _pd.DISABLE if d.lower else "",
-                    "winner": _pd.STORE.choice(key), "lower": d.lower,
+                    "winner": stored(key), "lower": d.lower,
                     "count": len(d.idents), "rows": [], "summary": _summary(d)})
     return out
 

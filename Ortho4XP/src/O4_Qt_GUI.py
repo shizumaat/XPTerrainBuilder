@@ -117,6 +117,7 @@ import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Gateway_Airports as QTGATE
 import O4_Qt_Pack_Overlaps as QTOVER
+import O4_Qt_Pack_Waits as QTWAIT
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Map_Legend as QTLEGEND
@@ -1041,6 +1042,7 @@ class MainWindow(QMainWindow):
         self._gateway_seen = set()
         # #2145: the same for the overlapping-structure questions
         self._overlap_seen = set()
+        self._pack_waits = QTWAIT.PackWaits()      # #2200
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -3281,6 +3283,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "export_package_action"):
             self.export_package_action.setEnabled(bool(sel))
         self._refresh_customized_tiles(sel)
+        self._show_pack_choices_wait()          # #2200: the active tile's
         self._search_tags = {
             t: c for t, c in self._search_tags.items() if t in sel
         }
@@ -5573,6 +5576,7 @@ class MainWindow(QMainWindow):
         re-reads the tile's Modified airports rows; the other states are
         on the console through the engine's own log line.
         """
+        self._pack_row_answered(event)
         self._pack_choice_event(
             event, ("upgraded", "undone"), getattr(event, "can_update", False),
             QTFOREST.question_key, QTFOREST.pack_forests_box,
@@ -5621,6 +5625,7 @@ class MainWindow(QMainWindow):
         ``pack_optimise``, Not now sends nothing.  An optimise or an undo
         re-reads the tile's Modified airports rows.
         """
+        self._pack_row_answered(event)
         if getattr(event, "state", "") == "ask":
             # the pack row's Optimise: asked every time it is pressed
             import dataclasses
@@ -5643,6 +5648,7 @@ class MainWindow(QMainWindow):
         ``"adjust"`` is the pack row's Adjust… (asked every time it is
         pressed); an outcome with ``rebuild`` rebuilds the tile.
         """
+        self._pack_row_answered(event)
         state = getattr(event, "state", "")
         if state == "ask":
             import dataclasses
@@ -5698,8 +5704,9 @@ class MainWindow(QMainWindow):
         tile = self.map.active_tile()
         if tile is None or self._pack_row_busy(pack):
             return
-        self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
-                                  lat=int(tile[0]), lon=int(tile[1]))
+        self._pack_row_command(pack, lambda: self._session.pack_adjust(
+            pack_root=pack["pack_path"], action="adjust",
+            lat=int(tile[0]), lon=int(tile[1])))
 
     def _review_pack_overlaps(self):
         """Pack choices… (#2180): the active tile's overlapping-packs
@@ -5708,8 +5715,32 @@ class MainWindow(QMainWindow):
         tile = self.map.active_tile()
         if tile is None:
             return
-        self._session.pack_overlaps(action="ask", lat=int(tile[0]),
-                                    lon=int(tile[1]))
+        lat, lon = int(tile[0]), int(tile[1])
+        if not self._pack_waits.start(QTWAIT.overlaps_key(lat, lon)):
+            return
+        print(QTWAIT.checking_line(FNAMES.short_latlon(lat, lon)))
+        self._show_pack_choices_wait()
+        why = QTWAIT.refusal(self._session.pack_overlaps(action="ask", lat=lat,
+                                                         lon=lon))
+        if why:
+            self._pack_overlaps_answered(lat, lon)
+            print(QTWAIT.refused_line(why))
+
+    def _show_pack_choices_wait(self):
+        """Pack choices… says "Checking packs…" (disabled) while the active
+        tile's question is pending (#2200)."""
+        if not hasattr(self, "pack_choices_btn"):
+            return
+        tile = self.map.active_tile()
+        waiting = tile is not None and self._pack_waits.waiting(
+            QTWAIT.overlaps_key(int(tile[0]), int(tile[1])))
+        self.pack_choices_btn.setText(QTWAIT.CHECKING if waiting
+                                      else QTOVER.REVIEW_BUTTON)
+        self.pack_choices_btn.setEnabled(not waiting)
+
+    def _pack_overlaps_answered(self, lat, lon):
+        self._pack_waits.end(QTWAIT.overlaps_key(lat, lon))
+        self._show_pack_choices_wait()
 
     def _on_pack_overlaps(self, event):
         """#2145: two packs drawing the same large structures, as one
@@ -5723,6 +5754,10 @@ class MainWindow(QMainWindow):
         pair says so (#2180).  An outcome asks nothing (the engine's log
         line says what was hidden)."""
         state = getattr(event, "state", "found")
+        self._pack_overlaps_answered(int(event.lat), int(event.lon))
+        outcome = QTWAIT.outcome_line(event)
+        if outcome:
+            print(outcome)
         key = QTOVER.question_key(event)
         if state == "ask":
             self._overlap_seen.discard(key)
@@ -5736,6 +5771,9 @@ class MainWindow(QMainWindow):
         def finished(_result, box=box, buttons=buttons):
             for action, button in buttons.items():
                 if box.clickedButton() is button:
+                    if action == "choose":                    # #2200
+                        self._pack_waits.start(QTWAIT.overlaps_key(lat, lon))
+                        print(QTWAIT.applying_line(FNAMES.short_latlon(lat, lon)))
                     self._session.pack_overlaps(
                         action=action, lat=lat, lon=lon,
                         **box.answer_extra(action))
@@ -5862,7 +5900,8 @@ class MainWindow(QMainWindow):
         the rows)."""
         if self._pack_row_busy(pack):
             return
-        self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
+        self._pack_row_command(pack, lambda: self._session.pack_forests(
+            pack_root=pack["pack_path"], action="undo"))
 
     def _pack_optimise_from_row(self, pack, undo):
         """#1707: the pack row's Optimise (the question for the active
@@ -5872,16 +5911,32 @@ class MainWindow(QMainWindow):
         if self._pack_row_busy(pack):
             return
         if undo:
-            self._session.pack_optimise(pack_root=pack["pack_path"],
-                                        action="undo")
+            self._pack_row_command(pack, lambda: self._session.pack_optimise(
+                pack_root=pack["pack_path"], action="undo"))
             return
         tile = self.map.active_tile()
         if tile is None:
             return
         # the question with the pack's current choice ticked (state "ask")
-        self._session.pack_optimise(pack_root=pack["pack_path"],
-                                    action="ask", lat=int(tile[0]),
-                                    lon=int(tile[1]))
+        self._pack_row_command(pack, lambda: self._session.pack_optimise(
+            pack_root=pack["pack_path"], action="ask", lat=int(tile[0]),
+            lon=int(tile[1])))
+
+    def _pack_row_command(self, pack, send):
+        """#2200 (the mac app's ``sendPackRowCommand``): one pending
+        command per pack row — pressed again before the engine answers, it
+        is ignored; a refusal is one console line."""
+        key = QTWAIT.pack_key(pack["pack_path"])
+        if not self._pack_waits.start(key):
+            return
+        why = QTWAIT.refusal(send())
+        if why:
+            self._pack_waits.end(key)
+            print(QTWAIT.refused_line(why))
+
+    def _pack_row_answered(self, event):
+        """The pack row's pending command is answered (#2200)."""
+        self._pack_waits.end(QTWAIT.pack_key(getattr(event, "pack_root", "")))
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

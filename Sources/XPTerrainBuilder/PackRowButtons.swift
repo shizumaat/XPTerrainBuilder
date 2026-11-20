@@ -31,6 +31,8 @@ extension BuildModel {
 struct PackRowButtons: View {
     let buildModel: BuildModel
     @ObservedObject var activity: BuildActivityModel
+    /// #2200: a command pressed on this row and not yet answered.
+    @ObservedObject var waits: PackCommandWaits
     let row: BuildPane.ModifiedAirportRow
     let tile: BuildModel.TileCoord
     let revert: () -> Void
@@ -62,7 +64,14 @@ struct PackRowButtons: View {
     }
 
     @ViewBuilder private var buttons: some View {
+        let waiting = waits.isWaiting(PackCommandWaits.packKey(row.packPath))
         let busy = buildModel.packRowBusy(tiles: row.tiles, active: tile)
+        // #2200: the working state, the moment a button is pressed
+        if waiting {
+            ProgressView()
+                .controlSize(.mini)
+                .help(PackWaitCopy.checking)
+        }
         // #1360: the pack's 3D trees, undone on their own
         if row.forestCount > 0 {
             Button {
@@ -72,7 +81,7 @@ struct PackRowButtons: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .disabled(busy)
+            .disabled(busy || waiting)
             .help(busy ? Self.waitHelp : O4PackOldForestsCopy.undoHelp)
         }
         // #1707: Optimise pack, or its Undo
@@ -86,7 +95,7 @@ struct PackRowButtons: View {
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
-        .disabled(busy)
+        .disabled(busy || waiting)
         .help(busy ? Self.waitHelp
               : (row.optimisedCount > 0 ? O4PackOptimiseCopy.undoHelp
                  : O4PackOptimiseCopy.optimiseHelp))
@@ -100,7 +109,7 @@ struct PackRowButtons: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .disabled(busy)
+            .disabled(busy || waiting)
             .help(busy ? Self.waitHelp : O4PackAdjustCopy.adjustHelp)
         }
         Button(action: revert) {
@@ -108,7 +117,7 @@ struct PackRowButtons: View {
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
-        .disabled(busy)
+        .disabled(busy || waiting)
         .help(busy ? Self.waitHelp
               : "Revert to default: restores \(row.packName)'s original object files from the backups the reseater kept")
     }

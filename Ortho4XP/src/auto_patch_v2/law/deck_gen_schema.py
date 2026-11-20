@@ -55,6 +55,9 @@ class DeckGenLaw:
     #: ... and its end runs on along the route until the airport's pavement
     #: meets it (a pack's hole spanned pavement to pavement), at most this (m)
     end_reach_m: float = 10.0
+    #: owner RULINGS 2026-11-19s (8) (a): the deck is ``width_by_class_m``
+    #: (the taxiway as drawn) plus this share of it as a shoulder each side
+    shoulder_share: float = 0.5
     #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
     #: placement deeper than this under its own ground is a STRUCTURE; an
     #: up-facing face within it is a TOP; both over the road refuse (m)

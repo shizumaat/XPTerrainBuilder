@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.pipeline.road_deck import road_deck_records
@@ -185,3 +187,40 @@ def test_the_object_stage_writes_a_road_deck_and_no_chain():
     assert rec["chains"] == []
     assert rec["decks"] and all(r["resource"].endswith(".obj") for r in rec["decks"])
     assert abs(rec["decks"][0]["msl"] - 344.1) < 1e-6
+
+
+def test_a_road_deck_spans_the_whole_cut_of_the_taxiway_deck_it_runs_along():
+    """RULINGS 2026-11-19s (8) (d) (KPHX 1.0.566 ``-301`` / ``-302``): a road
+    bridge over a generated deck's cut runs on to the deck's end lines, and
+    each end stands at the solved ground there -- no floating end."""
+    from auto_patch_v2.model.deck_carve import CarvePath, DeckCarve
+    from auto_patch_v2.model.structures import GENERATED_WITNESS
+    frame = types.SimpleNamespace(transformers=lambda: (None, lambda x, y: (y * 1e-5, x * 1e-5)))
+    airport = types.SimpleNamespace(frame=frame)
+    # a taxiway deck along y (its route), its ends at y = -25 / +25 over a
+    # road along x; its cut runs along the road far past the deck
+    ring = ((-20.0, -25.0), (20.0, -25.0), (20.0, 25.0), (-20.0, 25.0))
+    path = CarvePath("-1002", "road", 4.0, 5.0, 0.05, 1.0, ((-200.0, 0.0), (200.0, 0.0)),
+                     (), ())
+    db = DeckBridge("o4gen_t", "objects/o4_generated/deck_t.obj", (), ring,
+                    ((-20.0, -25.0), (20.0, -25.0)), ((-20.0, 25.0), (20.0, 25.0)), 0.0, 0.0,
+                    -6.0, 100.0, witness=GENERATED_WITNESS, floor_min_m=6.0,
+                    route=((0.0, -100.0), (0.0, 100.0)),
+                    carve=DeckCarve(("OSM road -1002",), "along OSM road -1002", (path,)))
+    # the service road bridge 60 m east, mapped 30 m long across the road
+    b = {"id": "-301", "axis_xy": [[60.0, -15.0], [60.0, 15.0]], "half_m": 3.0,
+         "levels": [344.1, 345.3], "ground": [], "junctions": [[0, 0, 0]], "subtype": 50,
+         "net": "x", "span_wkt": "POLYGON EMPTY"}
+    decks, _kept = road_deck_records([b], set(), LAW, airport, [db],
+                                     lambda xy: 340.0 + 0.01 * xy[1])
+    d, = decks
+    lats = [p[1] * 1e5 for p in d["route"]]
+    assert min(lats) == pytest.approx(-25.0)
+    assert max(lats) == pytest.approx(25.0)
+    assert d["spans_cut"] == "o4gen_t"
+    assert d["zero_m"] == pytest.approx(339.75)
+    assert d["top_b"] == pytest.approx(0.5)
+    # a bridge whose axis crosses no cut keeps its mapped ends
+    far, _k = road_deck_records([dict(b, axis_xy=[[60.0, 30.0], [60.0, 60.0]])], set(), LAW,
+                                airport, [db], lambda xy: 340.0)
+    assert "spans_cut" not in far[0] and far[0]["zero_m"] == 344.1

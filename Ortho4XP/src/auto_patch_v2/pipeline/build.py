@@ -841,10 +841,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         design_rep.stages["base"] = dict(_base_rep.stages)
         _fold_base_rows(design_rep, _base_rep)
         # #2090 A5: the AGP datum is read ONCE, by the base solve's stage-2
-        # rewrite; a late stage's local solve carries no rewrite of its own
-        _agp = (_base_rep.reach_seed or {}).get("agp_level")
-        if _agp and "agp_level" not in (design_rep.reach_seed or {}):
-            design_rep.reach_seed = {**(design_rep.reach_seed or {}), "agp_level": _agp}
+        # rewrite; a late stage's local solve carries no rewrite of its own.
+        # So are the generated decks' tops (RULINGS 2026-11-19s (1), (8) (b):
+        # lost here, KBNA 1.0.566 published o4gen_c944399b with no surface,
+        # its frame off a dropped centreline 90 deg across its taxiway)
+        for _key in ("agp_level", "generated_tops"):
+            _got = (_base_rep.reach_seed or {}).get(_key)
+            if _got and _key not in (design_rep.reach_seed or {}):
+                design_rep.reach_seed = {**(design_rep.reach_seed or {}), _key: _got}
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],

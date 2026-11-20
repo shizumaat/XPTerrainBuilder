@@ -108,11 +108,14 @@ def _chord(lines: _t.Sequence[_t.Sequence], R0: Polygon) -> "tuple[float, float]
 
 def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     """The placement frame: anchored at the ring's centroid, heading along
-    the taxiway it carries -- the longest dropped CENTRELINE across the
-    ring (``dropped``: the deck's dropped apt.dat lines), else the carried
-    route's chord, else end A's centroid to end B's -- signed end A to
-    end B, so the taxiway runs along ``-z`` (#2141 (1): X-Plane's slabs
-    and the tire marks then run along it)."""
+    the taxiway it carries -- the deck's own axis, else the carried route's
+    chord (RULINGS 2026-11-19s (8) (b): the axis is the taxi route's
+    direction at the crossing), else the longest dropped CENTRELINE across
+    the ring (``dropped``: the deck's dropped apt.dat lines), else end A's
+    centroid to end B's -- signed end A to end B, so the taxiway runs along
+    ``-z`` (#2141 (1): X-Plane's slabs and the tire marks then run along
+    it).  KBNA 1.0.566 ``o4gen_c944399b``: with no axis, a centreline
+    crossing its end (a junction there) turned it 90 deg."""
     c = ring_polygon(rec["ring"]).centroid
     f0 = DeckFrame(c.x, c.y, 0.0)
     (ax, az), (bx, bz) = (f0.to_local(*_mean(rec["seats_a"])),
@@ -126,7 +129,7 @@ def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     # taxiway it carries) first -- a dropped line crossing the deck turned
     # KBNA's frame and its lip ran round every edge
     d = ((axis[1][0] - axis[0][0], axis[1][1] - axis[0][1]) if len(axis) == 2 else None) \
-        or _chord(centre, R0) or _chord(route, R0)
+        or _chord(route, R0) or _chord(centre, R0)
     if d is not None and d[0] * (bx - ax) + d[1] * (bz - az) < 0.0:
         d = (-d[0], -d[1])
     dx, dz = d if d is not None else (bx - ax, bz - az)

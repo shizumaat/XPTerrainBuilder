@@ -57,17 +57,19 @@ def _law(**kw):
 def test_one_deck_per_taxiway_at_its_class_width():
     from auto_patch_v2.planar.deck_width import route_decks
     nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
-             {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (60.0, -100.0), 4: (60.0, 100.0)}.items()}
+             {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (90.0, -100.0), 4: (90.0, 100.0)}.items()}
     def edge(a, b, c, name):
         return types.SimpleNamespace(a=a, b=b, name=name, is_runway=False, width_class=c)
     airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[edge(1, 2, "C", "A"),
                                                                   edge(3, 4, "E", "B")])
     # the pavement over a road running along x: one piece spanning both taxiways
-    piece = Polygon([(-40, -15), (100, -15), (100, 15), (-40, 15)])
+    piece = Polygon([(-40, -15), (130, -15), (130, 15), (-40, 15)])
     got = route_decks(piece, (1.0, 0.0), airport, _law())
     assert len(got) == 2
+    # the taxiway as drawn (C 25 m, E 38 m) and a half-width shoulder each
+    # side (RULINGS 2026-11-19s (8) (a): about twice the taxiway)
     widths = sorted(round(r.bounds[2] - r.bounds[0], 6) for r, _n in got)
-    assert widths == [25.0, 38.0]
+    assert widths == [50.0, 76.0]
     for r, _n in got:
         assert r.bounds[1] == pytest.approx(-15.0) and r.bounds[3] == pytest.approx(15.0)
     # the gap between them stays open
@@ -149,16 +151,17 @@ def test_a_deck_spans_its_roads_whole_cover():
     airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
         a=1, b=2, name="A", is_runway=False, width_class="C")])
     piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
-    # the road runs along x and stays covered to x = 30 (the apron past the piece)
-    cover = LineString([(-10.0, 0.0), (30.0, 0.0)]).buffer(5.0, cap_style="flat")
+    # the road runs along x and stays covered to x = 40 (the apron past the
+    # piece); the deck is 50 m wide (C: 25 m and a half-width shoulder each side)
+    cover = LineString([(-10.0, 0.0), (40.0, 0.0)]).buffer(5.0, cap_style="flat")
     (ring, note), = route_decks(piece, (1.0, 0.0), airport, _law(), None,
-                                cover.difference(Polygon([(-12.5, -15), (12.5, -15),
-                                                          (12.5, 15), (-12.5, 15)])))
-    assert ring.bounds[2] == pytest.approx(30.0)
-    assert ring.bounds[0] == pytest.approx(-12.5)          # the open side stays
+                                cover.difference(Polygon([(-25, -15), (25, -15),
+                                                          (25, 15), (-25, 15)])))
+    assert ring.bounds[2] == pytest.approx(40.0)
+    assert ring.bounds[0] == pytest.approx(-25.0)          # the open side stays
     assert "whole cover" in note
     (plain, _n), = route_decks(piece, (1.0, 0.0), airport, _law())
-    assert plain.bounds[2] == pytest.approx(12.5)
+    assert plain.bounds[2] == pytest.approx(25.0)
 
 
 def test_the_stage_two_airside_is_held_at_the_solve_without_the_cut():
@@ -189,3 +192,25 @@ def test_the_stage_two_airside_is_held_at_the_solve_without_the_cut():
     assert seen["fixed"] == {0: 10.0, 3: 7.0}            # stage 1's, less the freed
     assert got == {3: 7.5, 1: 11.0, 2: 12.0}             # held; the fixed one kept
     assert rep["stage2_shadow"]["held"] == 2
+
+
+def test_the_deck_axis_runs_along_its_route_whatever_its_seats_say():
+    """RULINGS 2026-11-19s (8) (b): the axis is the carried route's direction
+    -- seats read on a side edge (a deck at a junction) never turn it, and
+    the object frame reads the route before a dropped centreline."""
+    from auto_patch_v2.constraints.deck_floor_follow import _deck_frame
+    from auto_patch_v2.model.structures import GENERATED_WITNESS, DeckBridge
+    ring = ((0.0, 0.0), (50.0, 0.0), (50.0, 30.0), (0.0, 30.0))     # 50 along x, 30 across
+    side = ((0.0, 0.0), (50.0, 0.0))                                # seats on a SIDE edge
+    db = DeckBridge("o4gen_t", "x.obj", (), ring, side, ((0.0, 30.0), (50.0, 30.0)), 0.0, 0.0,
+                    -6.0, 100.0, witness=GENERATED_WITNESS, floor_min_m=6.0,
+                    route=((-100.0, 15.0), (150.0, 15.0)))           # the taxiway runs along x
+    o, u, w = _deck_frame(db)
+    assert abs(u[1]) < 1e-9 and abs(abs(u[0]) - 50.0) < 1e-9
+    from auto_patch_v2.airport import deck_objects as dob
+    ll = [[x * 1e-5, y * 1e-5] for x, y in ring]
+    rec = {"ring": ll, "seats_a": [ll[0], ll[3]], "seats_b": [ll[1], ll[2]],
+           "route": [[-100e-5, 15e-5], [150e-5, 15e-5]]}
+    centre = types.SimpleNamespace(line=1, light=0, points=[(40e-5, -50e-5), (40e-5, 80e-5)])
+    fr = dob._deck_frame(rec, [centre])
+    assert abs(fr.heading_deg % 180.0 - 90.0) < 1.0     # along the route, not the centreline

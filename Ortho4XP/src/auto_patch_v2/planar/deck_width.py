@@ -11,7 +11,10 @@ taxiways two decks, the gap between them open over one cut (19s (3) (b))
 -- a parallelogram whose ENDS run along the road (the cut's crests, the
 piece's extent along the route) and whose SIDES run along the route at
 ``[deck_gen] width_by_class_m`` of the route's width class (ICAO Annex 14
-§3.9.3 taxiway width plus §3.10.1 shoulders), centred on its centreline.
+§3.9.3 taxiway width plus §3.10.1 shoulders: the taxiway as drawn) and
+``shoulder_share`` of that each side (owner RULINGS 2026-11-19s (8) (a):
+1.0.566's decks at the class width read "exactly taxiway width"), centred
+on its centreline.
 A route of no class takes the airport's most common class.
 
 Nothing here names an airport.  Build-time impact: a few shapely
@@ -34,12 +37,17 @@ _SAME_ROUTE_DEG = 20.0
 
 
 def _class_width_m(law, letter: "str | None", fallback: "str | None" = None) -> float:
-    """The deck width (taxiway plus shoulders, m) of a width class letter."""
-    table = dict(law.tables.structures.deck_gen.width_by_class_m)
+    """The deck width (m) of a width class letter: the taxiway as drawn
+    (``width_by_class_m``) plus ``shoulder_share`` of it each side (owner
+    RULINGS 2026-11-19s (8) (a): "the total bridge width is closer to twice
+    the width of the taxiway")."""
+    g = law.tables.structures.deck_gen
+    table = dict(g.width_by_class_m)
+    grow = 1.0 + 2.0 * float(g.shoulder_share)
     for k in (letter, fallback, "C"):
         if k and str(k).upper() in table:
-            return float(table[str(k).upper()])
-    return max(float(v) for v in table.values())
+            return grow * float(table[str(k).upper()])
+    return grow * max(float(v) for v in table.values())
 
 
 def _crossings(piece: Polygon, airport) -> list[tuple[LineString, _t.Any]]:
@@ -147,7 +155,8 @@ def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         d = [(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
              f"{letter or (common or '?') + ' (the airport common)'}: deck "
-             f"{width:g} m wide (taxiway + shoulders, RULINGS 2026-11-19s (4) (c))"]
+             f"{width:g} m wide (taxiway + a half-width shoulder each side, RULINGS "
+             f"2026-11-19s (8) (a))"]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"

@@ -59,6 +59,43 @@ def _surface(top: dict, to_ll) -> dict:
                for k in ("a", "b", "s0", "s1")}}
 
 
+def _axis(db, to_ll) -> list:
+    """The deck's axis, end A to end B along its carried route (RULINGS
+    2026-11-19s (8) (b)), as two ``[lon, lat]`` -- read off its ring
+    (``deck_floor_follow._deck_frame``) where no surface was published;
+    ``[]`` for a ring of no frame."""
+    from ..constraints.deck_floor_follow import _deck_frame
+    fr = _deck_frame(db)
+    if fr is None:
+        return []
+    o, u, _w = fr
+    return _ll(to_ll, [o, (o[0] + u[0], o[1] + u[1])])
+
+
+def _surface_at(planar, z, reach: float = 30.0):
+    """``z_at(xy)``: the solved surface at ``xy`` -- linear over the map's
+    vertices within ``reach`` metres -- or ``None`` off them."""
+    import numpy as np
+    vs = getattr(planar, "vertices", None)
+    if not vs or z is None:
+        return None
+    held: list = []                 # the vertex arrays, read on the first call
+
+    def z_at(p) -> "float | None":
+        from scipy.interpolate import LinearNDInterpolator
+        if not held:
+            items = list(vs.items() if isinstance(vs, dict) else enumerate(vs))
+            held.append(np.array([vx.xy for _v, vx in items], float))
+            held.append(np.asarray(z, float)[[v for v, _vx in items]])
+        xy, zz = held
+        near = np.hypot(xy[:, 0] - p[0], xy[:, 1] - p[1]) <= reach
+        if near.sum() < 3:
+            return None
+        got = float(LinearNDInterpolator(xy[near], zz[near])(p[0], p[1]))
+        return got if got == got else None
+    return z_at
+
+
 def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str, list]:
     """``{"decks": [...], "road_bridges": [...]}`` -- empty lists where
     the airport generated none (module doc) -- and, for an airport drawn
@@ -81,8 +118,8 @@ def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str
         if zero is None:
             continue
         decks.append({
-            **({"surface": surface, "axis": [surface["o"], surface["ou"]]}
-               if surface is not None else {}),
+            **({"surface": surface} if surface is not None else {}),
+            "axis": [surface["o"], surface["ou"]] if surface is not None else _axis(db, to_ll),
             "object_id": db.object_id, "resource": db.resource,
             "ring": _ll(to_ll, db.ring), "seats_a": _ll(to_ll, db.seats_a),
             "seats_b": _ll(to_ll, db.seats_b),
@@ -102,8 +139,10 @@ def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str
     from .road_deck import road_deck_records
     riding = {str(r) for db in getattr(planar, "decks", ()) or () if is_generated(db)
               for r in getattr(db, "riders", ()) or ()}
-    road_decks, bridges = road_deck_records(getattr(airport, "road_bridges", ()) or (),
-                                            riding, law, airport)
+    road_decks, bridges = road_deck_records(
+        getattr(airport, "road_bridges", ()) or (), riding, law, airport,
+        [db for db in getattr(planar, "decks", ()) or () if is_generated(db)],
+        _surface_at(planar, z))
     decks += road_decks
     out: dict[str, list] = {"decks": decks, "road_bridges": bridges}
     if offers:

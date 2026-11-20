@@ -377,6 +377,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.plane_groups",
     "auto_patch_v2.geom.plate_bands",
     "auto_patch_v2.geom.plate_cells",
+    "auto_patch_v2.geom.point_triangle",
     "auto_patch_v2.geom.rotated_rect",
     "auto_patch_v2.geom.shape_class",
     "auto_patch_v2.geom.sunk_cluster",

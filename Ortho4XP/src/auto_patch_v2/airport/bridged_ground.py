@@ -69,6 +69,7 @@ import typing as _t
 import numpy as np
 
 from ..geom.terrain_deck import CELL_M
+from .msl_feet import static_triangles
 
 __all__ = ["MIN_PLAN_M", "MIN_RIM_WATER", "EXTEND_M", "CONTINUE_M", "GAP_M",
            "PROBE_M", "TOP_SPAN_M", "STEP_M", "ERODE_M", "RING_M", "SEAT_BY",
@@ -116,14 +117,6 @@ class _ArmEnd:
     @property
     def zero(self) -> float:
         return self.ground - self.top_y
-
-
-def _static_tris(g: _t.Any) -> "np.ndarray | None":
-    """``(n, 3, 3)`` authored points of the static solid, or ``None``."""
-    tris = g.solid
-    if g.animated.shape[0]:
-        tris = tris[~g.animated]
-    return g.vertices[tris] if tris.shape[0] else None
 
 
 def _to_frame(x: np.ndarray, z: np.ndarray, xy: _t.Sequence[float],
@@ -303,7 +296,7 @@ def _models(airport: _t.Any, objects: _t.Sequence[_t.Any], cache: _t.Any) -> dic
         if not _candidate(o):
             continue
         g = cache.geometry(o.resolved)
-        tris = None if g is None else _static_tris(g)
+        tris = None if g is None else static_triangles(g)
         if tris is None or float(np.ptp(tris[:, :, [0, 2]], axis=(0, 1)).max()) < MIN_PLAN_M:
             continue
         ends = _arm_ends(tris, o.xy, o.heading_deg, ways, dem_many, water)

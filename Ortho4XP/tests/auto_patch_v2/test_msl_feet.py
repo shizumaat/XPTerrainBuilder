@@ -318,3 +318,102 @@ def test_a_lift_standing_its_feet_above_the_surface_is_kept(tmp_path):
     _c, msl, _r, n = _rows(dump, tmp_path, surface=surf)
     assert not msl and n["lifted_feet_seated"] == 0
     assert n["lifted_feet_below_origin"] == 1
+
+
+# owner RULINGS 2026-11-20l (KDFW): the sets of one anchor are one frame
+
+def _slab(tmp_path, name, x0, x1, y0, y1, *, z0=0.0, z1=5.0):
+    """An OBJ8 box ``x0..x1`` × ``y0..y1`` × ``z0..z1`` (twelve triangles)."""
+    c = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    faces = [(0, 1, 3), (0, 3, 2), (4, 6, 7), (4, 7, 5), (0, 4, 5), (0, 5, 1),
+             (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4), (1, 5, 7), (1, 7, 3)]
+    idx = [i for f in faces for i in f]
+    body = ["I", "800", "OBJ", f"POINT_COUNTS {len(c)} 0 0 {len(idx)}"]
+    body += [f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in c]
+    body += [f"IDX {i}" for i in idx] + [f"TRIS 0 {len(idx)}"]
+    (tmp_path / "objects").mkdir(exist_ok=True)
+    (tmp_path / "objects" / name).write_text("\n".join(body) + "\n", encoding="utf-8",
+                                             newline="\n")
+    return "objects/" + name
+
+
+def _lights(tmp_path, name):
+    (tmp_path / "objects").mkdir(exist_ok=True)
+    (tmp_path / "objects" / name).write_text(
+        "I\n800\nOBJ\nPOINT_COUNTS 0 0 0 0\nLIGHT_NAMED airplane_landing 0 3 0\n",
+        encoding="utf-8", newline="\n")
+    return "objects/" + name
+
+
+def test_point_triangle_distance_and_meeting():
+    import numpy as np
+    from auto_patch_v2.geom import point_triangle as PT
+    tri = np.array([[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 10.0]]])
+    p = np.array([[2.0, 3.0, 2.0], [-4.0, 0.0, 0.0], [20.0, 0.0, 20.0]])
+    d = PT._point_triangle_distance(p, np.repeat(tri, 3, axis=0))
+    # over the face, beside an edge, beyond the hypotenuse's middle
+    assert np.allclose(d, [3.0, 4.0, np.hypot(15.0, 15.0)])
+    # a vertex 0.05 m off a long face whose own vertices are 5 m away: meets
+    wall = np.array([[[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 10.0, 0.0]]])
+    stub = np.array([[[50.0, 2.0, 0.05], [55.0, 2.0, 5.0], [50.0, 4.0, 5.0]]])
+    assert PT.meshes_meet(wall, stub, 0.1) and not PT.meshes_meet(wall, stub + 1.0, 0.1)
+
+
+def test_the_sets_of_one_anchor_that_meet_are_one_frame(tmp_path):
+    """KDFW's class: one anchor, three sets authored 0.09 / 0.21 m apart
+    meeting at their walls, a lights-only file in one, and a far set that
+    meets nothing.  The meeting sets keep their authored offsets at the
+    HIGHEST of their votes; the lights ride; the far set is seated alone."""
+    a = _slab(tmp_path, "a.obj", 0.0, 50.0, 0.0, 10.0)            # z 0..5
+    b = _slab(tmp_path, "b.obj", 50.0, 60.0, 0.0, 12.0)           # touches a
+    bridge = _slab(tmp_path, "c.obj", 60.0, 90.0, 4.0, 6.0)       # spans b..
+    far = _slab(tmp_path, "far.obj", 4000.0, 4010.0, 0.0, 3.0)
+    lit = _lights(tmp_path, "lights.obj")
+    def surf(la, lo):         # 20 under a, 20.3 under b, 10 under the far set
+        return 10.0 if lo > -28.7 + 0.03 else (20.3 if lo > -28.7 + 0.00052 else 20.0)
+    rows = [_row(a, elevation=184.27), _row(lit, elevation=184.27),
+            _row(b, elevation=184.36), _row(bridge, elevation=184.57),
+            _row(far, elevation=183.10)]
+    dump = types.SimpleNamespace(placements=rows)
+    conv, msl, _r, n = _rows(dump, tmp_path, surface=surf)
+    assert not conv
+    by = {m.index: m.elevation for m in msl}
+    # votes: a -> 20.0 (offset -164.27), b -> 20.3 (-164.06); the frame takes -164.06
+    assert abs(by[0] - (184.27 - 164.06)) < 1e-6 and abs(by[1] - by[0]) < 1e-9
+    assert abs(by[2] - 20.3) < 1e-6
+    assert abs(by[3] - (184.57 - 164.06)) < 1e-6          # the bridge rides
+    assert abs(by[4] - 10.0) < 1e-6                       # seated alone
+    assert n["msl_frames"] == 1 and n["msl_frame_sets"] == 3
+
+
+def test_the_guard_asks_only_of_geometry_at_the_origin(tmp_path):
+    """In a FRAME, a layer reaching 3 m below its origin a kilometre away
+    does not guard; a pole reaching below the origin under it does.  A set
+    seated alone keeps the whole guard (Q54)."""
+    layer = _slab(tmp_path, "layer.obj", 900.0, 1100.0, -3.0, 2.0)
+    shed = _slab(tmp_path, "shed.obj", 1100.0, 1110.0, -2.8, 2.0)    # meets the layer
+    pole = _slab(tmp_path, "pole.obj", -0.2, 0.2, -2.0, 8.0, z0=-0.2, z1=0.2)
+    surf = lambda la, lo: 50.0                                      # noqa: E731
+    lone = types.SimpleNamespace(placements=[_row(layer, elevation=184.0)])
+    conv, msl, _r, n = _rows(lone, tmp_path, surface=surf)
+    assert conv and not msl and n["msl_feet_below_origin"] == 1
+    frame = types.SimpleNamespace(placements=[_row(layer, elevation=184.0),
+                                              _row(shed, elevation=184.2)])
+    conv, msl, _r, n = _rows(frame, tmp_path, surface=surf)
+    assert not conv and len(msl) == 2 and n["msl_frames"] == 1
+    assert abs((msl[1].elevation - msl[0].elevation) - 0.2) < 1e-6
+    hut = _slab(tmp_path, "hut.obj", 1100.0, 1110.0, 2.0, 4.0)     # off the drape
+    poled = types.SimpleNamespace(placements=[_row(pole, elevation=184.0),
+                                              _row(hut, elevation=184.2)])
+    conv, msl, _r, n = _rows(poled, tmp_path, surface=surf)
+    assert [c.index for c in conv] == [0] and [m.index for m in msl] == [1]
+    assert "msl_frames" not in n
+
+
+def test_a_member_with_no_static_solid_rides_its_set(tmp_path):
+    tower = _obj(tmp_path, "tower.obj", 6.0, 30.0)
+    lit = _lights(tmp_path, "beacon.obj")
+    dump = types.SimpleNamespace(placements=[_row(tower), _row(lit)])
+    conv, msl, _r, _n = _rows(dump, tmp_path)
+    assert not conv and {m.index for m in msl} == {0, 1}
+    assert abs(msl[0].elevation - msl[1].elevation) < 1e-9

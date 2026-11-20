@@ -531,8 +531,13 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         own = re.compile(re.escape(oid) + r"(?![0-9])")
         return next((n for n in deck_notes if own.search(n)), "")
     out: list[DeckBridge] = []
+    from .deck_bridge import deck_polygon
+    # where the pack stands: a deck grown over its road's cover never reaches it
+    avoid = unary_union([deck_polygon(d) for d in taken] + [b for b in blocked if b.is_valid]
+                        + [p.plan for p in packs if p.plan is not None and p.plan.is_valid])
     for piece, beside in _route_pieces(R, roads, airport, law, notes,
-                                       lambda xy: pave(roles.at_xy(xy))):
+                                       lambda xy: pave(roles.at_xy(xy)), avoid,
+                                       _airside_near(classification, law, near)):
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
         if not under:
             continue
@@ -648,14 +653,39 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     return tuple(out), notes + pair_notes
 
 
-def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None
-                  ) -> list[tuple[Polygon, _t.Any]]:
+def _airside_near(classification, law, near):
+    """The airside pavement (``law.tables.airside_stage_roles``: runway,
+    taxiway, apron) within ``near`` -- what a road under a deck may run on
+    under past the deck's piece."""
+    from ..law.tables import airside_stage_roles
+    roles = airside_stage_roles(law)
+    got = []
+    for c in classification.cells:
+        if c.role in roles and len(c.ring) >= 3:
+            p = Polygon(c.ring, [h for h in c.holes if len(h) >= 3])
+            p = p if p.is_valid else p.buffer(0.0)
+            if p.intersects(near):
+                got.append(p)
+    return unary_union(got).intersection(near) if got else None
+
+
+#: a road's line is read this far past its cover's ends for the pavement
+#: its carriageway still runs under (m)
+_COVER_ON_M = 30.0
+
+
+def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=None,
+                  airside=None) -> list[tuple[Polygon, _t.Any]]:
     """Each piece of ``R`` (the pavement over the cut) as ONE DECK PER
     TAXI ROUTE across it, at the route's class width (owner RULINGS
     2026-11-19s (3) (b), (4) (c); ``planar/deck_width``) -- never the
     pavement's width; a piece no taxi route crosses (a runway's) as read.
     ``(deck ring, the pavement over the cut beside every deck of its
-    piece)`` each: that pavement is opened with the deck's ring."""
+    piece)`` each: that pavement is opened with the deck's ring.  ``avoid``:
+    the pack's decks and frames a deck grown over its roads' cover never
+    reaches (``deck_width._spans_cover``); ``airside``: the airside
+    pavement over which a road's carriageway and shoulders count as its
+    cover (:func:`_airside_near`)."""
     from .deck_width import route_decks
     g = law.tables.structures.deck_gen
     out: list[Polygon] = []
@@ -664,14 +694,33 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None
             continue
         piece = Polygon(piece.exterior).simplify(0.05)
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
+        # each road's carriageway and shoulders where the pavement covers it
+        # past the pieces: the deck reaches over it (``deck_width._spans_cover``)
+        cover = unary_union([_on_past(r.line, _COVER_ON_M).buffer(
+            r.half_m + float(g.shoulder_m), cap_style="flat") for r in under])
+        cover = cover.intersection(airside).difference(R.buffer(0.05)) \
+            if under and airside is not None else None
         decks = route_decks(piece, _mean_dir([r.line.intersection(piece) for r in under]),
-                            airport, law, pave_at)
+                            airport, law, pave_at, cover, avoid)
         c = piece.centroid
         notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for _p, n in decks]
         rings = [p for p, _n in decks if p.area >= float(g.min_area_m2)]
         beside = piece.difference(unary_union(rings)) if rings else Polygon()
         out += [(p, beside) for p in rings] or [(piece, Polygon())]
     return out
+
+
+def _on_past(line: LineString, m: float) -> LineString:
+    """``line`` run straight on ``m`` metres past each end."""
+    c = list(line.coords)
+    if len(c) < 2:
+        return line
+
+    def on(p, q):
+        dx, dy = p[0] - q[0], p[1] - q[1]
+        n = math.hypot(dx, dy)
+        return p if n < 1e-9 else (p[0] + dx / n * m, p[1] + dy / n * m)
+    return LineString([on(c[0], c[1]), *c, on(c[-1], c[-2])])
 
 
 def _carried_level(airport, piece: Polygon) -> "float | None":

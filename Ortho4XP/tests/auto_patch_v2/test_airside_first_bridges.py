@@ -137,3 +137,25 @@ def test_one_taxiway_of_many_edges_is_one_deck_and_its_ends_are_read():
     assert ends is not None
     for e in ends:
         assert len({round(lat, 6) for lat, _lon in e}) == 1     # one edge each, along the road
+
+
+def test_a_deck_spans_its_roads_whole_cover():
+    """lane lcarve2: a road that runs on under pavement past the deck's side
+    (an apron the piece does not hold) is under the deck to the cover's end."""
+    from shapely.geometry import LineString
+
+    from auto_patch_v2.planar.deck_width import route_decks
+    nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
+        a=1, b=2, name="A", is_runway=False, width_class="C")])
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+    # the road runs along x and stays covered to x = 30 (the apron past the piece)
+    cover = LineString([(-10.0, 0.0), (30.0, 0.0)]).buffer(5.0, cap_style="flat")
+    (ring, note), = route_decks(piece, (1.0, 0.0), airport, _law(), None,
+                                cover.difference(Polygon([(-12.5, -15), (12.5, -15),
+                                                          (12.5, 15), (-12.5, 15)])))
+    assert ring.bounds[2] == pytest.approx(30.0)
+    assert ring.bounds[0] == pytest.approx(-12.5)          # the open side stays
+    assert "whole cover" in note
+    (plain, _n), = route_decks(piece, (1.0, 0.0), airport, _law())
+    assert plain.bounds[2] == pytest.approx(12.5)

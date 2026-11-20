@@ -56,6 +56,9 @@ class _StageTwo:
     fixed: dict = _dc.field(default_factory=dict)
     free: frozenset = frozenset()
     tops: dict = _dc.field(default_factory=dict)
+    #: the stage-2 problem without the cut and the airside to hold at its
+    #: answer (``solve/stage_shadow``)
+    shadow: dict = _dc.field(default_factory=dict)
 
     def stage_two(self, rep: _t.Mapping) -> dict:
         """The keys the caller's rewrite report takes: this report, and the
@@ -69,6 +72,9 @@ class _StageTwo:
             out["stage2_free"] = frozenset(rep.get("stage2_free") or ()) | self.free
         if self.tops:
             out["generated_tops"] = dict(self.tops)
+        if self.shadow:
+            out["stage2_shadow"] = {**self.shadow, "free": frozenset(
+                rep.get("stage2_free") or ()) | frozenset(self.shadow.get("free") or ())}
         return out
 
 
@@ -216,9 +222,12 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     from .deck_carve import carve_levels
     cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law) \
         if law is not None else ({}, {})
+    # the same problem without the cut: its answer holds the stage-2 airside
+    shadow = {"cs": _floor_pins(pm, cs, target, {"floor": {}, "pins": 0}),
+              "fixed": dict(fixed), "free": frozenset(free),
+              "hold": _stage_two_airside(pm, law, levels)} if cut else {}
     fixed.update(cut)
     free.difference_update(cut)
-    _near_cut_pins(pm, cut, stage1, air, levels, fixed, rep)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
     if cut:
@@ -235,7 +244,24 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         rep["carve"]["_vertices"]["flats_left"] = sum(
             1 for f in cs2.flats if set(f.group) & set(cut))
         cs2 = _dc.replace(cs2, pins=kept, flats=flats)
-    return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
+    return cs2, _StageTwo(rep, fixed, frozenset(free), tops, shadow)
+
+
+def _stage_two_airside(pm, law, levels) -> frozenset:
+    """The AIRSIDE-CLASS vertices stage 2 solves: every vertex of a face
+    whose role is stage 1's (``law.tables.airside_stage_roles``) that
+    stage 1 does not level -- a plateau's or a lower level's pavement, a
+    vertex the full map minted -- never a road's."""
+    from ..law.tables import airside_stage_roles, family
+    roles = set(airside_stage_roles(law))
+    road = set(family(law, "road_cross_section").roles)
+    out: set[int] = set()
+    for f in pm.faces.values():
+        if f.role in roles:
+            for ring in (f.ring, *f.holes):
+                out.update(pm.ring_vertices(ring))
+    return frozenset(v for v in out if v not in levels
+                     and not road & {pm.faces[f].role for f in pm.vertices[v].incident_faces})
 
 
 def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:
@@ -274,51 +300,6 @@ def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:
         z = tin(vx.xy)
         if z is not None:
             fixed[v] = round(z, 6)
-
-
-#: an airside vertex the join left without a level this near the deck's cut
-#: takes the no-bridge surface (m): the cut's cells re-node the pavement's
-#: edge along its whole run, far from the deck's zone
-_CUT_REACH_M = 60.0
-
-
-def _near_cut_pins(pm, cut, stage1, air, levels, fixed, rep) -> None:
-    """Every airside vertex the coordinate join left without a stage-1
-    level within :data:`_CUT_REACH_M` of the deck's cut -- a vertex it
-    levelled (``constraints/deck_carve``) or of its cells -- takes stage
-    1's surface there (:func:`_tin`), as :func:`_zone_pins` does round
-    each deck: the carve never moves airside (19s (1)), however far along
-    its road it runs."""
-    if not cut:
-        return
-    import numpy as np
-    from scipy.spatial import cKDTree
-    from shapely.geometry import box
-    from shapely.prepared import prep
-    loose = [v for v in air if v not in levels and v not in fixed]
-    if not loose:
-        return
-    from ..model.deck_carve import CARVE_REF
-    ours = set(cut) | {v for v, vx in pm.vertices.items()
-                       if any(str(pm.faces[f].ref).startswith(CARVE_REF + ":")
-                              for f in vx.incident_faces)}
-    cxy = np.asarray([pm.vertices[v].xy for v in ours], dtype=np.float64)
-    lxy = np.asarray([pm.vertices[v].xy for v in loose], dtype=np.float64)
-    d, _j = cKDTree(cxy).query(lxy, distance_upper_bound=_CUT_REACH_M)
-    near = [v for v, dv in zip(loose, d, strict=True) if np.isfinite(dv)]
-    if not near:
-        return
-    xy = np.asarray([pm.vertices[v].xy for v in near])
-    tin = _tin(stage1, prep(box(*xy.min(axis=0), *xy.max(axis=0))))
-    if tin is None:
-        return
-    n = 0
-    for v in near:
-        z = tin(pm.vertices[v].xy)
-        if z is not None:
-            fixed[v] = round(z, 6)
-            n += 1
-    rep["carve"].setdefault("_vertices", {})["airside_near_cut_fixed"] = n
 
 
 def _tin(stage1, opened) -> "_t.Callable | None":

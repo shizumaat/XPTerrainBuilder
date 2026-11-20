@@ -277,10 +277,20 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # (the lowest of the floors it stands on), never another road's bank
     # -- each road keeps its own ramp; off every floor, the deepest bank
     on_floor = np.full(len(vids), np.inf)
+    # the surveyed ground along the path at a floor vertex: the cut's ramp
+    # owns its floor to the meet point, whatever a corridor it took over
+    # lowered the vertex's own ground to (KRDU 1.0.565 ``-239``: a tunnel
+    # ramp's floor held 15 m of the ramp flat, then 14.6 %)
+    on_ground = np.full(len(vids), -np.inf)
     t = np.full(len(vids), np.inf)
-    for _p, frame, s, z, (lo, hi) in profs:
-        x0, y0 = np.min(frame.a, axis=0) - reach
-        x1, y1 = np.max(frame.a + frame.d, axis=0) + reach
+    for p_, frame, s, z, (lo, hi) in profs:
+        # every point of the path, both ends (a path may run either way:
+        # KPHX 1.0.565 ``-4247`` ran west, and the bounds of its segment
+        # starts / ends dropped its two ends -- the ramp's vertices there
+        # were never levelled, 10.7 %)
+        ends = np.vstack([frame.a, frame.a + frame.d])
+        x0, y0 = np.min(ends, axis=0) - reach
+        x1, y1 = np.max(ends, axis=0) + reach
         m = (xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)
         if not m.any():
             continue
@@ -288,6 +298,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         fz = np.interp(sv, s, z)
         lo_, hi_ = lo - _SNAP_M, hi + _SNAP_M
         on = (nv >= lo_) & (nv <= hi_)
+        deeper = on & (fz < on_floor[m])
+        on_ground[m] = np.where(deeper, np.interp(sv, s, _path_stations(p_)[1]), on_ground[m])
         on_floor[m] = np.where(on, np.minimum(on_floor[m], fz), on_floor[m])
         t[m] = np.minimum(t[m], lateral(fz, nv, lo_, hi_, bank))
     floor_v = np.isfinite(on_floor)
@@ -304,6 +316,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         vx = pm.vertices[v]
         pt = Point(vx.xy)
         g = float(vx.dem_z) if vx.dem_z is not None else math.inf
+        if floor_v[i]:
+            g = max(g, float(on_ground[i]))
         cut = min(g, float(t[i]))
         inside = own.contains(pt)
         if not inside and pack_tn is not None and pack_tn.contains(pt):

@@ -189,3 +189,94 @@ def test_the_floor_is_the_decks_full_span_less_its_embankments():
     assert lo == pytest.approx(-19.0, abs=0.01) and hi == pytest.approx(5.0)
     # never narrower than the road under it (a wall where it needs it)
     assert floor_band(p, 20.0, law) == (-5.0, 5.0)
+
+
+def test_the_ramp_owns_its_floor_over_a_corridor_that_lowered_its_ground():
+    """lane lcarve2 (KRDU 1.0.565 ``-239``): a floor vertex whose own ground a
+    corridor lowered to the deck's floor takes the ramp, not that ground."""
+    from auto_patch_v2.constraints.deck_carve import carve_levels
+    from auto_patch_v2.law import Law
+    law = Law.load()
+    pm, air = _pm()
+    low = [v for v, vx in pm.vertices.items() if vx.xy == (40.0, 0.0)][0]
+    pm.vertices[low].dem_z = 167.0                 # a tunnel ramp's floor
+    got, _rep = carve_levels(pm, [_deck()], {"o4gen_t": _Top()}, air,
+                             {v: 173.0 for v in air}, {}, law)
+    ramp = [v for v, vx in pm.vertices.items() if vx.xy == (44.0, 0.0)][0]
+    assert got[low] > 168.0                         # on the ramp, never the corridor's floor
+    assert abs(got[ramp] - got[low]) / 4.0 <= CAP + 1e-6
+
+
+def test_cut_cells_are_noded_along_every_ring():
+    from shapely.geometry import Polygon
+
+    from auto_patch_v2.classify.roles import Cell
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.deck_carve import RING_NODE_M, _ring_dense
+    law = Law.load()
+    ring = Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])
+    # a corridor crossing the ring's side with no vertex on it
+    c = Cell(0, "tunnel_ramp", "tunnel_ramp", ((-30.0, -3.0), (30.0, -3.0), (30.0, 3.0),
+                                                (-30.0, 3.0)), (), None, None, "groundside",
+             "structure", {})
+    (got,), n = _ring_dense([c], ring.boundary, law)
+    assert n == 1
+    # a node where each edge crosses each side of the ring
+    assert {(round(x, 6), y) for x, y in got.ring if abs(x) == 10.0} == \
+        {(-10.0, -3.0), (10.0, -3.0), (-10.0, 3.0), (10.0, 3.0)}
+    # an edge along the ring is noded every RING_NODE_M
+    along = Cell(1, "tunnel_ramp", "tunnel_ramp", ((-10.0, 10.0), (10.0, 10.0), (10.0, 14.0),
+                                                   (-10.0, 14.0)), (), None, None, "groundside",
+                 "structure", {})
+    (got,), _n = _ring_dense([along], ring.boundary, law)
+    xs = sorted(x for x, y in got.ring if y == 10.0)
+    assert max(b - a for a, b in zip(xs, xs[1:], strict=False)) <= RING_NODE_M + 1e-9
+
+
+def test_one_cut_runs_along_one_road_its_most_senior():
+    """lane lcarve2 (KPHX 1.0.565): two decks one cut joins, each over its
+    own piece of road, share the most senior road's line."""
+    import dataclasses
+
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.deck_carve import CarvePath, DeckCarve
+    from auto_patch_v2.planar.deck_carve import _shared_mains
+    law = Law.load()
+    a = _deck()
+    ring_b = tuple((x + 40.0, y) for x, y in a.ring)
+
+    def carve(way, st):
+        p = CarvePath(way, "road", 5.0, 5.0, CAP, RATE, ((-200.0, 0.0), (200.0, 0.0)), st, ())
+        return DeckCarve((), "", (p,))
+    st = ((185.0, 215.0, "o4gen_t"), (225.0, 255.0, "o4gen_u"))
+    a = dataclasses.replace(a, carve=carve("-1", st), covered=(
+        ("-1", (("highway", "service"),), ((-100.0, 0.0), (100.0, 0.0))),
+        ("-2", (("highway", "primary"),), ((-100.0, 1.0), (100.0, 1.0)))))
+    b = dataclasses.replace(a, object_id="o4gen_u", ring=ring_b, carve=carve("-3", st), covered=(
+        ("-3", (("highway", "service"),), ((-100.0, 0.0), (100.0, 0.0))),
+        ("-2", (("highway", "primary"),), ((-100.0, 1.0), (100.0, 1.0)))))
+    got = _shared_mains([a, b], {"o4gen_t": a.carve, "o4gen_u": b.carve}, law)
+    assert {k: v[0] for k, v in got.items()} == {"o4gen_t": "-2", "o4gen_u": "-2"}
+    # a deck whose path never runs under the other is its own cut
+    lone = dataclasses.replace(b, carve=carve("-3", st[1:]))
+    assert _shared_mains([a, lone], {"o4gen_t": a.carve, "o4gen_u": lone.carve}, law) == {}
+
+
+def test_a_path_running_west_in_several_pieces_levels_both_its_ramps():
+    """lane lcarve2 (KPHX 1.0.565 ``-4247``): the reach of a path is read off
+    all its points -- a path of several pieces running west kept its ends
+    out of the cut's reach and their ramps were never levelled."""
+    import dataclasses
+
+    from auto_patch_v2.constraints.deck_carve import carve_levels
+    from auto_patch_v2.law import Law
+    law = Law.load()
+    pm, air = _pm()
+    d = _deck()
+    (p,) = d.carve.paths
+    west = dataclasses.replace(p, coords=((200.0, 0.0), (0.0, 0.0), (-200.0, 0.0)))
+    d = dataclasses.replace(d, carve=dataclasses.replace(d.carve, paths=(west,)))
+    got, _rep = carve_levels(pm, [d], {"o4gen_t": _Top()}, air, {v: 173.0 for v in air}, {}, law)
+    for x in (-60.0, 60.0):
+        v = [k for k, vx in pm.vertices.items() if vx.xy == (x, 0.0)][0]
+        assert v in got and got[v] < 173.0 - 0.5          # on the ramp, cut

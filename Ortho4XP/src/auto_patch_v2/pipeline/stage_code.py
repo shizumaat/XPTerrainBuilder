@@ -6707,6 +6707,9 @@ for _stage, _names in _GROWN_BRIDGES.items():
 _GROWN_CARVE = "geom.carve_profile model.deck_carve planar.deck_carve"
 for _stage in ("planar", "solve", "late_cut", "late_solve"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_GROWN_CARVE)}))
+# lcarve2: the stage-2 airside held at the surface solved without the cut
+for _stage in ("solve", "late_cut", "late_solve", "emit"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("solve.stage_shadow")}))
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

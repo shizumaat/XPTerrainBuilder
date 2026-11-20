@@ -63,6 +63,12 @@ __all__ = ["deck_carve"]
 STEP_M = 2.0
 #: the cut's cells are noded along their edges this often (m)
 NODE_M = 4.0
+#: ... and along every generated deck's ring this often (m), so each deck's
+#: floor is sampled under its own ring (KJFK 1.0.565 ``o4gen_a900c332``: a
+#: 35 m triangle from the neighbour's ramp stood 0.15 m over its floor)
+RING_NODE_M = 2.0
+#: a cell edge this near a deck's ring runs along it (m)
+_RING_BAND_M = 0.5
 #: a mapped road continues a path when it leaves within this of its end (m)
 _JOIN_M = 1.0
 #: ... turning no more than this off the path's heading (cosine)
@@ -250,7 +256,29 @@ def _estimate_floor(db, terrain, s0: float, s1: float, clearance: float, law) ->
     return min([design] + under)
 
 
-def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
+def _covered_roads(db) -> list[tuple[str, str, dict, LineString]]:
+    """``(way, kind, tags, line)`` of every road or rail under ``db``, each
+    way once (a way read twice: two tiles' extracts)."""
+    out, seen = [], set()
+    for way, tags_items, coords in getattr(db, "covered", ()) or ():
+        if str(way) in seen or len(coords) < 2:
+            continue
+        seen.add(str(way))
+        tags = dict(tags_items)
+        out.append((str(way), _kind(tags), tags, LineString(coords)))
+    return out
+
+
+def _senior(roads, rings) -> "tuple | None":
+    """The most senior of ``roads`` (rail first, then the road class), the
+    tie broken by its length under ``rings`` (every deck of the cut)."""
+    if not roads:
+        return None
+    return max(roads, key=lambda r: (_rank(r[2]), round(sum(r[3].intersection(g).length
+                                                            for g in rings))))
+
+
+def _deck_paths(db, decks, airport, law, lines=None, tree=None, main=None) -> DeckCarve:
     """The cut's record for the generated deck ``db`` (module doc):
     ONE trench (owner 2026-11-20T00:33Z: "The cut is the full width of the
     bridge regardless of what roads or rails pass under it, a single cut,
@@ -258,7 +286,9 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     mapped path chained on past the deck (:func:`_past_every_deck`) -- or,
     with none mapped, the cut's own axis, centred between the deck's end
     lines; every road or rail under it lies on its one floor.
-    ``decks``: every generated deck of the map (the stretches)."""
+    ``decks``: every generated deck of the map (the stretches); ``main``:
+    the ``(way, kind, tags, line)`` the cut runs along where it is shared
+    with other decks (:func:`_shared_mains`)."""
     from .deck_bridge import deck_polygon
     from .structure_underpass import aeroway_decks
     if lines is None:
@@ -268,31 +298,24 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     tn = law.tables.structures.tunnel
     ring = deck_polygon(db)
     evidence: list[str] = []
-    roads: list[tuple[str, str, dict, LineString]] = []
-    seen: set[str] = set()
-    for way, tags_items, coords in getattr(db, "covered", ()) or ():
-        if str(way) in seen or len(coords) < 2:   # a way read twice (two tiles' extracts)
-            continue
-        seen.add(str(way))
-        tags = dict(tags_items)
-        kind = _kind(tags)
+    roads = _covered_roads(db)
+    for way, kind, tags, _ln in roads:
         cls = tags.get("railway") if kind == "rail" else tags.get("highway")
         evidence.append(f"OSM {kind} {way} {'railway' if kind == 'rail' else 'highway'}={cls}")
-        roads.append((str(way), kind, tags, LineString(coords)))
     if getattr(db, "replaces", ()):
         evidence.append("hidden pack frame")
     if any(LineString(a.points).intersects(ring) for a in aeroway_decks(airport, law)
            if len(a.points) >= 2):
         evidence.append("OSM bridge tag")
     # the rail's grade governs a cut a railway runs in (19s (2), 18e)
-    kind = "rail" if any(k == "rail" for _w, k, _t, _l in roads) else "road"
+    kind = "rail" if any(k == "rail" for _w, k, _t, _l in roads + ([main] if main else [])) \
+        else "road"
     cap, rate = _carve_law(law, kind)
     reach = _reach_m(db, law, cap, rate)
     if roads:
         # the cut runs along its most senior road (rail first, then the
         # road class), so two decks over one crossing share one line
-        way, _k, tags, line = max(roads, key=lambda r: (_rank(r[2]),
-                                                        round(r[3].intersection(ring).length)))
+        way, _k, tags, line = main or _senior(roads, [ring])
         cls = tags.get("railway") if _k == "rail" else tags.get("highway")
         path = _past_every_deck(line, reach, lines, tree, decks, past)
         direction = f"along OSM {_k} {way} ({cls})"
@@ -329,6 +352,59 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
                    for a, b in own):
         evidence.append("lidar trench")
     return DeckCarve(tuple(evidence), direction, (cp,))
+
+
+def _cut_groups(gen, carves) -> list[list]:
+    """The generated decks that may be ONE cut (owner 2026-11-20T00:33Z):
+    each runs under the other's path -- stage 2 decides whether they merge
+    (``geom/carve_profile.merged`` on the solved floors, deeper than any
+    planar estimate: KPHX's two decks 41 m apart merged at 333.3 m, read
+    337.6 m here).  Sharing one line is harmless where they do not: each
+    ramps out along it.  Groups of two or more."""
+    from ..geom.union_find import find_root
+    ids = [d.object_id for d in gen]
+    at = {oid: k for k, oid in enumerate(ids)}
+    under = {oid: {o for p in carves[oid].paths for _a, _b, o in p.stretches} for oid in ids}
+    parent = list(range(len(ids)))
+    for a in ids:
+        for b in under[a]:
+            if b != a and b in at and a in under[b]:
+                parent[find_root(parent, at[b])] = find_root(parent, at[a])
+    by_id = {d.object_id: d for d in gen}
+    groups: dict[int, list] = {}
+    for oid in ids:
+        groups.setdefault(find_root(parent, at[oid]), []).append(by_id[oid])
+    return [g for g in groups.values() if len(g) > 1]
+
+
+def _shared_mains(gen, carves, law) -> dict[str, tuple]:
+    """``{deck id: (way, kind, tags, line)}``: per deck of a cut several
+    decks share (:func:`_cut_groups`) whose own path runs along another
+    road than its neighbours', the group's most senior road crossing every
+    deck of it (tie: its length under them) -- ONE line per cut, so no
+    deck's ramp climbs across another's bank (KPHX 1.0.565: two decks over
+    two roads, merged, each ramping out along its own road).  A group no
+    road crosses whole keeps its paths."""
+    from .deck_bridge import deck_polygon
+    out: dict[str, tuple] = {}
+    for grp in _cut_groups(gen, carves):
+        ways = {p.way for d in grp for p in carves[d.object_id].paths}
+        if len(ways) < 2:
+            continue
+        rings = [deck_polygon(d) for d in grp]
+        cands = {r[0]: r for d in grp for r in _covered_roads(d)}
+        whole = [r for r in cands.values()
+                 if all(r[3].intersection(g).length > 1.0 for g in rings)]
+        best = _senior(whole or [], rings)
+        if best is None:
+            # no one road's covered piece crosses them all: the senior road's
+            # mapped path, chained on, may (the pieces are clipped per deck)
+            best = _senior(list(cands.values()), rings)
+            if best is None:
+                continue
+        for d in grp:
+            out[d.object_id] = best
+    return out
 
 
 def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: float
@@ -467,6 +543,58 @@ def _split_structures(cells, blade, law) -> tuple[list, int]:
     return out, n
 
 
+def _crossed(pts: list, rings) -> list:
+    """``pts`` (a closed coordinate list) with a vertex wherever a segment
+    crosses ``rings`` (lines), more than :data:`_RING_BAND_M` from its ends."""
+    out = [pts[0]]
+    for a, b in zip(pts, pts[1:], strict=False):
+        seg = LineString([a, b])
+        if seg.length > 2.0 * _RING_BAND_M and seg.intersects(rings):
+            x = seg.intersection(rings)
+            ts = sorted({seg.project(Point(q)) for g in getattr(x, "geoms", [x])
+                         if g.geom_type == "Point" for q in g.coords})
+            out += [seg.interpolate(t).coords[0] for t in ts
+                    if _RING_BAND_M < t < seg.length - _RING_BAND_M]
+        out.append(b)
+    return out
+
+
+def _ring_dense(cells, rings, law) -> tuple[list, int]:
+    """``cells`` with every cut cell and every non-airside structure cell
+    noded where its edges cross the generated decks' rings (``rings``, their
+    boundary lines) and every :data:`RING_NODE_M` where they run along one
+    (:data:`_RING_BAND_M` either side, ``planar/chords.densify_within``):
+    the mesh carries each deck's floor along its own ring, never a long
+    triangle across it."""
+    import dataclasses as _dcl
+
+    from shapely.prepared import prep
+
+    from ..law.tables import airside_stage_roles
+    from .chords import densify_within
+    air = set(airside_stage_roles(law))
+    zone = rings.buffer(_RING_BAND_M)
+    pz = prep(zone)
+    out, n = [], 0
+    for c in cells:
+        mine = str(c.ref).startswith(CARVE_REF) or (c.kind == "structure"
+                                                     and c.role not in air)
+        if not mine or len(c.ring) < 3 or not pz.intersects(Polygon(c.ring).exterior):
+            out.append(c)
+            continue
+
+        def dense(r):
+            pts = densify_within(_crossed(list(r) + [r[0]], rings), zone, RING_NODE_M)
+            return tuple(pts[:-1])
+        ring, holes = dense(c.ring), tuple(dense(h) for h in c.holes if len(h) >= 3)
+        if len(ring) == len(c.ring) and sum(map(len, holes)) == sum(len(h) for h in c.holes):
+            out.append(c)
+            continue
+        n += 1
+        out.append(_dcl.replace(c, ring=ring, holes=holes))
+    return out, n
+
+
 def deck_carve(classification, decks, airport, law, tunnels=()
                ) -> tuple[_t.Any, tuple, list[str]]:
     """``(classification with every generated deck's cut cells, decks with
@@ -485,9 +613,15 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     lines, tree = _road_lines(airport)
     carves = {d.object_id: _deck_paths(d, gen, airport, law, lines, tree) for d in gen}
     by_id = {d.object_id: d for d in gen}
+    notes: list[str] = []
+    for oid, main in _shared_mains(gen, carves, law).items():
+        got = _deck_paths(by_id[oid], gen, airport, law, lines, tree, main)
+        if any(o == oid for p in got.paths for _a, _b, o in p.stretches):
+            carves[oid] = got
+            notes.append(f"{oid}: one cut with its neighbours -- along their most senior "
+                         f"road {main[0]} (lane lcarve2)")
     past = bank_past_m(law)
     regions: list[tuple[str, str, _t.Any]] = []
-    notes: list[str] = []
     for d in gen:
         dc = carves[d.object_id]
         floors, banks = [], []
@@ -536,10 +670,13 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     if not floors.is_empty:
         cells, n_split = _split_structures(cells, floors.intersection(
             _taken_over(gen, tunnels, past)), law)
-        cells = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
+    cells, n_dense = _ring_dense(cells, unary_union([deck_polygon(d) for d in gen]).boundary,
+                                 law)
+    cells = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     notes.append(f"{len(new)} cut cell(s) minted under {len(gen)} generated deck(s), "
                  f"{n} groundside cell(s) cut, {n_split} structure cell(s) under them split "
-                 f"along the roads' floors (owner 2026-11-19T23:07Z)")
+                 f"along the roads' floors, {n_dense} noded every {RING_NODE_M:g} m along "
+                 f"the rings (owner 2026-11-19T23:07Z)")
     out = tuple(_dc.replace(d, carve=carves.get(d.object_id)) if is_generated(d) else d
                 for d in decks)
     return _dc.replace(classification, cells=tuple(cells)), out, notes

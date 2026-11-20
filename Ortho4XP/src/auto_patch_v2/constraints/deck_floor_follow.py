@@ -286,8 +286,9 @@ def _near_cut_pins(pm, cut, stage1, air, levels, fixed, rep) -> None:
     """Every airside vertex the coordinate join left without a stage-1
     level within :data:`_CUT_REACH_M` of the deck's cut -- a vertex it
     levelled (``constraints/deck_carve``) or of its cells -- takes stage
-    1's surface there (:func:`_tin`), as :func:`_zone_pins` does round each deck: the carve never moves
-    airside (19s (1)), however far along its road it runs."""
+    1's surface there (:func:`_tin`), as :func:`_zone_pins` does round
+    each deck: the carve never moves airside (19s (1)), however far along
+    its road it runs."""
     if not cut:
         return
     import numpy as np

@@ -466,23 +466,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     P = union_with(P, ribbons)
     notes += rib_notes
     roads = []
-    from .structure_underpass import aeroway_decks
-    aero = [LineString(a.points) for a in aeroway_decks(airport, law)]
-    opened: list = []
     for r in _covered_roads(airport, law, classification) + list(covered):
         # the classification cuts a road's own ribbon out of the pavement
         # over it: the road is under the pavement within its half width
         if r.line.distance(P) > r.half_m + 1.0:
-            continue
-        split, open_ = _at_bridges(r, aero, law) if r.covered_m > float(g.max_cover_m) \
-            else ([], None)
-        if split:
-            roads += split
-            opened.append(open_)
-            notes.append(f"covered road {r.id} {r.tags.get('highway') or r.tags.get('railway')} "
-                         f"{r.covered_m:.1f} m under the pavement, crossed by {len(split)} "
-                         f"mapped taxiway bridge(s): one deck per bridge, the cut open between "
-                         f"them (RULINGS 2026-11-19r (2); lane lcross20)")
             continue
         if r.covered_m > float(g.max_cover_m):
             # A1 (3) / Q2: a TUNNEL -- it starts no deck, and never joins one
@@ -514,6 +501,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     # pavement -- its end lines stand where the pavement runs on
     R = _over_holes(R, ribbons, g)
     # #2181 (``deck_gen_pairs`` rule 3): one mapped bridge, one deck
+    from .structure_underpass import aeroway_decks
+    aero = [LineString(a.points) for a in aeroway_decks(airport, law)]
     R = one_bridge(R, aero)
     shared = _shared_depths(roads, law, R)
     if any(abs(d - _depth_m(law, (r,))) > 1e-9 for r in roads if (d := shared.get(r.id))):
@@ -638,9 +627,6 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         approach += [q for q in getattr(beside.difference(piece), "geoms",
                                         [beside.difference(piece)])
                      if q.geom_type == "Polygon" and q.intersection(P).area > 1.0]
-        # the pavement over the road between two mapped taxiway bridges is
-        # open sky (the cut runs on open between their decks)
-        approach += _open_between(piece, opened, P, under, law)
         main = max(under, key=lambda r: r.line.intersection(piece).length)
         x = main.line.intersection(piece)
         road = tuple(x.coords) if x.geom_type == "LineString" else ()
@@ -671,62 +657,6 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                                for f in fakes))
     out, pair_notes = one_cut(out, mapped, law, lambda tags: _reach_of(tags, law))
     return tuple(out), notes + pair_notes
-
-
-def _at_bridges(r: _Road, aero, law) -> "tuple[list[_Road], _t.Any]":
-    """A road covered longer than ``max_cover_m`` (a tunnel by its length)
-    that MAPPED TAXIWAY BRIDGES cross (``structure_underpass.aeroway_decks``:
-    OSM states one bridge per taxiway over it, the stretch between them
-    open): ``([one covered piece per bridge], the stretch between them)``,
-    each piece the road under the bridge's taxiway (``width_by_class_m``'s
-    widest half either side of the bridge line), never a parent (its own
-    cover: ``_whole_cover`` grows none).  ``([], None)`` with fewer than one
-    bridge over it.  MEASURED KIAH 1.0.567 (29.98351, -95.34216, owner
-    2026-11-20T15:30Z: "There should be two parallel taxiway bridges and the
-    road bridge for each of the roads"): JFK Blvd's two carriageways ran
-    227 / 235 m under the pack's one paved area, read as tunnels -- one deck
-    each where four taxiway bridges are mapped."""
-    half = 0.5 * max(float(v) for v in
-                     dict(law.tables.structures.deck_gen.width_by_class_m).values())
-    hits = [b for b in aero if b.crosses(r.line) or b.intersects(r.line)]
-    if not hits:
-        return [], None
-    out = []
-    for b in hits:
-        x = r.line.intersection(b.buffer(half, cap_style="flat"))
-        for q in getattr(x, "geoms", [x]):
-            if q.geom_type == "LineString" and q.length > 1.0:
-                out.append(r._replace(line=q, covered_m=q.length, parent=None))
-    if not out:
-        return [], None
-    # every other stretch of the covered road is the open cut
-    rest = r.line.difference(unary_union([q.line.buffer(0.05, cap_style="flat") for q in out]))
-    gaps = [g for g in getattr(rest, "geoms", [rest])
-            if g.geom_type == "LineString" and g.length > 1.0]
-    return out, (r, gaps)
-
-
-def _open_between(piece: Polygon, opened, P, under, law) -> list[Polygon]:
-    """The pavement ``P`` over each stretch of a split road off its bridges
-    (:func:`_at_bridges`) that touches ``piece``: the cut's reach across
-    the road there, left open with the deck's ring."""
-    out = []
-    ids = {r.id for r in under}
-    for item in opened:
-        if item is None:
-            continue
-        r, gaps = item
-        if r.id not in ids:
-            continue
-        for gp in gaps:
-            band = gp.buffer(r.half_m + float(law.tables.structures.deck_gen.shoulder_m)
-                             + _depth_m(law, (r,)) / deck_bank_slope(law), cap_style="flat")
-            if band.distance(piece) > 1.0:
-                continue
-            x = band.intersection(P).difference(piece)
-            out += [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Polygon"
-                    and q.area > 1.0]
-    return out
 
 
 def _airside_near(classification, law, near):

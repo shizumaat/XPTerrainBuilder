@@ -174,6 +174,35 @@ def _tris(poly: Polygon, step: float = TOP_STEP_M) -> list[Polygon]:
             if t.area > 1e-6]
 
 
+def surface_of(poly: Polygon, top_y: _t.Callable[[float, float], float]
+               ) -> _t.Callable[[float, float], float]:
+    """``top_y`` as the slab DRAWS it: linear over the very triangles
+    :func:`_tris` lays on ``poly`` (each corner at ``top_y``), ``top_y``
+    itself off them -- so a marking stationed on it lies on the drawn top,
+    never on the smooth surface between its vertices (MEASURED KIAH 1.0.567
+    on a 2 m grid: the lines up to 17 mm under the drawn slab, read off the
+    patch itself)."""
+    from shapely.strtree import STRtree
+    tris = _tris(poly)
+    if not tris:
+        return top_y
+    corners = [[(x, z, top_y(x, z)) for x, z in list(t.exterior.coords)[:3]] for t in tris]
+    tree = STRtree(tris)
+
+    def at(x: float, z: float) -> float:
+        for i in tree.query(shapely.Point(x, z).buffer(1e-6)):
+            (xa, za, ya), (xb, zb, yb), (xc, zc, yc) = corners[int(i)]
+            det = (xb - xa) * (zc - za) - (xc - xa) * (zb - za)
+            if abs(det) < 1e-12:
+                continue
+            b = ((x - xa) * (zc - za) - (xc - xa) * (z - za)) / det
+            c = ((xb - xa) * (z - za) - (x - xa) * (zb - za)) / det
+            if b >= -1e-9 and c >= -1e-9 and b + c <= 1.0 + 1e-9:
+                return ya + b * (yb - ya) + c * (yc - ya)
+        return top_y(x, z)
+    return at
+
+
 def _dense(points: _t.Sequence[XY], step: float = TOP_STEP_M / 2.0) -> list[XY]:
     """``points`` with a vertex at least every ``step`` metres."""
     out = [tuple(points[0])]

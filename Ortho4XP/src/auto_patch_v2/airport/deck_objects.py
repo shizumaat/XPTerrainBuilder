@@ -402,7 +402,9 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     pack author's art on it (:class:`Authored`)."""
     frame = _deck_frame(rec, dropped)
     R = transform(lambda x, y, _z=None: frame.to_local(x, y), ring_polygon(rec["ring"]))
-    top_y = _top_fn(rec, frame)
+    from .deck_obj8 import surface_of
+    # the slab and every marking on it read ONE drawn top (lane lcross20)
+    top_y = surface_of(R, _top_fn(rec, frame))
     rel = str(rec["resource"])
     thick, lod = float(rec.get("thickness_m", 1.0)), (0.0, float(g.lod_m))
     comments = [f"{rec['object_id']} spec 2123 A2: zero {float(rec['zero_m']):.3f} m heading "

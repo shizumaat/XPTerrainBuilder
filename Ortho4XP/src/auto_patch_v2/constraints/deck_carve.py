@@ -254,15 +254,18 @@ def _tunnel_regions(pm, gen: _t.AbstractSet[str]):
 
 def _landing(rings, xy, bank: float, landing: float) -> float:
     """The highest level the END LANDINGS (module doc) ask of ``xy``: per
-    deck, past an end line within the deck's width, the end's level less
-    ``bank`` per metre past ``landing``; ``-inf`` off every landing."""
+    deck, past an end line, the end's level less ``bank`` per metre past
+    ``landing`` and per metre beside the deck's width (its corners fall
+    away as a cone); ``-inf`` between its end lines (the cut)."""
     best = -math.inf
     for _r, top, _fl in rings:
         sp, tp = top.st(*xy)
-        if not (0.0 <= tp <= 1.0) or 0.0 <= sp <= 1.0:
+        if 0.0 <= sp <= 1.0:
             continue
         past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
-        best = max(best, top.z_st(0.0 if sp < 0.0 else 1.0, tp) - bank * max(0.0, past - landing))
+        side = max(-tp, tp - 1.0, 0.0) * _hyp(top.w)
+        z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))
+        best = max(best, z - bank * (max(0.0, past - landing) + side))
     return best
 
 

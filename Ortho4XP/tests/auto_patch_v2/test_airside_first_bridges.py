@@ -229,5 +229,6 @@ def test_the_ground_past_each_deck_end_lands_at_its_level():
     assert _landing(rings, (20.0, -2.0), 0.5, 3.0) == pytest.approx(100.0)
     assert _landing(rings, (20.0, -5.0), 0.5, 3.0) == pytest.approx(99.0)
     assert _landing(rings, (20.0, 52.0), 0.5, 3.0) == pytest.approx(101.0)
-    assert _landing(rings, (-5.0, -2.0), 0.5, 3.0) == -math.inf     # beside: the cut
+    assert _landing(rings, (-4.0, -2.0), 0.5, 3.0) == pytest.approx(98.0)    # its corner
+    assert _landing(rings, (-5.0, 20.0), 0.5, 3.0) == -math.inf     # beside: the cut
     assert _landing(rings, (20.0, 25.0), 0.5, 3.0) == -math.inf     # under the deck

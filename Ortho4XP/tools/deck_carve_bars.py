@@ -415,7 +415,8 @@ def road_deck_bars(pm, z, law, airport, tops=None) -> list[dict]:
         ends = []
         for a_, b_ in ((axis[0], axis[1]), (axis[-1], axis[-2])):
             n = math.dist(a_, b_) or 1.0
-            px, py = a_[0] + (a_[0] - b_[0]) / n * END_PAST_M, a_[1] + (a_[1] - b_[1]) / n * END_PAST_M
+            px = a_[0] + (a_[0] - b_[0]) / n * END_PAST_M
+            py = a_[1] + (a_[1] - b_[1]) / n * END_PAST_M
             q = float(f([px], [py])[0])
             ends.append(None if q != q else round(q - top(*a_), 3))
         match = None

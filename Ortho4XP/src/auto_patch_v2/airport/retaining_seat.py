@@ -9,9 +9,10 @@ higher pavement and a lower road seats at the lowest level beside it (the
 road), its upper side partly buried; it never pulls either pavement.  So
 the plate of a wall standing on its ground (no ``sunk_frame`` reading:
 a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) is its
-FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the stations a grid step outside its LOW face, the
-ones within the ground bar (``[placement] split_bar_m``) of the lowest
-ground along it; the wall's upper part stands into the higher side's ground.
+FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the
+stations a grid step outside its LOW face, the ones within the ground bar
+(``[placement] split_bar_m``) of the lowest ground along it; the wall's
+upper part stands into the higher side's ground.
 MEASURED KLAX ``Fence_Terminal_1.obj`` (y -4.20 .. +3.80): the 16d plate
 put its footing at 30.87 on the road at 32.6 (test-568 replay), 1.0.562's
 connected group at 34.54; 20m puts it on the road.

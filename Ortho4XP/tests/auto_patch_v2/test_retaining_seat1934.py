@@ -2,8 +2,9 @@
 reads it: a retaining wall standing on its ground is plate-seated by its
 FOOTING on the lowest ground beside its LOW face -- one plate entry,
 stations a grid step outside its low face at its lowest level -- and the
-object stage reads that plate as its datum.  A wall retaining nothing, one too low to be two levels, one
-another rule seats and one whose face reaches no stated height get none."""
+object stage reads that plate as its datum.  A wall retaining nothing, one
+too low to be two levels, one another rule seats and one whose face reaches
+no stated height get none."""
 from __future__ import annotations
 
 import types
@@ -26,7 +27,7 @@ class _Dem:
 
     def z_many(self, xs, ys):
         import numpy as np
-        return np.array([self.z(x, y) for x, y in zip(xs, ys)], dtype=float)
+        return np.array([self.z(x, y) for x, y in zip(xs, ys, strict=True)], dtype=float)
 
 
 def _airport():

@@ -345,3 +345,18 @@ def test_route_decks_read_the_pavement_at_both_ends():
     assert len(got) == 1
     r, note = got[0]
     assert round(r.bounds[2] - r.bounds[0], 1) == 60.0 and "narrower" in note
+
+
+def test_a_rider_widens_the_deck_on_its_own_side_only():
+    """Owner 2026-11-20T15:17Z (item 9): a service road riding a taxiway
+    deck widens it on the road's side; the other side keeps the standard
+    shoulder -- the taxiway stands off-centre on the deck."""
+    from auto_patch_v2.law.tables import load_default
+    from auto_patch_v2.planar.deck_gen_pairs import riders
+    piece = Polygon([(-38, -20), (38, -20), (38, 20), (-38, 20)])   # 76 m: E twice
+    rider = {"id": "-1", "over": ["r"], "axis_xy": [(44.0, -30.0), (44.0, 30.0)],
+             "half_m": 3.5}
+    grown, ids, _n = riders(piece, piece, {"r"}, [rider], load_default())
+    assert ids == ("-1",)
+    x0, _y0, x1, _y1 = grown.bounds
+    assert x0 == pytest.approx(-38.0) and x1 == pytest.approx(44.0 + 3.5 + 1.5)

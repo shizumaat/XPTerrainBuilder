@@ -124,13 +124,15 @@ def _reach(b: float, sign: float, a0: float, a1: float, u: XY, w: XY, pave_at, r
 
 
 def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
-                cover=None, avoid=None) -> list[tuple[XY, list]]:
+                cover=None, avoid=None, taxi_at=None) -> list[tuple[XY, list]]:
     """``(road direction, deck spec)`` per taxi route across ``piece``
     (module doc; the spec ``[w, det, a0, a1, b0, b1, note, a_c, hc]``: the
     ring ``a u + b w``, its centreline ``a_c`` and its taxiway's half
     width ``hc``); ``[]`` where no route crosses it at an angle to the road
     (the caller keeps the piece).  ``pave_at(xy)``: whether the airport's pavement
-    stands there -- each end then reaches it (:func:`_reach`).  ``cover``:
+    stands there -- each end then reaches it (:func:`_reach`); ``taxi_at(xy)``:
+    whether its TAXIWAY or runway pavement does (the width it meets at each
+    end, :func:`_end_runs`: never an apron's).  ``cover``:
     the cover each covered road needs past the piece, ``avoid`` where the
     pack stands (:func:`_spans_cover`)."""
     if road_dir is None or piece.is_empty:
@@ -161,8 +163,9 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
         lo_a, hi_a, why = a_c - ha, a_c + ha, (f"{width:g} m wide (taxiway + a half-width "
                                                "shoulder each side, RULINGS 2026-11-19s (8) (a))")
-        if pave_at is not None:
-            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law, width)
+        if (taxi_at or pave_at) is not None:
+            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at or pave_at, law,
+                             width)
             lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
         d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
@@ -223,7 +226,10 @@ def _pavement_width(runs, a_c: float, hc: float, ha: float, det: float, width: f
     narrower one, we don't want to expand to match a whole apron"): of the
     two end runs the NARROWER, never under ``width`` (19s (8) (a), the
     taxiway twice) about the centreline; an end with no pavement run or a
-    broad one (an apron) never widens it."""
+    broad one never widens it.  The runs are the TAXIWAY pavement's
+    (``route_specs`` ``taxi_at``): MEASURED KPHX taxiway S, the airport's
+    pavement past its end ran on into the apron, 207 m, and the 207 m deck
+    moved the airside 3.5 m."""
     m = abs(det)
     widths = [None if r is None else (math.inf if math.isinf(r[0]) else (r[1] - r[0]) * m)
               for r in runs]

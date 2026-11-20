@@ -222,6 +222,18 @@ def main(argv=None) -> int:
         from deck_carve_bars import pier_bars
         res["piers"] = pier_bars(pm, z, Law.for_airport(pm.icao), d.get("airport"),
                                  d.get("generated_tops"))
+        from deck_carve_bars import road_deck_bars
+        res["road_decks"] = road_deck_bars(pm, z, Law.for_airport(pm.icao), d.get("airport"),
+                                           d.get("generated_tops"))
+        for q in res["road_decks"]:
+            sh = q["clearance_short"]
+            bad = (sh is not None and sh[0] < -0.05) or any(
+                e is not None and abs(e) > 0.05 for e in q["end_gaps"]) or (
+                q["top_vs_taxiway_m"] is not None and abs(q["top_vs_taxiway_m"]) > 0.05)
+            rc |= bad
+            print(f"ROAD-DECK {'FAIL' if bad else 'PASS'} {q['deck']} (bridge "
+                  f"{q['road_bridge']}, over {q['spans_cut']}'s cut): clearance short {sh}, "
+                  f"ends {q['end_gaps']}, top vs the taxiway deck {q['top_vs_taxiway_m']}")
         for q in res["piers"]:
             bad = bool(q["floating"] or q["on_road"])
             rc |= bad

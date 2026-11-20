@@ -45,7 +45,7 @@ import math
 __all__ = ["STEP_M", "MEET_M", "END_PAST_M", "END_GAP_M", "EDGE_STEP_M", "GRADE_WINDOW_M",
            "BANK_WINDOW_M", "EDGE_M",
            "NEAR_M",
-           "carve_bars", "end_gaps", "pier_bars"]
+           "carve_bars", "end_gaps", "pier_bars", "road_deck_bars"]
 
 #: a path is read this often (m)
 STEP_M = 1.0
@@ -69,6 +69,9 @@ NEAR_M = 60.0
 END_PAST_M = 0.3
 #: a deck end stands within this of the ground it lands on (m)
 END_GAP_M = 0.05
+#: a way inside a road deck within this of its axis (cosine, 30 deg) is the
+#: deck's own road run on to the cut's ends, never a road under it
+_ALONG_COS = 0.866
 
 
 def end_gaps(pm, z, top) -> "list[dict] | None":
@@ -347,4 +350,86 @@ def pier_bars(pm, z, law, airport, tops=None) -> list[dict]:
                 on_road.append([round(lon, 7), round(lat, 7), hit[0]])
         out.append({"deck": rec["object_id"], "columns": len(cols), "floating": floating,
                     "on_road": on_road})
+    return out
+
+
+def road_deck_bars(pm, z, law, airport, tops=None) -> list[dict]:
+    """THE ROAD DECKS OVER A CUT (owner 2026-11-20T15:20Z; lane lcross20):
+    per generated ROAD deck the object stage draws (``pipeline/road_deck``,
+    its published record): the least CLEARANCE over every mapped road or
+    railway under it (its top -- the published surface, else the plane
+    between its ends -- less ``[deck_gen] thickness_m`` over the solved
+    surface, every metre more than :data:`EDGE_M` inside the ring) against
+    the way's class minimum (``model/road_clearance.design_clearance_m``);
+    each END's step to the ground :data:`END_PAST_M` past it on its axis;
+    and, spanning a taxiway deck's cut, its top against that deck's at the
+    same stations (clamped onto it)."""
+    from auto_patch_v2.airport.deck_objects import _deck_frame as _obj_frame
+    from auto_patch_v2.airport.deck_objects import _top_fn
+    from auto_patch_v2.model.road_clearance import design_clearance_m
+    from auto_patch_v2.pipeline.generated_publication import generated_records
+    from deck_bank_perimeter import _interp
+    from shapely.geometry import LineString, Point, Polygon
+    slab = float(law.tables.structures.deck_gen.thickness_m)
+    lift = float(law.tables.structures.deck_gen.top_lift_m)
+    to_xy = airport.frame.transformers()[0]
+    recs = [r for r in generated_records(pm, law, airport, z, (), tops).get("decks") or []
+            if r.get("family") == "road"]
+    out = []
+    for rec in recs:
+        frame = _obj_frame(rec, ())
+        top_y = _top_fn(rec, frame)
+        zero = float(rec["zero_m"])
+
+        def top(x, y, frame=frame, top_y=top_y, zero=zero):
+            la_lo = airport.frame.transformers()[1](x, y)
+            lx, lz = frame.to_local(la_lo[1], la_lo[0])
+            return top_y(lx, lz) + zero - lift
+        ring = Polygon([to_xy(lo, la) for lo, la in rec["ring"]]).buffer(0.0)
+        f = _interp(pm, z, ring.buffer(NEAR_M))
+        axis = [to_xy(lo, la) for lo, la in rec["route"]]
+        ul = math.dist(axis[0], axis[-1]) or 1.0
+        ux, uy = (axis[-1][0] - axis[0][0]) / ul, (axis[-1][1] - axis[0][1]) / ul
+        short = None
+        for w in getattr(airport, "osm_ways", ()) or ():
+            tags = dict(w.tags or {})
+            if len(w.points) < 2 or tags.get("aeroway") or tags.get("bridge") not in (None, "no") \
+                    or not (tags.get("highway") or tags.get("railway")):
+                continue
+            x = LineString(w.points).intersection(ring)
+            need = design_clearance_m(tags, law)
+            for g in getattr(x, "geoms", [x]):
+                if g.is_empty or g.geom_type != "LineString":
+                    continue
+                (gx0, gy0), (gx1, gy1) = g.coords[0], g.coords[-1]
+                gl = math.hypot(gx1 - gx0, gy1 - gy0)
+                if gl > 1e-6 and abs((gx1 - gx0) * ux + (gy1 - gy0) * uy) / gl > _ALONG_COS:
+                    continue            # the deck's own road, run on to the cut's ends
+                for k in range(int(g.length / STEP_M) + 1):
+                    p = g.interpolate(k * STEP_M)
+                    if ring.exterior.distance(p) < EDGE_M:
+                        continue
+                    q = float(f([p.x], [p.y])[0])
+                    if q == q and (short is None or top(p.x, p.y) - slab - q - need < short[0]):
+                        short = (round(top(p.x, p.y) - slab - q - need, 3), str(w.id), need)
+        ends = []
+        for a_, b_ in ((axis[0], axis[1]), (axis[-1], axis[-2])):
+            n = math.dist(a_, b_) or 1.0
+            px, py = a_[0] + (a_[0] - b_[0]) / n * END_PAST_M, a_[1] + (a_[1] - b_[1]) / n * END_PAST_M
+            q = float(f([px], [py])[0])
+            ends.append(None if q != q else round(q - top(*a_), 3))
+        match = None
+        tp = (tops or {}).get(rec.get("spans_cut"))
+        if tp is not None:
+            patch = _top(pm, z, None, law, tp)
+            ln = LineString(axis)
+            for k in range(int(ln.length / STEP_M) + 1):
+                p = ln.interpolate(k * STEP_M)
+                sp, tq = patch.st(p.x, p.y)
+                dz = top(p.x, p.y) - patch.z_st(min(1.0, max(0.0, sp)), min(1.0, max(0.0, tq)))
+                match = dz if match is None or abs(dz) > abs(match) else match
+        out.append({"deck": rec["object_id"], "road_bridge": rec.get("road_bridge"),
+                    "spans_cut": rec.get("spans_cut"), "clearance_short": short,
+                    "end_gaps": ends, "top_vs_taxiway_m": None if match is None
+                    else round(match, 3)})
     return out

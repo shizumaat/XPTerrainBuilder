@@ -537,7 +537,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                         + [p.plan for p in packs if p.plan is not None and p.plan.is_valid])
     for piece, beside, core in _route_pieces(R, roads, airport, law, notes,
                                              lambda xy: pave(roles.at_xy(xy)), avoid,
-                                             _airside_near(classification, law, near)):
+                                             _airside_near(classification, law, near),
+                                             lambda xy: roles.at_xy(xy) in fam):
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
         if not under:
             continue
@@ -680,7 +681,7 @@ _COVER_ON_M = 30.0
 
 
 def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=None,
-                  airside=None) -> list[tuple[Polygon, _t.Any]]:
+                  airside=None, taxi_at=None) -> list[tuple[Polygon, _t.Any]]:
     """Each piece of ``R`` (the pavement over the cut) as ONE DECK PER
     TAXI ROUTE across it, at the route's class width (owner RULINGS
     2026-11-19s (3) (b), (4) (c); ``planar/deck_width``) -- never the
@@ -709,7 +710,7 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
             if under and airside is not None else None
         held.append((piece, route_specs(piece, _mean_dir([r.line.intersection(piece)
                                                           for r in under]),
-                                        airport, law, pave_at, cover, avoid)))
+                                        airport, law, pave_at, cover, avoid, taxi_at)))
     # every two decks, of one piece or two, stand apart (``deck_width.parted``)
     parted([sp for _p, specs in held for sp in specs], law, avoid)
     for piece, specs in held:

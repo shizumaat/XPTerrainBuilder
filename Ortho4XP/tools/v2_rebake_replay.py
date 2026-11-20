@@ -541,16 +541,28 @@ def cmd_plan(args: argparse.Namespace) -> int:
         construct = time.perf_counter() - started
         print("  graded interpolator: %d vertices, construct %.2fs"
               % (len(verts), construct))
+        # #2194 (lane lellx3): ``--mesh-also airport`` with the graded
+        # sampler reads the airport ground OFF the graded faces -- the
+        # app's tile mesh there is the DEM, and a body anchored beside the
+        # patch (a basin rim in a road cut) read ``None`` instead
+        also = (_airport_ground_sampler(plan_.icao, args.tile, plan_.bounds())
+                if getattr(args, "mesh_also", "") == AIRPORT_GROUND else None)
+
+        def _off(la, lo):
+            if also is None:
+                return None
+            z = float(also.sample_at(la, lo).elevation_metres)
+            return (z, False) if np.isfinite(z) else None
 
         def sample(la, lo):
             z = float(faces.mask([la], [lo], interp(la, lo))[0])
-            return None if not np.isfinite(z) else (z, False)
+            return _off(la, lo) if not np.isfinite(z) else (z, False)
 
         def sample_many(las, los):
             zs = faces.mask(las, los, interp(np.asarray(las, dtype=float),
                                              np.asarray(los, dtype=float)))
-            return [None if not np.isfinite(z) else (float(z), False)
-                    for z in zs]
+            return [_off(la, lo) if not np.isfinite(z) else (float(z), False)
+                    for la, lo, z in zip(las, los, zs, strict=True)]
         sample.many = sample_many
         return sample, construct, None
 
@@ -1045,7 +1057,9 @@ def _main(argv: list[str] | None = None) -> int:
                     help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
                          ".dsf), read where the plan's bodies stand off the first "
                          "(#1884 guest rows); 'airport' = the airport's own DEM "
-                         "there, what the app reads (#2110)")
+                         "there, what the app reads (#2110); with --sampler "
+                         "graded, 'airport' also answers OFF the graded faces "
+                         "(the tile mesh beside the patch is the DEM, #2194)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")

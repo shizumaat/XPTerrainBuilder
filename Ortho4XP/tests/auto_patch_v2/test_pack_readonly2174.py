@@ -157,3 +157,30 @@ def test_make_writable_only_inside_custom_scenery(tmp_path):
             assert stat.S_IMODE(os.stat(root).st_mode) == 0o555
         finally:
             os.chmod(root, 0o755)
+
+
+def test_a_folder_with_nothing_to_edit_is_never_asked_about(pack):
+    """#2198: a read-only ``plugins`` folder (nothing a build edits) is
+    not named, asks nothing and is left read-only by Make writable; a
+    read-only folder holding an OBJ (a body is written beside it) is."""
+    root, events = pack
+    os.chmod(root, 0o755)
+    for d, _dirs, _files in os.walk(root):
+        os.chmod(d, 0o755)
+    plugins = os.path.join(root, "plugins", "lua")
+    objects = os.path.join(root, "objects")
+    os.makedirs(plugins)
+    os.makedirs(objects)
+    with open(os.path.join(plugins, "init.lua"), "w") as fh:
+        fh.write("-- read only\n")
+    with open(os.path.join(objects, "Hangar.obj"), "w") as fh:
+        fh.write("A\n800\nOBJ\n")
+    for d in (plugins, os.path.dirname(plugins)):
+        os.chmod(d, 0o555)
+    assert PA.readonly_folders(root) == []
+    assert RO.gate(root, 41, -87) is True and events == []
+    os.chmod(objects, 0o555)
+    assert PA.readonly_folders(root) == [objects]
+    PA.make_writable(root)
+    assert PA.readonly_folders(root) == []
+    assert stat.S_IMODE(os.stat(plugins).st_mode) == 0o555

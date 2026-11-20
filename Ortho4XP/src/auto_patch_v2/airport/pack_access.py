@@ -8,15 +8,18 @@ those folders, so every one of them fails — and before #2174 the pack
 lock reported that as "another write held its lock for 900 s".
 
 * :func:`readonly_folders` — the pack's folders a write cannot create a
-  file in.  Portable: ``os.access`` on every folder, then a probe file in
-  the folders a write always uses (the pack root, its ``Earth nav data``
-  and DSF folders), because on Windows ``os.access`` ignores a folder's
-  access-control list.
+  file in, of those a build writes (:func:`_edit_folders`: the pack root,
+  its ``Earth nav data`` and DSF folders, and every folder holding a
+  scenery file a build rewrites or writes a sibling of, :data:`EDIT_KINDS`;
+  #2198: a ``plugins`` folder, or any other with nothing to edit, is never
+  asked about).  Portable: ``os.access`` on each, then a probe file in the
+  folders a write always uses, because on Windows ``os.access`` ignores a
+  folder's access-control list.
 * :func:`make_writable` — the user's "Make writable": adds the OWNER'S
-  write permission (``u+w``) to the pack's folders and files, nothing
-  else, and only for a pack directly inside a ``Custom Scenery`` folder
-  that is not X-Plane's own.  POSIX only (Windows keeps its ACLs: the
-  refusal says where to change them).
+  write permission (``u+w``) to those folders and the files in them,
+  nothing else, and only for a pack directly inside a ``Custom Scenery``
+  folder that is not X-Plane's own.  POSIX only (Windows keeps its ACLs:
+  the refusal says where to change them).
 * :class:`PackReadOnlyError` — a pack write refused because the pack is
   read-only (a ``PermissionError``, so every writer's handling of a
   refused write applies).
@@ -29,12 +32,17 @@ import tempfile
 import typing as _t
 
 __all__ = ["PackReadOnlyError", "readonly_folders", "make_writable",
-           "relative_folders"]
+           "relative_folders", "EDIT_KINDS"]
 
 #: the folder X-Plane's scenery packs live in; nothing else is changed
 CUSTOM_SCENERY = "Custom Scenery"
 #: X-Plane's own airports pack (X-Plane 12 and 11 names): never changed
 _DEFAULT_PACKS = ("*GLOBAL_AIRPORTS*", "Global Airports")
+#: the scenery files a build rewrites or writes a sibling of (a tile DSF,
+#: an OBJ8 body, a seated facade or AGP, a drape); a folder holding none
+#: of them is never written (#2198)
+EDIT_KINDS = (".dsf", ".obj", ".agp", ".fac", ".pol", ".lin", ".str",
+              ".for")
 
 
 class PackReadOnlyError(PermissionError):
@@ -89,13 +97,25 @@ def _write_folders(pack_root: str) -> list[str]:
     return out
 
 
+def _edit_folders(pack_root: str) -> list[str]:
+    """The pack's folders a build may write, in walk order: the write
+    folders (:func:`_write_folders`) and every folder holding a file of
+    :data:`EDIT_KINDS` (#2198: never one with nothing to edit, such as a
+    ``plugins`` folder)."""
+    always = set(_write_folders(pack_root))
+    return [d for d, _dirs, files in os.walk(pack_root)
+            if d in always
+            or any(f.lower().endswith(EDIT_KINDS) for f in files)]
+
+
 def readonly_folders(pack_root: str) -> list[str]:
-    """The pack's folders a write cannot create a file in, in walk order
-    (``[]``: writable, or no such folder).  Never raises."""
+    """The folders of :func:`_edit_folders` a write cannot create a file
+    in, in walk order (``[]``: writable, or no such folder).  Never
+    raises."""
     if not pack_root or not os.path.isdir(pack_root):
         return []
     try:
-        bad = [d for d, _dirs, _files in os.walk(pack_root)
+        bad = [d for d in _edit_folders(pack_root)
                if not os.access(d, os.W_OK)]
         seen = set(bad)
         bad += [d for d in _write_folders(pack_root)
@@ -122,10 +142,12 @@ def _refusal(pack_root: str) -> str:
 
 
 def make_writable(pack_root: str) -> list[str]:
-    """Add the owner's write permission (``u+w``) to every folder and
-    file of ``pack_root`` that lacks it; a symbolic link is never followed
-    or changed.  Returns the paths changed.  Raises ``PermissionError``
-    with the user's sentence when the pack may not be changed."""
+    """Add the owner's write permission (``u+w``) to every folder of
+    :func:`_edit_folders` and the files in it that lack it (#2198: a folder
+    with nothing to edit is left as it is); a symbolic link is never
+    followed or changed.  Returns the paths changed.  Raises
+    ``PermissionError`` with the user's sentence when the pack may not be
+    changed."""
     why = _refusal(pack_root)
     if why:
         raise PermissionError(why)
@@ -138,8 +160,9 @@ def make_writable(pack_root: str) -> list[str]:
         os.chmod(path, stat.S_IMODE(st.st_mode) | stat.S_IWUSR)
         changed.append(path)
 
-    add(pack_root)
-    for folder, dirs, files in os.walk(pack_root):
-        for name in dirs + files:            # a folder before os.walk enters it
-            add(os.path.join(folder, name))
+    for folder in _edit_folders(pack_root):
+        add(folder)
+        for e in os.scandir(folder):
+            if e.is_file(follow_symlinks=False):
+                add(e.path)
     return changed

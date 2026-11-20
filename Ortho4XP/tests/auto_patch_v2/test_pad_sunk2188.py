@@ -135,3 +135,53 @@ def test_the_held_level_row_holds_the_pad_mean(law):
     up, down = rows
     assert up.hi == 360.0 and down.hi == -360.0 and set(up.follows) == {1, 2, 3, 4}
     assert all(c == 0.25 for _v, c in up.terms)
+
+
+# #2195: a pad below the pads of its own unit (no airside near it)
+
+class _UnitDem:
+    """The upper pad's ground at ``hi`` for y >= 300, the pit ``lo`` below."""
+
+    def __init__(self, hi: float, lo: float):
+        self.hi, self.lo = hi, lo
+
+    def z(self, x: float, y: float) -> float:
+        return self.hi if y >= 300.0 else self.lo
+
+
+def _unit_hold(dem, law, pit_tops):
+    """An apron far away (the airside witness never reads), an upper pad
+    b47 (y 300..360) and a pit pad b49 (y 240..300) touching it, both
+    under pieces of ONE unit ``u``."""
+    upper = Cell(1, "building", "b47", _rect(500.0, 300.0, 600.0, 360.0), (), None, None,
+                 "airside", "building", {})
+    pit = Cell(2, "building", "b49", _rect(500.0, 240.0, 600.0, 300.0), (), None, None,
+               "airside", "building", {})
+    top = _cluster(510.0, 310.0, 590.0, 350.0, (0.03,), (400.0,))
+    low = _cluster(510.0, 245.0, 590.0, 295.0, pit_tops, (400.0,) * len(pit_tops))
+    for c, k in ((top, "u#0"), (low, "u#1")):
+        c.unit, c.id = "u", k
+    cells, n = hold_sunk_cells(_apron() + [upper, pit], _airport(dem, [top, low]), law)
+    return {c.ref: (Polygon(c.ring, c.holes), c.evidence) for c in cells
+            if c.role == "building"}, n
+
+
+def test_a_pit_pad_below_its_unit_is_held_at_its_own_ground(law):
+    out, n = _unit_hold(_UnitDem(376.0, 360.0), law, (-16.0,))
+    assert n == 1
+    q, ev = out["b49"]
+    gap = float(law.tables.emit.design.pad_frontage_m)
+    assert q.bounds[3] < 300.0 - gap                      # yielded to b47
+    assert ev[SUNK_KEY]["dem_m"] == 360.0 and ev[SUNK_KEY]["unit_m"] == 376.0
+    assert out["b47"][1] == {}                            # the upper pad is not moved
+
+
+def test_a_unit_on_a_hillside_with_one_authored_floor_stays_one_plane(law):
+    # the ground steps, the author drew one floor: never held (both witnesses)
+    _out, n = _unit_hold(_UnitDem(376.0, 360.0), law, (0.03,))
+    assert n == 0
+
+
+def test_a_unit_authored_low_on_level_ground_stays_one_plane(law):
+    _out, n = _unit_hold(_UnitDem(376.0, 375.0), law, (-16.0,))
+    assert n == 0

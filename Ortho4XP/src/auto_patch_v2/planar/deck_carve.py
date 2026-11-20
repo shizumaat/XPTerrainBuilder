@@ -259,7 +259,8 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
         if len(coords) < 2:
             continue
         cap, rate = _carve_law(law, kind)
-        path = _extended(LineString(coords), _reach_m(db, law, cap, rate), lines, tree)
+        path = _past_every_deck(LineString(coords), _reach_m(db, law, cap, rate), lines, tree,
+                                decks, past)
         paths.append(_path(str(way), kind, carriageway_width_m(tags, law) / 2.0 + sh,
                            design_clearance_m(tags, law), cap, rate, path, decks, past,
                            airport))
@@ -273,7 +274,7 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
         ax = _axis(db)
         if ax is not None:
             cap, rate = _carve_law(law, "axis")
-            path = _extended(ax, _reach_m(db, law, cap, rate), [], None)
+            path = _past_every_deck(ax, _reach_m(db, law, cap, rate), [], None, decks, past)
             tn = law.tables.structures.tunnel
             paths.append(_path("", "axis", carriageway_width_m({}, law) / 2.0 + sh,
                                float(tn.clearance_m), cap, rate, path, decks, past, airport))
@@ -286,6 +287,20 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
             evidence.append("lidar trench")
             break
     return DeckCarve(tuple(evidence), "; ".join(dirs), tuple(paths))
+
+
+def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: float
+                     ) -> LineString:
+    """``line`` chained on ``reach`` past each end -- and on past the last
+    generated deck it then runs under, so the ramp out of the outermost
+    deck of one cut has its whole reach too."""
+    path = _extended(line, reach, lines, tree)
+    st = _stretches(PathFrame(list(path.coords)), path, decks, past)
+    if not st:
+        return path
+    lo, hi = min(a for a, _b, _o in st), max(b for _a, b, _o in st)
+    more = max(0.0, reach - lo, reach - (path.length - hi))
+    return _extended(line, reach + more, lines, tree) if more > 1.0 else path
 
 
 def _path(way: str, kind: str, half: float, clearance: float, cap: float, rate: float,

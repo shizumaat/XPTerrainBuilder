@@ -3186,7 +3186,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.user_roles
     classify.car_lot
     classify.gap_band
-    classify.gap_mint classify.gap_stands classify.lot_roads classify.neck classify.neck_road classify.open_default
+    classify.gap_mint classify.gap_stands classify.lot_roads classify.neck
+    classify.neck_road classify.open_default
     classify.pad_cut_corridor classify.pad_sunk classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles

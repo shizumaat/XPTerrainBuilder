@@ -108,3 +108,10 @@ def test_the_retaining_plate_leads_its_unit_and_group():
     assert OF.walled_lead(rec, m) is None
     other = types.SimpleNamespace(plate_y=0.0, plate_kind="edge", plate_stations=m.plate_stations)
     assert OF.walled_lead(rec, other, surface) is None
+
+
+def test_the_footing_stands_at_the_lowest_level_within_the_ground_bar():
+    """20m "at the lowest road level": with the 0.5 m ground bar only the
+    stations on the road's 32.0 part remain (its 32.6 end is another level)"""
+    (w,) = R.retaining_seats(_airport(), CFG, 0.5, 5.0, comps=[_comp()], level_m=0.5)
+    assert w.stations and all(x < 30.0 for x, _y in w.stations)

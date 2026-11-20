@@ -10,8 +10,8 @@ road), its upper side partly buried; it never pulls either pavement.  So
 the plate of a wall standing on its ground (no ``sunk_frame`` reading:
 a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) is its
 FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the stations a grid step outside its LOW face, the
-ones within ``[service] retaining_wall_clear_step_m`` of the lowest ground
-along it; the wall's upper part stands into the higher side's ground.
+ones within the ground bar (``[placement] split_bar_m``) of the lowest
+ground along it; the wall's upper part stands into the higher side's ground.
 MEASURED KLAX ``Fence_Terminal_1.obj`` (y -4.20 .. +3.80): the 16d plate
 put its footing at 30.87 on the road at 32.6 (test-568 replay), 1.0.562's
 connected group at 34.54; 20m puts it on the road.
@@ -153,11 +153,14 @@ def _frame_of(airport) -> dict:
 
 def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                     taken: _t.Container[str] = frozenset(),
-                    comps=None) -> tuple[_RetainingSeat, ...]:
+                    comps=None, level_m: float = 0.0) -> tuple[_RetainingSeat, ...]:
     """Every retaining wall of ``airport``'s pack the rule seats (module
     doc), one record per placement.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record (the wall-class law), supplied by the caller;
-    ``comps`` the wall-class components when the caller has them."""
+    ``comps`` the wall-class components when the caller has them;
+    ``level_m`` the band that is ONE level at the lowest ground beside a
+    wall (``[placement] split_bar_m``, the 12y ground bar; 0 = the clear
+    step)."""
     dem = getattr(airport, "dem", None)
     if cfg is None or dem is None or getattr(airport, "partition", None) is None:
         return ()
@@ -191,7 +194,7 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
         if not pts and ring is not None:
             pts = _side_ring(dem, w.pieces, float(ring), clear, low)
         if low:
-            pts = _lowest(dem, pts, clear)
+            pts = _lowest(dem, pts, float(level_m) if level_m > 0.0 else clear)
         if pts:
             y = float(w.top_y) - float(w.height_m) if low else float(w.retained_top_y)
             by_id[oid] = _RetainingSeat(oid, y, tuple(pts), str(w.resource or ""))

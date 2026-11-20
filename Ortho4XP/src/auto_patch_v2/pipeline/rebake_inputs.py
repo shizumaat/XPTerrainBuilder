@@ -475,7 +475,8 @@ def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
     got = retaining_seats(airport, load_rules().service,
                           float(law.tables.emit.identity.min_distinct_spacing_m),
                           float(law.tables.structures.bridge.abutment_sample_step_m),
-                          taken)
+                          taken, level_m=float(getattr(law.tables.structures.placement,
+                                                       "split_bar_m", 0.0) or 0.0))
     for w in got:
         print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
               f"({w.resource.rsplit('/', 1)[-1]}): footing y {w.y:+.2f} on the "

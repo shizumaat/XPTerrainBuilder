@@ -168,9 +168,13 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
                              width, _between(airport, edges, (ux, uy), (wx, wy), det, a_c,
                                              b0, b1))
             lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
+        band = (a_c - hc, a_c + hc)
+        if (taxi_at or pave_at) is not None:
+            band = _band(runs, a_c, hc)
         d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
-             f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc]
+             f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc,
+             band]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
@@ -283,6 +287,20 @@ def _pavement_width(runs, a_c: float, hc: float, ha: float, det: float, width: f
             f"{names} (RULINGS 2026-11-20a (2))")
 
 
+def _band(runs, a_c: float, hc: float) -> tuple[float, float]:
+    """``(a0, a1)``: the taxiway's whole PAVED BAND (owner RULINGS
+    2026-11-20f: "the bridges are quite a bit larger than the taxiways" --
+    the concrete taxiway with its asphalt shoulders): the narrower finite
+    end run (:func:`_end_runs`) holding the taxiway, never under the taxiway
+    as drawn (``a_c`` +- ``hc``, ``width_by_class_m``)."""
+    got = [r for r in runs if r is not None and not math.isinf(r[0])
+           and r[0] <= a_c - hc + 1e-6 and r[1] >= a_c + hc - 1e-6]
+    if len(got) < len([r for r in runs if r is not None]) or not got:
+        return a_c - hc, a_c + hc
+    lo, hi = min(got, key=lambda r: r[1] - r[0])
+    return min(lo, a_c - hc), max(hi, a_c + hc)
+
+
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
     """``(deck ring, note)`` of each route deck spec."""
     return [(_ring(u, d), d[6]) for u, d in specs]
@@ -312,6 +330,9 @@ def parted(specs: list[tuple[XY, list]], law, avoid=None) -> list[tuple[XY, list
         far = [q for q in parts if not q.intersects(_core(u, d))]
         while any(_ring(u, d).intersection(q).area > 1.0 for q in far) and _narrow(u, d):
             pass
+    # owner RULINGS 2026-11-20f: the GAP gives way -- each deck narrows only
+    # on the side facing its neighbour, a metre at a time and only while
+    # the gap needs it, never under its taxiway's whole paved band
     for _ in range(_PART_STEPS):
         moved = False
         for i in range(len(specs)):
@@ -319,10 +340,35 @@ def parted(specs: list[tuple[XY, list]], law, avoid=None) -> list[tuple[XY, list
                 ri, rj = _ring(*specs[i]), _ring(*specs[j])
                 if ri.distance(rj) >= gap - 1e-6:
                     continue
-                moved = _narrow(*specs[i]) | _narrow(*specs[j]) or moved
+                moved = _facing(specs[i], rj) | _facing(specs[j], ri) or moved
         if not moved:
             break
     return specs
+
+
+def _facing(spec: tuple[XY, list], other: Polygon) -> bool:
+    """``spec``'s deck a metre narrower on the side facing ``other``, never
+    inside its paved band (``d[9]``, :func:`_band`); whether it moved."""
+    (ux, uy), d = spec
+    wx, wy = d[0]
+    c = other.centroid
+    a = (c.x * wy - c.y * wx) / d[1]
+    step = 1.0 / max(abs(d[1]), 1e-9)
+    lo, hi = d[9] if len(d) > 9 else (d[7] - d[8], d[7] + d[8])
+    if a >= d[7]:
+        new = max(hi, d[3] - step)
+        if new >= d[3] - 1e-9:
+            return False
+        d[3] = new
+    else:
+        new = min(lo, d[2] + step)
+        if new <= d[2] + 1e-9:
+            return False
+        d[2] = new
+    if "narrowed to part" not in d[6]:
+        d[6] += "; narrowed on its facing side to part from a neighbouring deck, never inside " \
+                "its paved band (parallel_gap_m, RULINGS 2026-11-19s (3) (b), 2026-11-20f)"
+    return True
 
 
 #: the most metres a deck gives up each side to part from its neighbours
@@ -418,6 +464,7 @@ def _merged(u: XY, got: list[list]) -> list[list]:
                 k[2], k[3] = min(k[2], a0), max(k[3], a1)
                 lo, hi = min(k[7] - k[8], c0), max(k[7] + k[8], c1)
                 k[7], k[8] = 0.5 * (lo + hi), 0.5 * (hi - lo)
+                k[9] = (min(k[9][0], lo), max(k[9][1], hi))
                 k[6] += f"; widened over a second route ({d[6].split(':')[0]})"
                 break
         else:

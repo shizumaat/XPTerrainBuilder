@@ -294,10 +294,17 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                     if g.geom_type == "LineString" and g.length > grid]
             centre = unary_union(bits) if bits else None
             if centre is not None and not centre.is_empty:
-                air = [polys[k] for k, c in enumerate(cells)
-                       if c.role in cut_roles and polys[k].intersects(centre)]
-                hole = centre.difference(unary_union(air)) if air else centre
-                ribbon = unary_union([ribbon, hole]) if hole.area > 1.0 else ribbon
+                # lane lcross21 (owner 2026-11-20T15:30Z, KIAH JFK Blvd: "There
+                # should be two parallel taxiway bridges and the road bridge
+                # for each of the roads"): where the cell's stations were
+                # REFUSED (a junction blob wider than the cell's cap) the
+                # bridge still states the crossing -- its centreline ribbon
+                # bores a road under it whatever pavement the pack laid
+                # there.  MEASURED KIAH ``-414`` / ``-120`` over ``-5106`` /
+                # ``-7074``: 23 stations read north of the carriageways, 32 / 41
+                # refused over them, the hole-only ribbon empty (pav33 / pav39
+                # cover it): 0 roads bored, no deck at the RB crossings
+                ribbon = unary_union([ribbon, centre])
         pieces: list[tuple[OsmWay, LineString]] = []
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)

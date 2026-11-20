@@ -218,6 +218,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
         if law is not None else ({}, {})
     fixed.update(cut)
     free.difference_update(cut)
+    _near_cut_pins(pm, cut, stage1, air, levels, fixed, rep)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
     if cut:
@@ -273,6 +274,46 @@ def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:
         z = tin(vx.xy)
         if z is not None:
             fixed[v] = round(z, 6)
+
+
+#: an airside vertex the join left without a level this near the deck's cut
+#: takes the no-bridge surface (m): the cut's cells re-node the pavement's
+#: edge along its whole run, far from the deck's zone
+_CUT_REACH_M = 30.0
+
+
+def _near_cut_pins(pm, cut, stage1, air, levels, fixed, rep) -> None:
+    """Every airside vertex the coordinate join left without a stage-1
+    level within :data:`_CUT_REACH_M` of a vertex the cut levelled
+    (``constraints/deck_carve``) takes stage 1's surface there (:func:`_tin`),
+    as :func:`_zone_pins` does round each deck: the carve never moves
+    airside (19s (1)), however far along its road it runs."""
+    if not cut:
+        return
+    import numpy as np
+    from scipy.spatial import cKDTree
+    from shapely.geometry import box
+    from shapely.prepared import prep
+    loose = [v for v in air if v not in levels and v not in fixed]
+    if not loose:
+        return
+    cxy = np.asarray([pm.vertices[v].xy for v in cut], dtype=np.float64)
+    lxy = np.asarray([pm.vertices[v].xy for v in loose], dtype=np.float64)
+    d, _j = cKDTree(cxy).query(lxy, distance_upper_bound=_CUT_REACH_M)
+    near = [v for v, dv in zip(loose, d, strict=True) if np.isfinite(dv)]
+    if not near:
+        return
+    xy = np.asarray([pm.vertices[v].xy for v in near])
+    tin = _tin(stage1, prep(box(*xy.min(axis=0), *xy.max(axis=0))))
+    if tin is None:
+        return
+    n = 0
+    for v in near:
+        z = tin(pm.vertices[v].xy)
+        if z is not None:
+            fixed[v] = round(z, 6)
+            n += 1
+    rep["carve"].setdefault("_vertices", {})["airside_near_cut_fixed"] = n
 
 
 def _tin(stage1, opened) -> "_t.Callable | None":

@@ -73,7 +73,7 @@ from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 
 __all__ = ["take_frames", "full_hidden",
-           "roads_under", "one_decision"]
+           "roads_under", "one_decision", "span_bands"]
 
 
 @_dc.dataclass(frozen=True)
@@ -711,3 +711,117 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
                          + ", ".join(f"{o.id} {o.path} {a:,.0f} m2" for o, a in left)
                          + " (RULINGS 2026-11-20a (1))")
     return tuple(out), notes
+
+
+# ── A SPAN BAND OUR DECK TAKES (lane lcross22, #2202 items 2-4) ──────────
+#
+# A pack hard deck CUT TO ITS SPANS (RULINGS 2026-11-18i, ``DeckBridge.
+# span_cut``: KRDU STH_TML obj140 with its riders obj141 / obj142) keeps
+# its span bands and drops its at-grade ones (``airport/deck_plates.
+# _span_plates``).  Where a generated deck takes a span's crossing, the
+# one decision (20a (1)) is OURS there: that span band leaves the kept
+# set -- the object stage drops it like an at-grade band -- and its piece
+# leaves the decks; the other spans and the terminal stay the pack's.
+# Never both: a pack hard-deck piece still standing on a generated deck
+# is the deck's ``pack_under`` defect (census ``pack_bridge_under_deck``,
+# which so counts hard-deck span bands too).
+
+
+def _span_of(d: DeckBridge) -> "int | None":
+    """The index of the span (``span_cut[2]``) span piece ``d`` stands on:
+    the one holding its ring's centroid's station along the cut's axis."""
+    a, b, spans = d.span_cut[0], d.span_cut[1], d.span_cut[2]
+    L = float(np.hypot(b[0] - a[0], b[1] - a[1]))
+    if L <= 0.0 or not spans:
+        return None
+    c = deck_polygon(d).centroid
+    st = ((c.x - a[0]) * (b[0] - a[0]) + (c.y - a[1]) * (b[1] - a[1])) / L
+    return next((k for k, (sa, sb) in enumerate(spans) if sa - 1.0 <= st <= sb + 1.0), None)
+
+
+def span_bands(decks: _t.Sequence[DeckBridge], objects, law, to_ll=None
+               ) -> tuple[tuple[DeckBridge, ...], list[str]]:
+    """``(decks, notes)``: every pack span piece a GENERATED deck of
+    ``decks`` stands on by ``[deck_gen] min_area_m2`` dropped, its span
+    left out of the cut every piece of its frame carries (the block comment
+    above); a frame left with no span is HIDDEN with the generated deck
+    over it (``hides``: no band of it would stay the pack's).  Then any
+    pack hard-deck piece still under a generated deck is that deck's
+    ``pack_under`` defect.  ``to_ll``: the frame's ``(x, y) -> (lon, lat)``
+    for those records."""
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    gen = [(k, deck_polygon(d)) for k, d in enumerate(decks) if is_generated(d)]
+    if not gen:
+        return tuple(decks), []
+    taken: dict[tuple, set[int]] = {}
+    over: dict[int, int] = {}                    # pack piece index -> generated deck index
+    for i, d in enumerate(decks):
+        if is_generated(d) or not getattr(d, "span_cut", ()):
+            continue
+        p = deck_polygon(d)
+        hit = [k for k, g in gen if p.intersection(g).area >= a_min]
+        k = _span_of(d)
+        if hit and k is not None:
+            taken.setdefault((tuple(d.span_cut[0]), tuple(d.span_cut[1])), set()).add(k)
+            over[i] = hit[0]
+    if not taken:
+        return _under_defects(tuple(decks), gen, a_min, to_ll), []
+    out: list = list(decks)
+    notes: list[str] = []
+    gone: set[int] = set(over)
+    for i, d in enumerate(decks):
+        key = (tuple(d.span_cut[0]), tuple(d.span_cut[1])) if getattr(d, "span_cut", ()) \
+            else None
+        if key not in taken or i in gone:
+            continue
+        spans = tuple(sp for k, sp in enumerate(d.span_cut[2]) if k not in taken[key])
+        out[i] = _dc.replace(d, span_cut=(d.span_cut[0], d.span_cut[1], spans,
+                                          *d.span_cut[3:]))
+    for key, ks in taken.items():
+        mine = [i for i, d in enumerate(decks) if getattr(d, "span_cut", ())
+                and (tuple(d.span_cut[0]), tuple(d.span_cut[1])) == key]
+        d0 = decks[mine[0]]
+        left = len(d0.span_cut[2]) - len(ks)
+        notes.append(f"{d0.object_id} {d0.resource.rsplit('/', 1)[-1]}: span band(s) "
+                     + ", ".join(f"{d0.span_cut[2][k][0]:.0f}-{d0.span_cut[2][k][1]:.0f} m"
+                                 for k in sorted(ks))
+                     + f" taken by our deck(s) "
+                     + ", ".join(sorted({decks[over[i]].object_id for i in mine if i in over}))
+                     + f": dropped from the pack frame, {left} span(s) stay the pack's "
+                     "(RULINGS 2026-11-20a (1), 2026-11-18i)")
+        if left <= 0 and to_ll is not None:
+            # no band of it stays the pack's: the frame is hidden with our deck
+            g_i = over[next(i for i in mine if i in over)]
+            g = out[g_i]
+            ids = {m for i in mine for m in (decks[i].members or (decks[i].object_id,))}
+            have = {h[0] for h in g.hides}
+            out[g_i] = _dc.replace(g, hides=tuple(g.hides) + tuple(
+                (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))))
+                for q in objects or () if str(q.id) in ids and str(q.id) not in have))
+            notes.append(f"{d0.object_id}: every span taken -- the frame is HIDDEN with "
+                         f"{g.object_id}")
+    out = [d for i, d in enumerate(out) if i not in gone]
+    gen = [(k, deck_polygon(d)) for k, d in enumerate(out) if is_generated(d)]
+    return _under_defects(tuple(out), gen, a_min, to_ll), notes
+
+
+def _under_defects(decks: tuple, gen, a_min: float, to_ll) -> tuple:
+    """``decks`` with each pack span band (a hard-deck piece cut to its
+    spans) standing on a generated deck recorded on it (``pack_under``):
+    ours and the pack's both there."""
+    if to_ll is None:
+        return decks
+    out = list(decks)
+    for i, d in enumerate(decks):
+        # a span band (18i): the pack's overhead decks pass over, never on it
+        if is_generated(d) or not getattr(d, "span_cut", ()):
+            continue
+        p = deck_polygon(d)
+        for k, g in gen:
+            a = p.intersection(g).area
+            if a >= a_min:
+                rec = (str(d.object_id), str(d.resource),
+                       tuple(reversed(to_ll(*p.centroid.coords[0]))), round(a, 1))
+                if rec[0] not in {u[0] for u in out[k].pack_under}:
+                    out[k] = _dc.replace(out[k], pack_under=tuple(out[k].pack_under) + (rec,))
+    return tuple(out)

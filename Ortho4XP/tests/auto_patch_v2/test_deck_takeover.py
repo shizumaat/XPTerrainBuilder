@@ -364,3 +364,53 @@ def test_a_frame_takeover_hides_only_what_rides_its_bridges(monkeypatch):
     assert [q.id for q in got] == ["o", "bed", "luz"]
     got = dt._frame_members(fr, [P("o"), P("bed"), P("luz"), P("far")], [], None, law)
     assert [q.id for q in got] == ["o", "bed"]
+
+
+# ── A SPAN BAND OUR DECK TAKES (#2202 KRDU STH_TML, lane lcross22) ─────────
+
+def _span_piece(s0: float, s1: float, oid: str = "o140", cut_spans=((0.0, 10.0), (60.0, 70.0))):
+    """A piece of a pack frame cut to its spans (18i): its axis along x
+    from (0, 0) to (100, 0), this piece over span [s0, s1]."""
+    ring = ((s0, -20.0), (s1, -20.0), (s1, 20.0), (s0, 20.0))
+    return DeckBridge(oid, "STH_TML.obj", (oid, "o141"), ring, ((s0, -20.0),), ((s1, -20.0),),
+                      0.0, 0.0, -5.0, 199.0,
+                      span_cut=((0.0, 0.0), (100.0, 0.0), cut_spans, 0.015))
+
+
+def _ll(x, y):
+    return (35.0 + y * 1e-5, -78.0 + x * 1e-5)
+
+
+def test_a_span_band_our_deck_takes_leaves_the_pack_frame():
+    """KRDU 35.8713,-78.7996: our deck takes the crossing of the pack's
+    combined south deck's span 0-10 m -- that band leaves the frame (the
+    object stage drops it), the other span stays the pack's; nothing of
+    the pack is left under our deck."""
+    law = load_default()
+    decks = (_span_piece(0.0, 10.0), _span_piece(60.0, 70.0), _gen(0.0))
+    out, notes = dt.span_bands(decks, [], law, _ll)
+    assert [d.object_id for d in out] == ["o140", "o4gen_g"]
+    assert out[0].span_cut[2] == ((60.0, 70.0),)
+    assert out[1].pack_under == () and out[1].hides == ()
+    assert any("1 span(s) stay the pack's" in n for n in notes)
+
+
+def test_every_span_taken_hides_the_frame():
+    law = load_default()
+    P = lambda i, xy: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=xy)
+    decks = (_span_piece(0.0, 10.0, cut_spans=((0.0, 10.0),)), _gen(0.0))
+    out, notes = dt.span_bands(decks, [P("o140", (50.0, 0.0)), P("o141", (50.0, 0.0)),
+                                      P("t", (900.0, 0.0))], law, _ll)
+    (g,) = out
+    assert sorted(h[0] for h in g.hides) == ["o140", "o141"]
+    assert any("HIDDEN" in n for n in notes)
+
+
+def test_a_span_band_left_under_our_deck_is_counted():
+    """The census family counts a hard-deck span band (the bar previously
+    passed by construction): a band under our deck that is not the span
+    it stands over (a cut whose span reading misses it) is ``pack_under``."""
+    law = load_default()
+    d = _span_piece(0.0, 10.0, cut_spans=((40.0, 50.0),))       # no span holds it
+    out, _n = dt.span_bands((d, _gen(0.0)), [], law, _ll)
+    assert [u[0] for u in out[1].pack_under] == ["o140"]

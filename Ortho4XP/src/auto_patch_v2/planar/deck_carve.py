@@ -235,7 +235,13 @@ def _estimate_floor(db, terrain, s0: float, s1: float, clearance: float, law) ->
 
 
 def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
-    """The cut's record for the generated deck ``db`` (module doc);
+    """The cut's record for the generated deck ``db`` (module doc):
+    ONE trench (owner 2026-11-20T00:33Z: "The cut is the full width of the
+    bridge regardless of what roads or rails pass under it, a single cut,
+    not multiple parallel ones") along the deck's main covered road -- its
+    mapped path chained on past the deck (:func:`_past_every_deck`) -- or,
+    with none mapped, the cut's own axis, centred between the deck's end
+    lines; every road or rail under it lies on its one floor.
     ``decks``: every generated deck of the map (the stretches)."""
     from .deck_bridge import deck_polygon
     from .structure_underpass import aeroway_decks
@@ -243,50 +249,75 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
         lines, tree = _road_lines(airport)
     past = bank_past_m(law)
     sh = float(law.tables.structures.deck_gen.shoulder_m)
-    evidence: list[str] = []
-    paths: list[CarvePath] = []
-    dirs: list[str] = []
+    tn = law.tables.structures.tunnel
     ring = deck_polygon(db)
+    evidence: list[str] = []
+    roads: list[tuple[str, str, dict, LineString]] = []
     seen: set[str] = set()
     for way, tags_items, coords in getattr(db, "covered", ()) or ():
-        if str(way) in seen:            # a way read twice (two tiles' extracts)
+        if str(way) in seen or len(coords) < 2:   # a way read twice (two tiles' extracts)
             continue
         seen.add(str(way))
         tags = dict(tags_items)
         kind = _kind(tags)
         cls = tags.get("railway") if kind == "rail" else tags.get("highway")
         evidence.append(f"OSM {kind} {way} {'railway' if kind == 'rail' else 'highway'}={cls}")
-        if len(coords) < 2:
-            continue
-        cap, rate = _carve_law(law, kind)
-        path = _past_every_deck(LineString(coords), _reach_m(db, law, cap, rate), lines, tree,
-                                decks, past)
-        paths.append(_path(str(way), kind, carriageway_width_m(tags, law) / 2.0 + sh,
-                           design_clearance_m(tags, law), cap, rate, path, decks, past,
-                           airport))
-        dirs.append(f"along OSM {kind} {way} ({cls})")
+        roads.append((str(way), kind, tags, LineString(coords)))
     if getattr(db, "replaces", ()):
         evidence.append("hidden pack frame")
     if any(LineString(a.points).intersects(ring) for a in aeroway_decks(airport, law)
            if len(a.points) >= 2):
         evidence.append("OSM bridge tag")
-    if not paths:
+    # the rail's grade governs a cut a railway runs in (19s (2), 18e)
+    kind = "rail" if any(k == "rail" for _w, k, _t, _l in roads) else "road"
+    cap, rate = _carve_law(law, kind)
+    reach = _reach_m(db, law, cap, rate)
+    if roads:
+        way, _k, tags, line = max(roads, key=lambda r: r[3].intersection(ring).length)
+        cls = tags.get("railway") if _k == "rail" else tags.get("highway")
+        path = _past_every_deck(line, reach, lines, tree, decks, past)
+        direction = f"along OSM {_k} {way} ({cls})"
+        clearance = max(design_clearance_m(tg, law) for _w, _k2, tg, _l in roads)
+    else:
         ax = _axis(db)
-        if ax is not None:
-            cap, rate = _carve_law(law, "axis")
-            path = _past_every_deck(ax, _reach_m(db, law, cap, rate), [], None, decks, past)
-            tn = law.tables.structures.tunnel
-            paths.append(_path("", "axis", carriageway_width_m({}, law) / 2.0 + sh,
-                               float(tn.clearance_m), cap, rate, path, decks, past, airport))
-            dirs.append("along the cut's own axis (no mapped road or rail)")
-    for p in paths:
-        own = [(a, b) for a, b, oid in p.stretches if oid == db.object_id]
-        if own and any(_estimate_floor(db, p.terrain, a, b, 0.0, law) <= float(db.deck_z)
-                       - float(law.tables.structures.deck_gen.thickness_m) - p.clearance_m
-                       for a, b in own):
-            evidence.append("lidar trench")
-            break
-    return DeckCarve(tuple(evidence), "; ".join(dirs), tuple(paths))
+        if ax is None:
+            return DeckCarve(tuple(evidence), "", ())
+        way, kind = "", "axis"
+        path = _past_every_deck(ax, reach, [], None, decks, past)
+        direction = "along the cut's own axis (no mapped road or rail)"
+        clearance = float(tn.clearance_m)
+    path, span = _centred(path, ring)
+    # the floor at least carries every road under the deck and its shoulders
+    frame = PathFrame(list(path.coords))
+    need = carriageway_width_m({}, law) / 2.0 + sh
+    for _w, _k2, tg, ln in roads:
+        inside = ln.intersection(ring)
+        pts = [q for g in getattr(inside, "geoms", [inside]) if not g.is_empty
+               for q in getattr(g, "coords", [])]
+        if pts:
+            _s, n = frame.project([q[0] for q in pts], [q[1] for q in pts])
+            need = max(need, float(n.max()) + carriageway_width_m(tg, law) / 2.0 + sh)
+    cp = _path(way, kind, need, clearance, cap, rate, path, decks, past, airport, span)
+    own = [(a, b) for a, b, oid in cp.stretches if oid == db.object_id]
+    if own and any(_estimate_floor(db, cp.terrain, a, b, 0.0, law) <= float(db.deck_z)
+                   - float(law.tables.structures.deck_gen.thickness_m) - clearance
+                   for a, b in own):
+        evidence.append("lidar trench")
+    return DeckCarve(tuple(evidence), direction, (cp,))
+
+
+def _centred(path: LineString, ring) -> tuple[LineString, float]:
+    """``(path moved across itself to the middle of the deck's span between
+    its end lines, half that span)``: the trench is the deck's full width."""
+    frame = PathFrame(list(path.coords))
+    c = ring.centroid
+    s, _n = frame.project([c.x], [c.y])
+    (x0, y0), (ux, uy) = frame.at(float(s[0]))
+    nx, ny = -uy, ux
+    offs = [(x - x0) * nx + (y - y0) * ny for x, y in ring.exterior.coords]
+    mid = 0.5 * (min(offs) + max(offs))
+    from shapely.affinity import translate
+    return translate(path, nx * mid, ny * mid), 0.5 * (max(offs) - min(offs))
 
 
 def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: float
@@ -304,15 +335,15 @@ def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: f
 
 
 def _path(way: str, kind: str, half: float, clearance: float, cap: float, rate: float,
-          line: LineString, decks, past: float, airport) -> CarvePath:
+          line: LineString, decks, past: float, airport, span: float = 0.0) -> CarvePath:
     frame = PathFrame(list(line.coords))
     return CarvePath(way, kind, round(half, 3), round(clearance, 3), cap, rate,
                      tuple((round(x, 3), round(y, 3)) for x, y in line.coords),
                      tuple(_stretches(frame, line, decks, past)),
-                     _terrain(frame, airport.dem))
+                     _terrain(frame, airport.dem), round(span, 3))
 
 
-def _path_cells(p: CarvePath, decks_by_id, law, dem) -> tuple:
+def _path_cells(p: CarvePath, decks_by_id, law, dem, owner: str = "") -> tuple:
     """``(floor, bank)``: the planar estimate of the path's cut -- its
     floor strip and its banks out to the daylight line plus a metre --
     over the stations where the estimated floor stands under the ground."""
@@ -331,12 +362,18 @@ def _path_cells(p: CarvePath, decks_by_id, law, dem) -> tuple:
     if not st:
         return None, None
     z = floor_profile(s, r, st, p.cap, p.rate)
+    # the full span less the embankments (``constraints/deck_carve._floor_half``)
+    own = decks_by_id.get(owner)
+    half = p.half_m
+    if own is not None and p.span_m > 0.0:
+        fz = min(f for _a, _b, f in st)
+        half = max(p.half_m, p.span_m - max(0.0, float(own.deck_z) - fz) / bank)
     left, right, idx = [], [], []
     deep = 0.0
     for k, sk in enumerate(s):
         (x, y), (ux, uy) = frame.at(float(sk))
         nx, ny = -uy, ux
-        w0 = p.half_m + 4.0
+        w0 = half + 4.0
         side = [r[k]]
         for sg in (1.0, -1.0):
             try:
@@ -347,14 +384,14 @@ def _path_cells(p: CarvePath, decks_by_id, law, dem) -> tuple:
         deep = max(deep, depth)
         if depth > 0.05 or any(a - 4.0 <= sk <= b + 4.0 for a, b, _z in st):
             idx.append(k)
-        w = p.half_m + depth / bank + 1.0
+        w = half + depth / bank + 1.0
         left.append((x + nx * w, y + ny * w))
         right.append((x - nx * w, y - ny * w))
     if len(idx) < 2:
         return None, None
     k0, k1 = max(0, idx[0] - 2), min(len(s) - 1, idx[-1] + 2)
     piece = substring(LineString(p.coords), float(s[k0]), float(s[k1]))
-    floor = piece.buffer(p.half_m, cap_style="flat", join_style="mitre")
+    floor = piece.buffer(half, cap_style="flat", join_style="mitre")
     band = Polygon(left[k0:k1 + 1] + list(reversed(right[k0:k1 + 1]))).buffer(0.0)
     return floor, band.difference(floor)
 
@@ -447,7 +484,7 @@ def deck_carve(classification, decks, airport, law, tunnels=()
         dc = carves[d.object_id]
         floors, banks = [], []
         for p in dc.paths:
-            f, b = _path_cells(p, by_id, law, airport.dem)
+            f, b = _path_cells(p, by_id, law, airport.dem, d.object_id)
             if f is not None:
                 floors.append(f)
                 banks.append(b)

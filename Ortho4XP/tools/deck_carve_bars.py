@@ -135,6 +135,7 @@ def _bank(pm, surf, db, top, frame, s_mid: float) -> "float | None":
 def carve_bars(pm, z, law) -> list[dict]:
     """One row per path of every generated deck's cut (module doc)."""
     from auto_patch_v2.geom.carve_profile import PathFrame, smoothed
+    from auto_patch_v2.model.road_clearance import design_clearance_m
     from auto_patch_v2.planar.deck_bridge import deck_polygon
     from shapely.geometry import Point
     slab = float(law.tables.structures.deck_gen.thickness_m)
@@ -158,28 +159,54 @@ def carve_bars(pm, z, law) -> list[dict]:
                    "way": p.way, "kind": p.kind, "need_m": p.clearance_m, "cap": p.cap}
             own = [(a, b) for a, b, o in p.stretches if o == oid]
             clear, floors, unders, lidar = [], [], [], []
-            for a, b in own:
-                s = a
-                while s <= b:
-                    (x, y), _u = frame.at(s)
-                    if ring.contains(Point(x, y)) and top is not None:
+            short = None
+            # every road or rail under the deck, at every metre and node of
+            # it inside the ring, against ITS clearance (the cut is one, the
+            # roads lie on its floor)
+            from shapely.geometry import LineString
+            for _w, tags_items, coords in getattr(d, "covered", ()) or ():
+                if len(coords) < 2 or top is None:
+                    continue
+                need = design_clearance_m(dict(tags_items), law)
+                ln = LineString(coords).intersection(ring)
+                for g in getattr(ln, "geoms", [ln]):
+                    if g.is_empty or g.geom_type != "LineString":
+                        continue
+                    pts = list(g.coords) + [g.interpolate(k * STEP_M).coords[0]
+                                            for k in range(int(g.length / STEP_M) + 1)]
+                    for x, y in pts:
                         q = surf(x, y)
-                        if q == q:
-                            under = top.z(x, y) - slab
-                            clear.append(under - q)
-                            floors.append(q)
-                            unders.append(under)
-                    s += STEP_M
+                        if q != q:
+                            continue
+                        under = top.z(x, y) - slab
+                        clear.append(under - q)
+                        floors.append(q)
+                        unders.append(under - need)
+                        if short is None or under - q - need < short[0]:
+                            short = (under - q - need, need)
+            if not clear and top is not None:       # no road mapped: the axis
+                for a, b in own:
+                    s = a
+                    while s <= b:
+                        (x, y), _u = frame.at(s)
+                        if ring.contains(Point(x, y)):
+                            q = surf(x, y)
+                            if q == q:
+                                under = top.z(x, y) - slab
+                                clear.append(under - q)
+                                floors.append(q)
+                                unders.append(under - p.clearance_m)
+                                if short is None or under - q - p.clearance_m < short[0]:
+                                    short = (under - q - p.clearance_m, p.clearance_m)
+                        s += STEP_M
+            for a, b in own:
                 lidar += [zz for ss, zz in terrain if a - probe <= ss <= b + probe]
-            for c in p.coords:
-                if ring.contains(Point(c)) and top is not None:
-                    q = surf(*c)
-                    if q == q:
-                        clear.append(top.z(*c) - slab - q)
             row["clearance_min_m"] = round(min(clear), 3) if clear else None
+            row["clearance_short_m"] = round(short[0], 3) if short else None
+            if short:
+                row["need_m"] = short[1]
             row["floor_m"] = [round(min(floors), 3), round(max(floors), 3)] if floors else None
-            row["floor_rule_m"] = round(min([min(unders) - p.clearance_m] + lidar), 3) \
-                if unders else None
+            row["floor_rule_m"] = round(min([min(unders)] + lidar), 3) if unders else None
             lo = min((a for a, _b, _o in p.stretches), default=None)
             hi = max((b for _a, b, _o in p.stretches), default=None)
             if lo is not None:
@@ -189,8 +216,8 @@ def carve_bars(pm, z, law) -> list[dict]:
                 row["bank_slope_max"] = _bank(pm, surf, d, top, frame,
                                               0.5 * (own[0][0] + own[0][1]))
             g = [x for k in ("ramp_before", "ramp_after") if row.get(k) for x in [row[k][1]]]
-            row["pass_clearance"] = row["clearance_min_m"] is not None and \
-                row["clearance_min_m"] >= p.clearance_m - 0.05
+            row["pass_clearance"] = row["clearance_short_m"] is not None and \
+                row["clearance_short_m"] >= -0.05
             row["pass_grade"] = all(x <= p.cap + 0.005 for x in g)
             row["pass_meets"] = all(row.get(k) and row[k][0] is not None
                                     for k in ("ramp_before", "ramp_after"))

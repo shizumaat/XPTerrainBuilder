@@ -24,15 +24,16 @@ XY = tuple[float, float]
 
 @_dc.dataclass(frozen=True)
 class CarvePath:
-    """One line the cut runs along: a mapped road or rail (its OSM way,
-    chained on past the deck along its own path) or, with none mapped, the
-    cut's own axis across the deck."""
+    """The line a deck's ONE cut runs along: its main covered road or rail
+    (its OSM way, chained on past the deck along its own path) or, with none
+    mapped, the cut's own axis -- centred between the deck's end lines."""
 
     #: the OSM way id, or ``""`` for the cut's own axis
     way: str
     #: ``road``, ``rail`` or ``axis``
     kind: str
-    #: the floor's half width: the carriageway's half plus the shoulder (m)
+    #: the least half width of the floor: every road under the deck with its
+    #: shoulders (m)
     half_m: float
     #: the clearance the road needs under the deck's underside (m)
     clearance_m: float
@@ -48,6 +49,10 @@ class CarvePath:
     stretches: tuple[tuple[float, float, str], ...]
     #: ``(s, z)``: the surveyed ground (lidar) along the path
     terrain: tuple[tuple[float, float], ...]
+    #: half the deck's span across the path between its end lines (m): the
+    #: trench is the deck's full width less each abutment's embankment
+    #: (``constraints/deck_carve``), never narrower than ``half_m``
+    span_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

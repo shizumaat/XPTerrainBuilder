@@ -11,7 +11,8 @@ levelled) read ONE definition.
   ``s`` and distance ``n`` off the line.
 * :func:`floor_profile` -- the cut's FLOOR along its path: level at each
   deck's floor over the stretch under that deck (``z <= zf``), straight
-  through the gap between two decks, then ramping back out of both ends at
+  at full depth through the gap between two decks that are one cut
+  (:func:`merged`), then ramping back out of both ends at
   the grade cap until it meets the terrain along the path, with vertical
   curves (``O4_Road_Grade._smooth_grade_changes``: the profile closest to
   that target holding the cap and the grade-change rate).  The floor never
@@ -32,7 +33,7 @@ import numpy as np
 
 from .exact import hypot_array, sq
 
-__all__ = ["PathFrame", "floor_profile", "lateral", "ramp_lengths", "smoothed"]
+__all__ = ["PathFrame", "floor_profile", "lateral", "merged", "ramp_lengths", "smoothed"]
 
 XY = tuple[float, float]
 
@@ -82,11 +83,23 @@ def smoothed(z: _t.Sequence[float], k: int = 2) -> np.ndarray:
     return np.median(np.lib.stride_tricks.sliding_window_view(pad, 2 * k + 1), axis=1)
 
 
+def merged(gap: float, za: float, zb: float, peak: float, cap: float) -> bool:
+    """Two decks ``gap`` metres apart along one cut, floors ``za`` / ``zb``,
+    the ground between them at most ``peak``: ONE cut at full depth between
+    them when the gap is shorter than a full ramp up to the ground and back
+    down at ``cap`` (owner 2026-11-20T00:33Z), else two cuts, each ramping
+    out on its own."""
+    up = max(0.0, peak - za) / max(cap, 1e-9)
+    down = max(0.0, peak - zb) / max(cap, 1e-9)
+    return gap < up + down
+
+
 def _design(s: np.ndarray, stretches: _t.Sequence[tuple[float, float, float]],
-            cap: float) -> tuple[np.ndarray, np.ndarray]:
-    """``(design, inside)``: each deck's floor over its stretch, straight
-    between two stretches, ``cap`` outward past the outermost; ``inside``
-    marks the stations under a deck."""
+            cap: float, r: "np.ndarray | None" = None) -> tuple[np.ndarray, np.ndarray]:
+    """``(design, inside)``: each deck's floor over its stretch; between two
+    stretches straight at full depth where they are one cut (:func:`merged`
+    over the ground ``r``), else each ramping out at ``cap``; ``cap``
+    outward past the outermost; ``inside`` marks the stations under a deck."""
     st = sorted(stretches)
     d = np.full(len(s), np.inf)
     inside = np.zeros(len(s), dtype=bool)
@@ -95,9 +108,14 @@ def _design(s: np.ndarray, stretches: _t.Sequence[tuple[float, float, float]],
         d[m] = np.minimum(d[m], zf)
         inside |= m
     for (_a0, a1, za), (b0, _b1, zb) in zip(st, st[1:], strict=False):
-        if b0 > a1:
-            m = (s > a1) & (s < b0)
+        if b0 <= a1:
+            continue
+        m = (s > a1) & (s < b0)
+        peak = float(np.max(r[m])) if r is not None and m.any() else -np.inf
+        if merged(b0 - a1, za, zb, peak, cap):
             d[m] = np.minimum(d[m], za + (zb - za) * (s[m] - a1) / (b0 - a1))
+        else:
+            d[m] = np.minimum(d[m], np.minimum(za + cap * (s[m] - a1), zb + cap * (b0 - s[m])))
     lo, hi = st[0], st[-1]
     m = s < lo[0]
     d[m] = np.minimum(d[m], lo[2] + cap * (lo[0] - s[m]))
@@ -117,7 +135,7 @@ def floor_profile(s: _t.Sequence[float], terrain: _t.Sequence[float],
     r = np.asarray(terrain, dtype=np.float64)
     if len(s) < 2 or not stretches:
         return r.copy()
-    design, inside = _design(s, stretches, cap)
+    design, inside = _design(s, stretches, cap, r)
     target = np.minimum(design, r)
     upper = np.maximum(r + fill_tol, design)
     upper[inside] = design[inside]

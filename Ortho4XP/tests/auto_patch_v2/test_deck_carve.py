@@ -76,11 +76,11 @@ def _deck():
                       carve=dc)
 
 
-class _Top:
-    """A flat top at 173.0 over the ring (``CoonsPatch``'s ``z``)."""
-
-    def z(self, x, y):
-        return 173.0
+def _Top():
+    """A flat top at 173.0 over the ring: end A at y = -20, end B at y = 20."""
+    from auto_patch_v2.geom.coons_patch import CoonsPatch
+    flat = ((0.0, 173.0), (1.0, 173.0))
+    return CoonsPatch((-12.5, -20.0), (0.0, 40.0), (25.0, 0.0), flat, flat, flat, flat)
 
 
 def _pm():
@@ -118,7 +118,7 @@ def test_carve_levels_the_cut_and_never_an_airside_vertex():
     # the abutment's embankment: 4 m inside the ring from the end line at
     # y = 20 the cut stands no deeper than the bank from the pavement allows
     bank = [v for v, vx in pm.vertices.items() if vx.xy == (0.0, 16.0)][0]
-    assert got[bank] >= 173.0 - 4.0 / 1.5 - 1e-6
+    assert got[bank] == pytest.approx(173.0 - 4.0 / 1.5, abs=0.01)   # on the embankment
     assert rep["o4gen_t"]["evidence"] == ["OSM road -1 highway=primary"]
 
 
@@ -162,3 +162,28 @@ def test_a_deck_with_no_mapped_road_ramps_along_its_own_axis():
     # the axis runs along the end lines (x), across the taxiway
     (x0, y0), (x1, y1) = p.coords[0], p.coords[-1]
     assert abs(y1 - y0) < 1e-6 and abs(x1 - x0) > 100.0
+
+
+def test_two_decks_far_apart_are_two_cuts_close_ones_one():
+    from auto_patch_v2.geom.carve_profile import merged
+    # 8 m deep each, 10 %: a ramp up and back down needs 160 m
+    assert merged(19.0, 165.0, 165.0, 173.0, CAP)
+    assert not merged(200.0, 165.0, 165.0, 173.0, CAP)
+    s = np.arange(-300.0, 301.0, 2.0)
+    terrain = np.full(len(s), 173.0)
+    z = floor_profile(s, terrain, [(-150.0, -120.0, 165.0), (120.0, 150.0, 165.0)], CAP, RATE)
+    assert z[np.argmin(np.abs(s))] == pytest.approx(173.0, abs=0.31)   # ground between
+
+
+def test_the_floor_is_the_decks_full_span_less_its_embankments():
+    import dataclasses
+
+    from auto_patch_v2.constraints.deck_carve import _floor_half
+    from auto_patch_v2.law import Law
+    law = Law.load()
+    p = dataclasses.replace(_deck().carve.paths[0], span_m=20.0)
+    top = types.SimpleNamespace(z_st=lambda s, t: 173.0)
+    # 6 m deep at 1V:1.5H: 9 m of embankment off each end
+    assert _floor_half(p, top, 167.0, law) == pytest.approx(11.0, abs=0.01)
+    # never narrower than the roads under it (a wall where they need it)
+    assert _floor_half(p, top, 160.0, law) == pytest.approx(p.half_m)

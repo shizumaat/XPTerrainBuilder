@@ -122,25 +122,51 @@ def _deck_floors(decks, tops, law) -> tuple[dict, dict]:
 
 
 def _one_cut(decks, floors: dict[str, float]) -> dict[str, float]:
-    """Decks whose cuts share a road are ONE cut (19s (3) (b): "the cut
-    running straight through" between parallel taxiways' decks): every
-    deck of a group takes the deepest floor of the group, so every road's
-    floor through it is one level and no two roads' floors cross at
-    different heights."""
+    """Decks one cut joins (owner 2026-11-20T00:33Z: two parallel bridges
+    "closer than would allow a full ramp up to grade, then back down again
+    ... get cut like a single bridge, full depth between them, only two
+    ramps on the outside"; ``geom/carve_profile.merged``) take the deepest
+    floor of the cut, so its floor is one level from deck to deck."""
+    from ..geom.carve_profile import merged
     from ..geom.union_find import find_root
     ids = sorted(floors)
     at = {oid: k for k, oid in enumerate(ids)}
     parent = list(range(len(ids)))
     for d in decks:
         for p in getattr(getattr(d, "carve", None), "paths", ()) or ():
-            ks = [at[oid] for _a, _b, oid in p.stretches if oid in at]
-            for k in ks[1:]:
-                parent[find_root(parent, k)] = find_root(parent, ks[0])
+            st = sorted((a, b, oid) for a, b, oid in p.stretches if oid in at)
+            if len(st) < 2 or len(p.terrain) < 2:
+                continue
+            s, r = _path_stations(p)
+            for (_a0, a1, oa), (b0, _b1, ob) in zip(st, st[1:], strict=False):
+                m = (s > a1) & (s < b0)
+                peak = float(np.max(r[m])) if m.any() else -math.inf
+                if b0 <= a1 or merged(b0 - a1, floors[oa], floors[ob], peak,
+                                      p.cap * _CAP_SHARE):
+                    parent[find_root(parent, at[ob])] = find_root(parent, at[oa])
     low: dict[int, float] = {}
     for oid in ids:
-        r = find_root(parent, at[oid])
-        low[r] = min(low.get(r, math.inf), floors[oid])
+        r_ = find_root(parent, at[oid])
+        low[r_] = min(low.get(r_, math.inf), floors[oid])
     return {oid: low[find_root(parent, at[oid])] for oid in ids}
+
+
+def _hyp(u) -> float:
+    from ..geom.exact import hypot
+    return hypot(float(u[0]), float(u[1]))
+
+
+def _floor_half(p, top, floor, law) -> float:
+    """The floor's half width across the cut: the deck's full span between
+    its end lines less each abutment's embankment (the end line's top down
+    to the floor at the deck bank's slope), never narrower than the roads
+    under it with their shoulders (``CarvePath.half_m``: there the bank is
+    a wall, 19s (4) (a))."""
+    span = float(getattr(p, "span_m", 0.0) or 0.0)
+    if top is None or floor is None or span <= 0.0:
+        return float(p.half_m)
+    depth = max(0.0, 0.5 * (top.z_st(0.0, 0.5) + top.z_st(1.0, 0.5)) - floor)
+    return max(float(p.half_m), span - depth / deck_bank_slope(law))
 
 
 def _profiles(decks, tops, law) -> tuple[list, dict]:
@@ -164,6 +190,7 @@ def _profiles(decks, tops, law) -> tuple[list, dict]:
             frame = PathFrame(p.coords)
             s, r = _path_stations(p)
             z = floor_profile(s, r, st, p.cap * _CAP_SHARE, p.rate)
+            half = _floor_half(p, tops.get(d.object_id), floors.get(d.object_id), law)
             ra, rb = ramp_lengths(s, z, r, st)
             g = np.abs(np.diff(z)) / np.maximum(np.diff(s), 1e-9)
             stretches = []
@@ -173,13 +200,13 @@ def _profiles(decks, tops, law) -> tuple[list, dict]:
                     stretches.append({**q, "floor": round(floors[oid], 3),
                                       "clearance": round(q["underside"] - floors[oid], 3)})
             drep["paths"].append({"way": p.way, "kind": p.kind, "cap": p.cap,
-                                  "half_m": p.half_m, "need_m": p.clearance_m,
+                                  "half_m": round(half, 2), "need_m": p.clearance_m,
                                   "stretches": stretches,
                                   "ramp_m": [None if math.isinf(ra) else round(ra, 1),
                                              None if math.isinf(rb) else round(rb, 1)],
                                   "max_grade": round(float(g.max()) if len(g) else 0.0, 4)})
-            out.append((p, frame, s, z))
-    return out, rep
+            out.append((p, frame, s, z, half))
+    return out, rep, floors
 
 
 def _kerb(pm, air, values) -> "tuple[_t.Any, np.ndarray] | None":
@@ -229,7 +256,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
 
     from ..model.deck_bank import bank_past_m
     from ..planar.deck_bridge import deck_polygon
-    profs, rep = _profiles(decks, tops, law)
+    profs, rep, floors = _profiles(decks, tops, law)
     if not profs:
         return {}, rep
     bank = deck_bank_slope(law)
@@ -240,7 +267,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         for d in decks if getattr(d, "carve", None) is not None]))
     # a vertex farther off every path than its floor and the deepest bank
     # can reach is never the cut's
-    reach = max(p.half_m for p, _f, _s, _z in profs) + 40.0
+    reach = max(h for _p, _f, _s, _z, h in profs) + 40.0
     vids = [v for v in pm.vertices if v not in air and v not in fixed]
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)
     ys = np.array([pm.vertices[v].xy[1] for v in vids], dtype=np.float64)
@@ -249,7 +276,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # -- each road keeps its own ramp; off every floor, the deepest bank
     on_floor = np.full(len(vids), np.inf)
     t = np.full(len(vids), np.inf)
-    for p, frame, s, z in profs:
+    for _p, frame, s, z, h in profs:
         x0, y0 = np.min(frame.a, axis=0) - reach
         x1, y1 = np.max(frame.a + frame.d, axis=0) + reach
         m = (xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)
@@ -257,7 +284,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             continue
         sv, nv = frame.project(xs[m], ys[m])
         fz = np.interp(sv, s, z)
-        half = p.half_m + _SNAP_M
+        half = h + _SNAP_M
         on_floor[m] = np.where(nv <= half, np.minimum(on_floor[m], fz), on_floor[m])
         t[m] = np.minimum(t[m], lateral(fz, nv, half, bank))
     floor_v = np.isfinite(on_floor)
@@ -265,6 +292,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     gen_tn, pack_tn = _tunnel_regions(pm, {d.object_id for d in decks
                                            if getattr(d, "carve", None) is not None})
     kerb = _kerb(pm, air, {**values, **fixed})
+    rings = [(prep(deck_polygon(d)), tops[d.object_id], floors[d.object_id]) for d in decks
+             if d.object_id in floors and tops.get(d.object_id) is not None]
     out: dict[int, float] = {}
     n_fill = 0
     for i in np.nonzero(np.isfinite(t))[0]:
@@ -280,11 +309,23 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             str(pm.faces[f].ref).startswith(CARVE_REF + ":") for f in vx.incident_faces)
         if not (mine or cut < g - _UNDER_M):
             continue
+        ring_of = next((r for r in rings if r[0].contains(pt)), None)
+        if ring_of is not None:
+            # UNDER THE DECK THE FLOOR RULE IS ABSOLUTE (owner 2026-11-20T00:30Z):
+            # on the floor its deck's floor; off it the abutment's embankment
+            # from the nearer end line down to that floor, never over it
+            _r, top, fl = ring_of
+            sp, tp = top.st(*vx.xy)
+            run = min(sp, 1.0 - sp) * _hyp(top.u)
+            ab = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp))) - bank * run
+            cut = min(cut, fl) if floor_v[i] else max(fl, ab)
+            out[v] = round(cut, 4)
+            continue
         if kerb is not None and not floor_v[i]:
-            # the bank never undercuts the airside: under the deck and its
-            # opened pavement it rises to it (the abutment's embankment);
-            # beyond, never over the ground.  A road's floor is never
-            # raised: where the road needs it, the bank is a wall
+            # the bank never undercuts the airside: over the deck's opened
+            # pavement it rises to it; beyond, never over the ground.  A
+            # road's floor is never raised: where the road needs it, the
+            # bank is a wall
             tree, kz = kerb
             d, j = tree.query(vx.xy, k=min(_KERB_K, len(kz)))
             lo = float(np.max(np.atleast_1d(kz[j]) - bank * np.atleast_1d(d)))

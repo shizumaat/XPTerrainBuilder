@@ -466,9 +466,9 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
 
 
 def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
-    """#1934 R3 (``airport/retaining_seat``): placement id -> ``(retained
-    top y, upper-side stations, 0.0, RETAINING_PLATE)`` for each retaining
-    wall no other rule seats."""
+    """#1934 R3, RULINGS 2026-11-20m (``airport/retaining_seat``): placement
+    id -> ``(footing y, low-side stations, 0.0, RETAINING_PLATE)`` for each
+    retaining wall no other rule seats."""
     from ..airport.retaining_seat import RETAINING_PLATE, retaining_seats
     from ..classify.rules import load_rules
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
@@ -478,9 +478,9 @@ def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
                           taken)
     for w in got:
         print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
-              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on its upper "
-              f"ground, {len(w.stations)} stations")
-    return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+              f"({w.resource.rsplit('/', 1)[-1]}): footing y {w.y:+.2f} on the "
+              f"lowest ground beside it, {len(w.stations)} stations")
+    return {w.oid: (w.y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
 
 
 def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
@@ -679,7 +679,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
             law, airport, objects, _portal_cuts(pm, airport),
             set(plates) | excluded | shelled | modelled | set(free_decks)
             | {str(r.get("id")) for r in authored}))
-    # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
+    # #1934 R3 (RULINGS 2026-11-20m): a retaining wall's footing on its low side
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the

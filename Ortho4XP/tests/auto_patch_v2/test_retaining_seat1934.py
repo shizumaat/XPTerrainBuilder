@@ -1,8 +1,8 @@
-"""#1934 R3 (spec ``docs/specs/1934-R3.md`` §2; RULINGS 2026-11-16d): a
-retaining wall whose retained face reaches its zero is plate-seated on its
-UPPER ground -- one plate entry, stations a grid step outside its upper
-face -- and the object stage reads that plate as its datum (never its
-footing).  A wall retaining nothing, one too low to be two levels, one
+"""#1934 R3 (spec ``docs/specs/1934-R3.md`` §2) as RULINGS 2026-11-20m
+reads it: a retaining wall standing on its ground is plate-seated by its
+FOOTING on the lowest ground beside its LOW face -- one plate entry,
+stations a grid step outside its low face at its lowest level -- and the
+object stage reads that plate as its datum.  A wall retaining nothing, one too low to be two levels, one
 another rule seats and one whose face reaches no stated height get none."""
 from __future__ import annotations
 
@@ -20,7 +20,13 @@ WALL = box(0.0, 0.0, 40.0, 0.5)
 
 class _Dem:
     def z(self, x, y):
-        return 35.0 if y > 0.25 else 32.0
+        if y > 0.25:
+            return 35.0
+        return 32.0 if x < 30.0 else 32.6          # the road climbs at its east end
+
+    def z_many(self, xs, ys):
+        import numpy as np
+        return np.array([self.z(x, y) for x, y in zip(xs, ys)], dtype=float)
 
 
 def _airport():
@@ -41,13 +47,15 @@ def _run(comps, taken=frozenset()):
     return R.retaining_seats(_airport(), CFG, 0.5, 5.0, taken, comps=comps)
 
 
-def test_buried_wall_is_seated_on_its_upper_ground():
+def test_a_wall_between_apron_and_road_is_seated_by_its_footing_on_the_road():
+    """20m (KLAX ``Fence_Terminal_1``): the footing y -4.2 (top 3.8 less its
+    8 m) on the stations outside the LOW (south) face, at its lowest level
+    (the road's 32.0 part; the 32.6 end is within the clear step too)"""
     got = _run([_comp()])
     assert len(got) == 1
     w = got[0]
-    assert w.oid == "w" and w.top_y == 0.0
-    # every station a grid step outside the UPPER (north) face, 5 m apart
-    assert all(y == pytest.approx(1.0) for _x, y in w.stations)
+    assert w.oid == "w" and w.y == pytest.approx(-4.2)
+    assert all(y == pytest.approx(-0.5) for _x, y in w.stations)
     xs = sorted(x for x, _y in w.stations)
     assert xs[0] == pytest.approx(0.0) and xs[-1] == pytest.approx(40.0)
     assert len(xs) == 9

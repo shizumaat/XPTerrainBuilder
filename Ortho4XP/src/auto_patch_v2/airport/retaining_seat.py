@@ -1,5 +1,22 @@
-"""THE RETAINING WALL'S SEAT: its zero on the ground it retains (#1934 R3;
-owner RULINGS 2026-11-16d, 2026-11-13u (1); spec ``docs/specs/1934-R3.md``).
+"""THE RETAINING WALL'S SEAT: its FOOTING on the lowest ground beside its
+LOW face (owner RULINGS 2026-11-20m, KLAX; replaces the 16d reading below;
+#1934 R3, 2026-11-13u (1); spec ``docs/specs/1934-R3.md``).
+
+20m, verbatim: "Retaining wall here ... between apron and road, should be
+seated at the lowest road level, about 2m lower, so it's partially
+submerged".  RULED: a wall-type object standing on a level break between
+higher pavement and a lower road seats at the lowest level beside it (the
+road), its upper side partly buried; it never pulls either pavement.  So
+the plate of a wall standing on its ground (no ``sunk_frame`` reading:
+a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) is its
+FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the stations a grid step outside its LOW face, the
+ones within ``[service] retaining_wall_clear_step_m`` of the lowest ground
+along it; the wall's upper part stands into the higher side's ground.
+MEASURED KLAX ``Fence_Terminal_1.obj`` (y -4.20 .. +3.80): the 16d plate
+put its footing at 30.87 on the road at 32.6 (test-568 replay), 1.0.562's
+connected group at 34.54; 20m puts it on the road.
+
+THE 16d READING IT REPLACES (kept for the record):
 
 A retaining wall's zero is the upper ground it holds
 (``wall_class._depth_under_zero``): its retained face reaches down from
@@ -54,17 +71,17 @@ RETAINING_PLATE = "retaining"
 
 @_dc.dataclass(frozen=True)
 class _RetainingSeat:
-    """One retaining wall's plate: its placement id, the authored ``y`` its
-    retained face reaches (the height put on the upper ground) and the
-    stations (frame xy) on that ground."""
+    """One retaining wall's plate: its placement id, the authored ``y`` put
+    on the ground (its FOOTING, 20m) and the stations (frame xy) on that
+    ground (the low side's)."""
 
     oid: str
-    top_y: float
+    y: float
     stations: tuple
     resource: str = ""
 
 
-def _upper_stations(face, grid_m: float, step_m: float) -> list:
+def _face_stations(face, grid_m: float, step_m: float) -> list:
     """Points ``grid_m`` outside ``face`` (outward is its right:
     ``wall_sides._wall_faces``), every ``step_m`` along it, ends included."""
     off = face.offset_curve(-float(grid_m), join_style="mitre", mitre_limit=2.0)
@@ -89,9 +106,10 @@ def _ring_points(whole, ring: float) -> np.ndarray:
     return np.asarray(pts, dtype=float).reshape(-1, 2)
 
 
-def _high_ring(dem, pieces, ring: float, clear: float) -> list:
+def _side_ring(dem, pieces, ring: float, clear: float, low: bool) -> list:
     """The ring stations round ``pieces`` (:func:`_ring_points`) on the
-    HIGH side: ground within ``clear`` of the ring's 90th percentile."""
+    HIGH side (ground within ``clear`` of the ring's 90th percentile) or,
+    ``low``, the LOW side (within ``clear`` of its 10th)."""
     from shapely.ops import unary_union
 
     from .dem import dem_z_many
@@ -102,8 +120,26 @@ def _high_ring(dem, pieces, ring: float, clear: float) -> list:
     ok = np.isfinite(z)
     if not ok.any():
         return []
+    if low:
+        lo = float(np.percentile(z[ok], 10.0))
+        return [tuple(p) for p in xy[ok & (z <= lo + clear)]]
     hi = float(np.percentile(z[ok], 90.0))
     return [tuple(p) for p in xy[ok & (z >= hi - clear)]]
+
+
+def _lowest(dem, pts: list, clear: float) -> list:
+    """The stations of ``pts`` at the LOWEST level beside the wall (20m):
+    ground within ``clear`` of the least; every station where none reads."""
+    from .dem import dem_z_many
+    if not pts:
+        return pts
+    xy = np.asarray(pts, dtype=float).reshape(-1, 2)
+    z = dem_z_many(dem, xy[:, 0], xy[:, 1])
+    ok = np.isfinite(z)
+    if not ok.any():
+        return pts
+    lo = float(z[ok].min())
+    return [tuple(p) for p in xy[ok & (z <= lo + clear)]]
 
 
 def _frame_of(airport) -> dict:
@@ -140,18 +176,25 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
         if not oid or oid in taken or oid in plated or not w.retains \
                 or w.retained_top_y is None or h <= clear:
             continue
+        # 20m: a wall on its ground seats its footing on the low side; a
+        # SUNK frame's wall (``sunk_frame``: drawn down from the author's
+        # ground, 16l / 16n) keeps its upper ground
+        low = not getattr(w, "sunk_rule", "") and w.top_y is not None
         smear = wall_smear_m(h)
         pts: list = list(by_id[oid].stations) if oid in by_id else []
         for i, g in enumerate(w.pieces):
             faces = _wall_faces(g)
             k = None if faces is None else _upper_index(dem, w, i, faces, smear)
             if k is not None:
-                pts.extend(_upper_stations(faces[k], grid_m, step_m))
+                pts.extend(_face_stations(faces[1 - k] if low else faces[k],
+                                          grid_m, step_m))
         if not pts and ring is not None:
-            pts = _high_ring(dem, w.pieces, float(ring), clear)
+            pts = _side_ring(dem, w.pieces, float(ring), clear, low)
+        if low:
+            pts = _lowest(dem, pts, clear)
         if pts:
-            by_id[oid] = _RetainingSeat(oid, float(w.retained_top_y), tuple(pts),
-                                       str(w.resource or ""))
+            y = float(w.top_y) - float(w.height_m) if low else float(w.retained_top_y)
+            by_id[oid] = _RetainingSeat(oid, y, tuple(pts), str(w.resource or ""))
     # the wall's frame rides its plate: every other member of its placement
     # unit no other rule seats (one origin, one lift: one seat)
     frame = _frame_of(airport)

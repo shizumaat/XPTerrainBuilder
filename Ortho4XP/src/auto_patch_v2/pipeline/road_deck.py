@@ -110,7 +110,7 @@ def _to_cut(axis: LineString, decks) -> "tuple[LineString, str] | None":
     pts = [(ax + d[0] * s0, ay + d[1] * s0)] if s0 < -1e-3 else []
     pts += c
     pts += [(ax + d[0] * s1, ay + d[1] * s1)] if s1 > L + 1e-3 else []
-    return LineString(pts), oid
+    return LineString(pts).simplify(0.01), oid
 
 
 def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":

@@ -153,6 +153,15 @@ def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
     ring = deck_polygon(db)
     solved = getattr(stage1, "solved", None) if stage1 is not None else None
     smp = _samples(stage1.pm, solved, ring) if solved else []
+    if smp:
+        # ... and stage 1's surface read along each edge every 2 m: its ring
+        # filled with the carried pavement is no edge chain there, so its
+        # few vertices near an edge miss the pavement between them (KPHX
+        # o4gen_6494eed8 at the class width x 2: five samples over its 76 m
+        # end, the top 0.9 m under the pavement past it); the full map's
+        # airside the coordinate join missed takes the same surface
+        # (:func:`_zone_pins`)
+        smp += _edge_tin(stage1, ring, fr)
     got = edge_profiles(*fr, smp, tol=_ON_RING_M) if smp else None
     if got is None:
         # stage 1 carried no pavement over the ring (a pack structure kept
@@ -161,14 +170,19 @@ def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
         got = edge_profiles(*fr, smp, tol=_ON_RING_M)
     if got is None and solved:
         # ... else stage 1's surface round the ring, read across it (a TIN)
-        from shapely.prepared import prep
-        tin = _tin(stage1, prep(ring.buffer(_ON_RING_M)))
-        if tin is not None:
-            o, u, w = fr
-            smp = [(x, y, z) for x, y in _edge_points(o, u, w, 2.0)
-                   if (z := tin((x, y))) is not None]
-            got = edge_profiles(*fr, smp, tol=_ON_RING_M)
+        smp = _edge_tin(stage1, ring, fr)
+        got = edge_profiles(*fr, smp, tol=_ON_RING_M) if smp else None
     return got, len(smp)
+
+
+def _edge_tin(stage1, ring, fr) -> list[tuple[float, float, float]]:
+    """Stage 1's surface (:func:`_tin`) every 2 m round the parallelogram
+    ``fr``, where it reads one."""
+    from shapely.prepared import prep
+    tin = _tin(stage1, prep(ring.buffer(_ON_RING_M)))
+    if tin is None:
+        return []
+    return [(x, y, z) for x, y in _edge_points(*fr, 2.0) if (z := tin((x, y))) is not None]
 
 
 def _edge_points(o, u, w, step: float) -> list[tuple[float, float]]:

@@ -23,7 +23,14 @@ deck's TOP is known -- the no-bridge pavement over its ring, a Coons patch
 * THE ABUTMENTS: never under the cone the airside pavement (a stage-2
   constant: the deck's end lines and every pavement edge beside the cut)
   throws down at the same slope -- the embankment from each end line to
-  the floor, and no pavement edge undercut.
+  the floor, and no pavement edge undercut;
+* THE ENDS LAND (owner RULINGS 2026-11-19s (8) (d): "The terrain on either
+  end of each cut should be graded up to match the taxiway height"): past
+  each end line, across the deck's whole width (its shoulders over the
+  ground as well as its pavement), the ground stands at the end's level
+  for ``[deck_gen] end_landing_m``, then falls at the bank's slope -- an
+  embankment over the survey where the ground lies lower, so no deck end
+  floats (KPHX 1.0.566: the ground 0.3 m past a shoulder 1 m under it).
 
 UNDER THE RING the rule is absolute (owner 2026-11-20T00:30Z): a vertex
 on the floor stands at its deck's floor, any other on the embankment from
@@ -245,6 +252,20 @@ def _tunnel_regions(pm, gen: _t.AbstractSet[str]):
     return tuple(prep(unary_union(parts[k])) if parts[k] else None for k in (True, False))
 
 
+def _landing(rings, xy, bank: float, landing: float) -> float:
+    """The highest level the END LANDINGS (module doc) ask of ``xy``: per
+    deck, past an end line within the deck's width, the end's level less
+    ``bank`` per metre past ``landing``; ``-inf`` off every landing."""
+    best = -math.inf
+    for _r, top, _fl in rings:
+        sp, tp = top.st(*xy)
+        if not (0.0 <= tp <= 1.0) or 0.0 <= sp <= 1.0:
+            continue
+        past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
+        best = max(best, top.z_st(0.0 if sp < 0.0 else 1.0, tp) - bank * max(0.0, past - landing))
+    return best
+
+
 def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[int],
                  values: _t.Mapping[int, float], fixed: _t.Mapping[int, float], law
                  ) -> tuple[dict[int, float], dict]:
@@ -310,7 +331,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     rings = [(prep(deck_polygon(d)), tops[d.object_id], floors[d.object_id]) for d in decks
              if d.object_id in floors and tops.get(d.object_id) is not None]
     out: dict[int, float] = {}
-    n_fill = 0
+    n_fill = n_land = 0
+    landing = float(law.tables.structures.deck_gen.end_landing_m)
     for i in np.nonzero(np.isfinite(t))[0]:
         v = vids[int(i)]
         vx = pm.vertices[v]
@@ -324,7 +346,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             continue            # a pack deck's own cut keeps its floor (19s (4))
         mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or any(
             str(pm.faces[f].ref).startswith(CARVE_REF + ":") for f in vx.incident_faces)
-        if not (mine or cut < g - _UNDER_M):
+        land = -math.inf if floor_v[i] else _landing(rings, vx.xy, bank, landing)
+        if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)
         if ring_of is not None:
@@ -349,8 +372,12 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             if lo > cut:
                 n_fill += 1
                 cut = lo if inside else min(g, lo)
+        if land > cut:
+            # the end's landing: graded up over the survey (module doc)
+            n_land += 1
+            cut = land
         out[v] = round(cut, 4)
     for r in rep.values():
         r["bank_slope"] = round(bank, 3)
-    rep["_vertices"] = {"levelled": len(out), "abutment_raised": n_fill}
+    rep["_vertices"] = {"levelled": len(out), "abutment_raised": n_fill, "end_landing": n_land}
     return out, rep

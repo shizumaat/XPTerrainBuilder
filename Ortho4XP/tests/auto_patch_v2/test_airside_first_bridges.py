@@ -5,6 +5,7 @@ the carve never fixes or frees an airside level it should not; the lip
 runs on the sides only.  Headless, synthetic."""
 from __future__ import annotations
 
+import math
 import types
 
 import pytest
@@ -214,3 +215,19 @@ def test_the_deck_axis_runs_along_its_route_whatever_its_seats_say():
     centre = types.SimpleNamespace(line=1, light=0, points=[(40e-5, -50e-5), (40e-5, 80e-5)])
     fr = dob._deck_frame(rec, [centre])
     assert abs(fr.heading_deg % 180.0 - 90.0) < 1.0     # along the route, not the centreline
+
+
+def test_the_ground_past_each_deck_end_lands_at_its_level():
+    """RULINGS 2026-11-19s (8) (d): past an end line, across the deck's
+    width, the ground stands at the end's level for ``end_landing_m``, then
+    falls at the bank's slope; beside the deck (over the cut) it asks nothing."""
+    from auto_patch_v2.constraints.deck_carve import _landing
+    flat = ((0.0, 100.0), (1.0, 100.0))
+    top = CoonsPatch((0.0, 0.0), (0.0, 50.0), (40.0, 0.0), flat, ((0.0, 101.0), (1.0, 101.0)),
+                     ((0.0, 100.0), (1.0, 101.0)), ((0.0, 100.0), (1.0, 101.0)))
+    rings = [(None, top, 94.0)]
+    assert _landing(rings, (20.0, -2.0), 0.5, 3.0) == pytest.approx(100.0)
+    assert _landing(rings, (20.0, -5.0), 0.5, 3.0) == pytest.approx(99.0)
+    assert _landing(rings, (20.0, 52.0), 0.5, 3.0) == pytest.approx(101.0)
+    assert _landing(rings, (-5.0, -2.0), 0.5, 3.0) == -math.inf     # beside: the cut
+    assert _landing(rings, (20.0, 25.0), 0.5, 3.0) == -math.inf     # under the deck

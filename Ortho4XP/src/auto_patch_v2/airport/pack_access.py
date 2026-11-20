@@ -8,7 +8,7 @@ those folders, so every one of them fails — and before #2174 the pack
 lock reported that as "another write held its lock for 900 s".
 
 * :func:`readonly_folders` — the pack's folders a write cannot create a
-  file in, of those a build writes (:func:`edit_folders`: the pack root,
+  file in, of those a build writes (:func:`_edit_folders`: the pack root,
   its ``Earth nav data`` and DSF folders, and every folder holding a
   scenery file a build rewrites or writes a sibling of, :data:`EDIT_KINDS`;
   #2198: a ``plugins`` folder, or any other with nothing to edit, is never
@@ -32,7 +32,7 @@ import tempfile
 import typing as _t
 
 __all__ = ["PackReadOnlyError", "readonly_folders", "make_writable",
-           "relative_folders", "edit_folders", "EDIT_KINDS"]
+           "relative_folders", "EDIT_KINDS"]
 
 #: the folder X-Plane's scenery packs live in; nothing else is changed
 CUSTOM_SCENERY = "Custom Scenery"
@@ -97,7 +97,7 @@ def _write_folders(pack_root: str) -> list[str]:
     return out
 
 
-def edit_folders(pack_root: str) -> list[str]:
+def _edit_folders(pack_root: str) -> list[str]:
     """The pack's folders a build may write, in walk order: the write
     folders (:func:`_write_folders`) and every folder holding a file of
     :data:`EDIT_KINDS` (#2198: never one with nothing to edit, such as a
@@ -109,13 +109,13 @@ def edit_folders(pack_root: str) -> list[str]:
 
 
 def readonly_folders(pack_root: str) -> list[str]:
-    """The folders of :func:`edit_folders` a write cannot create a file
+    """The folders of :func:`_edit_folders` a write cannot create a file
     in, in walk order (``[]``: writable, or no such folder).  Never
     raises."""
     if not pack_root or not os.path.isdir(pack_root):
         return []
     try:
-        bad = [d for d in edit_folders(pack_root)
+        bad = [d for d in _edit_folders(pack_root)
                if not os.access(d, os.W_OK)]
         seen = set(bad)
         bad += [d for d in _write_folders(pack_root)
@@ -143,7 +143,7 @@ def _refusal(pack_root: str) -> str:
 
 def make_writable(pack_root: str) -> list[str]:
     """Add the owner's write permission (``u+w``) to every folder of
-    :func:`edit_folders` and the files in it that lack it (#2198: a folder
+    :func:`_edit_folders` and the files in it that lack it (#2198: a folder
     with nothing to edit is left as it is); a symbolic link is never
     followed or changed.  Returns the paths changed.  Raises
     ``PermissionError`` with the user's sentence when the pack may not be
@@ -160,7 +160,7 @@ def make_writable(pack_root: str) -> list[str]:
         os.chmod(path, stat.S_IMODE(st.st_mode) | stat.S_IWUSR)
         changed.append(path)
 
-    for folder in edit_folders(pack_root):
+    for folder in _edit_folders(pack_root):
         add(folder)
         for e in os.scandir(folder):
             if e.is_file(follow_symlinks=False):

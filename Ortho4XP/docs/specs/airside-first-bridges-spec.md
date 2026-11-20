@@ -75,19 +75,34 @@ deck), its stage 1 identical to the plain replay's.  The 19s bar is
 
 ## 7. Not done in this round (lbridge2)
 
-* THE CARVE UNDER A ROAD THE PATCH DOES NOT DRAW.  A covered PUBLIC road
-  (KBNA taxiway L: -3437/-3439 unclassified, -4944/-4946 primary, mapped
-  tunnels 19 m apart) is drawn by X-Plane's road network on the mesh, not as
-  a patch ribbon: its bore is admitted now (`planar/structures`: the 19 m
-  gap between two tunnels under our decks joins them, one bore; before,
-  both were refused "no portal") but the structure pass mints no corridor
-  cells for a road with no ribbon, so the ground under the deck is still
-  the mesh's lidar -- no designed floor, no embankment, no ramp back at the
-  grade cap.  Needs: corridor cells (floor at min(lidar road, underside -
-  clearance), 1V:1.5H banks at each abutment, the ramp along the road's own
-  path at `[tunnel] ramp_max_grade`, rail 1.25 %) minted for a bore with no
-  ribbon.  Where the covered road IS a ribbon (KRDU, KIAH, KJFK, KPHX,
-  KORD's service roads) the existing corridor carves it and the floor pins
-  follow section 1 row 4.
+* THE CARVE UNDER A ROAD THE PATCH DOES NOT DRAW -- done in lane lcarve,
+  section 8.
 * No wall-vs-embankment rule beyond today's generated-deck bank
   (`model/deck_bank`, 1V:1.5H via `constraints/edge_deck` span/blend rows).
+
+## 8. The cut is the deck's (lane lcarve, 2026-11-19)
+
+Owner 23:07Z: "When we insert a bridge, we know the size and shape of the
+cut needed to provide the clearance under it, whether there's OSM or not
+... we have to add the cut to the patch"; 23:09Z: "If we insert a bridge,
+we need the cut, and the cut needs to grade smoothly away from the bridge
+back to the natural terrain."  Law 19s (2)-(4).
+
+| step | where | what |
+|------|-------|------|
+| record | `planar/deck_carve._deck_paths` -> `DeckBridge.carve` (`model/deck_carve.DeckCarve`) | per generated deck: its EVIDENCE (OSM road / rail per covered way, hidden pack frame, OSM bridge tag, lidar trench) and its ONE CUT (owner 00:33Z: the full width of the bridge, a single cut regardless of the roads under it) -- along its most senior covered road or rail (rail first, then road class) on its own line, chained on along its mapped OSM path; the trench spans the deck between its end lines (`span`, signed offsets across the line) and its floor carries at least every road under it with its shoulders (`need`) (straight on past the map's end) as far as its ramp can need (`floor_min_m + 2 m` at the cap, both curves, 20 m; at most `[tunnel] max_ramp_length_m`); with none mapped, the cut's own axis (the deck's road line, else along its end lines). Per path: the floor's half width (carriageway + `[deck_gen] shoulder_m`), the road's clearance (`model/road_clearance`), cap (`[tunnel] ramp_max_grade`; rail `rail_ramp_grade` 1.25 %), vertical-curve rate (`[road_profile] vertical_curve_k_m` / rail), the STRETCH under every generated deck it passes (ring + `bank_past_edge_m`), the surveyed ground along it (`airport.dem`, every 2 m) |
+| cells | `planar/deck_carve.deck_carve` (full map only, after `deck_ground`) | `graded_strip` faces `deck_carve:<deck>:floor/bank/ground`: the floor strip, the banks out to the estimated daylight line (1V:1.5H), the ring and its opened approaches; cut out of every groundside cell they cross, never airside pavement, a runway, a structure, a building pad or a road ribbon; noded every 4 m. The corridor cells the structure pass cut under a generated deck (a ribbon road's tunnel, its deck ground) are the deck's cut too: split along the roads' floors so the mesh carries vertices on every floor edge |
+| levels | `constraints/deck_carve.carve_levels`, called from `deck_floor_follow` once the tops are known | ONE floor per cut: `min(lidar road, least underside - clearance)` over every road under it; two decks closer than a ramp up to the ground and back down at the cap are one cut at full depth between them, ramps only on the outer ends (`geom/carve_profile.merged`, owner 00:33Z); the floor band is the deck's span less each abutment's embankment (`model/deck_carve.floor_band`), never narrower than its roads (a wall there); the floor is level under the deck at its lowest underside over the ring; UNDER THE RING the rule is absolute (owner 00:30Z): floor vertices at the deck's floor, the rest on the embankment from the nearer end line (the lidar road its lowest survey within `[deck_gen] level_probe_m` of the stretch: a bare-earth survey reads the bridge's fill under the deck); along each path `geom/carve_profile.floor_profile` -- level under each deck, straight through the gap to the next deck over the same road, ramping out at the cap with vertical curves until it meets the surveyed ground (an LP, `O4_Road_Grade._smooth_grade_changes`); across, a vertex on a road's floor (its half width + 0.5 m snap) takes that floor, off every floor the deepest bank at 1V:1.5H; `min(ground, cut)`; never under the cone (1V:1.5H) the airside constants throw down -- the abutment embankment from each end line (under the ring and its approaches it may stand over the ground; beyond, never) -- except a road's floor, which is never raised: where the road needs it, the bank is a wall. Decks whose cuts share a road are ONE cut, one floor (the deepest). Ramps are designed at 95 % of the cap (the mesh between 4 m-noded floor edges reads a little steeper over a short run). Every groundside vertex on the cut's cells, under the ring / approaches, in a corridor the structure pass cut under a generated deck, or where the cut stands under the ground is a STAGE-2 CONSTANT (`stage2_fixed`); the pins and flat groups on them leave with them (a pin outranks a constant, `solve/rows._reduce`); airside never. A pack deck's corridor outside the generated deck's own ground keeps its floor |
+
+Bars: `tools/deck_probe.py --carve` (library `tools/deck_carve_bars.py`).
+
+
+### 8.1 Lane lcarve2 (2026-11-20): the deck spans its crossing; one line per cut; the stage-2 airside held
+
+| item | where | what |
+|------|-------|------|
+| the deck spans its crossing | `planar/deck_width._spans_cover`, fed by `planar/deck_generated._route_pieces` (`_airside_near`, `_on_past`) | each route deck grows (along its route and across it, in place) over every part of its covered roads' carriageway + `[deck_gen] shoulder_m` that runs under AIRSIDE pavement (`airside_stage_roles`) past the piece and touches the ring -- the road's line read 30 m straight on past its cover's ends (a pack junction's corner over the road's edge counts); never onto the pack's own decks, frames or near decks (growth that reaches further onto them is undone: the pack always wins, B1 (c)). Measured KRDU 1.0.565 `-255`: the apron `gapapron:5` stood at its no-bridge level at the deck's side, clearance -5.0 m; KORD `-3879` / `-5312` under `dsf:pol35`'s corner |
+| one line per cut | `planar/deck_carve._cut_groups`, `_shared_mains` | decks that each run under the other's path are ONE line: the most senior road crossing every deck of the group (rail first, then the road class; tie by its length under the rings), else the senior road of the group's covered roads; a deck the shared line never runs under keeps its own. Measured KPHX 1.0.565 `o4gen_ebd29231` / `o4gen_eeb202e3` (merged in stage 2, ramping out along two roads, 14-21 %) |
+| the floor along each ring | `planar/deck_carve._ring_dense` (`RING_NODE_M` 2 m) | every non-airside structure cell the cut takes over (a corridor, the deck's ground) is split along each generated deck's ring (`_split_structures`, as along the roads' floors), and every cut cell and such structure cell is noded where its edges cross a ring and every 2 m where they run along one (`planar/chords.densify_within`). Measured KJFK `o4gen_a900c332`: a 35 m triangle from `o4gen_da02fc0d`'s ramp stood 0.15 m over its floor |
+| the ramp owns its floor | `constraints/deck_carve.carve_levels` | a vertex on a path's floor reads its ground as the higher of its own (`dem_z`) and the surveyed path ground there: a corridor the deck took over had lowered its vertices' ground to the old floor (KRDU `-239`: 15 m flat at the tunnel ramp's floor, then 14.6 %) |
+| the stage-2 airside held | `constraints/deck_floor_follow` (`_StageTwo.shadow`, `_stage_two_airside`) -> `solve/stage_shadow.held_levels` (called by `solve/design.solve_design`) | every vertex of a stage-1-role face that stage 2 solves (a plateau's / lower level's apron, a vertex the full map minted, a stage-1 level a rewrite frees; never a road's) is a stage-2 CONSTANT at its level in ONE extra stage-2 solve of the same map without the cut (the final stage-2 set with the pins and flat groups as they stood before the carve -- every other rewrite's rows, the door pads' blend bands among them, kept -- the deck's own fixes, no cut constants), warm-started from the same seed. It supersedes `_near_cut_pins` (deleted: it pinned airside within 60 m of the cut to stage 1's TIN, which the no-bridge solve never does). Measured KORD `pav252#plateau:building31` 0.80 m, KPHX apron / `building18` plateau 0.31 m. Build-time impact: one stage-2 solve more at an airport with a generated deck (KRDU ~30 s) |

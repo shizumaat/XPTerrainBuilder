@@ -132,6 +132,11 @@ def main(argv=None) -> int:
                     help="nothing of the pavement inside a walled span's cut "
                          "(tools/deck_span_clean, walled frames W8): rows per walled deck; "
                          "exit 1 on any")
+    ap.add_argument("--carve", action="store_true",
+                    help="the cut every GENERATED deck owns (tools/deck_carve_bars, owner "
+                         "2026-11-19T23:07Z): per path its evidence, direction, clearance, "
+                         "floor against the rule, ramps back to the terrain and the "
+                         "abutment bank; exit 1 on a FAIL")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -194,6 +199,18 @@ def main(argv=None) -> int:
                   + (f" over {q['lower']}" if q.get("lower") else "")
                   + f": {q['over']}/{q['samples']} sample(s) over {a.cut_cover:g} m, worst "
                   f"{q['worst_m']} m at {q.get('ll')} {q['worst_at']} {q.get('note', '')}")
+    if a.carve:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_carve_bars import carve_bars
+        res["carve"] = carve_bars(pm, z, Law.for_airport(pm.icao))
+        for q in res["carve"]:
+            ok = q["pass_clearance"] and q["pass_grade"] and q["pass_meets"]
+            rc |= not ok
+            print(f"CARVE {'PASS' if ok else 'FAIL'} {q['deck']} {q['kind']} {q['way']}: "
+                  f"clearance {q['clearance_min_m']} (need {q['need_m']}), floor "
+                  f"{q['floor_m']} rule {q['floor_rule_m']}, ramps {q.get('ramp_before')} "
+                  f"{q.get('ramp_after')} cap {q['cap']}, bank {q.get('bank_slope_max')}; "
+                  f"{', '.join(q['evidence'])}; {q['direction']}")
     if a.bank_perimeter:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from deck_bank_perimeter import bank_perimeter

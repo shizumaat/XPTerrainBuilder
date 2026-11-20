@@ -137,3 +137,55 @@ def test_one_taxiway_of_many_edges_is_one_deck_and_its_ends_are_read():
     assert ends is not None
     for e in ends:
         assert len({round(lat, 6) for lat, _lon in e}) == 1     # one edge each, along the road
+
+
+def test_a_deck_spans_its_roads_whole_cover():
+    """lane lcarve2: a road that runs on under pavement past the deck's side
+    (an apron the piece does not hold) is under the deck to the cover's end."""
+    from shapely.geometry import LineString
+
+    from auto_patch_v2.planar.deck_width import route_decks
+    nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
+        a=1, b=2, name="A", is_runway=False, width_class="C")])
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+    # the road runs along x and stays covered to x = 30 (the apron past the piece)
+    cover = LineString([(-10.0, 0.0), (30.0, 0.0)]).buffer(5.0, cap_style="flat")
+    (ring, note), = route_decks(piece, (1.0, 0.0), airport, _law(), None,
+                                cover.difference(Polygon([(-12.5, -15), (12.5, -15),
+                                                          (12.5, 15), (-12.5, 15)])))
+    assert ring.bounds[2] == pytest.approx(30.0)
+    assert ring.bounds[0] == pytest.approx(-12.5)          # the open side stays
+    assert "whole cover" in note
+    (plain, _n), = route_decks(piece, (1.0, 0.0), airport, _law())
+    assert plain.bounds[2] == pytest.approx(12.5)
+
+
+def test_the_stage_two_airside_is_held_at_the_solve_without_the_cut():
+    """lane lcarve2 (RULINGS 2026-11-19s (1)): every airside vertex stage 2
+    solves is a constant at the shadow's level -- the set with the pins and
+    flats as before the cut, every other row kept; a fixed one stays."""
+    import dataclasses
+
+    from auto_patch_v2.solve.stage_shadow import held_levels
+    cs = types.SimpleNamespace(pins=("cut pin",), flats=("cut flat",), bands=("door band",))
+    seen: dict = {}
+
+    def solve(cs_x, fixed):
+        seen.update(pins=cs_x.pins, flats=cs_x.flats, bands=cs_x.bands, fixed=dict(fixed))
+        return types.SimpleNamespace(z=[10.0, 11.0, 12.0, 13.0]), None
+    shadow = {"pins": ("pin",), "flats": (), "fixed": {0: 10.0}, "free": frozenset({1}),
+              "hold": {1, 2, 3}}
+    rep: dict = {}
+
+    @dataclasses.dataclass(frozen=True)
+    class CS:
+        pins: tuple
+        flats: tuple
+        bands: tuple
+    got = held_levels(shadow, CS(cs.pins, cs.flats, cs.bands), {1: 5.0, 3: 7.0},
+                      {3: 7.5}, lambda c, free: c, solve, rep)
+    assert seen["pins"] == ("pin",) and seen["flats"] == () and seen["bands"] == ("door band",)
+    assert seen["fixed"] == {0: 10.0, 3: 7.0}            # stage 1's, less the freed
+    assert got == {3: 7.5, 1: 11.0, 2: 12.0}             # held; the fixed one kept
+    assert rep["stage2_shadow"]["held"] == 2

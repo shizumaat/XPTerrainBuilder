@@ -113,12 +113,14 @@ def _reach(b: float, sign: float, a0: float, a1: float, u: XY, w: XY, pave_at, r
     return b
 
 
-def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None
-                ) -> list[tuple[Polygon, str]]:
+def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
+                cover=None, avoid=None) -> list[tuple[Polygon, str]]:
     """``(deck ring, note)`` per taxi route across ``piece`` (module doc);
     ``[]`` where no route crosses it at an angle to the road (the caller
     keeps the piece).  ``pave_at(xy)``: whether the airport's pavement
-    stands there -- each end then reaches it (:func:`_reach`)."""
+    stands there -- each end then reaches it (:func:`_reach`).  ``cover``:
+    the cover each covered road needs past the piece, ``avoid`` where the
+    pack stands (:func:`_spans_cover`)."""
     if road_dir is None or piece.is_empty:
         return []
     ux, uy = road_dir
@@ -142,11 +144,55 @@ def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
             b0 = _reach(b0, -1.0, a_c - ha, a_c + ha, (ux, uy), (wx, wy), pave_at, reach)
             b1 = _reach(b1, 1.0, a_c - ha, a_c + ha, (ux, uy), (wx, wy), pave_at, reach)
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
-        got.append([(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
-                    f"taxiway {'/'.join(names) or '?'} class "
-                    f"{letter or (common or '?') + ' (the airport common)'}: deck "
-                    f"{width:g} m wide (taxiway + shoulders, RULINGS 2026-11-19s (4) (c))"])
+        d = [(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
+             f"taxiway {'/'.join(names) or '?'} class "
+             f"{letter or (common or '?') + ' (the airport common)'}: deck "
+             f"{width:g} m wide (taxiway + shoulders, RULINGS 2026-11-19s (4) (c))"]
+        grown = _spans_cover((ux, uy), d, cover, avoid)
+        if grown:
+            d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
+        got.append(d)
     return [(_ring((ux, uy), d), d[6]) for d in _merged((ux, uy), got)]
+
+
+def _spans_cover(u: XY, d: list, cover, avoid=None) -> float:
+    """THE DECK SPANS ITS CROSSING (lane lcarve2): ``d``'s ring grown, in
+    place, over every part of ``cover`` it touches -- the carriageway and
+    its shoulders of each road the pavement covers, where it runs on under
+    pavement past the piece (an apron or a pack junction the road leaves
+    the deck under: KRDU 1.0.565 ``-255`` met the apron's no-bridge level
+    at the deck's side, 5 m short of its clearance).  The deck is the
+    airside pavement there (stage 1 solves its ring paved), so growing it
+    never moves airside.  Growth that would reach further onto ``avoid``
+    (the pack's own decks and frames: the pack always wins, B1 (c)) is
+    undone.  Returns how far it grew (m, the larger of the two directions)."""
+    if cover is None or cover.is_empty:
+        return 0.0
+    a0, a1, b0, b1 = d[2], d[3], d[4], d[5]
+    on_pack = _ring(u, d).intersection(avoid).area if avoid is not None else 0.0
+    parts = [q for q in getattr(cover, "geoms", [cover]) if q.geom_type == "Polygon"
+             and q.area > 0.5]
+    for _ in range(4):
+        ring = _ring(u, d).buffer(_TOUCH_M)
+        hit = [q for q in parts if q.intersects(ring)]
+        if not hit:
+            break
+        parts = [q for q in parts if not q.intersects(ring)]
+        for q in hit:
+            (qa0, qa1), (qb0, qb1) = _span(u, d[0], q.exterior.coords)
+            d[2], d[3] = min(d[2], qa0), max(d[3], qa1)
+            d[4], d[5] = min(d[4], qb0), max(d[5], qb1)
+    if avoid is not None and _ring(u, d).intersection(avoid).area > on_pack + 1.0:
+        d[2], d[3], d[4], d[5] = a0, a1, b0, b1
+        return 0.0
+    lw = math.hypot(*d[0])
+    da = max(a0 - d[2], d[3] - a1) * abs(d[1]) / max(lw, 1e-9)
+    db = max(b0 - d[4], d[5] - b1) * abs(d[1])
+    return max(da, db, 0.0)
+
+
+#: a cover part this near a deck's ring runs on from it (m)
+_TOUCH_M = 0.5
 
 
 def _span(u: XY, w: XY, pts) -> tuple[tuple[float, float], tuple[float, float]]:

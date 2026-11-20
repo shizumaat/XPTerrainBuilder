@@ -53,6 +53,7 @@ from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .survey_deck_cut import cut_pavement, region_union, survey_deck_cuts
 from .grade_separation import road_crossings
 from ..geom.parts import polygon_parts_with_area
+from .deck_carve import deck_carve
 from .deck_generated import carried_off, generated_decks
 from .deck_pack_cover import hidden_cells_off
 from .deck_takeover import attach, full_hidden, roads_under, take_frames
@@ -460,6 +461,12 @@ def build(airport: Airport, classification: Classification, law: Law,
     classification, ground_notes = deck_ground(classification, tunnels, law,
                                                region_union(survey_deck), decks)
     sstats.hard_decks.extend(ground_notes)
+    # owner 2026-11-19T23:07Z: the cut is the GENERATED deck's own -- its
+    # floor, banks and ramps back to the terrain along the road's path
+    # (``planar/deck_carve``), ribbon or not, mapped road or not
+    classification, decks, carve_notes = deck_carve(classification, decks, airport, law,
+                                                     tunnels)
+    sstats.hard_decks.extend(carve_notes)
     # #2099 R2: the ground beside a grouped mouth's wings stands on their
     # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs
     classification, wcuts, wing_notes = wing_cuts(airport, objects, cache, decks, tunnels,

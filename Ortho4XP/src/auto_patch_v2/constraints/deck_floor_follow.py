@@ -32,9 +32,9 @@ import dataclasses as _dc
 import typing as _t
 
 from ..geom.coons_patch import CoonsPatch, edge_profiles
-from .edge_floor import DECK_FLOOR
 from ..geom.exact import hypot
 from ..geom.rotated_rect import rotated_rectangle
+from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]
 
@@ -56,6 +56,9 @@ class _StageTwo:
     fixed: dict = _dc.field(default_factory=dict)
     free: frozenset = frozenset()
     tops: dict = _dc.field(default_factory=dict)
+    #: the stage-2 problem without the cut and the airside to hold at its
+    #: answer (``solve/stage_shadow``)
+    shadow: dict = _dc.field(default_factory=dict)
 
     def stage_two(self, rep: _t.Mapping) -> dict:
         """The keys the caller's rewrite report takes: this report, and the
@@ -69,6 +72,9 @@ class _StageTwo:
             out["stage2_free"] = frozenset(rep.get("stage2_free") or ()) | self.free
         if self.tops:
             out["generated_tops"] = dict(self.tops)
+        if self.shadow:
+            out["stage2_shadow"] = {**self.shadow, "free": frozenset(
+                rep.get("stage2_free") or ()) | frozenset(self.shadow.get("free") or ())}
         return out
 
 
@@ -175,6 +181,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     fixed: dict[int, float] = {}
     free: set[int] = set()
     tops: dict[str, dict] = {}
+    patches: dict[str, CoonsPatch] = {}
     target: dict[str, float] = {}
     for d in decks:
         patch, n_smp = _patch(d, stage1, pm, levels)
@@ -183,6 +190,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
             continue
         tops[d.object_id] = {"o": list(patch.o), "u": list(patch.u), "w": list(patch.w),
                              **patch.as_record()}
+        patches[d.object_id] = patch
         target[d.object_id] = patch.low() - float(d.floor_min_m)
         rep["top_low"][d.object_id] = round(patch.low(), 3)
         rep["samples"][d.object_id] = [len(patch.a), len(patch.b), len(patch.s0), len(patch.s1)]
@@ -208,9 +216,52 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
             elif v in levels and v not in air:
                 free.add(v)
     _zone_pins(pm, (*decks, *held), stage1, law, air, levels, low, fixed)
+    # owner 2026-11-19T23:07Z: the cut is the deck's -- its floor, banks,
+    # abutment embankments and ramps back to the terrain, levelled from the
+    # top just read (``constraints/deck_carve``); never an airside vertex
+    from .deck_carve import carve_levels
+    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law) \
+        if law is not None else ({}, {})
+    # the same problem without the cut: its answer holds the stage-2 airside
+    shadow = {"pins": cs.pins, "flats": cs.flats, "fixed": dict(fixed),
+              "free": frozenset(free), "hold": _stage_two_airside(pm, law)} if cut else {}
+    fixed.update(cut)
+    free.difference_update(cut)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
     cs2 = _floor_pins(pm, cs, target, rep)
-    return cs2, _StageTwo(rep, fixed, frozenset(free), tops)
+    if cut:
+        # a pin outranks a stage-2 constant (``solve/rows._reduce``): the
+        # pins of a cut the deck took over (its tunnels' floors and mouths)
+        # leave with it
+        kept = tuple(p for p in cs2.pins if p.v not in cut)
+        # ... and so does a flat group's (a floor held level with vertices
+        # the deck did not take: its pin would reach them through the group)
+        flats = tuple(f2 for f2 in (_dc.replace(f, group=tuple(v for v in f.group
+                                                               if v not in cut))
+                                    for f in cs2.flats) if len(f2.group) >= 2)
+        rep["carve"]["_vertices"]["pins_dropped"] = len(cs2.pins) - len(kept)
+        rep["carve"]["_vertices"]["flats_left"] = sum(
+            1 for f in cs2.flats if set(f.group) & set(cut))
+        cs2 = _dc.replace(cs2, pins=kept, flats=flats)
+    return cs2, _StageTwo(rep, fixed, frozenset(free), tops, shadow)
+
+
+def _stage_two_airside(pm, law) -> frozenset:
+    """The AIRSIDE-CLASS vertices: every vertex of a face whose role is
+    stage 1's (``law.tables.airside_stage_roles``), a road's weld to the
+    pavement among them.  Those stage 2 solves -- a plateau's or a lower
+    level's pavement, a vertex the full map minted, a stage-1 level a
+    rewrite hands stage 2 (``stage2_free``) -- are held
+    (``solve/stage_shadow``); the rest are stage-2 constants already, the
+    cut's own among them."""
+    from ..law.tables import airside_stage_roles
+    roles = set(airside_stage_roles(law))
+    out: set[int] = set()
+    for f in pm.faces.values():
+        if f.role in roles:
+            for ring in (f.ring, *f.holes):
+                out.update(pm.ring_vertices(ring))
+    return frozenset(out)
 
 
 def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:

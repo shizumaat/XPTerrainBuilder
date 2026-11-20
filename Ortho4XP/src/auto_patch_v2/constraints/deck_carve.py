@@ -306,14 +306,17 @@ def _landing(rings, xy, bank: float, landing: float) -> float:
     """The highest level the END LANDINGS (module doc) ask of ``xy``: per
     deck, past an end line, the end's level less ``bank`` per metre past
     ``landing`` and per metre beside the deck's width (its corners fall
-    away as a cone); ``-inf`` between the end lines of any deck within a
-    deck's width of it (its cut: KRDU, one deck's landing stood in its
-    neighbour's trench, 2.1 m of its 4.2 m clearance)."""
+    away as a cone).  Within the deck's width the landing is the deck's
+    (KORD ``o4gen_bba4397d``: its neighbour's bank stood 4.8 m under its
+    end); its corner cone never stands in a cut -- between the end lines of
+    a deck within a deck's width of it (KRDU, a landing in the neighbour's
+    trench)."""
     st = [top.st(*xy) for _r, top, _fl in rings]
-    if any(0.0 <= sp <= 1.0 and -1.0 <= tp <= 2.0 for sp, tp in st):
-        return -math.inf
+    in_cut = any(0.0 <= sp <= 1.0 and -1.0 <= tp <= 2.0 for sp, tp in st)
     best = -math.inf
     for (_r, top, _fl), (sp, tp) in zip(rings, st, strict=True):
+        if 0.0 <= sp <= 1.0 or (in_cut and not 0.0 <= tp <= 1.0):
+            continue
         past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
         side = max(-tp, tp - 1.0, 0.0) * _hyp(top.w)
         z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))

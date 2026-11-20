@@ -252,6 +252,7 @@ CAPABILITIES: tuple = (
     "world_tiles_waiting",          # 2026-11-19, #2175 WorldTilesWaiting (staged tiles)
     "custom_patch_notice",          # 2026-11-19, #2179 notices + custom_patch_notice_seen
     "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
+    "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
 )
 
 
@@ -1036,7 +1037,16 @@ class PackOverlaps(EngineEvent):
     "drapes"`` (RULINGS 2026-11-19h, ``auto_patch.drape_overlap_stage``)
     is ``lower``'s draped polygons inside the custom airport of
     ``default`` (the airport pack): ``winner`` the airport pack hides
-    them, ``"both"`` keeps them.  ``state``:
+    them, ``"both"`` keeps them.
+
+    The condensed question (capability ``pack_overlaps_default``, #2190):
+    every row's ``prefer`` / ``keep`` is the ``winner`` "Prefer the
+    airports" / "Keep everything" gives it (``""``: that answer cannot
+    decide the pair -- two airport packs -- so it is still asked);
+    ``default`` is the answer stored for all tiles (``"prefer_airports"``,
+    ``"keep_all"``, ``""`` none), which ``pack_overlaps`` ``default`` sets.
+    With one stored, a build answers the rows it decides itself and asks
+    only about the rest.  ``state``:
 
     * ``"found"`` — (build) ask, one picker per pair: **Apply** sends
       ``pack_overlaps`` with ``action="choose"`` and ``items``
@@ -1056,6 +1066,7 @@ class PackOverlaps(EngineEvent):
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""
+    default: str = ""
 
 
 @dataclass(frozen=True)

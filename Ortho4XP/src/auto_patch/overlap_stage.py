@@ -19,11 +19,14 @@ to take priority."
 * :func:`overlap_stage` — the build's call once a tile is built
   (``o4_engine.session``, on a thread of its own): the rows the user has
   not answered announced as ``PackOverlaps(state="found")`` (the report,
-  ``"ask"``, lists every row).  Never raises.
+  ``"ask"``, lists every row).  With a default for all tiles (#2190,
+  ``pack_overlap_default``) the rows it decides are answered at once
+  (``state="chosen"``) and only the rest are asked.  Never raises.
 * :func:`overlap_choice` — the ``pack_overlaps`` command: ``"ask"`` (the
   report), ``"choose"`` (``items``: ``{"key", "winner"}`` per pair, the
   winner a pack name or ``"both"``), ``"undo"`` (forget the answers of
-  ``items``' keys).  Each pack whose hiding changed is rewritten at once
+  ``items``' keys; ``default`` sets or clears the default for all tiles).
+  Each pack whose hiding changed is rewritten at once
   (``pack_rewrite.rewrite_dsf``: the write reads the answers,
   ``dsf_write._with_overlap_hides``; its original stays the backup and
   Restore originals puts it back).
@@ -39,7 +42,9 @@ lower one?) in the same event, rows of ``"kind": "duplicate"``, and are
 never also asked about here.
 
 A row: ``{"key", "packs": [a, b], "airport", "default", "winner",
-"count", "rows": [n_a, n_b], "summary"}`` — ``default`` is the airport
+"count", "rows": [n_a, n_b], "summary", "prefer", "keep"}`` (``prefer`` /
+``keep``: the winner each condensed answer gives the pair, ``""`` when it
+cannot decide it, #2190) — ``default`` is the airport
 pack; when both are airport packs (the one case 17s leaves to the ini),
 the pack higher in the user's ``scenery_packs.ini`` (owner
 2026-11-17T20:24Z, RULINGS 17o; alphabetical only among packs the ini
@@ -55,6 +60,7 @@ import typing as _t
 import O4_UI_Utils as UI
 from auto_patch_v2.airport import pack_overlap as _po
 from auto_patch_v2.airport import pack_overlap_choice as _ovc
+from auto_patch_v2.airport import pack_overlap_default as _odf
 
 __all__ = ["ACTIONS", "overlap_stage", "overlap_choice"]
 
@@ -65,7 +71,7 @@ ACTIONS = ("ask", "choose", "undo")
 def _announce(lat: int, lon: int, state: str, items: list, files=(),
               error: str = "") -> None:
     UI.pack_overlaps(lat=int(lat), lon=int(lon), state=state, items=items,
-                     files=list(files), error=error)
+                     files=list(files), error=error, default=_odf.mode())
 
 
 def _candidates(scenery_dir: str, lat: int, lon: int) -> tuple[list[str], list[str]]:
@@ -206,7 +212,16 @@ def _asked(scenery_dir: str, airports: _t.Collection[str],
 
 
 def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
-    """THE TILE'S READING (module doc): one row per pack pair."""
+    """THE TILE'S READING (module doc): one row per pack pair, with what
+    each condensed answer gives it (#2190)."""
+    from .duplicate_stage import family
+    is_airport = family(scenery_dir)[1]
+    return [{**r, **_odf.winners(r, is_airport)}
+            for r in _pairs(scenery_dir, lat, lon, xplane_root)]
+
+
+def _pairs(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
+    """The tile's rows: same-airport, drape and structure pairs."""
     from auto_patch_v2.airport import apt_flatten as _af
 
     from . import drape_overlap_stage as _dov
@@ -248,6 +263,7 @@ def overlap_stage(lat: int, lon: int, xplane_root: str | None) -> list[dict]:
         rows = _detect(os.path.join(xplane_root, "Custom Scenery"), lat, lon,
                       xplane_root)
         rows = [r for r in rows if not r["winner"]]      # answered: not asked again
+        rows = _by_default(xplane_root, lat, lon, rows)
         for r in rows:
             UI.vprint(0, f"  [overlap] {r['summary']}")
         if rows:
@@ -257,6 +273,21 @@ def overlap_stage(lat: int, lon: int, xplane_root: str | None) -> list[dict]:
         UI.vprint(1, f"  [overlap] the overlapping-structure check failed ({exc})")
         UI.vprint(2, traceback.format_exc())
         return []
+
+
+def _by_default(xplane_root: str, lat: int, lon: int, rows: list[dict]
+                ) -> list[dict]:
+    """The unanswered ``rows`` the default for all tiles (#2190) decides,
+    answered (announced ``"chosen"``); returns the rest, still to ask."""
+    field = {_odf.PREFER: "prefer", _odf.KEEP_ALL: "keep"}.get(_odf.mode())
+    picks = [{"key": r["key"], "winner": r[field]} for r in rows
+             if field and r.get(field)]
+    if picks:
+        UI.vprint(0, f"  [overlap] {len(picks)} pack pair(s) answered by the "
+                  "default for all tiles")
+        overlap_choice(xplane_root, "choose", picks, lat, lon)
+    done = {p["key"] for p in picks}
+    return [r for r in rows if r["key"] not in done]
 
 
 def _rewrite(scenery_dir: str, name: str, lat: int, lon: int) -> str:
@@ -276,13 +307,17 @@ def _rewrite(scenery_dir: str, name: str, lat: int, lon: int) -> str:
 
 def overlap_choice(xplane_root: str | None, action: str,
                    items: _t.Sequence[_t.Mapping] = (),
-                   lat: int | None = None, lon: int | None = None) -> dict:
+                   lat: int | None = None, lon: int | None = None,
+                   default: str | None = None) -> dict:
     """THE USER'S ANSWER (module doc); announces the outcome and returns
-    its fields.  Never raises: a failure is ``state="failed"``."""
+    its fields.  ``default`` (``None`` leaves it) sets the default for all
+    tiles, ``""`` clears it.  Never raises: a failure is ``state="failed"``."""
     la, lo = int(lat or 0), int(lon or 0)
     try:
         if action not in ACTIONS:
             raise ValueError(f"unknown action {action!r}")
+        if default is not None:
+            _odf.set_mode(str(default))
         if not xplane_root:
             raise ValueError("no X-Plane install for this tile")
         scenery = os.path.join(xplane_root, "Custom Scenery")

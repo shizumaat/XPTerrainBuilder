@@ -25,11 +25,16 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let summary: String
     public let kind: String
     public let lower: String
+    /// The `winner` "Prefer the airports" / "Keep everything" give the pair
+    /// (#2190); "" when that answer cannot decide it (two airport packs).
+    public let prefer: String
+    public let keep: String
     public var id: String { key }
 
     public init(key: String, packs: [String], airport: String, defaultWinner: String,
                 winner: String, count: Int, rows: [Int], summary: String,
-                kind: String = "", lower: String = "") {
+                kind: String = "", lower: String = "", prefer: String = "",
+                keep: String = "") {
         self.key = key
         self.packs = packs
         self.airport = airport
@@ -40,6 +45,19 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
         self.summary = summary
         self.kind = kind
         self.lower = lower
+        self.prefer = prefer
+        self.keep = keep
+    }
+
+    /// The `winner` the tile's condensed answer `mode` gives the pair; ""
+    /// when it cannot decide it (the pair is listed with its picker).
+    public func winner(for mode: String) -> String {
+        if choices.isEmpty { return "" }
+        switch mode {
+        case O4PackOverlapsCondensedCopy.prefer: return prefer
+        case O4PackOverlapsCondensedCopy.keepAll: return keep
+        default: return ""
+        }
     }
 
     /// Two packs defining the same airport (not a structure pair).
@@ -86,6 +104,9 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     public let files: [String]
     public let state: String
     public let error: String
+    /// The condensed answer stored for all tiles (#2190): `prefer_airports`,
+    /// `keep_all`, or "" none.
+    public let defaultMode: String
 
     /// One question per tile and pair set.
     public var id: String {
@@ -93,13 +114,21 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     }
 
     public init(lat: Int, lon: Int, items: [O4PackOverlap],
-                files: [String], state: String, error: String) {
+                files: [String], state: String, error: String, defaultMode: String = "") {
         self.lat = lat
         self.lon = lon
         self.items = items
         self.files = files
         self.state = state
         self.error = error
+        self.defaultMode = defaultMode
+    }
+
+    /// The tile's condensed answer the question opens on: the stored
+    /// default, else Prefer the airports (owner 2026-11-17T19:15Z).
+    public var initialMode: String {
+        defaultMode == O4PackOverlapsCondensedCopy.keepAll
+            ? defaultMode : O4PackOverlapsCondensedCopy.prefer
     }
 
     /// The pairs to offer: two packs each.
@@ -166,4 +195,25 @@ public enum O4PackOverlapsCopy {
         + "that draw the same structures."
     public static let noPairs = "No two packs draw the same structures on this tile."
     public static let okButton = "OK"
+}
+
+/// The condensed question (#2190, owner 2026-11-20T01:00Z), VERBATIM and
+/// identical to the Qt box (`O4_Qt_Pack_Overlaps.CONDENSED_BODY` …; the twin
+/// `tests/test_qt_pack_overlaps.py` pins it): one answer for the whole
+/// tile, "Use this for all tiles", and the per-pair list one click away.
+public enum O4PackOverlapsCondensedCopy {
+    public static let condensedBody = "Some packs draw scenery in the same places as an airport pack "
+        + "on this tile. Choose for the whole tile:"
+    public static let preferLabel = "Prefer the airports (hide conflicting overlays)"
+    public static let keepAllLabel = "Keep everything"
+    public static let allTiles = "Use this for all tiles"
+    public static let allTilesNote = "Later builds use this answer and ask only about pairs it "
+        + "cannot decide. Pack choices… still opens every pair."
+    public static let undecidedNote = "These pairs need your answer:"
+    public static let byAirport = "Choose by airport…"
+    /// The condensed answers (engine `pack_overlap_default.MODES`), sent
+    /// as `pack_overlaps` `default`.
+    public static let prefer = "prefer_airports"
+    public static let keepAll = "keep_all"
+    // End of the condensed copy.
 }

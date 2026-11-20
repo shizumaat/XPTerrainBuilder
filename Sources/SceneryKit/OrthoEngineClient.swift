@@ -701,11 +701,14 @@ public enum O4Event: Sendable, Equatable {
                         rows: (row["rows"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue } ?? [],
                         summary: row["summary"] as? String ?? "",
                         kind: row["kind"] as? String ?? "",
-                        lower: row["lower"] as? String ?? "")
+                        lower: row["lower"] as? String ?? "",
+                        prefer: row["prefer"] as? String ?? "",
+                        keep: row["keep"] as? String ?? "")
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
-                error: string("error")))
+                error: string("error"),
+                defaultMode: string("default")))
         // Another STRING LITERAL match: `class PackReadOnly` in
         // Ortho4XP/src/o4_engine/events.py.
         case "PackReadOnly":
@@ -1315,11 +1318,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// action "choose" with `winners` `[pair key: pack name or "both"]`,
     /// "undo" (the answers of `winners`' keys forgotten), or "ask" (the
     /// report). The engine replies `{"status": "started"}` and completes with
-    /// a `packOverlaps` event.
+    /// a `packOverlaps` event. `defaultMode` (capability
+    /// `pack_overlaps_default`, #2190) sets the condensed answer for all
+    /// tiles ("" clears it; nil leaves it).
     public func packOverlaps(action: String, lat: Int, lon: Int,
-                             winners: [String: String] = [:]) {
+                             winners: [String: String] = [:], defaultMode: String? = nil) {
         var arguments: [String: Any] = ["action": action, "lat": lat, "lon": lon]
         arguments["items"] = winners.keys.sorted().map { ["key": $0, "winner": winners[$0] ?? ""] }
+        if let defaultMode { arguments["default"] = defaultMode }
         send(command: "pack_overlaps", arguments: arguments)
     }
 

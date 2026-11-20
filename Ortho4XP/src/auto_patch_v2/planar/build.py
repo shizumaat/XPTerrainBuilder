@@ -554,6 +554,15 @@ def build(airport: Airport, classification: Classification, law: Law,
                                         for q in getattr(_rk, "geoms", (_rk,))
                                         if q.geom_type == "Polygon")))
         sstats.hard_decks.append(f"airside run-out: {_n} cell(s) cut ({_rk.area:.0f} m2)")
+    # RULINGS 2026-11-20o (#2194): under a pack bridge over a mapped road
+    # the zones keep off: the ground there is the road's open cut
+    from .pinned_span import pinned_spans
+    _ps = pinned_spans(tunnels)
+    if _ps:
+        classification = _dc.replace(classification, keepouts=(
+            *classification.keepouts, *(tuple(q.exterior.coords)[:-1] for q in _ps)))
+        sstats.hard_decks.append(f"pack bridge spans kept off the zones: {len(_ps)} "
+                                 f"({sum(q.area for q in _ps):.0f} m2)")
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))

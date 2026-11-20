@@ -511,9 +511,20 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
         ribs[bid] = rib if bid not in ribs else unary_union([ribs[bid], rib])
     region = []
     paved = []
+    # stage 1's no-bridge airside (RULINGS 2026-11-19s (1)): a WITHHELD
+    # generated deck's ring is pavement there, shoulders and all -- its cover
+    # is the whole ring, never only the pavement the classification drew
+    # over the road (lane lcross21, LFPO 48.72558, 2.36983: the shoulders'
+    # ground stood at the 79 m trench floor, and the deck top read off them
+    # stood 6 m under the 86 m terrain at its ends)
+    from ..model.stage_one import deriving
+    gen_rings = [Polygon(d.ring).buffer(0.0) for d in decks
+                 if getattr(d, "witness", "") == "generated" and len(d.ring) >= 3] \
+        if deriving() else []
+    cover_to = unary_union([pav, *gen_rings]) if gen_rings else pav
     for k, (b, secs, rib) in enumerate(cuts):
         own = [br.cover for br in bridges if k in _cover_runs(br, cuts)]
-        under = rib.intersection(pav)
+        under = rib.intersection(cover_to)
         region.append((b, secs, unary_union([under, *own])))
         if not under.is_empty:
             paved.append((b, secs, under, None))

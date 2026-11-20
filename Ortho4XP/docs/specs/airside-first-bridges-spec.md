@@ -165,4 +165,27 @@ KPHX KIAH), lane captures of KMCO and LFPO, the l1717 LFPG capture; base
 | 3 end gaps | `geom/coons_patch._cornered` (the four profiles agree at each corner), `constraints/deck_carve._flat_landing` (the corner lands beside the deck within the ring margin of its end) | KRDU taxiway d: the end and side profiles 0.11 m apart at a corner |
 | 4 road-deck ends | `planar/deck_carve._split_structures(..., ground=True)` (road ribbons noded on the landing strips) | KPHX `-301`: no ribbon vertex within 2.5 m of the deck end |
 | 5 20f | `planar/deck_width.parted` / `_facing` / `_band` | the gap gives way: each deck narrows only on its facing side, a metre at a time while the gap needs it, never inside its taxiway's paved band (the narrower end run holding the taxiway, never under the class width) |
-| 6 LFPO level | `planar/covered_ground` (a mapped tunnel under a generated deck reads its cut to the deck's floor depth; stage 1's covered ground covers a withheld deck's whole ring), `constraints/deck_floor_follow._in_structure` (the deck's top never reads a structure's cut) | LFPO `o4gen_104efd62` over mapped tunnels (trams `-28859` / `-24950`, trunks `-34628` / `-3715`, all `tunnel=yes layer=-1`): stage 1 kept their trench and ramps under the withheld ring; the top's edge profiles read them, 6 m under the 86 m terrain at both ends |
+| (D) frame mates | `planar/deck_takeover._mates` | a hidden pack bridge's frame mates are the co-placed placements whose solid plan overlaps it, or its lights on an anchor no stranger shares -- never every object on one anchor (KDFW: ~150 objects on one) |
+
+Attributed, not fixed here (each to a Fable review per the one-miss cap):
+
+* LFPO 48.72558, 2.36983 (`o4gen_104efd62`, a generated taxiway deck over
+  mapped tunnels: trams `-28859` / `-24950`, trunks `-34628` / `-3715`, all
+  `tunnel=yes layer=-1`): its top IS stage 1's no-bridge pavement (19s), and
+  stage 1 solves that pavement at 80.3-80.6 m at both end lines over an
+  86.2-86.4 m DEM -- the taxiway is pulled 6 m into the mapped tunnels'
+  trench before any deck exists.  Tried and deleted (no change to the top):
+  the mapped tunnels' cut read to the deck's floor depth, stage 1's covered
+  ground over the whole withheld ring, the top's samples off structure cuts.
+  The site 48.72406, 2.37045 is generated road deck `-1691`, which takes
+  that deck's top (20e).
+* LFPG 49.00296, 2.55537 (`o4gen_9e6c58ba`, taxiway F class F): 88 m (2 x
+  44) plus 16.9 m grown over its road's cover (`deck_width._spans_cover`)
+  under `dsf:pol459` -- classified APRON though mostly road; the growth
+  and the road's grading under the deck follow from that classification
+  (another pass).
+* LFPG 49.00658, 2.55386 (kept pack hard deck `H10.obj`): the generated
+  carve (`planar/deck_carve`) runs only for generated decks; a kept pack
+  deck's cut is the structure pass's bores and bank (20i is a second
+  consumer of the carve, not built here).
+* KDFW / KLAX (lmslframe A-C): not attempted.

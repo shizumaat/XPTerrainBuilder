@@ -85,6 +85,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_DISK_FLOOR_UNGATED":
         "a harness or suite session skips the app's free-space floor gate "
         "and offload (#2103) — scheduling and storage only",
+    "O4_ENGINE_BUILD_WORKER":
+        "this process tree is a parallel build worker, run below the "
+        "engine's command process (O4_Machine_Slots.lower_priority) — "
+        "scheduling only",
     "O4_ENGINE_PRIORITY_LOWERED":
         "the engine's process tree already runs at lowered CPU priority "
         "(O4_Machine_Slots.lower_priority, #1225) — scheduling only",

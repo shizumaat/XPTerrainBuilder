@@ -147,6 +147,11 @@ def _install_warm_stubs(monkeypatch, warm_log, layer_seconds=0.02):
     monkeypatch.setitem(sys.modules, "O4_OSM_Utils", fake_osm)
     monkeypatch.setitem(sys.modules, "O4_Vector_Map", fake_vmap)
     monkeypatch.setitem(sys.modules, "O4_Config_Utils", fake_cfg)
+    # The stubs live in this process: the warm runs here too, not in the
+    # spawned worker the app warms in (``osm_warm_process``).
+    from o4_engine import osm_warm_process
+    monkeypatch.setattr(osm_warm_process, "open_runner",
+                        osm_warm_process.InProcess)
 
 
 def _step_interval(tmp_path, tile, step):

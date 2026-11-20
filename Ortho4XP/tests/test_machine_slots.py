@@ -240,7 +240,7 @@ def test_lower_priority_is_inherited_below_normal():
          " capture_output=True, text=True).stdout.strip())",
          str(Path(SLOTS.__file__).parent)],
         capture_output=True, text=True, env=env, timeout=60)
-    assert int(out.stdout.strip()) >= SLOTS.NICE
+    assert int(out.stdout.strip()) >= SLOTS.COMMAND_NICE
 
 
 def test_workers_start_without_a_qos_clamp():
@@ -331,3 +331,37 @@ def test_an_ungated_session_keeps_its_capacity_under_pressure(session, free_gb,
     monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
     with SLOTS.try_take(4) as all_four:
         assert all_four.count == 4
+
+
+def _nice_after(env_extra, script):
+    """The nice value a fresh interpreter reports after ``script``, run
+    with ``env_extra`` over this environment minus the priority marks."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in (SLOTS.ENV_PRIORITY, SLOTS.ENV_BUILD_WORKER)}
+    env.update(env_extra)
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import os, sys; sys.path.insert(0, sys.argv[1]);"
+         "import O4_Machine_Slots as S;" + script +
+         "print(os.getpriority(os.PRIO_PROCESS, 0))",
+         str(Path(SLOTS.__file__).parent)],
+        capture_output=True, text=True, env=env, timeout=60)
+    return int(out.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX nice")
+def test_builds_run_below_the_command_process():
+    """Owner 2026-11-20T18:40Z: "an active dialog should take precedence
+    over any builds which should be in the background" — the command
+    process lowers itself to COMMAND_NICE, a build worker (spawned with
+    ENV_BUILD_WORKER under an already lowered parent) to NICE.  Never
+    above the runner's own nice (a dev venv runs at 15)."""
+    start = os.getpriority(os.PRIO_PROCESS, 0)
+    assert SLOTS.COMMAND_NICE < SLOTS.NICE
+    command = _nice_after({}, "S.lower_priority();")
+    worker = _nice_after({SLOTS.ENV_PRIORITY: "1",
+                          SLOTS.ENV_BUILD_WORKER: "1"},
+                         "S.lower_priority();")
+    assert command == max(start, SLOTS.COMMAND_NICE)
+    assert worker == max(start, SLOTS.NICE)
+

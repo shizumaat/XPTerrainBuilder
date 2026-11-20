@@ -387,15 +387,27 @@ def test_the_sets_of_one_anchor_that_meet_are_one_frame(tmp_path):
 
 
 def test_the_guard_asks_only_of_geometry_at_the_origin(tmp_path):
-    """A layer reaching 3 m below its origin a kilometre away does not
-    guard; a pole reaching below the origin under it does."""
+    """In a FRAME, a layer reaching 3 m below its origin a kilometre away
+    does not guard; a pole reaching below the origin under it does.  A set
+    seated alone keeps the whole guard (Q54)."""
     layer = _slab(tmp_path, "layer.obj", 900.0, 1100.0, -3.0, 2.0)
+    shed = _slab(tmp_path, "shed.obj", 1100.0, 1110.0, -2.8, 2.0)    # meets the layer
     pole = _slab(tmp_path, "pole.obj", -0.2, 0.2, -2.0, 8.0, z0=-0.2, z1=0.2)
-    for path, guarded in ((layer, False), (pole, True)):
-        dump = types.SimpleNamespace(placements=[_row(path, elevation=184.0)])
-        conv, msl, _r, n = _rows(dump, tmp_path, surface=lambda la, lo: 50.0)
-        assert bool(conv) is guarded and bool(msl) is not guarded
-        assert n.get("msl_feet_below_origin", 0) == (1 if guarded else 0)
+    surf = lambda la, lo: 50.0                                      # noqa: E731
+    lone = types.SimpleNamespace(placements=[_row(layer, elevation=184.0)])
+    conv, msl, _r, n = _rows(lone, tmp_path, surface=surf)
+    assert conv and not msl and n["msl_feet_below_origin"] == 1
+    frame = types.SimpleNamespace(placements=[_row(layer, elevation=184.0),
+                                              _row(shed, elevation=184.2)])
+    conv, msl, _r, n = _rows(frame, tmp_path, surface=surf)
+    assert not conv and len(msl) == 2 and n["msl_frames"] == 1
+    assert abs((msl[1].elevation - msl[0].elevation) - 0.2) < 1e-6
+    hut = _slab(tmp_path, "hut.obj", 1100.0, 1110.0, 2.0, 4.0)     # off the drape
+    poled = types.SimpleNamespace(placements=[_row(pole, elevation=184.0),
+                                              _row(hut, elevation=184.2)])
+    conv, msl, _r, n = _rows(poled, tmp_path, surface=surf)
+    assert [c.index for c in conv] == [0] and [m.index for m in msl] == [1]
+    assert "msl_frames" not in n
 
 
 def test_a_member_with_no_static_solid_rides_its_set(tmp_path):

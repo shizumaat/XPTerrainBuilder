@@ -39,14 +39,13 @@ THE RULE'S LIMITS, each a witness in the geometry, none an airport:
   on-ground conversion, and so does every row of its set: the author
   built that model around its origin (a skirt, a footing, a hillside
   building, a light mast's pole), and raising it onto its lowest vertex
-  would float everything above the buried part.  The witness holds only
-  where the origin stands IN the model's plan (#2071) — here, under one of
-  its static triangles (20l: the guard is asked only of geometry AT the
-  origin; KDFW's 6.4 km layer holds its anchor in its box with no triangle
-  within 1 km of it): an origin authored as a shared datum metres away
-  from the geometry (a hangar 191 m off, on ground 5.5 m higher) says
-  nothing about the ground under the model, and the on-ground conversion
-  would hang it at the datum's ground.
+  would float everything above the buried part.  A set seated alone keeps
+  that guard whole; in a FRAME of several sets — the anchor shown to be a
+  shared datum — it is asked only of geometry AT the origin (20l): under
+  one of the member's static triangles (KDFW's 6.4 km layer holds its
+  anchor in its box with no triangle within 1 km of it).  An origin
+  authored as a datum away from the geometry says nothing about the
+  ground under the model (#2071).
 * A member with NO static solid (a lights file, an animated part) neither
   guards nor seats: it rides its set's seat (20l).
 * A set at a footprint unit's pad (the surface at its origin IS the
@@ -192,7 +191,8 @@ class _Resource(_t.NamedTuple):
     """One pack resource as the feet seat reads it."""
     state: str                          #: RESOLVED / NO_SOLID / UNRESOLVED
     feet: "np.ndarray | None"           #: its lowest static feet
-    guard: bool                         #: built around its origin, AT it
+    below: bool                         #: reaches below its origin
+    guard: bool                         #: ... under a triangle over it
     path: str
 
 
@@ -226,12 +226,13 @@ def _read_resource(phys: str, tol_m: float) -> _Resource:
     try:
         tris = static_triangles(_obj8.parse_obj8(phys))
     except (OSError, ValueError):
-        return _Resource(UNRESOLVED, None, False, phys)
+        return _Resource(UNRESOLVED, None, False, False, phys)
     if tris is None:
-        return _Resource(NO_SOLID, None, False, phys)
+        return _Resource(NO_SOLID, None, False, False, phys)
     v = tris.reshape(-1, 3)
-    return _Resource(RESOLVED, np.unique(v[v[:, 1] <= float(v[:, 1].min()) + tol_m], axis=0),
-                     _guards_origin(tris, tol_m), phys)
+    low = float(v[:, 1].min())
+    return _Resource(RESOLVED, np.unique(v[v[:, 1] <= low + tol_m], axis=0),
+                     low < -tol_m, _guards_origin(tris, tol_m), phys)
 
 
 def _resource_reader(pack_root: str, tol_m: float) -> _t.Callable[[str], _Resource]:
@@ -244,7 +245,7 @@ def _resource_reader(pack_root: str, tol_m: float) -> _t.Callable[[str], _Resour
             phys = os.path.join(pack_root or "", res)
             memo[res] = (_read_resource(phys, tol_m)
                          if pack_root and os.path.isfile(phys)
-                         else _Resource(UNRESOLVED, None, False, phys))
+                         else _Resource(UNRESOLVED, None, False, False, phys))
         return memo[res]
     return read
 
@@ -314,9 +315,11 @@ def _seat_set(members: list, res: list, ctx: _SeatContext) -> list:
     return [] if vote is None else _written(members, vote, ctx)
 
 
-def _set_vote(members: list, res: list, ctx: _SeatContext) -> "float | None":
+def _set_vote(members: list, res: list, ctx: _SeatContext, *,
+              in_frame: bool = False) -> "float | None":
     """The elevation ONE set's own feet ask for (the module docstring's
-    limits, each counted), or ``None``."""
+    limits, each counted), or ``None``.  ``in_frame``: the set meets
+    another of its anchor's, and the guard is asked only AT the origin."""
     c, n = ctx.counts, len(members)
     if any(r.state == UNRESOLVED for r in res):
         _bump(c, "msl_feet_unresolved", n)
@@ -325,7 +328,7 @@ def _set_vote(members: list, res: list, ctx: _SeatContext) -> "float | None":
     if not solid:
         _bump(c, "msl_feet_no_solid", n)
         return None
-    if any(r.guard for _m, r in solid):
+    if any((r.guard if in_frame else r.below) for _m, r in solid):
         _bump(c, "msl_feet_below_origin", n)
         return None
     p = ctx.rows[members[0].index]
@@ -361,22 +364,26 @@ def _seat_frame(groups: list, ctx: _SeatContext) -> list:
     """RULINGS 2026-11-20l: the sets of ONE anchor (``groups``: ``(members,
     resources)`` per authored elevation).  Sets that meet are one rigid
     frame seated at the highest of their votes, authored offsets kept; a
-    set that meets none is seated alone; a guarded or unreadable set keeps
-    its conversion (counted by :func:`_set_vote`)."""
+    set that meets none (or is guarded AT its origin, or unreadable) is
+    seated alone by :func:`_seat_set`."""
     z = [float(ctx.rows[m[0].index].elevation or 0.0) for m, _r in groups]
-    votes = [_set_vote(m, r, ctx) for m, r in groups]
     free = [i for i, (_m, r) in enumerate(groups)
             if all(x.state != UNRESOLVED for x in r)
             and any(x.state == RESOLVED for x in r)
             and not any(x.guard for x in r)]
+    comps = _meeting(groups, z, free, ctx.tol_m)
+    comps += [[i] for i in range(len(groups)) if i not in free]
     out: list = []
-    for comp in _meeting(groups, z, free, ctx.tol_m):
-        deltas = [votes[i] - z[i] for i in comp if votes[i] is not None]
+    for comp in comps:
+        if len(comp) == 1:
+            out += _seat_set(groups[comp[0]][0], groups[comp[0]][1], ctx)
+            continue
+        votes = {i: _set_vote(*groups[i], ctx, in_frame=True) for i in comp}
+        deltas = [v - z[i] for i, v in votes.items() if v is not None]
         if not deltas:
             continue
-        if len(comp) > 1:
-            _bump(ctx.counts, "msl_frames")
-            _bump(ctx.counts, "msl_frame_sets", len(comp))
+        _bump(ctx.counts, "msl_frames")
+        _bump(ctx.counts, "msl_frame_sets", len(comp))
         for i in comp:
             out += _written(groups[i][0], z[i] + max(deltas), ctx)
     return out

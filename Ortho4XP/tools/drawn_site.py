@@ -47,6 +47,10 @@ a deck's open edges, top vs the drawn pavement beyond; MOUTH (with
 drawn ramp just outside, and the ramp's width vs the opening; EDGE --
 every other open edge's step, listed.  ``--summary`` prints only those.
 
+``--crossings`` (owner RULINGS 2026-11-20g, ``drawn_site_crossings``): every
+written row's soffit over the mapped roads and rails at each site against the
+class minimum clearance, through the engine's one crossing read.
+
 It writes nothing outside a temp directory (and ``--cache``): the pack DSF
 is dumped to temp text, the tile DSF streamed through a FIFO.  It derives
 no law; a point off every tile triangle reads missing, never zero.
@@ -1304,6 +1308,10 @@ def main(argv=None) -> int:
         # #2144: the drawn joint steps of a pack's span decks (``drawn_site_joints``)
         import drawn_site_joints
         return drawn_site_joints.main(argv)
+    if "--crossings" in argv:
+        # RULINGS 2026-11-20g: the elevated crossings drawn (``drawn_site_crossings``)
+        import drawn_site_crossings
+        return drawn_site_crossings.main(argv)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", action="append", default=[],

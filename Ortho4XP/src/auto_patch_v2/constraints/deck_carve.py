@@ -410,6 +410,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # (the lowest of the floors it stands on), never another road's bank
     # -- each road keeps its own ramp; off every floor, the deepest bank
     on_floor = np.full(len(vids), np.inf)
+    strict = np.zeros(len(vids), dtype=bool)
     # the surveyed ground along the path at a floor vertex: the cut's ramp
     # owns its floor to the meet point, whatever a corridor it took over
     # lowered the vertex's own ground to (KRDU 1.0.565 ``-239``: a tunnel
@@ -430,7 +431,9 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         sv, nv = frame.project_signed(xs[m], ys[m])
         fz = np.interp(sv, s, z)
         lo_, hi_ = lo - _SNAP_M, hi + _SNAP_M
-        on = ((nv >= lo_) & (nv <= hi_)) | (road_v[m] & (nv >= lo_ - flare) & (nv <= hi_ + flare))
+        band = (nv >= lo_) & (nv <= hi_)
+        strict[m] |= band
+        on = band | (road_v[m] & (nv >= lo_ - flare) & (nv <= hi_ + flare))
         deeper = on & (fz < on_floor[m])
         on_ground[m] = np.where(deeper, np.interp(sv, s, _path_stations(p_)[1]), on_ground[m])
         on_floor[m] = np.where(on, np.minimum(on_floor[m], fz), on_floor[m])
@@ -466,14 +469,18 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         # under its end 0.6 m past it)
         trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0] == "floor"
                      for r in refs)
-        land = -math.inf if floor_v[i] or trench else max(
-            _landing(rings, vx.xy, bank, landing),
-            _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
-        flats = [] if floor_v[i] or trench else [
+        flats = [] if strict[i] or trench else [
             q for q in (_flat_landing(rings, vx.xy, landing, margin),
                         _road_flat(road_ends, vx.xy, landing, margin) if road_ends else None)
             if q is not None]
+        # a road vertex on the floor by its flare only lands where a deck
+        # end's landing reaches it (KPHX ``-301``: its approach ribbon at the
+        # road deck's end, 5 m off the floor band, sank 7 m to the floor)
+        fv = bool(floor_v[i]) and not flats
         flat = max(flats) if flats else None
+        land = -math.inf if fv or trench else max(
+            _landing(rings, vx.xy, bank, landing),
+            _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M or flat is not None):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)
@@ -485,14 +492,14 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             sp, tp = top.st(*vx.xy)
             run = min(sp, 1.0 - sp) * _hyp(top.u)
             ab = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp))) - bank * run
-            cut = min(cut, fl) if floor_v[i] else max(fl, ab)
+            cut = min(cut, fl) if fv else max(fl, ab)
             out[v] = round(cut, 4)
             continue
         if flat is not None:
             # the deck end's own landing: at the end's level, up or down
             n_land += 1
             cut = flat
-        if kerb is not None and not floor_v[i]:
+        if kerb is not None and not fv:
             # the bank never undercuts the airside: over the deck's opened
             # pavement it rises to it; beyond, never over the ground.  A
             # road's floor is never raised: where the road needs it, the

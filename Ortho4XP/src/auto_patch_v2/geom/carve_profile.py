@@ -17,8 +17,8 @@ levelled) read ONE definition.
   curves (``O4_Road_Grade._smooth_grade_changes``: the profile closest to
   that target holding the cap and the grade-change rate).  The floor never
   stands more than ``fill_tol`` over the terrain past the decks.
-* :func:`lateral` -- the cut across its path: the floor over ``half``
-  either side of the line, then the bank at ``bank`` (rise/run).
+* :func:`lateral` -- the cut across its path: the floor from ``lo`` to
+  ``hi`` (signed offsets), then the bank at ``bank`` (rise/run).
 * :func:`ramp_lengths` -- how far each ramp runs before it meets the
   terrain (``inf`` when the path ends first: the shortfall).
 
@@ -52,6 +52,16 @@ class PathFrame:
     def project(self, xs, ys) -> tuple[np.ndarray, np.ndarray]:
         """``(s, n)`` of every point: its station along the path and its
         distance off it (both ``np.ndarray``)."""
+        s, n, _side = self._project(xs, ys)
+        return s, n
+
+    def project_signed(self, xs, ys) -> tuple[np.ndarray, np.ndarray]:
+        """``(s, n)`` with ``n`` signed: positive to the LEFT of the path's
+        direction (the normal ``(-u_y, u_x)``)."""
+        s, n, side = self._project(xs, ys)
+        return s, np.where(side < 0.0, -n, n)
+
+    def _project(self, xs, ys):
         x = np.asarray(xs, dtype=np.float64)[:, None]
         y = np.asarray(ys, dtype=np.float64)[:, None]
         l2 = np.maximum(sq(self.len), 1e-12)
@@ -62,7 +72,8 @@ class PathFrame:
         dist = hypot_array(x - px, y - py)
         k = np.argmin(dist, axis=1)
         rows = np.arange(len(k))
-        return self.s0[k] + t[rows, k] * self.len[k], dist[rows, k]
+        side = self.d[k, 0] * (y[:, 0] - self.a[k, 1]) - self.d[k, 1] * (x[:, 0] - self.a[k, 0])
+        return self.s0[k] + t[rows, k] * self.len[k], dist[rows, k], side
 
     def at(self, s: float) -> tuple[XY, XY]:
         """``(point, unit tangent)`` at station ``s`` (clamped)."""
@@ -150,11 +161,13 @@ def floor_profile(s: _t.Sequence[float], terrain: _t.Sequence[float],
     return np.minimum(target, upper) if got is None else np.minimum(got, upper)
 
 
-def lateral(floor_z, n, half: float, bank: float):
-    """The cut at distance ``n`` off its path over a floor at ``floor_z``:
-    level over ``half``, then the bank at ``bank`` (rise per run)."""
+def lateral(floor_z, n, lo: float, hi: float, bank: float):
+    """The cut at signed offset ``n`` off its path over a floor at
+    ``floor_z``: level from ``lo`` to ``hi`` across it, then the bank at
+    ``bank`` (rise per run) beyond either edge."""
+    n = np.asarray(n, dtype=np.float64)
     return np.asarray(floor_z, dtype=np.float64) + bank * np.maximum(
-        0.0, np.asarray(n, dtype=np.float64) - half)
+        0.0, np.maximum(n - hi, lo - n))
 
 
 def ramp_lengths(s, z, terrain, stretches, tol: float = 0.05) -> tuple[float, float]:

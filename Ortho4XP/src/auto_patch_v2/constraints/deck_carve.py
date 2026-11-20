@@ -43,7 +43,7 @@ import numpy as np
 
 from ..geom.carve_profile import PathFrame, floor_profile, lateral, ramp_lengths, smoothed
 from ..model.deck_bank import deck_bank_slope
-from ..model.deck_carve import CARVE_REF
+from ..model.deck_carve import CARVE_REF, floor_band
 
 __all__ = ["carve_levels"]
 
@@ -160,17 +160,12 @@ def _hyp(u) -> float:
     return hypot(float(u[0]), float(u[1]))
 
 
-def _floor_half(p, top, floor, law) -> float:
-    """The floor's half width across the cut: the deck's full span between
-    its end lines less each abutment's embankment (the end line's top down
-    to the floor at the deck bank's slope), never narrower than the roads
-    under it with their shoulders (``CarvePath.half_m``: there the bank is
-    a wall, 19s (4) (a))."""
-    span = float(getattr(p, "span_m", 0.0) or 0.0)
-    if top is None or floor is None or span <= 0.0:
-        return float(p.half_m)
-    depth = max(0.0, 0.5 * (top.z_st(0.0, 0.5) + top.z_st(1.0, 0.5)) - floor)
-    return max(float(p.half_m), span - depth / deck_bank_slope(law))
+def _floor_band(p, top, floor, law) -> tuple[float, float]:
+    """``model/deck_carve.floor_band`` with the depth from the end lines'
+    top (the Coons patch at each end's middle) to the floor."""
+    if top is None or floor is None:
+        return floor_band(p, None, law)
+    return floor_band(p, 0.5 * (top.z_st(0.0, 0.5) + top.z_st(1.0, 0.5)) - floor, law)
 
 
 def _profiles(decks, tops, law) -> tuple[list, dict]:
@@ -194,7 +189,7 @@ def _profiles(decks, tops, law) -> tuple[list, dict]:
             frame = PathFrame(p.coords)
             s, r = _path_stations(p)
             z = floor_profile(s, r, st, p.cap * _CAP_SHARE, p.rate)
-            half = _floor_half(p, tops.get(d.object_id), floors.get(d.object_id), law)
+            band = _floor_band(p, tops.get(d.object_id), floors.get(d.object_id), law)
             ra, rb = ramp_lengths(s, z, r, st)
             g = np.abs(np.diff(z)) / np.maximum(np.diff(s), 1e-9)
             stretches = []
@@ -204,12 +199,13 @@ def _profiles(decks, tops, law) -> tuple[list, dict]:
                     stretches.append({**q, "floor": round(floors[oid], 3),
                                       "clearance": round(q["underside"] - floors[oid], 3)})
             drep["paths"].append({"way": p.way, "kind": p.kind, "cap": p.cap,
-                                  "half_m": round(half, 2), "need_m": p.clearance_m,
+                                  "floor_band_m": [round(band[0], 2), round(band[1], 2)],
+                                  "need_m": p.clearance_m,
                                   "stretches": stretches,
                                   "ramp_m": [None if math.isinf(ra) else round(ra, 1),
                                              None if math.isinf(rb) else round(rb, 1)],
                                   "max_grade": round(float(g.max()) if len(g) else 0.0, 4)})
-            out.append((p, frame, s, z, half))
+            out.append((p, frame, s, z, band))
     return out, rep, floors
 
 
@@ -271,7 +267,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         for d in decks if getattr(d, "carve", None) is not None]))
     # a vertex farther off every path than its floor and the deepest bank
     # can reach is never the cut's
-    reach = max(h for _p, _f, _s, _z, h in profs) + 40.0
+    reach = max(max(-b[0], b[1]) for _p, _f, _s, _z, b in profs) + 40.0
     vids = [v for v in pm.vertices if v not in air and v not in fixed]
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)
     ys = np.array([pm.vertices[v].xy[1] for v in vids], dtype=np.float64)
@@ -280,17 +276,18 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # -- each road keeps its own ramp; off every floor, the deepest bank
     on_floor = np.full(len(vids), np.inf)
     t = np.full(len(vids), np.inf)
-    for _p, frame, s, z, h in profs:
+    for _p, frame, s, z, (lo, hi) in profs:
         x0, y0 = np.min(frame.a, axis=0) - reach
         x1, y1 = np.max(frame.a + frame.d, axis=0) + reach
         m = (xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)
         if not m.any():
             continue
-        sv, nv = frame.project(xs[m], ys[m])
+        sv, nv = frame.project_signed(xs[m], ys[m])
         fz = np.interp(sv, s, z)
-        half = h + _SNAP_M
-        on_floor[m] = np.where(nv <= half, np.minimum(on_floor[m], fz), on_floor[m])
-        t[m] = np.minimum(t[m], lateral(fz, nv, half, bank))
+        lo_, hi_ = lo - _SNAP_M, hi + _SNAP_M
+        on = (nv >= lo_) & (nv <= hi_)
+        on_floor[m] = np.where(on, np.minimum(on_floor[m], fz), on_floor[m])
+        t[m] = np.minimum(t[m], lateral(fz, nv, lo_, hi_, bank))
     floor_v = np.isfinite(on_floor)
     t = np.where(floor_v, on_floor, t)
     gen_tn, pack_tn = _tunnel_regions(pm, {d.object_id for d in decks

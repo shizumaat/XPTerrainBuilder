@@ -53,7 +53,9 @@ def test_lateral_bank_and_projection():
     s, n = f.project([50.0, 10.0], [4.0, -9.0])
     assert s.tolist() == pytest.approx([50.0, 10.0])
     assert n.tolist() == pytest.approx([4.0, 9.0])
-    z = lateral([165.0, 165.0], n, 5.0, 1.0 / 1.5)
+    _s, ns = f.project_signed([50.0, 10.0], [4.0, -9.0])
+    assert ns.tolist() == pytest.approx([4.0, -9.0])         # left of the path positive
+    z = lateral([165.0, 165.0], n, -5.0, 5.0, 1.0 / 1.5)
     assert z[0] == pytest.approx(165.0)                    # on the floor
     assert z[1] == pytest.approx(165.0 + 4.0 / 1.5)        # on the bank
 
@@ -178,12 +180,12 @@ def test_two_decks_far_apart_are_two_cuts_close_ones_one():
 def test_the_floor_is_the_decks_full_span_less_its_embankments():
     import dataclasses
 
-    from auto_patch_v2.constraints.deck_carve import _floor_half
     from auto_patch_v2.law import Law
+    from auto_patch_v2.model.deck_carve import floor_band
     law = Law.load()
-    p = dataclasses.replace(_deck().carve.paths[0], span_m=20.0)
-    top = types.SimpleNamespace(z_st=lambda s, t: 173.0)
-    # 6 m deep at 1V:1.5H: 9 m of embankment off each end
-    assert _floor_half(p, top, 167.0, law) == pytest.approx(11.0, abs=0.01)
-    # never narrower than the roads under it (a wall where they need it)
-    assert _floor_half(p, top, 160.0, law) == pytest.approx(p.half_m)
+    # the deck spans 12 m left and 28 m right of its road; the road needs +-5
+    p = dataclasses.replace(_deck().carve.paths[0], span=(-28.0, 12.0), need=(-5.0, 5.0))
+    lo, hi = floor_band(p, 6.0, law)      # 6 m deep at 1V:1.5H: 9 m off each end
+    assert lo == pytest.approx(-19.0, abs=0.01) and hi == pytest.approx(5.0)
+    # never narrower than the road under it (a wall where it needs it)
+    assert floor_band(p, 20.0, law) == (-5.0, 5.0)

@@ -53,7 +53,7 @@ from ..geom.carve_profile import PathFrame, floor_profile, smoothed
 from ..geom.exact import hypot
 from ..geom.parts import densified_parts, polygon_parts_with_area
 from ..model.deck_bank import bank_past_m, deck_bank_slope
-from ..model.deck_carve import CARVE_REF, CarvePath, DeckCarve
+from ..model.deck_carve import CARVE_REF, CarvePath, DeckCarve, floor_band
 from ..model.road_clearance import carriageway_width_m, design_clearance_m
 from ..model.structures import is_generated
 
@@ -305,38 +305,30 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
         path = _past_every_deck(ax, reach, [], None, decks, past)
         direction = "along the cut's own axis (no mapped road or rail)"
         clearance = float(tn.clearance_m)
-    path, span = _centred(path, ring)
-    # the floor at least carries every road under the deck and its shoulders
+    # the trench spans the deck between its end lines; the floor at least
+    # carries every road under it with its shoulders (signed offsets)
     frame = PathFrame(list(path.coords))
-    need = carriageway_width_m({}, law) / 2.0 + sh
+    rx, ry = zip(*ring.exterior.coords, strict=True)
+    _s, rn = frame.project_signed(rx, ry)
+    span = (float(rn.min()), float(rn.max()))
+    base = carriageway_width_m({}, law) / 2.0 + sh
+    lo, hi = -base, base
     for _w, _k2, tg, ln in roads:
         inside = ln.intersection(ring)
         pts = [q for g in getattr(inside, "geoms", [inside]) if not g.is_empty
                for q in getattr(g, "coords", [])]
         if pts:
-            _s, n = frame.project([q[0] for q in pts], [q[1] for q in pts])
-            need = max(need, float(n.max()) + carriageway_width_m(tg, law) / 2.0 + sh)
-    cp = _path(way, kind, need, clearance, cap, rate, path, decks, past, airport, span)
+            _s, n = frame.project_signed([q[0] for q in pts], [q[1] for q in pts])
+            w = carriageway_width_m(tg, law) / 2.0 + sh
+            lo, hi = min(lo, float(n.min()) - w), max(hi, float(n.max()) + w)
+    cp = _path(way, kind, max(-lo, hi), clearance, cap, rate, path, decks, past, airport,
+               span, (lo, hi))
     own = [(a, b) for a, b, oid in cp.stretches if oid == db.object_id]
     if own and any(_estimate_floor(db, cp.terrain, a, b, 0.0, law) <= float(db.deck_z)
                    - float(law.tables.structures.deck_gen.thickness_m) - clearance
                    for a, b in own):
         evidence.append("lidar trench")
     return DeckCarve(tuple(evidence), direction, (cp,))
-
-
-def _centred(path: LineString, ring) -> tuple[LineString, float]:
-    """``(path moved across itself to the middle of the deck's span between
-    its end lines, half that span)``: the trench is the deck's full width."""
-    frame = PathFrame(list(path.coords))
-    c = ring.centroid
-    s, _n = frame.project([c.x], [c.y])
-    (x0, y0), (ux, uy) = frame.at(float(s[0]))
-    nx, ny = -uy, ux
-    offs = [(x - x0) * nx + (y - y0) * ny for x, y in ring.exterior.coords]
-    mid = 0.5 * (min(offs) + max(offs))
-    from shapely.affinity import translate
-    return translate(path, nx * mid, ny * mid), 0.5 * (max(offs) - min(offs))
 
 
 def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: float
@@ -354,12 +346,13 @@ def _past_every_deck(line: LineString, reach: float, lines, tree, decks, past: f
 
 
 def _path(way: str, kind: str, half: float, clearance: float, cap: float, rate: float,
-          line: LineString, decks, past: float, airport, span: float = 0.0) -> CarvePath:
+          line: LineString, decks, past: float, airport, span=(), need=()) -> CarvePath:
     frame = PathFrame(list(line.coords))
     return CarvePath(way, kind, round(half, 3), round(clearance, 3), cap, rate,
                      tuple((round(x, 3), round(y, 3)) for x, y in line.coords),
                      tuple(_stretches(frame, line, decks, past)),
-                     _terrain(frame, airport.dem), round(span, 3))
+                     _terrain(frame, airport.dem),
+                     tuple(round(v, 3) for v in span), tuple(round(v, 3) for v in need))
 
 
 def _path_cells(p: CarvePath, decks_by_id, law, dem, owner: str = "") -> tuple:
@@ -381,36 +374,32 @@ def _path_cells(p: CarvePath, decks_by_id, law, dem, owner: str = "") -> tuple:
     if not st:
         return None, None
     z = floor_profile(s, r, st, p.cap, p.rate)
-    # the full span less the embankments (``constraints/deck_carve._floor_half``)
+    # the full span less the embankments (``constraints/deck_carve._floor_band``)
     own = decks_by_id.get(owner)
-    half = p.half_m
-    if own is not None and p.span_m > 0.0:
-        fz = min(f for _a, _b, f in st)
-        half = max(p.half_m, p.span_m - max(0.0, float(own.deck_z) - fz) / bank)
-    left, right, idx = [], [], []
-    deep = 0.0
+    fz = min(f for _a, _b, f in st)
+    lo, hi = floor_band(p, None if own is None else float(own.deck_z) - fz, law)
+    left, right, fl, fr, idx = [], [], [], [], []
     for k, sk in enumerate(s):
         (x, y), (ux, uy) = frame.at(float(sk))
         nx, ny = -uy, ux
-        w0 = half + 4.0
         side = [r[k]]
-        for sg in (1.0, -1.0):
+        for off in (hi + 4.0, lo - 4.0):
             try:
-                side.append(float(dem.z(x + sg * nx * w0, y + sg * ny * w0)))
+                side.append(float(dem.z(x + nx * off, y + ny * off)))
             except Exception:    # noqa: BLE001 -- off the DEM
                 pass
         depth = max(0.0, max(side) - float(z[k]))
-        deep = max(deep, depth)
         if depth > 0.05 or any(a - 4.0 <= sk <= b + 4.0 for a, b, _z in st):
             idx.append(k)
-        w = half + depth / bank + 1.0
-        left.append((x + nx * w, y + ny * w))
-        right.append((x - nx * w, y - ny * w))
+        w = depth / bank + 1.0
+        left.append((x + nx * (hi + w), y + ny * (hi + w)))
+        right.append((x + nx * (lo - w), y + ny * (lo - w)))
+        fl.append((x + nx * hi, y + ny * hi))
+        fr.append((x + nx * lo, y + ny * lo))
     if len(idx) < 2:
         return None, None
     k0, k1 = max(0, idx[0] - 2), min(len(s) - 1, idx[-1] + 2)
-    piece = substring(LineString(p.coords), float(s[k0]), float(s[k1]))
-    floor = piece.buffer(half, cap_style="flat", join_style="mitre")
+    floor = Polygon(fl[k0:k1 + 1] + list(reversed(fr[k0:k1 + 1]))).buffer(0.0)
     band = Polygon(left[k0:k1 + 1] + list(reversed(right[k0:k1 + 1]))).buffer(0.0)
     return floor, band.difference(floor)
 

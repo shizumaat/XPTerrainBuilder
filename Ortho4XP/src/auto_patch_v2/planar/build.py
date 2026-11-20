@@ -559,10 +559,22 @@ def build(airport: Airport, classification: Classification, law: Law,
     from .pinned_span import pinned_spans
     _ps = pinned_spans(tunnels)
     if _ps:
-        classification = _dc.replace(classification, keepouts=(
+        from shapely.geometry import Polygon as _Poly
+        from shapely.ops import unary_union as _uu
+
+        from .basins import RUNWAY_FAMILY as _RWF
+        from .cell_knife import knife_cells
+        # ... and the groundside sheets over it yield too (never an
+        # airside cell): the road under the deck follows the lidar
+        _pc, _pn = knife_cells(classification.cells,
+                               [_Poly(c.ring, c.holes) for c in classification.cells],
+                               _uu(_ps), law, _RWF, cut_pads=False, mark="pack_bridge_span",
+                               cuts=lambda c: c.side == "groundside")
+        classification = _dc.replace(classification, cells=tuple(_pc), keepouts=(
             *classification.keepouts, *(tuple(q.exterior.coords)[:-1] for q in _ps)))
         sstats.hard_decks.append(f"pack bridge spans kept off the zones: {len(_ps)} "
-                                 f"({sum(q.area for q in _ps):.0f} m2)")
+                                 f"({sum(q.area for q in _ps):.0f} m2), {_pn} groundside "
+                                 f"cell(s) cut")
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))

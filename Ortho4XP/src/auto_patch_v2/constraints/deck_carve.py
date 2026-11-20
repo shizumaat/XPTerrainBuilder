@@ -85,7 +85,9 @@ def _stretch_floor(p, frame: PathFrame, s, r, a: float, b: float, top, inside, s
             unders.append(top.z(x, y) - slab)
     if not unders:
         return None
-    under = min(unders)
+    # the floor is level under the whole deck: its lowest underside over the
+    # ring (a road crossing nearer a lower end line needs it there)
+    under = min(min(unders), top.low() - slab)
     floor = min([under - p.clearance_m] + lidar)
     return floor, (min(lidar) if lidar else math.inf), under
 

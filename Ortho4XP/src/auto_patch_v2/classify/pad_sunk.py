@@ -28,7 +28,24 @@ so it neither fronts the airside by proximity nor re-welds at the
 arrangement) and keeps its own DEM datum (09p (3)); the ground between is
 the terrace.  The airside is never cut (airside is king): only the pad
 yields.  The verdict and its three numbers ride the pad cell's evidence
-under :data:`SUNK_KEY`."""
+under :data:`SUNK_KEY`.
+
+A PAD BELOW THE PADS OF ITS OWN UNIT (#2195, owner 2026-11-20T14:20Z on
+the same fuel farm: "Fuel farm tanks are being raised, still locked to the
+upper parking area as one pad").  A unit's pads are one plane
+(``constraints/cluster_pad``), so a pad no airside comes near is read
+against the OTHER pads of its unit (the building pads a footprint piece
+of the same ``PlanCluster.unit`` stands on) that it touches: it is HELD
+when BOTH witnesses say it stands lower -- (b) its own ground is more
+than the step below a touching sibling's own ground, and (a) the objects
+standing on it (each cluster weighted by its overlap with the pad,
+:func:`_overlap_top_m`) are authored more than the step below the unit's
+zero.  It yields by the terrace gap to every such higher sibling and
+keeps its own ground, exactly as a pad below the airside does (a pad
+the gap would cut to under half its area is a sliver between two
+levels, never a terrace, and stays in its unit's plane).  Both
+witnesses, never either: a unit laid over a hillside whose author drew
+one floor stays one plane (16g (10))."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -48,6 +65,10 @@ from .pad_touch import _median_dem, is_held_step
 
 __all__ = ["SUNK_KEY", "hold_sunk_cells", "sunk_levels"]
 
+#: the unit witness's key in :data:`SUNK_KEY`'s record: the median own
+#: ground of the higher sibling pads the pad yields to (#2195)
+UNIT_KEY = "unit_m"
+
 #: the pad cell's evidence key: ``{"airside_m", "dem_m", "authored_top_m"}``
 SUNK_KEY = "pad_sunk_terrace"
 
@@ -66,25 +87,51 @@ def _ground_dem_m(pad: Polygon, dem, samples: int = 32) -> float | None:
     return statistics.median(zs) if zs else None
 
 
+def _cluster_tops(c: _t.Any) -> tuple[float, float]:
+    """``(sum of row area x authored top, sum of row area)`` over a
+    cluster's measured components (``(0, 0)`` without them)."""
+    ev = getattr(c, "evidence", None)
+    tops = tuple(getattr(ev, "tops", ()) or ())
+    rows = tuple(getattr(ev, "rows", ()) or ())
+    if not tops or len(tops) != len(rows):
+        return 0.0, 0.0
+    return (sum(float(r[3]) * float(t) for r, t in zip(rows, tops, strict=False)),
+            sum(float(r[3]) for r in rows))
+
+
 def _authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy) -> float | None:
     """The area-weighted AUTHORED TOP (m over the objects' own grade) of
     the components of every cluster whose outline lies mostly inside
     ``pad``; ``None`` where no such cluster carries measured tops."""
     num = den = 0.0
     for c in clusters or ():
-        ev = getattr(c, "evidence", None)
-        tops = tuple(getattr(ev, "tops", ()) or ())
-        rows = tuple(getattr(ev, "rows", ()) or ())
-        if not tops or len(tops) != len(rows):
+        n, d = _cluster_tops(c)
+        if d <= 0.0:
             continue
         u = closed_outline(c, to_xy, 0.0)
         if u is None or u.is_empty or not u.intersects(pad):
             continue
         if u.intersection(pad).area * 2.0 < u.area:
             continue
-        for r, t in zip(rows, tops, strict=False):
-            num += float(r[3]) * float(t)
-            den += float(r[3])
+        num += n
+        den += d
+    return None if den <= 0.0 else num / den
+
+
+def _overlap_top_m(pad: Polygon, outlines: _t.Sequence[tuple[_t.Any, _t.Any]]
+                   ) -> float | None:
+    """(a) for the unit witness: each cluster's mean authored top weighted
+    by the area its outline covers of ``pad`` (a unit's pit floor spans
+    several pads, so no one cluster lies mostly inside any of them);
+    ``None`` where no measured cluster covers it."""
+    num = den = 0.0
+    for c, u in outlines:
+        n, d = _cluster_tops(c)
+        if d <= 0.0 or not u.intersects(pad):
+            continue
+        w = u.intersection(pad).area
+        num += w * n / d
+        den += w
     return None if den <= 0.0 else num / den
 
 
@@ -127,6 +174,74 @@ def _held_parts(P: Polygon, wit, law: Law, min_area: float
                              "authored_top_m": None if top is None else round(top, 3)}}
 
 
+def _unit_siblings(cells: _t.Sequence[_t.Any], airport: _t.Any
+                   ) -> tuple[dict[str, set[str]], list[tuple[_t.Any, _t.Any]]]:
+    """``({pad ref: refs of the other building pads of its units}, the
+    clusters with their outlines)``: two pads are siblings when footprint
+    pieces of one ``PlanCluster.unit`` stand on both."""
+    to_xy = airport.frame.entry()
+    pads = {str(c.ref): Polygon(c.ring, c.holes) for c in cells if c.role == "building"}
+    outlines, units = [], {}
+    for c in getattr(airport, "clusters", None) or ():
+        u = closed_outline(c, to_xy, 0.0)
+        if u is None or u.is_empty:
+            continue
+        outlines.append((c, u))
+        on = {ref for ref, P in pads.items() if u.intersects(P)
+              and u.intersection(P).area > 0.0}
+        units.setdefault(str(getattr(c, "unit", "") or getattr(c, "id", id(c))), set()).update(on)
+    sib: dict[str, set[str]] = {}
+    for refs in units.values():
+        for ref in refs:
+            sib.setdefault(ref, set()).update(refs - {ref})
+    return sib, outlines
+
+
+def _unit_held_parts(P: Polygon, ref: str, unit, wit, law: Law, min_area: float
+                     ) -> tuple[list[Polygon], dict] | None:
+    """The cut-back parts of pad ``P`` and their evidence when it is HELD
+    below the pads of its own unit (module docstring, #2195), else
+    ``None``.  ``unit`` is ``(siblings, outlines, pads, own grounds)``."""
+    sib, outlines, pads, own_of = unit
+    dem, _air_u, _wide, _clusters, _to_xy = wit
+    r = float(law.tables.emit.design.pad_frontage_m)
+    own = own_of(ref)
+    if own is None:
+        return None
+    upper = [q for q in sorted(sib.get(ref, ()))
+             if P.distance(pads[q]) <= r and own_of(q) is not None
+             and own_of(q) - own > 0.0 and is_held_step(law, own_of(q) - own)]
+    top = _overlap_top_m(P, outlines) if upper else None
+    if not upper or top is None or not is_held_step(law, -top) or top > 0.0:
+        return None
+    gap = r + float(law.tables.emit.identity.min_distinct_spacing_m)
+    hi = unary_union([pads[q] for q in upper]).buffer(gap)
+    kept = sorted((q for q in nonempty_polygon_parts(P.difference(hi))
+                   if q.area >= min_area), key=lambda q: -q.area)
+    if not kept or kept[0].area * 2.0 < P.area:
+        return None             # the gap leaves a sliver, not a terrace
+    return kept, {SUNK_KEY: {"airside_m": None, "dem_m": round(own, 3),
+                             "authored_top_m": round(top, 3),
+                             UNIT_KEY: round(statistics.median(own_of(q) for q in upper), 3)}}
+
+
+def _unit_witness(cells: _t.Sequence[_t.Any], airport: _t.Any, wit):
+    """The unit witness's readings, built once (``None`` without
+    clusters): siblings, outlines, the pads and a memo of their own
+    ground."""
+    if not getattr(airport, "clusters", None):
+        return None
+    sib, outlines = _unit_siblings(cells, airport)
+    pads = {str(c.ref): Polygon(c.ring, c.holes) for c in cells if c.role == "building"}
+    memo: dict[str, float | None] = {}
+
+    def own_of(ref: str) -> float | None:
+        if ref not in memo:
+            memo[ref] = _ground_dem_m(pads[ref], wit[0])
+        return memo[ref]
+    return sib, outlines, pads, own_of
+
+
 def hold_sunk_cells(cells: list, airport: _t.Any, law: Law, min_area: float = 0.0
                     ) -> tuple[list, int]:
     """THE RULE over a finished classification: each HELD pad's
@@ -139,12 +254,17 @@ def hold_sunk_cells(cells: list, airport: _t.Any, law: Law, min_area: float = 0.
     wit = _witness(cells, airport, law)
     if wit is None:
         return cells, 0
+    unit = _unit_witness(cells, airport, wit)
     out: list = []
     extra: list = []
     n = 0
     for c in cells:
-        got = _held_parts(Polygon(c.ring, c.holes), wit, law, min_area) \
-            if c.role == "building" else None
+        got = None
+        if c.role == "building":
+            P = Polygon(c.ring, c.holes)
+            got = _held_parts(P, wit, law, min_area)
+            if got is None and unit is not None and str(c.ref) in unit[2]:
+                got = _unit_held_parts(P, str(c.ref), unit, wit, law, min_area)
         if got is None:
             out.append(c)
             continue

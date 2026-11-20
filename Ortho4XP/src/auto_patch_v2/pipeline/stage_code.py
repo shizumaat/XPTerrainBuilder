@@ -6741,3 +6741,9 @@ CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.p
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)
+
+# lmslframe (2026-11-20, RULINGS 20l): the MSL feet seat joins the sets of
+# one anchor where their geometry meets (geom/point_triangle)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.airport.msl_feet" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*_mods_of, *_mods("geom.point_triangle")}))

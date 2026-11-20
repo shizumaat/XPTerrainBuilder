@@ -90,6 +90,8 @@ class _Takeover:
     plans: tuple
     #: the frame's bridges (``DeckBridge``): a generated deck stands on each
     bridges: tuple
+    #: the frame's deck placements' ids (the bodies :func:`_capped` keeps)
+    bodies: tuple = ()
 
 
 def _apart(a: DeckBridge, b: DeckBridge, gap: float, trench=None) -> bool:
@@ -231,6 +233,36 @@ def _taken(span: DeckBridge, polys, a_min: float) -> bool:
     return any(p.intersection(g).area >= a_min for g in polys)
 
 
+def _frame_members(fr, placed, gen_polys, cache, law) -> list:
+    """The placements of frame ``fr`` (``placed``: every co-placed one) its
+    takeover hides: its deck placements (the bridges' bodies), the
+    placements riding its decks (:func:`_rides`: within the hull of its
+    bridges and the generated decks on them, ``[tunnel] wall_gap_m`` and
+    ``[bridge] abutment_sample_step_m`` out -- its walls, beds, riders),
+    and its lights where no other solid shares the anchor.  Never a
+    building, never an object on a shared anchor elsewhere (owner
+    2026-11-20T22:39Z, the KDFW shared-anchor read)."""
+    decks = {p.object_id for p in fr}
+    spans = [deck_polygon(p) for p in fr]
+    gens = [g for g in gen_polys if any(g.intersects(s) for s in spans)]
+    reach = float(law.tables.structures.tunnel.wall_gap_m) \
+        + float(law.tables.structures.bridge.abutment_sample_step_m)
+    foot = unary_union(spans + gens).convex_hull.buffer(reach)
+    hi = max((float(p.floor_min_m) for p in fr), default=0.0) \
+        + float(law.tables.structures.bridge.clearance_minimum_m)
+    out, bare, stranger = [], [], False
+    for q in placed:
+        if str(q.id) in decks:
+            out.append(q)
+        elif _plan(q, cache, law) is None:
+            bare.append(q)
+        elif _rides(q, foot, hi, cache, law):
+            out.append(q)
+        else:
+            stranger = True
+    return out if stranger else out + bare
+
+
 def _takeovers(objects, cache, classification, airport, law, ground=None, trenches=None,
               everything=None) -> tuple[tuple[_Takeover, ...], list[str]]:
     """``(every walled multi-bridge frame of ``objects`` taken over, one note
@@ -286,12 +318,13 @@ def _takeovers(objects, cache, classification, airport, law, ground=None, trench
                          + " (owner 2026-11-19T13:51Z)"
                          + "".join(f"; probe: {n}" for n in why[:4]))
             continue
-        placed = [by_id[m] for m in db.members if m in by_id]
+        placed = _frame_members(fr, [by_id[m] for m in db.members if m in by_id],
+                                polys, cache, law)
         out.append(_Takeover(db.object_id, db.resource,
                             tuple((str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))))
                                   for q in placed),
                             tuple(r for q in placed if (r := _plan(q, cache, law))),
-                            tuple(fr)))
+                            tuple(fr), tuple(sorted({p.object_id for p in fr}))))
         notes.append(f"{where}: HIDDEN -- our generated decks take every bridge, the lidar "
                      f"sets the trench (owner 2026-11-19T13:51Z, RULINGS 2026-11-19m (2))")
         notes.extend(f"multi-bridge frame hidden: pack {pack}: {q.id} {q.path}" for q in placed)
@@ -545,14 +578,42 @@ def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[st
     return out
 
 
-def _mates(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float) -> list:
+def _rides(q, footprint, hi: float, cache, law) -> bool:
+    """``q`` RIDES the deck ``footprint`` (owner 2026-11-20T22:39Z, KDFW:
+    "make sure we're not hiding half the airport pack"): at least
+    ``[deck_gen] hide_inside_share`` of its solid plan lies within the
+    footprint, and it is no BUILDING -- no up-facing top of ``[deck_gen]
+    min_area_m2`` stands a clearance over the deck's level ``hi`` (its own
+    ground's frame, :func:`_body_top`).  A placement with no solid plan
+    (its lights) is judged by its frame (:func:`_mates`)."""
+    from shapely.geometry import Polygon
+    pq = _plan(q, cache, law)
+    if pq is None or footprint is None:
+        return False
+    try:
+        plan = Polygon(pq).buffer(0.0)
+        if plan.area <= 0.0 or plan.intersection(footprint).area < float(
+                law.tables.structures.deck_gen.hide_inside_share) * plan.area:
+            return False
+    except shapely.errors.GEOSException:             # an invalid pack outline
+        return False
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    roof = _body_top(q, cache, law, hi + clear, float("inf"))
+    return roof is None or roof.area < float(law.tables.structures.deck_gen.min_area_m2)
+
+
+def _mates(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float,
+           footprint=None, hi: float = 0.0) -> list:
     """``o`` and its FRAME MATES: the placements co-placed with it
     (``deck_bridge.co_placed``) that belong to its bridge -- one whose solid
-    plan overlaps ``o``'s by ``[deck_gen] min_area_m2``, or one with no
+    plan overlaps ``o``'s by ``[deck_gen] min_area_m2`` AND rides the deck
+    ``footprint`` (:func:`_rides`: within it, no building), or one with no
     solid at all (its lights) where every solid co-placed with ``o`` is such
     a mate.  An anchor many placements share (a whole pack placed at one
-    point: KDFW's Aerosoft objects, ~150 on one anchor) is no frame: hiding
-    the bridge never hides the airport (lane lcross21, lmslframe (D))."""
+    point: KDFW's Aerosoft objects, ~150 on one anchor, the bridge plates
+    313 x 176 m overlapping the terminal's plans) is no frame: hiding the
+    bridge never hides the airport (lane lcross21 (D); MEASURED KDFW
+    1.0.569: 103 placements hidden by plan overlap alone, lane lcross22)."""
     from shapely.geometry import Polygon
 
     from .deck_bridge import co_placed
@@ -565,12 +626,37 @@ def _mates(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float) -> l
         pq = _plan(q, cache, law)
         if pq is None:
             bare.append(q)
-        elif body is not None and Polygon(pq).buffer(0.0).intersection(body).area >= a_min:
+        elif body is not None and Polygon(pq).buffer(0.0).intersection(body).area >= a_min \
+                and (footprint is None or _rides(q, footprint, hi, cache, law)):
             solid.append(q)
         else:
             stranger = True
     # a stranger on the anchor: the lights there are no longer the bridge's
     return [o, *solid] if stranger else [o, *solid, *bare]
+
+
+def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], law) -> list:
+    """THE HIDE GUARD (owner 2026-11-20T22:39Z): the decks of ``out`` hide
+    at most ``[deck_gen] hide_max_share`` of the pack's placements
+    ``objects`` (never fewer than ``hide_floor_count``); past it every deck keeps only the bridge ``bodies`` it
+    took (a frame's deck placements, a body over a crossing; their mates
+    stay drawn) and the
+    note says so -- a read to check, never half the airport hidden."""
+    n = len(objects or ())
+    ids = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
+    cap = float(law.tables.structures.deck_gen.hide_max_share) * n
+    if not n or len(ids) <= max(cap, float(law.tables.structures.deck_gen.hide_floor_count)):
+        notes.append(f"pack placements hidden: {len(ids)} of {n}")
+        return out
+    kept = []
+    for d in out:
+        hides = tuple(h for h in getattr(d, "hides", ()) or () if h[0] in bodies)
+        kept.append(_dc.replace(d, hides=hides) if hides != tuple(d.hides or ()) else d)
+    notes.append(f"DEFECT -- the hides would take {len(ids)} of {n} pack placements "
+                 f"(over [deck_gen] hide_max_share {cap / n:.0%}): only the "
+                 f"{len({h[0] for d in kept for h in d.hides})} bridge bodies hidden, "
+                 f"their mates kept (owner 2026-11-20T22:39Z)")
+    return kept
 
 
 def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], objects,
@@ -587,14 +673,21 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
         return tuple(out), notes
     share = float(law.tables.structures.deck_gen.pack_cover_share)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    reach = float(law.tables.structures.bridge.abutment_sample_step_m)
     to_ll = airport.frame.transformers()[1]
     hidden = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
+    bodies = {m for t in takes for m in t.bodies}
     for k, g in enumerate(out):
         if g.family == "road":
             continue
+        # the deck over the crossing: what rides it is hidden with the body
+        foot = deck_polygon(g).buffer(reach)
         for o, area in _bodies(g, objects, cache, airport, law, hidden, share):
-            mates = _mates(o, objects, hidden, cache, law, tol)
+            mates = _mates(o, objects, hidden, cache, law, tol, foot,
+                           float(g.floor_min_m) + clear)
             hidden.update(str(q.id) for q in mates)
+            bodies.add(str(o.id))
             g = _dc.replace(g, hides=tuple(g.hides) + tuple(
                 (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy)))) for q in mates),
                 hidden_plans=tuple(g.hidden_plans) + tuple(
@@ -606,6 +699,8 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
                          + (" (none)" if len(mates) == 1 else "")
                          + " (RULINGS 2026-11-20a (1))")
         out[k] = g
+    out = _capped(out, objects, bodies, notes, law)
+    hidden = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
     for k, g in enumerate(out):
         left = _bodies(g, objects, cache, airport, law, hidden, None)
         if left:

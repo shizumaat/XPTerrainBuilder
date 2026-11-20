@@ -299,3 +299,68 @@ def test_a_shared_anchor_is_no_frame(monkeypatch):
     out, _n = dt.one_decision([g], (), [body, plate, lights, terminal], object(), _airport(),
                               load_default())
     assert sorted(h[0] for h in out[0].hides) == ["b", "p"]
+
+
+def test_a_giant_shared_anchor_plate_never_hides_the_terminal(monkeypatch):
+    """MEASURED KDFW 1.0.569 (lane lcross22; owner 2026-11-20T22:39Z "make
+    sure we're not hiding half the airport pack"): the bridge plate (a
+    313 x 176 m plan) shares one anchor with 100 terminal objects whose
+    plans it overlaps -- the hide takes the plate and its piece riding the
+    deck, never a terminal object beside the crossing nor a building."""
+    from shapely.geometry import box
+    g = dataclasses.replace(_gen(0.0), covered=(("-1", (("highway", "service"),),
+                                                 ((5.0, -30.0), (5.0, 30.0))),))
+    plate = _placement("p220", "220.obj")
+    piece = _placement("p221", "221.obj")
+    terms = [_placement(f"t{k}", f"{110 + k}.obj") for k in range(100)]
+    tower = _placement("tw", "tower.obj")
+    tops = {"p220": box(-150.0, -88.0, 163.0, 88.0)}
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"p220": rect(-150.0, -88.0, 163.0, 88.0), "p221": rect(0.0, -10.0, 10.0, 10.0),
+             "tw": rect(1.0, -2.0, 9.0, 2.0)}
+    plans.update({f"t{k}": rect(20.0 + 10 * (k % 10), -80.0 + 10 * (k // 10),
+                                28.0 + 10 * (k % 10), -72.0 + 10 * (k // 10))
+                  for k in range(100)})
+
+    def top(o, cache, law, lo, hi):
+        if str(o.id) == "tw" and hi == float("inf"):
+            return box(1.0, -2.0, 9.0, 2.0)          # a roof high over the deck
+        return tops.get(str(o.id)) if hi != float("inf") else None
+    monkeypatch.setattr(dt, "_body_top", top)
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    objs = [plate, piece, tower, *terms]
+    out, notes = dt.one_decision([g], (), objs, object(), _airport(), load_default())
+    assert sorted(h[0] for h in out[0].hides) == ["p220", "p221"]
+    assert any("pack placements hidden: 2 of 103" in n for n in notes)
+
+
+def test_the_hide_guard_keeps_only_the_bodies_past_its_share():
+    """The backstop: hides past ``[deck_gen] hide_max_share`` of the pack
+    keep only the bridge bodies (their mates stay drawn)."""
+    law = load_default()
+    hides = tuple((f"m{k}", "m.obj", (0.0, 0.0)) for k in range(30))
+    d = dataclasses.replace(_gen(0.0), hides=(("b", "b.obj", (0.0, 0.0)),) + hides)
+    notes: list = []
+    (kept,) = dt._capped([d], list(range(100)), {"b"}, notes, law)
+    assert [h[0] for h in kept.hides] == ["b"] and "DEFECT" in notes[0]
+    notes = []
+    (same,) = dt._capped([d], list(range(2000)), {"b"}, notes, law)
+    assert same is d and notes == ["pack placements hidden: 31 of 2000"]
+
+
+def test_a_frame_takeover_hides_only_what_rides_its_bridges(monkeypatch):
+    """A frame's co-placed members far from its bridges (a shared anchor's
+    buildings) stay drawn; its deck placement, a bed under its bridges and
+    its lights on an anchor no stranger shares go (``_frame_members``)."""
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"o": rect(0.0, -20.0, 70.0, 20.0), "bed": rect(2.0, -15.0, 68.0, 15.0),
+             "far": rect(300.0, 300.0, 400.0, 400.0)}
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    monkeypatch.setattr(dt, "_body_top", lambda *a: None)
+    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(0.0, 0.0))
+    fr = (_deck(0.0), _deck(60.0))
+    law = load_default()
+    got = dt._frame_members(fr, [P("o"), P("bed"), P("luz")], [], None, law)
+    assert [q.id for q in got] == ["o", "bed", "luz"]
+    got = dt._frame_members(fr, [P("o"), P("bed"), P("luz"), P("far")], [], None, law)
+    assert [q.id for q in got] == ["o", "bed"]

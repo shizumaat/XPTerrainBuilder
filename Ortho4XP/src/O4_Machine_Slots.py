@@ -41,8 +41,11 @@ starts until it recovers — unless the session holds no slot at all and the
 ledger's progress rule lets it run one.  A process that finds no session
 (a command-line tile, the harness) opens its own with the same rule.
 
-:func:`lower_priority` runs the engine below the user's applications (nice
-10 / Windows below-normal, inherited by every child).  Workers run at
+:func:`lower_priority` runs the engine below the user's applications, and
+its builds below its own command process (owner 2026-11-20T18:40Z: "an
+active dialog should take precedence over any builds which should be in the
+background"): the command process at nice 5, every build worker's tree at
+nice 10 (Windows: below-normal for both).  Workers run at
 NORMAL QoS — no macOS utility clamp, which confined them to the efficiency
 cores (owner RULINGS 2026-10-22k): nice only yields time to the user's apps,
 it still runs on the performance cores; the slot budget and the memory gate
@@ -97,6 +100,7 @@ __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
            "ensure_session", "has_net_priority", "hold_class", "lend",
            "background_priority", "lower_priority", "machine_verdict",
+           "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
            "memory_admits", "net_class", "note_memory_wait",
            "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
@@ -132,10 +136,15 @@ BUDGET = {
     "reserved_cores": 2,
 }
 
-#: the nice value :func:`lower_priority` sets (POSIX), and the variable
-#: that marks a process tree already lowered
+#: the nice value :func:`lower_priority` sets (POSIX) for a build worker's
+#: tree, the one it sets for the engine's command process (the app's pipe:
+#: its commands and dialog answers, above its builds and below the user's
+#: applications), the variable that marks a process tree already lowered,
+#: and the one a build worker is spawned with (``o4_engine.parallel``)
 NICE = 10
+COMMAND_NICE = 5
 ENV_PRIORITY = "O4_ENGINE_PRIORITY_LOWERED"
+ENV_BUILD_WORKER = "O4_ENGINE_BUILD_WORKER"
 
 #: seconds between attempts of a :func:`take` that is waiting
 POLL_S = 0.5
@@ -618,19 +627,26 @@ def hold_class(name: str, limit: int, n: int = 1, **wait):
 
 def lower_priority() -> None:
     """Run this process — and every child it starts afterwards, which
-    inherits it — below the user's applications: nice :data:`NICE` on
-    POSIX, ``BELOW_NORMAL_PRIORITY_CLASS`` on Windows.  Once per process
-    tree; never raises."""
-    if os.environ.get(ENV_PRIORITY):
+    inherits it — below the user's applications: a build worker
+    (:data:`ENV_BUILD_WORKER` set) at nice :data:`NICE`, the engine's
+    command process at :data:`COMMAND_NICE`, so the app's commands and
+    dialog answers go before its builds; ``BELOW_NORMAL_PRIORITY_CLASS``
+    for both on Windows.  Never raises a process's priority (a dev venv's
+    nice 15 stands).  Once per process tree, and once more in a build
+    worker; never raises."""
+    worker = bool(os.environ.get(ENV_BUILD_WORKER))
+    marked = os.environ.get(ENV_PRIORITY)
+    if marked and (marked == "worker" or not worker):
         return
-    os.environ[ENV_PRIORITY] = "1"
+    os.environ[ENV_PRIORITY] = "worker" if worker else "1"
+    nice = NICE if worker else COMMAND_NICE
     try:
         if sys.platform == "win32":
             import ctypes
             k32 = ctypes.windll.kernel32
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000)
-        elif os.getpriority(os.PRIO_PROCESS, 0) < NICE:
-            os.setpriority(os.PRIO_PROCESS, 0, NICE)
+        elif os.getpriority(os.PRIO_PROCESS, 0) < nice:
+            os.setpriority(os.PRIO_PROCESS, 0, nice)
     except Exception:
         pass
 

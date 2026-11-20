@@ -28,8 +28,10 @@ back when its download queue drains and converts to DDS under
 never takes a fetch token at all: each fetch subsystem answers for
 itself through an ``is_cached(tile)`` predicate co-located with its own
 fetch code (``STEP_FETCH_SUBSYSTEMS``), so the scheduler never
-re-derives what a step will read.  The parent-side OpenStreetMap cache
-warmer below takes an osm token like any other fetcher.
+re-derives what a step will read.  The OpenStreetMap cache warmer below
+takes an osm token like any other fetcher, warms only a queued tile no
+worker could take (idle or yet to be spawned), and downloads in a process
+of its own (``osm_warm_process``), never on the command process.
 
 A child whose next step's class is full waits idle (a between-steps
 child holds almost nothing — the pipeline communicates through files).
@@ -76,6 +78,7 @@ import O4_UI_Utils as UI
 from . import boundary_reselect as BOUNDARY
 from . import build_order as ORDER
 from . import events as EVENTS
+from . import osm_warm_process as OSM_WARM
 from . import step_memory
 from . import storage_floor as FLOOR
 from .memory_waits import (REASON_MACHINE, REASON_RUN, MemoryWaits,
@@ -822,6 +825,10 @@ class _WorkerChild:
             # This run reserves each step it starts on the machine memory
             # ledger; the child's own step slot reserves nothing more.
             child_environment[MEMORY.ENV_STEP_RESERVED] = "1"
+            # A BUILD worker: its tree runs in the background, below the
+            # command process that answers the app's commands and dialogs
+            # (owner 2026-11-20T18:40Z, ``O4_Machine_Slots.lower_priority``).
+            child_environment[O4_Machine_Slots.ENV_BUILD_WORKER] = "1"
             # The child lists its tiles' edit caches in THIS front end's
             # session and never clears it (O4_Edit_Cache, #1323).
             child_environment[EDITCACHE.LIST_ENV] = EDITCACHE.begin_session()
@@ -836,7 +843,8 @@ class _WorkerChild:
             # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
                 # Normal QoS (RULINGS 2026-10-22k): no utility clamp, so
-                # workers reach the performance cores; nice 10 is inherited.
+                # workers reach the performance cores; the worker sets its
+                # own nice (``O4_Machine_Slots.NICE``) at start.
                 tile_worker_command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -2262,13 +2270,15 @@ class ParallelBuildRun:
     def slow_step_choice(self, tile, choice):
         """Hand the user's slow-step answer (#1351) to the child running
         the tile's step; False when no child is running one."""
-        with self._lock:
-            for child in self._children:
-                if (child.tile == tile and not child.retired
-                        and child.running_step is not None):
-                    return child.send({"cmd": "slow_step_choice",
-                                       "lat": tile[0], "lon": tile[1],
-                                       "choice": choice})
+        # No scheduler lock: a dialog answer never waits for a dispatch
+        # (owner 2026-11-20T18:40Z); the list is copied whole, and the
+        # child's own stdin lock orders its pipe.
+        for child in list(self._children):
+            if (child.tile == tile and not child.retired
+                    and child.running_step is not None):
+                return child.send({"cmd": "slow_step_choice",
+                                   "lat": tile[0], "lon": tile[1],
+                                   "choice": choice})
         return False
 
     def cancel_all(self):
@@ -2811,7 +2821,6 @@ class ParallelBuildRun:
             return
         try:
             import O4_Config_Utils as CFG
-            import O4_OSM_Utils as OSM
             import O4_Vector_Map as VMAP
         except Exception as error:
             print("OpenStreetMap cache warmer unavailable:", error)
@@ -2826,19 +2835,20 @@ class ParallelBuildRun:
                     return
                 # Only the head of the queue (#1225): a planet-sized
                 # queue must not be downloaded ahead of its builds.
-                tile = next(
-                    (t for t in itertools.islice(self._queue,
-                                                 QUEUE_SCAN_WINDOW)
-                     if t not in self._warmed_tiles),
-                    None,
-                )
+                unwarmed = [t for t in itertools.islice(
+                    self._queue, QUEUE_SCAN_WINDOW)
+                    if t not in self._warmed_tiles]
+                tile = next((t for t in unwarmed
+                             if not self._worker_could_take_locked(t)),
+                            None)
                 behind = len(self._queue) > QUEUE_SCAN_WINDOW
                 if tile is not None:
                     self._warming_tile = tile
             if tile is None:
-                if not behind:
+                if not behind and not unwarmed:
                     return
-                time.sleep(WARM_AHEAD_POLL_SECONDS)   # the head moves on
+                # The head moves on, or a worker takes the tile itself.
+                time.sleep(WARM_AHEAD_POLL_SECONDS)
                 continue
             # The warmer exists to spare the OVERPASS servers.  A tile
             # fully covered by locally stored regional extracts never
@@ -2894,28 +2904,10 @@ class ParallelBuildRun:
             if not self._await_warm_token(tile):
                 continue
             try:
-                specifications = VMAP.osm_layer_warm_specifications(
-                    tile_configuration)
-                warmed_layers = 0
-                for (cached_suffix, queries, tags_of_interest,
-                        node_tags_of_interest,
-                        cache_schema) in specifications:
-                    with self._lock:
-                        still_queued = tile in self._queue
-                        stopping = self._finished or self._cancel_all
-                    if stopping or not still_queued:
-                        break
-                    OSM.OSM_queries_to_OSM_layer(
-                        queries,
-                        OSM.OSM_layer(),
-                        tile[0],
-                        tile[1],
-                        tags_of_interest,
-                        cached_suffix=cached_suffix,
-                        node_tags_of_interest=node_tags_of_interest,
-                        cache_schema=cache_schema,
-                    )
-                    warmed_layers += 1
+                warmed_layers = self._warm_tile_layers(
+                    tile, tile_build_dir, len(
+                        VMAP.osm_layer_warm_specifications(
+                            tile_configuration)))
                 if warmed_layers:
                     print("[warm] OpenStreetMap cache ready for",
                           _short_latlon(tile),
@@ -2932,6 +2924,40 @@ class ParallelBuildRun:
                 self._dispatch_locked()
             self._maybe_finish()
 
+    def _warm_tile_layers(self, tile, build_dir, layer_count):
+        """Warm ``tile``'s layers in a worker process of their own
+        (``osm_warm_process``: never on the command process's
+        interpreter), stopping between layers when the run stops or a
+        worker took the tile.  Returns the layers warmed."""
+        runner = OSM_WARM.open_runner()
+        warmed = 0
+        try:
+            for index in range(layer_count):
+                with self._lock:
+                    still_queued = tile in self._queue
+                    stopping = self._finished or self._cancel_all
+                if stopping or not still_queued:
+                    break
+                runner.layer(tile[0], tile[1], build_dir, index)
+                warmed += 1
+        finally:
+            runner.close()
+        return warmed
+
+    def _worker_could_take_locked(self, tile):
+        """Whether a worker could start queued ``tile`` now or once the
+        pool grows: it is among the first N queued tiles, N = the idle
+        children plus the children the slot count still allows.  The
+        warmer leaves such a tile alone — warming it held it off an idle
+        worker (owner's 1.0.568 run, 2026-11-20: -23-048 claimed by the
+        warmer for an hour, a worker idle beside it for 23 minutes)."""
+        alive = [child for child in self._children if not child.retired]
+        free = sum(1 for child in alive
+                   if child.tile is None and not child.cancelling)
+        free += max(0, self._slots - len(alive))
+        return tile in itertools.islice(self._queue,
+                                        min(free, QUEUE_SCAN_WINDOW))
+
     def _await_warm_token(self, tile):
         """Block until the warmer holds an osm token for ``tile``.
 
@@ -2947,6 +2973,11 @@ class ParallelBuildRun:
                     self._warming_tile = None
                     return False
                 if tile not in self._queue:
+                    self._warming_tile = None
+                    return False
+                if self._worker_could_take_locked(tile):
+                    # A slot freed while the warmer waited: the tile's
+                    # own worker downloads it.
                     self._warming_tile = None
                     return False
                 self._warming_tile = tile

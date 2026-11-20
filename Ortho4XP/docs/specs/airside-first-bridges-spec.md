@@ -122,3 +122,31 @@ Bars: `tools/deck_probe.py --carve` (library `tools/deck_carve_bars.py`).
 | admission reads the taxiway | `planar/deck_generated` (`_route_pieces` hands each deck's `core`; `overhead_decks` / `_blocked` read it), `planar/deck_width.cores` | the pack's refusals (a pack deck standing ON the crossing, a frame over it) read the deck's taxiway plan, never its shoulders: MEASURED KRDU at twice the width, the shoulders reached the pack's `dsf:obj140` and read it as standing OVER the -17013 / -454 crossings it stands ON (refused at the class width), so two decks were admitted that cut a 19.6 % ramp through a tunnel ramp |
 | road deck end levels | `pipeline/generated_publication._surface_at` | the mesh's own surface (the map face holding the point, triangulated on its ring), the survey off every face; a road deck runs to the end lines of the NEAREST generated deck whose cut it crosses (KJFK `-833` ran to the farther of two decks over one road) |
 | the bar reads the published top | `tools/v2_solve_replay.py` (`generated_tops` in the solved pickle), `tools/deck_carve_bars._top` | the clearance bar reads the deck's published Coons top; read again off the final airside on the ring it missed the shoulders (KPHX `o4gen_6494eed8` read 4.77 m of 5.0 for 5.32 m) |
+
+
+## 10. Lane lcross20 (2026-11-20): one decision per crossing, width, gaps, piers, markings (RULINGS 2026-11-20a; owner 14:36Z-15:30Z)
+
+Evidence: `tools/v2_solve_replay.py --replay ... --from classify` on the
+lbridge2 captures (KRDU KJFK KORD KPHX KBNA KIAH) and a new KMCO capture,
+base `2e605bea7` against the lane head; bars `tools/deck_probe.py --carve
+--piers` (library `tools/deck_carve_bars.py`: `end_gaps`, `pier_bars`,
+`road_deck_bars`), movers `tools/airside_value_delta.py` against the
+`--no-bridge` arm. No tile build (17r).
+
+| item | where | what |
+|------|-------|------|
+| 1 one decision | `planar/deck_takeover.one_decision` (replaces `attach` at `planar/build`) | the walled frames this build hid (19p) are carried as before; then every OTHER pack placement drawing a DECK over a crossing we generated -- its up-facing solid faces a clearance (`[bridge] clearance_minimum_m`) over its own lowest solid and no higher than the deck's depth plus that clearance over its ground, over the deck by `min_area_m2` and over `pack_cover_share` of its covered roads -- is HIDDEN in the pack copy with its co-placed frame mates (`deck_bridge.co_placed`: the `_luz` lights). A pack HARD deck is never one (the deck law seats it: it refused the crossing, or passes over it). What still draws a deck-level top under a generated footprint is recorded on the deck (`DeckBridge.pack_under`), published (`pack_bridge_under_deck`) and counted by the census family `pack_bridge_under_deck` (check_grade + v2 verify). MEASURED KMCO: `puente.obj` (`deck_kind` candidate, no hard deck, 980 m wide) hidden with `puente_luz.obj` |
+| 2 width | `planar/deck_width._end_runs` / `_run_at` / `_between` / `_pavement_width` | the taxiway (taxi / runway family) pavement run `[deck_gen] end_width_probe_m` past each end, never past half way to a neighbouring taxi route; the NARROWER end, never under the taxiway twice; a run over `end_width_broad` x that width (an apron) or no run never widens. MEASURED KPHX taxiways S / T: the airport pavement read 207 m (apron), the taxiway pavement 98-137 m (both taxiways): airside moved 3.5 m until the neighbour bound |
+| 3 floor nodes | `planar/deck_carve._need_strips` | every cut cell and deck-ground cell split along each path's `need` strip (every road under the deck with its shoulders, the least floor stage 2 lays): KRDU `o4gen_80bc82b9`'s ground face had no vertex within 10 m of `-254` |
+| 5 ends land flush | `constraints/deck_carve._flat_landing` / `_road_flat`; `planar/deck_carve._landings` | past each end line within `end_landing_m` and the deck's width plus `edge_margin_m`, every groundside vertex is a stage-2 CONSTANT at the end's level (up or down); the landing strips are noded in the cut, deck-ground and plain ground cells; a road deck's end crest lands too |
+| 8 piers | `pipeline/generated_publication.mapped_under`, `_ground_min`; `airport/deck_objects._structure`; `airport/deck_structure._piers` | every column reaches the deepest solved ground within 5 m of the ring (`ground_m`), the rest buried; columns stand clear of every mapped road / railway carriageway under the ring (whole ways, round caps) |
+| 9 riders | (by construction) `planar/deck_gen_pairs.riders` | a rider widens the deck on its own side only (union); twin added |
+| 10 / 12 markings | `airport/deck_obj8` (`TOP_STEP_M`, `_tris` on a 2 m grid, `_dense`, `_gridded`, `surface_of`), `[deck_gen] film_lift_m` / `paint_lift_m` 0.001, `deck_objects._FILM_STEP_M` 0 | the slab top was two planar triangles on a four-corner ring while the markings were stationed on the Coons patch: buried up to 0.63 m (KIAH, 5 of 11 decks) or floating 0.29 m. Now the slab is gridded at 2 m, every overlay stationed every metre on the DRAWN top (`surface_of`), 1 mm over it; on top by draw order: the slab (group `objects`), the films (`ATTR_layer_group objects 1`), paint / lines / marks (`objects 2`), a line's layers in batch order |
+| 11 road decks | `planar/deck_carve._road_spans` / `_road_stretch_decks`; `pipeline/road_deck._surface_from` | a road deck over a generated deck's cut is a stretch of that deck on every path (the floor level under it, the ramps start past it); its top is the taxiway deck's top at the same stations (a published Coons surface) |
+
+Not done here: item 4's KJFK `o4gen_e74205d8` (the road `-6514` runs
+obliquely under two decks; its end A sits over `6f1f538c`'s trench), item 6
+beyond the road-deck end crest, item 13 (KIAH JFK Blvd: the carriageways'
+RB crossings never become covered roads -- the structure pass bores
+`-5106` / `-7074` as one tunnel each under the pack's paved area; a split at
+the mapped taxiway bridges was tried and deleted: it never fired).

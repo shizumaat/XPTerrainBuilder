@@ -43,6 +43,14 @@ THE RULES OF 2026-11-18h (owner, #2129: "only fix problem spots"):
 * (3) a connector between two separately seated buildings is the deck
   warp's (``deck_profile``), after this pass.
 
+THE CROSSING LIFT (owner RULINGS 2026-11-20g (2) / 20k): a group holding a
+component the patch read as an elevated crossing of a mapped road or rail
+(``airport/crossing_seat``, published on the graded surface and carried here
+as the law's ``crossings``) seats at the zero the patch graded the roads for,
+never above the group's own HIGHEST vote ("a group is lifted no higher than
+its own highest ground vote") -- every member with it, the low ones risen.
+Only a ``flat`` / ``seat`` group is lifted; a wider one is listed.
+
 A rider of a moved body that is in no group moves by the same amount.  The
 moved records are CUT AGAIN (``placement_file.recut``) and every rider's
 ``merged_into`` follows its carrier's new file name.  No moved body: no
@@ -71,6 +79,9 @@ PADS_MIN_M = 2.0
 LOW_BAND_M = 0.3
 #: the moved body's reason (``drawn_site_plan`` reads its ``fu:N:M``)
 REASON = "one touching group {root} at {z:.2f} (RULINGS 2026-11-16u/v)"
+#: the crossing lift's reason (RULINGS 2026-11-20g / 20k)
+_CROSS_REASON = ("one touching group {root} lifted to its crossing seat {z:.2f} "
+                 "(RULINGS 2026-11-20g/k)")
 #: rule (2)'s reason: a deck stacked on walls rides them
 _STACK_REASON = "rides the walls {walls} it stands on at {z:.2f} (RULINGS 2026-11-18h (2))"
 #: rule (4)'s, for a body riding a levelled tilted frame
@@ -90,6 +101,10 @@ class _TouchLaw:
     #: rule (2)'s bearing tolerance and the feet rule (4) reads:
     #: ``[placement] split_tol_m`` (0 where the table predates it)
     contact_tol_m: float = 0.0
+    #: RULINGS 2026-11-20g / 20k: the patch's published crossing seats
+    #: (``placement_read.crossings_from_graded_doc``): ``{member, comp,
+    #: zero, ...}`` records; empty lifts nothing
+    crossings: tuple = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -105,16 +120,19 @@ class Fixed:
     led: _t.AbstractSet[str] = frozenset()
 
 
-def law_of(placement: _t.Any) -> "_TouchLaw | None":
+def law_of(placement: _t.Any, crossings: _t.Sequence[_t.Mapping] = ()
+           ) -> "_TouchLaw | None":
     """The touch law of a ``[placement]`` table; ``None`` (disarmed) where
-    ``touch_gap_m`` is absent or not positive."""
+    ``touch_gap_m`` is absent or not positive.  ``crossings``: the graded
+    surface's published crossing seats (the crossing lift)."""
     t = float(getattr(placement, "touch_gap_m", 0.0) or 0.0)
     if t <= 0.0:
         return None
     return _TouchLaw(t, float(placement.authored_keep_tol_m),
                     float(placement.touch_seat_min_share),
                     float(placement.chain_min_height_m),
-                    float(getattr(placement, "split_tol_m", 0.0) or 0.0))
+                    float(getattr(placement, "split_tol_m", 0.0) or 0.0),
+                    tuple(dict(c) for c in crossings or ()))
 
 
 def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
@@ -166,10 +184,11 @@ def _root(nodes: list, blds: list[int], g: list[int]) -> str:
 
 
 def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
-          ride: _t.AbstractSet[int] = frozenset()) -> dict:
+          ride: _t.AbstractSet[int] = frozenset(), lift: "float | None" = None) -> dict:
     """One group's decision (§2.2): its class, ``Z``, the members that
     move to it and the listings.  ``ride``: the stacked decks and their
-    units (rule (2)), which take no vote and no group move."""
+    units (rule (2)), which take no vote and no group move; ``lift``: the
+    crossing seat a member's crossing published (module doc), or ``None``."""
     blds = [i for i in g if nodes[i].kind == _tg.BUILDING and i not in ride]
     if not blds:
         return {"frame": nodes[g[0]].frame, "root": _root(nodes, sorted(g), g), "S": 0.0,
@@ -194,6 +213,11 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
                     else "judge" if s <= PADS_MIN_M else "pads")
     if out["class"] == "pads":
         out["pads"] = [(nodes[i].name, round(z + nodes[i].bottom(), 3)) for i in blds]
+    if lift is not None:
+        out["crossing_zero"] = round(float(lift), 3)
+        zc = min(float(lift), max(votes))
+        if out["class"] in ("flat", "seat") and zc > z + law.tol_m:
+            return _lifted(nodes, g, out, zc, z, set(ride) & set(g))
     if out["class"] != "seat":
         return out
     by_name = {(nodes[i].frame, nodes[i].name): i for i in g}
@@ -217,6 +241,48 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
     for i in g:
         if i not in keep and abs(nodes[i].zero - z) > 1e-6:
             out["moves"][i] = z
+    return out
+
+
+def _lifted(nodes: list, g: list[int], out: dict, zc: float, low: float,
+            keep: set) -> dict:
+    """The crossing lift (module doc): every member of ``g`` but ``keep``
+    and a non-building far over the seat (16v) moves to ``zc``."""
+    by_name = {(nodes[i].frame, nodes[i].name): i for i in g}
+    out.update({"class": "crossing", "Z": round(zc, 3), "lift": round(zc - low, 3)})
+    for i in g:
+        n = nodes[i]
+        rides = n.kind == _tg.CONNECTOR and (n.frame, n.carrier) in by_name
+        if i in keep:
+            continue
+        if n.kind != _tg.BUILDING and not rides and n.zero > zc + SEAT_MAX_M:
+            out["kept_high"] += 1
+            continue
+        if abs(n.zero - zc) > 1e-6:
+            out["moves"][i] = zc
+    return out
+
+
+def _crossing_lifts(nodes: list, splits: _t.Sequence[_t.Any],
+                    crossings: _t.Sequence[_t.Mapping]) -> dict[int, float]:
+    """``{node: published crossing seat}`` of every node whose body holds a
+    published crossing component (its member and component), the lowest
+    seat where several do."""
+    seats: dict[tuple[str, int], float] = {}
+    for c in crossings:
+        k = (str(c.get("member")), int(c.get("comp", -1)))
+        z = float(c.get("zero"))
+        seats[k] = min(z, seats.get(k, z))
+    out: dict[int, float] = {}
+    if not seats:
+        return out
+    for i, n in enumerate(nodes):
+        rec = splits[n.key[0]]
+        b = rec.bodies[n.key[1]]
+        got = [seats[(str(rec.placement_id), int(c))] for c in b.components
+               if (str(rec.placement_id), int(c)) in seats]
+        if got:
+            out[i] = min(got)
     return out
 
 
@@ -375,11 +441,16 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     # a rehosted piece moves alone: its unit mates are its carrier's
     units.update({p: [p] for p in rehost if p not in stack})
     stack.update({p: d for p, d in rehost.items() if p not in stack})
-    rows = [_seat(nodes, g, pairs, law, {i for u in units.values() for i in u})
+    lifts = _crossing_lifts(nodes, splits, law.crossings)
+    rides = {i for u in units.values() for i in u}
+    rows = [_seat(nodes, g, pairs, law, rides,
+                  min((lifts[i] for i in g if i in lifts), default=None))
             for g in groups]
     moves = {nodes[i].key: z for r in rows for i, z in r["moves"].items()}
     roots = {nodes[i].key: r["root"] for r in rows for i in r["moves"]}
     stacked, whys = _stack_moves(nodes, stack, units, moves)
+    whys.update({nodes[i].key: _CROSS_REASON.format(root=r["root"], z=z)
+                 for r in rows if r["class"] == "crossing" for i, z in r["moves"].items()})
     moves.update(stacked)
     skip = {nodes[i].key for g in groups for i in g} | {n.key for n in nodes if n.fixed}
     riders = _riders(splits, frames, moves, skip, law.tol_m)
@@ -501,7 +572,7 @@ def _count(counts: dict, nodes: list, rows: list, moves: dict, riders: dict,
     def add(k: str, v: int) -> None:
         if v:
             counts[k] = counts.get(k, 0) + v
-    for c in ("flat", "seat", "judge", "pads"):
+    for c in ("flat", "seat", "judge", "pads", "crossing"):
         add(f"touch_groups_{c}", sum(1 for r in rows if r["class"] == c))
     add("touch_bodies_moved", len(moves))
     add("touch_riders_moved", len(riders))

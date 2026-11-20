@@ -540,6 +540,12 @@ class Airport:
     #: pack stage): plain lon/lat records the object stage writes as X-Plane
     #: road chains; their spans have left ``pavements``.  Empty = none.
     road_bridges: tuple = ()
+    #: RULINGS 2026-11-20g / 20k THE SHORT CROSSINGS (``planar/elevated_
+    #: crossings.attach_crossings``, read once beside the pack stage): plain
+    #: records -- a pack frame's elevated component over a mapped road or
+    #: rail, the frame's seat the patch decides, the least soffit ``y``, the
+    #: cells' region (frame xy) and the class minimum.  Empty = none.
+    elevated_crossings: tuple = ()
     #: #2065 A3 rule 1 (RULINGS 2026-11-14d): the decks of ALL-DECK frames the
     #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
     #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.

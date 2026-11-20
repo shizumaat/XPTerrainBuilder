@@ -931,6 +931,7 @@ hard_rulings = [
   "apron body chord, stationed across the face",         # the same
   "structures.hard-deck bridge: one zero, flush at both end lines",   # owner RULINGS 2026-10-30a (1) (#1671): a pack hard-deck bridge has ONE zero, so its end lines' seat sets differ by the deck-top difference (constraints/edge_deck, the rigid row) - MEASURED as a post-solve read (class A) on the KBNA capture: the two end lines solved 2.2 m apart (171.95 / 174.18)
   "roads.edge bridge deck level with the airside abeam",   # owner RULINGS 2026-10-28d Q211 a (#1138): a road deck over an edge bridge's trench is level with the airside pavement abeam (constraints/edge_deck) - MEASURED one-way at the law weight on the KATL capture: 1.8-7.8 m under the taxiway
+  "structures.elevated crossing clearance under the soffit",  # owner RULINGS 2026-11-20g (3) / 20k: the road under a pack's elevated structure stands its class clearance under the frame's seat (constraints/elevated_clearance)
   "structures.road_bridge clearance under the span",     # owner 2026-11-17 18:30Z "the cut goes all the way under" (19:08Z: 4.2 m over a small road): the lower road under a generated road bridge's span stands its clearance under the deck line (constraints/road_bridge_ceiling) - MEASURED ESSA -260 over -3078: the objective held the road 1.47 m into the clearance with no row binding
   "tunnel.survey_floor",                                  # #1939 round 2 R2 (spec docs/specs/1939-round2-spec.md; RULINGS 2026-11-13h N1): a class-K surveyed underpass mouth's floor IS the survey -- its ramp vertices pinned on the mouth edge at the fitted surveyed road, bare ones at the DEM (constraints/survey_floor)
   "structures.wing_cut floor",                            # #2099 R2: the ground beside a grouped mouth's wings stands on their feet in the mouth's seat (constraints/wing_cut); ONE-WAY: it follows the deck, never pulls the airside
@@ -996,6 +997,7 @@ hard_conflict_ranks = [
    "structures.wing_cut floor",                                       # #2099 R2: with the mouth depth
    "tunnel.survey_floor",                                             # #1939 R2: with the mouth depth
    "structures.road_bridge clearance under the span",                 # owner 2026-11-17: with the mouth depth
+   "structures.elevated crossing clearance under the soffit",         # 20g (3): with the road bridge's
    "roads.edge bridge deck level with the airside abeam",             # 28d Q211 (#1138)
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own

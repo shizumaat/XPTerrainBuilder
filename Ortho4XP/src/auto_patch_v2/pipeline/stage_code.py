@@ -1733,6 +1733,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.ramp_runout",
         "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_bridge_ceiling",
+        "auto_patch_v2.constraints.elevated_clearance",
         "auto_patch_v2.constraints.road_ramp",
         "auto_patch_v2.constraints.roads",
         "auto_patch_v2.constraints.routes",
@@ -1920,6 +1921,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "zone_bands": "zones",
     "strip_transverse": "zones",
     "road_bridge_ceiling": "road_bridge_ceiling",
+    "elevated_clearance": "elevated_clearance",
     "walled_plate_under": "walled_plate",
     "terrain_shaped_deck": "terrain_shaped",
     "strip_longitudinal": "strips",
@@ -2174,6 +2176,15 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
+    "elevated_clearance": _mods("""
+    constraints constraints.elevated_clearance law law.agp_schema
+    law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
+    law.cutout_schema law.deck_gen_schema law.design_schema law.eat_schema
+    law.flat_pack_schema law.flat_site_schema law.model law.model_types law.rebake_schema
+    law.reference_code law.role_cap_schema law.runway_ends_schema law.tables
+    law.terrace_schema law.terrain_witness_schema law.tunnel_object_schema law.units
+    law.walled_plate_schema model model.constraints
+"""),
     "platform": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -2572,7 +2583,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.touch_graph airport.touch_seat constraints.gap_follow law.deck_gen_schema
     airport.connector_warp airport.stacked_deck airport.tilt_float airport.split_bar
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
-    constraints.road_bridge_ceiling model.road_clearance
+    constraints.road_bridge_ceiling model.road_clearance constraints.elevated_clearance
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
@@ -3091,10 +3102,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.deck_pack_cover planar.deck_takeover
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
-    constraints.road_bridge_ceiling model.road_clearance
+    constraints.road_bridge_ceiling model.road_clearance constraints.elevated_clearance
 """)
 CODE_MODULES["emit"] = _mods("""
     geom.deck_spans planar.deck_span_cut
+    airport.crossing_seat airport.elevated_crossing
     airport.band_run
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
     planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim

@@ -6,7 +6,7 @@ Between the stages (``constraints/deck_floor_follow``) each generated
 deck's TOP is known -- the no-bridge pavement over its ring, a Coons patch
 -- and so is its cut, as a surface ``z(x, y)``:
 
-* THE FLOOR along each of its paths (``model/deck_carve.CarvePath``): under
+* THE FLOOR along its one cut (``model/deck_carve.CarvePath``): under
   each deck's stretch ``min(lidar road floor, underside - clearance)`` --
   the underside the top less ``[deck_gen] thickness_m`` over every point of
   the path under the ring, the clearance the road's
@@ -15,7 +15,8 @@ deck's TOP is known -- the no-bridge pavement over its ring, a Coons patch
   back along the path at the grade cap (road law, rail 1.25 %) with
   vertical curves until it meets the surveyed ground
   (``geom/carve_profile.floor_profile``);
-* ACROSS it the floor over the carriageway and shoulders, then the bank at
+* ACROSS it the floor over the deck's full span less each abutment's
+  embankment (never narrower than its roads), then the bank at
   the deck bank's slope (1V:1.5H, ``model/deck_bank``) to the ground
   (``Vertex.dem_z``): ``min(ground, floor + bank * beyond)``, the deepest
   of every path's;
@@ -24,7 +25,10 @@ deck's TOP is known -- the no-bridge pavement over its ring, a Coons patch
   throws down at the same slope -- the embankment from each end line to
   the floor, and no pavement edge undercut.
 
-Every groundside vertex in the cut takes that level as a stage-2 CONSTANT
+UNDER THE RING the rule is absolute (owner 2026-11-20T00:30Z): a vertex
+on the floor stands at its deck's floor, any other on the embankment from
+the nearer end line down to it.  Every groundside vertex in the cut takes
+that level as a stage-2 CONSTANT
 (``stage2_fixed``): on the cut's own cells, under the ring and its opened
 approaches, and wherever the surface stands under the ground.  An airside
 vertex is never touched (19s (1)).  Pure: no geometry library past numpy

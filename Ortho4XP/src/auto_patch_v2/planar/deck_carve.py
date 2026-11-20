@@ -8,15 +8,18 @@ from the bridge back to the natural terrain"; RULINGS 2026-11-19s (2)-(4)).
 Every GENERATED deck of the full map (``planar/deck_generated``) mints its
 own cut in the patch, ribbon or not, mapped road or not:
 
-* ITS PATHS (:func:`_deck_paths`): each covered road or rail the deck spans
-  (``DeckBridge.covered``), chained on along its own mapped OSM path
-  (straight on where the map ends) as far as its ramp can need
-  (:func:`_reach_m`); with none mapped, the cut's own axis -- the deck's
-  road line, else along its end lines (they run parallel to the road).
-* ITS STRETCHES: the stretch of each path under every generated deck it
-  passes (the ring grown by the bank's run-on), so two parallel taxiways'
-  decks over one road share one cut running straight through the gap
-  (19s (3) (b)).
+* ITS ONE CUT (:func:`_deck_paths`; owner 2026-11-20T00:33Z: "a single
+  cut, not multiple parallel ones"): a trench the deck's full width,
+  along its main covered road or rail (``DeckBridge.covered``) chained on
+  along its own mapped OSM path (straight on where the map ends) as far as
+  its ramp can need (:func:`_reach_m`), centred between the deck's end
+  lines (:func:`_centred`); with none mapped, the cut's own axis -- the
+  deck's road line, else along its end lines.  Every road under the deck
+  lies on its floor.
+* ITS STRETCHES: the stretch of the path under every generated deck it
+  passes (the ring grown by the bank's run-on): two parallel taxiways'
+  decks closer than a ramp up and back down are one cut at full depth
+  between them (``geom/carve_profile.merged``, 19s (3) (b)).
 * THE SURVEYED GROUND along each path (``airport.dem``, the lidar road).
 * ITS CELLS (:func:`deck_carve`): the floor (the carriageway and its
   shoulders, ``[deck_gen] shoulder_m``), the banks out to the estimated

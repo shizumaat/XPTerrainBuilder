@@ -240,8 +240,8 @@ def test_the_ground_past_each_deck_end_lands_at_its_level():
 
 def test_neighbouring_decks_give_up_their_shoulders_to_stay_apart():
     """RULINGS 2026-11-19s (3) (b) at twice the width (KRDU: two taxiways
-    64 m apart over one road): both narrow about their centrelines to
-    ``parallel_gap_m`` apart, never below their taxiway's width."""
+    64 m apart over one road): both narrow on their FACING sides to
+    ``parallel_gap_m`` apart, never inside their paved band (20f)."""
     from auto_patch_v2.planar.deck_width import parted, rings, route_specs
     nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
              {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (40.0, -100.0), 4: (40.0, 100.0)}.items()}
@@ -257,8 +257,10 @@ def test_neighbouring_decks_give_up_their_shoulders_to_stay_apart():
     (ra, _), (rb, _) = rings(parted(left + right, law))
     gap = float(law.tables.structures.deck_gen.parallel_gap_m)
     assert ra.distance(rb) == pytest.approx(gap, abs=1.0)
-    assert ra.bounds[0] == pytest.approx(-(ra.bounds[2]))          # about its centreline
-    assert ra.bounds[2] - ra.bounds[0] >= 25.0 - 1e-6              # never under the taxiway
+    # owner RULINGS 2026-11-20f: only the FACING sides give way; the outer
+    # sides keep their shoulders, and never inside the paved band
+    assert ra.bounds[0] == pytest.approx(-25.0) and rb.bounds[2] == pytest.approx(65.0)
+    assert ra.bounds[2] >= 12.5 - 1e-6 and rb.bounds[0] <= 40.0 - 12.5 + 1e-6
 
 
 def test_a_deck_gives_up_shoulder_over_a_structure_beside_it():

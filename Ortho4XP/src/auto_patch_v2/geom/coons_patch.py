@@ -124,4 +124,24 @@ def edge_profiles(o: XY, u: XY, w: XY, samples: _t.Iterable[tuple[float, float, 
         s0 = [(0.0, _profile_at(pa, 0.0)), (1.0, _profile_at(pb, 0.0))]
     if not s1:
         s1 = [(0.0, _profile_at(pa, 1.0)), (1.0, _profile_at(pb, 1.0))]
-    return CoonsPatch(o, u, w, *(tuple(sorted(p)) for p in (a, b, s0, s1)))
+    return CoonsPatch(o, u, w, *_cornered(pa, pb, tuple(sorted(s0)), tuple(sorted(s1))))
+
+
+def _cornered(a: Profile, b: Profile, s0: Profile, s1: Profile) -> tuple[Profile, ...]:
+    """The four profiles agreeing at each corner: each corner the mean of
+    its two edges' values there, stated as both edges' end sample.  Two
+    edges reading their first samples off different vertices left the
+    patch discontinuous at the corner (lane lcross21, KRDU taxiway d's deck:
+    0.11 m between end A's profile and the side's at one corner, a step at
+    the deck end's corner)."""
+    def at(p, q):
+        return _profile_at(p, q)
+
+    def put(p, q, z):
+        return tuple(sorted([(k, v) for k, v in p if abs(k - q) > 1e-9] + [(q, z)]))
+    c00 = 0.5 * (at(a, 0.0) + at(s0, 0.0))
+    c01 = 0.5 * (at(a, 1.0) + at(s1, 0.0))
+    c10 = 0.5 * (at(b, 0.0) + at(s0, 1.0))
+    c11 = 0.5 * (at(b, 1.0) + at(s1, 1.0))
+    return (put(put(a, 0.0, c00), 1.0, c01), put(put(b, 0.0, c10), 1.0, c11),
+            put(put(s0, 0.0, c00), 1.0, c10), put(put(s1, 0.0, c01), 1.0, c11))

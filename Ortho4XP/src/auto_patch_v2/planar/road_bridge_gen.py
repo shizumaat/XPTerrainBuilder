@@ -54,6 +54,7 @@ from shapely.strtree import STRtree
 from .deck_generated import GLOBAL_OFFER, global_only
 from .road_bridge_clear import clearance_plan, span_cuts, witnessed
 from .structure_approach import carriageway_width_m
+from .structure_underpass import is_road_bridge as _is_road_bridge
 
 __all__ = ["attach_road_bridges", "span_cells"]
 
@@ -65,10 +66,6 @@ def _layer(tags) -> int:
         return 0
 
 
-def _is_road_bridge(tags) -> bool:
-    b = str((tags or {}).get("bridge", "")).strip()
-    return bool(b) and b != "no" and bool((tags or {}).get("highway")) \
-        and not (tags or {}).get("aeroway")
 
 
 def _pages(airport) -> list[Polygon]:
@@ -191,7 +188,9 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         la, lo = to_ll(mid.x, mid.y)
         where = (f"road bridge {w.id} {w.tags.get('highway')} {line.length:.0f} m "
                  f"at {la:.6f},{lo:.6f}")
-        if not witnessed(plan, law):
+        cut_by = into if into is not None else (
+            _into_deck_cut(crossed, lines, tree, aero, run, law) if plan is not None else None)
+        if not witnessed(plan, law) and cut_by is None:
             notes.append(f"{where}: {100 * cover:.0f} % under pack pavement, "
                          + ("crosses no lower road" if not crossed else
                             f"over {', '.join(lower[:4])} the survey shows "
@@ -224,6 +223,12 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                     "into": into,
                     "cover": round(cover, 3), "over": lower, "ground": ground,
                     "levels": plan.levels, "_axis_xy": line})
+        if not witnessed(plan, law):
+            # lane lcross21 (KIAH ``-1342`` over ``-7074``: 2.2 m of 5 surveyed):
+            # the lower road runs into a taxiway deck's cut, which cuts it to
+            # the deck's floor -- the mapped bridge over it is built
+            notes.append(f"{where}: the survey shows {plan.witnessed:.1f} m of its clearance, "
+                         f"but {cut_by}: the deck's cut carries it (RULINGS 2026-11-20e)")
         notes.append(f"{where}: " + (f"{100 * cover:.0f} % under pack pavement" if into is None
                                      else f"over {into}")
                      + f" over {', '.join(lower[:4])} -- GENERATED (spec 2123 B; a narrow flat "

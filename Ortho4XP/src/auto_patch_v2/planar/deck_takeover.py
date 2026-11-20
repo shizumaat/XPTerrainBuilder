@@ -545,6 +545,34 @@ def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[st
     return out
 
 
+def _mates(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float) -> list:
+    """``o`` and its FRAME MATES: the placements co-placed with it
+    (``deck_bridge.co_placed``) that belong to its bridge -- one whose solid
+    plan overlaps ``o``'s by ``[deck_gen] min_area_m2``, or one with no
+    solid at all (its lights) where every solid co-placed with ``o`` is such
+    a mate.  An anchor many placements share (a whole pack placed at one
+    point: KDFW's Aerosoft objects, ~150 on one anchor) is no frame: hiding
+    the bridge never hides the airport (lane lcross21, lmslframe (D))."""
+    from shapely.geometry import Polygon
+
+    from .deck_bridge import co_placed
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    own = _plan(o, cache, law)
+    body = Polygon(own).buffer(0.0) if own else None
+    near = [q for q in objects if q is not o and str(q.id) not in hidden and co_placed(o, q, tol)]
+    solid, bare, stranger = [], [], False
+    for q in near:
+        pq = _plan(q, cache, law)
+        if pq is None:
+            bare.append(q)
+        elif body is not None and Polygon(pq).buffer(0.0).intersection(body).area >= a_min:
+            solid.append(q)
+        else:
+            stranger = True
+    # a stranger on the anchor: the lights there are no longer the bridge's
+    return [o, *solid] if stranger else [o, *solid, *bare]
+
+
 def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], objects,
                  cache, airport, law) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(gen, notes)``: THE ONE DECISION per crossing our decks were
@@ -553,7 +581,6 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
     generated deck's crossing hidden with its frame mates (``hides``,
     ``hidden_plans``), and what is still left under a deck's footprint
     recorded as its defect (``pack_under``)."""
-    from .deck_bridge import co_placed
     out, notes = _attach(gen, takes, law)
     out = list(out)
     if not objects or cache is None:
@@ -566,8 +593,7 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
         if g.family == "road":
             continue
         for o, area in _bodies(g, objects, cache, airport, law, hidden, share):
-            mates = [q for q in objects if q is o or (str(q.id) not in hidden
-                                                      and co_placed(o, q, tol))]
+            mates = _mates(o, objects, hidden, cache, law, tol)
             hidden.update(str(q.id) for q in mates)
             g = _dc.replace(g, hides=tuple(g.hides) + tuple(
                 (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy)))) for q in mates),

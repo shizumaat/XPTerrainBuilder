@@ -192,7 +192,8 @@ def _road_chain(parent: LineString, lines, tree, reach: float) -> LineString:
     return chain
 
 
-def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
+def _whole_cover(roads, P, max_cover: float, ways=(), bridges=(), opened=None
+                 ) -> tuple[list, list[str]]:
     """Each underpass road's stretch under the pavement ``P`` -- the piece
     of its mapped road there holding the clip -- as its line and covered
     length; a road covered over ``max_cover`` is a tunnel and dropped."""
@@ -240,12 +241,49 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
         if line.geom_type != "LineString":
             line = r.line
         if line.length > max_cover:
+            n_br = _mapped_bridges_over(line, bridges)
+            if n_br >= 2:
+                # lane lcross21 (owner 2026-11-20T15:30Z, KIAH JFK Blvd): OSM
+                # maps a bridge over each crossing of this stretch -- no
+                # tunnel: each bridge's piece is its own deck, the paved
+                # stretch between them the open cut (``open_between``)
+                notes.append(f"covered road {r.id} {r.tags.get('highway')} {line.length:.1f} m "
+                             f"under the pavement, {n_br} mapped bridges over it: one deck per "
+                             f"bridge, the cut open between them (RULINGS 2026-11-19r (2))")
+                opened.append((r, line))
+                out.append(r)
+                continue
             notes.append(f"covered road {r.id} {r.tags.get('highway')} {line.length:.1f} m "
                          f"under the pavement: a tunnel (over max_cover_m {max_cover:g} m, "
                          f"Q2) -- no generated deck")
             continue
         out.append(r._replace(line=line, covered_m=line.length))
     return out, notes
+
+
+def _mapped_bridges_over(line: LineString, bridges) -> int:
+    """How many mapped bridges (taxiway / road bridge lines) cross ``line``."""
+    return sum(1 for b in bridges or () if b.intersects(line))
+
+
+def _open_between(piece: Polygon, opened, P, under, law) -> list[Polygon]:
+    """The pavement ``P`` over each split cover (``_whole_cover``'s
+    ``opened``: a road under one paved area that several mapped bridges
+    cross) beside ``piece``'s own stretch -- its carriageway, shoulders and
+    the bank's run, left open with the deck's ring so the cut runs open
+    between the bridges (KIAH JFK Blvd: the pack paves the open cuts)."""
+    ids = {r.id for r in under}
+    out = []
+    for r, whole in opened:
+        if r.id not in ids:
+            continue
+        band = whole.buffer(r.half_m + float(law.tables.structures.deck_gen.shoulder_m)
+                            + _depth_m(law, (r,)) / deck_bank_slope(law), cap_style="flat")
+        x = band.intersection(P).difference(piece)
+        for q in getattr(x, "geoms", [x]):
+            if q.geom_type == "Polygon" and q.area > 1.0 and q.distance(piece) <= 1.0:
+                out.append(q)
+    return out
 
 
 def _beside_covered(parent: LineString, lines, tree) -> bool:
@@ -490,7 +528,12 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     # the road's COVER is its whole stretch under the pavement
     from .structure_underpass import bore_roads
     mapped = bore_roads(airport, law, rail=True)
-    roads, long_notes = _whole_cover(roads, P, float(g.max_cover_m), mapped)
+    from .structure_underpass import aeroway_decks, is_road_bridge
+    spans = [LineString(a.points) for a in aeroway_decks(airport, law)] + [
+        LineString(w.points) for w in getattr(airport, "osm_ways", ()) or ()
+        if len(w.points) >= 2 and is_road_bridge(w.tags)]
+    opened: list = []
+    roads, long_notes = _whole_cover(roads, P, float(g.max_cover_m), mapped, spans, opened)
     notes += long_notes
     if not roads:
         return (), notes
@@ -627,6 +670,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         approach += [q for q in getattr(beside.difference(piece), "geoms",
                                         [beside.difference(piece)])
                      if q.geom_type == "Polygon" and q.intersection(P).area > 1.0]
+        approach += _open_between(piece, opened, P, under, law)
         main = max(under, key=lambda r: r.line.intersection(piece).length)
         x = main.line.intersection(piece)
         road = tuple(x.coords) if x.geom_type == "LineString" else ()

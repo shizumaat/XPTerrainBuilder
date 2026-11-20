@@ -389,7 +389,12 @@ def _shared_mains(gen, carves, law) -> dict[str, tuple]:
     out: dict[str, tuple] = {}
     for grp in _cut_groups(gen, carves):
         ways = {p.way for d in grp for p in carves[d.object_id].paths}
-        if len(ways) < 2:
+        lines = {tuple(p.coords) for d in grp for p in carves[d.object_id].paths}
+        if len(ways) < 2 and len(lines) < 2:
+            # one road, one line (lane lcross21: KJFK ``o4gen_6f1f538c`` /
+            # ``o4gen_e74205d8`` both ran along ``-6514`` on lines 14.8 m
+            # apart, each chained from its own clip -- two floors where they
+            # disagreed, a 12 % step on the ramp)
             continue
         rings = [deck_polygon(d) for d in grp]
         cands = {r[0]: r for d in grp for r in _covered_roads(d)}
@@ -648,12 +653,18 @@ def _split_structures(cells, blade, law, own: bool = False, ground: bool = False
     from ..law.tables import airside_stage_roles
     from ..model.deck_carve import CARVE_REF as _ref
     air = set(airside_stage_roles(law))
+    from ..law.tables import family
+    # a road deck's approach ribbon is noded on the landing too: it rises to
+    # the deck end there (owner RULINGS 2026-11-20e; KPHX ``-301`` over
+    # ``-7449``: no ribbon vertex within 2.5 m of the deck end, 1.6 m under it)
+    road_roles = set(family(law, "road_cross_section").roles) if ground else set()
     edge = blade.boundary
     out, n = [], 0
     for c in cells:
         mine = (c.kind == "structure" and c.role not in air
                 and (own or not str(c.ref).startswith(_ref))) \
-            or (ground and c.kind != "structure" and not _untouched(c, law))
+            or (ground and c.kind != "structure" and (not _untouched(c, law)
+                                                       or c.role in road_roles))
         if not mine or len(c.ring) < 3:
             out.append(c)
             continue

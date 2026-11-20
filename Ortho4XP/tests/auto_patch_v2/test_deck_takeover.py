@@ -258,7 +258,9 @@ def test_one_decision_hides_a_pack_bridge_over_our_crossing_with_its_mates(monke
     lamp = _placement("x", "lamp.obj", xy=(40.0, 40.0))
     tops = {"b": box(-2.0, -20.0, 12.0, 20.0)}
     monkeypatch.setattr(dt, "_body_top", lambda o, *_a: tops.get(str(o.id)))
-    monkeypatch.setattr(dt, "_plan", lambda *_a: ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)))
+    # the lights carry no solid (their plan is none)
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: None if str(o.id) == "l"
+                        else ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)))
     law = load_default()
     out, notes = dt.one_decision([g], (), [body, luz, lamp], object(), _airport(), law)
     assert [h[0] for h in out[0].hides] == ["b", "l"]
@@ -277,3 +279,23 @@ def test_one_decision_counts_a_pack_top_left_under_our_deck_as_a_defect(monkeypa
     monkeypatch.setattr(dt, "_body_top", lambda o, *_a: box(0.0, 8.0, 10.0, 17.0))
     out, _n = dt.one_decision([g], (), [shed], object(), _airport(), load_default())
     assert out[0].hides == () and [u[0] for u in out[0].pack_under] == ["s"]
+
+
+def test_a_shared_anchor_is_no_frame(monkeypatch):
+    """lmslframe (D): KDFW places ~150 objects on one anchor -- hiding the
+    bridge body hides its overlapping plate mate, never a stranger there,
+    nor a lights object once a stranger shares the anchor."""
+    from shapely.geometry import box
+    g = dataclasses.replace(_gen(0.0), covered=(("-1", (("highway", "service"),),
+                                                 ((5.0, -30.0), (5.0, 30.0))),))
+    body, plate = _placement("b", "bridge.obj"), _placement("p", "plate.obj")
+    lights, terminal = _placement("l", "lights.obj"), _placement("t", "terminal.obj")
+    tops = {"b": box(-2.0, -20.0, 12.0, 20.0)}
+    plans = {"b": ((-2.0, -20.0), (12.0, -20.0), (12.0, 20.0)),
+             "p": ((0.0, -10.0), (10.0, -10.0), (10.0, 10.0)),
+             "t": ((300.0, 300.0), (400.0, 300.0), (400.0, 400.0))}
+    monkeypatch.setattr(dt, "_body_top", lambda o, *_a: tops.get(str(o.id)))
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    out, _n = dt.one_decision([g], (), [body, plate, lights, terminal], object(), _airport(),
+                              load_default())
+    assert sorted(h[0] for h in out[0].hides) == ["b", "p"]

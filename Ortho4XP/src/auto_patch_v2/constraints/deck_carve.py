@@ -66,6 +66,9 @@ _KERB_K = 24
 #: floor's edge vertices (noded every ``planar/deck_carve.NODE_M``) reads a
 #: few tenths of a per cent steeper over a short run than the profile
 _CAP_SHARE = 0.95
+#: a road's own vertex this far past a path's floor band still takes the
+#: floor (a junction's ribbon flaring off the road in the cut, m)
+_ROAD_FLARE_M = 5.0
 #: a floor-edge vertex stands this far off its line at most (the planar
 #: build snaps a vertex to its identity lattice, ``law.tables.snap_margin_m``)
 _SNAP_M = 0.5
@@ -343,11 +346,18 @@ def _flat_landing(rings, xy, landing: float, side: float = _SNAP_M) -> "float | 
         # ring's edge margin: the corner cone starts past it, KPHX
         # ``o4gen_566de1cd``: a cone vertex 1 m beside the corner, 0.5 m down)
         snap = side / max(_hyp(top.w), 1e-9)
-        if not -snap <= tp <= 1.0 + snap or 0.0 <= sp <= 1.0:
+        if not -snap <= tp <= 1.0 + snap:
             continue
-        past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
+        # beside the deck within ``side`` of its end line the corner lands
+        # too (KRDU taxiway d's deck: its side's bank vertex 0.8 m inside the
+        # end, 1 m beside, held the corner 0.12 m under the deck end)
+        back = side / max(_hyp(top.u), 1e-9)
+        if 0.0 <= sp <= 1.0 and not (min(sp, 1.0 - sp) <= back
+                                     and not 0.0 <= tp <= 1.0):
+            continue
+        past = max(0.0, -sp if sp < 0.5 else sp - 1.0) * _hyp(top.u)
         if past <= landing + _SNAP_M:
-            z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))
+            z = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp)))
             best = z if best is None else max(best, z)
     return best
 
@@ -392,12 +402,23 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # can reach is never the cut's
     reach = max(max(-b[0], b[1]) for _p, _f, _s, _z, b in profs) + 40.0
     vids = [v for v in pm.vertices if v not in air and v not in fixed]
+    # a ROAD's own vertex near a path's floor takes the floor, never the
+    # bank (lane lcross21, KJFK ``o4gen_e74205d8``: the ribbon of ``-41758``
+    # flaring off ``-6514`` 1.5 m past the floor band stood 1.2 m over it,
+    # 12 % over 10 m along the ramp)
+    from ..law.tables import family
+    road_roles = set(family(law, "road_cross_section").roles)
+    road_v = np.array([any(getattr(pm.faces[f], "role", "") in road_roles
+                           for f in pm.vertices[v].incident_faces)
+                       for v in vids], dtype=bool)
+    flare = _ROAD_FLARE_M
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)
     ys = np.array([pm.vertices[v].xy[1] for v in vids], dtype=np.float64)
     # THE FLOOR FIRST: a vertex on a road's floor takes that road's floor
     # (the lowest of the floors it stands on), never another road's bank
     # -- each road keeps its own ramp; off every floor, the deepest bank
     on_floor = np.full(len(vids), np.inf)
+    strict = np.zeros(len(vids), dtype=bool)
     # the surveyed ground along the path at a floor vertex: the cut's ramp
     # owns its floor to the meet point, whatever a corridor it took over
     # lowered the vertex's own ground to (KRDU 1.0.565 ``-239``: a tunnel
@@ -418,7 +439,9 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         sv, nv = frame.project_signed(xs[m], ys[m])
         fz = np.interp(sv, s, z)
         lo_, hi_ = lo - _SNAP_M, hi + _SNAP_M
-        on = (nv >= lo_) & (nv <= hi_)
+        band = (nv >= lo_) & (nv <= hi_)
+        strict[m] |= band
+        on = band | (road_v[m] & (nv >= lo_ - flare) & (nv <= hi_ + flare))
         deeper = on & (fz < on_floor[m])
         on_ground[m] = np.where(deeper, np.interp(sv, s, _path_stations(p_)[1]), on_ground[m])
         on_floor[m] = np.where(on, np.minimum(on_floor[m], fz), on_floor[m])
@@ -454,14 +477,18 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         # under its end 0.6 m past it)
         trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0] == "floor"
                      for r in refs)
-        land = -math.inf if floor_v[i] or trench else max(
-            _landing(rings, vx.xy, bank, landing),
-            _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
-        flats = [] if floor_v[i] or trench else [
+        flats = [] if strict[i] or trench else [
             q for q in (_flat_landing(rings, vx.xy, landing, margin),
                         _road_flat(road_ends, vx.xy, landing, margin) if road_ends else None)
             if q is not None]
+        # a road vertex on the floor by its flare only lands where a deck
+        # end's landing reaches it (KPHX ``-301``: its approach ribbon at the
+        # road deck's end, 5 m off the floor band, sank 7 m to the floor)
+        fv = bool(floor_v[i]) and not flats
         flat = max(flats) if flats else None
+        land = -math.inf if fv or trench else max(
+            _landing(rings, vx.xy, bank, landing),
+            _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M or flat is not None):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)
@@ -473,14 +500,14 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             sp, tp = top.st(*vx.xy)
             run = min(sp, 1.0 - sp) * _hyp(top.u)
             ab = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp))) - bank * run
-            cut = min(cut, fl) if floor_v[i] else max(fl, ab)
+            cut = min(cut, fl) if fv else max(fl, ab)
             out[v] = round(cut, 4)
             continue
         if flat is not None:
             # the deck end's own landing: at the end's level, up or down
             n_land += 1
             cut = flat
-        if kerb is not None and not floor_v[i]:
+        if kerb is not None and not fv:
             # the bank never undercuts the airside: over the deck's opened
             # pavement it rises to it; beyond, never over the ground.  A
             # road's floor is never raised: where the road needs it, the

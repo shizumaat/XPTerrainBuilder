@@ -279,7 +279,7 @@ def _road_ends(decks, tops, roads, law) -> list[tuple]:
         top = tops[oid]
         c = list(ext.coords)
         for p, q in ((c[0], c[1]), (c[-1], c[-2])):
-            n = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
+            n = _hyp((p[0] - q[0], p[1] - q[1])) or 1.0
             sp, tp = top.st(*p)
             level = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp)))
             out.append((p, ((p[0] - q[0]) / n, (p[1] - q[1]) / n),

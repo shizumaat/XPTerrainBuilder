@@ -6728,5 +6728,16 @@ for _stage in ("planar", "solve", "late_cut", "late_solve"):
 for _stage in ("solve", "late_cut", "late_solve", "emit"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("solve.stage_shadow")}))
 
+# lcross20 (2026-11-20, one decision per crossing): the deck frame moved
+# into geom, the road decks' spans read by the planar cut, the pack bridge
+# census reader; emit reads the road decks' published top (coons patch)
+_GROWN_CROSS = "geom.deck_frame geom.road_span"
+for _stage in ("planar", "solve", "late_cut", "late_solve", "emit"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_GROWN_CROSS)}))
+CODE_MODULES["emit"] = tuple(sorted({*CODE_MODULES["emit"], *_mods(
+    "constraints.deck_carve constraints.deck_floor_follow geom.carve_profile "
+    "geom.coons_patch model.deck_carve planar.deck_airside")}))
+CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.pack_bridge")}))
+
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

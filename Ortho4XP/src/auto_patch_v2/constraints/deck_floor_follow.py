@@ -33,7 +33,7 @@ import typing as _t
 
 from ..geom.coons_patch import CoonsPatch, edge_profiles
 from ..geom.exact import hypot
-from ..model.deck_frame import deck_frame as _deck_frame
+from ..geom.deck_frame import deck_frame as _deck_frame
 from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]

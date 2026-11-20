@@ -543,7 +543,7 @@ def _road_spans(gen, carves, airport, law, spans=None) -> list[tuple]:
     generated deck's cut (``geom/road_span``, as ``pipeline/road_deck``
     draws it); riders aside (the deck carries them)."""
     from ..geom.road_span import DeckSpan, span_to_cut
-    from ..model.deck_frame import deck_frame
+    from ..geom.deck_frame import deck_frame
     if spans is None:
         spans = [DeckSpan(d.object_id, tuple(d.ring), [tuple(p.coords) for p in
                                                        carves[d.object_id].paths], fr)
@@ -598,10 +598,9 @@ def _landings(gen, carves, airport, law):
     on each end and on the landing's far line, so no face across the end
     reads the trench bank under it (MEASURED KPHX 1.0.567: the road decks'
     far ends ran down the bank, their end point inside a bank face)."""
-    import math
 
     from ..geom.road_span import DeckSpan
-    from ..model.deck_frame import deck_frame
+    from ..geom.deck_frame import deck_frame
     depth = float(law.tables.structures.deck_gen.end_landing_m)
     parts, spans = [], []
     for d in gen:
@@ -623,7 +622,7 @@ def _landings(gen, carves, airport, law):
     for ext, half, _oid in _road_spans(gen, carves, airport, law, spans):
         c = list(ext.coords)
         for p, q in ((c[0], c[1]), (c[-1], c[-2])):
-            n = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
+            n = hypot(p[0] - q[0], p[1] - q[1]) or 1.0
             ox_, oy_ = (p[0] - q[0]) / n, (p[1] - q[1]) / n
             nx, ny = -oy_ * half, ox_ * half
             parts.append(Polygon([(p[0] + nx, p[1] + ny), (p[0] - nx, p[1] - ny),

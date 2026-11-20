@@ -5,11 +5,13 @@ crests).  Read by stage 2's top (``constraints/deck_floor_follow``), the
 publication (``pipeline/generated_publication``, ``pipeline/road_deck``)
 and the planar cut's road-deck landings (``planar/deck_carve``; moved here
 from ``constraints/deck_floor_follow`` by lane lcross20 so the planar stage
-reads the same frame).  Nothing here names an airport."""
+reads the same frame; geometry, so ``geom``: the model holds none).
+Duck-typed on the deck (``ring``, ``seats_a``, ``route``).  Nothing here
+names an airport."""
 from __future__ import annotations
 
-from ..geom.exact import hypot
-from ..geom.rotated_rect import rotated_rectangle
+from .exact import hypot
+from .rotated_rect import rotated_rectangle
 
 __all__ = ["deck_frame"]
 

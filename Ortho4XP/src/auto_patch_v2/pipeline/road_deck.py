@@ -43,7 +43,7 @@ import hashlib
 import math
 import typing as _t
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 
 from .generated_publication import _ll
 
@@ -101,12 +101,14 @@ def _to_cut(axis: LineString, decks) -> "tuple[LineString, str] | None":
             continue
         s0, s1 = min(0.0, *ts), max(L, *ts)
         if s0 < -1e-3 or s1 > L + 1e-3:
-            grow = (0.0 - s0) + (s1 - L)
-            if best is None or grow > best[0]:
-                best = (grow, s0, s1, db.object_id)
+            # the deck it parallels: the nearest whose cut it crosses (two
+            # decks over one road share a cut: KJFK -833 ran to the far one)
+            near = Polygon(db.ring).distance(axis)
+            if best is None or near < best[0]:
+                best = (near, s0, s1, db.object_id)
     if best is None:
         return None
-    _g, s0, s1, oid = best
+    _n, s0, s1, oid = best
     pts = [(ax + d[0] * s0, ay + d[1] * s0)] if s0 < -1e-3 else []
     pts += c
     pts += [(ax + d[0] * s1, ay + d[1] * s1)] if s1 > L + 1e-3 else []

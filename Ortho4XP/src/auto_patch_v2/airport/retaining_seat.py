@@ -8,7 +8,11 @@ submerged".  RULED: a wall-type object standing on a level break between
 higher pavement and a lower road seats at the lowest level beside it (the
 road), its upper side partly buried; it never pulls either pavement.  So
 the plate of a wall standing on its ground (no ``sunk_frame`` reading:
-a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) is its
+a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) on a
+LEVEL BREAK (the caller's ``level_break``: its low side on a road, its
+upper side on airside pavement), alone in its placement frame (a frame of
+several members rides one plate, and the wall would pull them: KHMP's
+speedway, 2,031 bodies 2.5 m), is its
 FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the
 stations a grid step outside its LOW face, the ones within the ground bar
 (``[placement] split_bar_m``) of the lowest ground along it; the wall's
@@ -80,6 +84,8 @@ class _RetainingSeat:
     y: float
     stations: tuple
     resource: str = ""
+    #: 20m: the footing on the low side (else the 16d upper ground)
+    footing: bool = False
 
 
 def _face_stations(face, grid_m: float, step_m: float) -> list:
@@ -154,14 +160,18 @@ def _frame_of(airport) -> dict:
 
 def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                     taken: _t.Container[str] = frozenset(),
-                    comps=None, level_m: float = 0.0) -> tuple[_RetainingSeat, ...]:
+                    comps=None, level_m: float = 0.0,
+                    level_break: "_t.Callable[[list, list], bool] | None" = None
+                    ) -> tuple[_RetainingSeat, ...]:
     """Every retaining wall of ``airport``'s pack the rule seats (module
     doc), one record per placement.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record (the wall-class law), supplied by the caller;
     ``comps`` the wall-class components when the caller has them;
     ``level_m`` the band that is ONE level at the lowest ground beside a
     wall (``[placement] split_bar_m``, the 12y ground bar; 0 = the clear
-    step)."""
+    step); ``level_break(low stations, upper stations)`` says whether the
+    wall stands on a LEVEL BREAK between higher pavement and a lower road
+    (20m; ``None``: none does, every wall keeps the upper-ground plate)."""
     dem = getattr(airport, "dem", None)
     if cfg is None or dem is None or getattr(airport, "partition", None) is None:
         return ()
@@ -173,6 +183,7 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
     clear = float(getattr(cfg, "retaining_wall_clear_step_m", 0.0) or 0.0)
     ring = getattr(cfg, "retaining_wall_step_ring_m", None)
     plated = _walled_plate_ids(airport)
+    frame = _frame_of(airport)
     by_id: dict[str, _RetainingSeat] = {}
     for w in comps:
         oid = str(getattr(getattr(w, "member", None), "id", "") or "")
@@ -180,28 +191,39 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
         if not oid or oid in taken or oid in plated or not w.retains \
                 or w.retained_top_y is None or h <= clear:
             continue
-        # 20m: a wall on its ground seats its footing on the low side; a
-        # SUNK frame's wall (``sunk_frame``: drawn down from the author's
-        # ground, 16l / 16n) keeps its upper ground
-        low = not getattr(w, "sunk_rule", "") and w.top_y is not None
         smear = wall_smear_m(h)
-        pts: list = list(by_id[oid].stations) if oid in by_id else []
+        up: list = []
+        lo: list = []
         for i, g in enumerate(w.pieces):
             faces = _wall_faces(g)
             k = None if faces is None else _upper_index(dem, w, i, faces, smear)
             if k is not None:
-                pts.extend(_face_stations(faces[1 - k] if low else faces[k],
-                                          grid_m, step_m))
-        if not pts and ring is not None:
-            pts = _side_ring(dem, w.pieces, float(ring), clear, low)
+                up.extend(_face_stations(faces[k], grid_m, step_m))
+                lo.extend(_face_stations(faces[1 - k], grid_m, step_m))
+        if not up and ring is not None:
+            up = _side_ring(dem, w.pieces, float(ring), clear, False)
+            lo = _side_ring(dem, w.pieces, float(ring), clear, True)
+        # 20m: a wall on a level break between higher pavement and a lower
+        # road seats its footing on the road -- a wall alone in its frame:
+        # one whose frame carries other members (one origin, one lift) would
+        # pull them with it ("it never pulls either pavement"; a wall never
+        # chains a building, 14a (2)).  A SUNK frame's wall (``sunk_frame``,
+        # 16l / 16n) and any other keep the upper ground (13u (1): a footing
+        # under the low side's ground stays buried)
+        low = (not getattr(w, "sunk_rule", "") and w.top_y is not None and bool(lo)
+               and len(frame.get(oid, (oid,))) <= 1
+               and level_break is not None and level_break(lo, up))
         if low:
-            pts = _lowest(dem, pts, float(level_m) if level_m > 0.0 else clear)
+            pts = _lowest(dem, lo, float(level_m) if level_m > 0.0 else clear)
+            y = float(w.top_y) - float(w.height_m)
+        else:
+            pts, y = up, float(w.retained_top_y)
+        if oid in by_id:
+            pts = list(by_id[oid].stations) + list(pts)
         if pts:
-            y = float(w.top_y) - float(w.height_m) if low else float(w.retained_top_y)
-            by_id[oid] = _RetainingSeat(oid, y, tuple(pts), str(w.resource or ""))
+            by_id[oid] = _RetainingSeat(oid, y, tuple(pts), str(w.resource or ""), low)
     # the wall's frame rides its plate: every other member of its placement
     # unit no other rule seats (one origin, one lift: one seat)
-    frame = _frame_of(airport)
     for oid, seat in list(by_id.items()):
         for k in frame.get(oid, ()):
             if k not in by_id and k not in taken and k not in plated:

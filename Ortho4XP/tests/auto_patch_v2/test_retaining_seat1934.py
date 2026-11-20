@@ -44,8 +44,21 @@ def _comp(oid="w", retains=True, retained=2.84, kept=0.0):
 CFG = types.SimpleNamespace(retaining_wall_clear_step_m=2.0)
 
 
-def _run(comps, taken=frozenset()):
-    return R.retaining_seats(_airport(), CFG, 0.5, 5.0, taken, comps=comps)
+def _break(low, up):
+    """the 20m level break: here every wall stands between apron and road"""
+    return True
+
+
+def _run(comps, taken=frozenset(), level_break=_break):
+    return R.retaining_seats(_airport(), CFG, 0.5, 5.0, taken, comps=comps,
+                             level_break=level_break)
+
+
+def test_a_wall_on_no_level_break_keeps_its_upper_ground():
+    """16d stands where 20m does not reach (no road below, no pavement above)"""
+    (w,) = _run([_comp()], level_break=lambda low, up: False)
+    assert w.y == 0.0 and not w.footing
+    assert all(y == pytest.approx(1.0) for _x, y in w.stations)
 
 
 def test_a_wall_between_apron_and_road_is_seated_by_its_footing_on_the_road():
@@ -55,7 +68,7 @@ def test_a_wall_between_apron_and_road_is_seated_by_its_footing_on_the_road():
     got = _run([_comp()])
     assert len(got) == 1
     w = got[0]
-    assert w.oid == "w" and w.y == pytest.approx(-4.2)
+    assert w.oid == "w" and w.y == pytest.approx(-4.2) and w.footing
     assert all(y == pytest.approx(-0.5) for _x, y in w.stations)
     xs = sorted(x for x, _y in w.stations)
     assert xs[0] == pytest.approx(0.0) and xs[-1] == pytest.approx(40.0)
@@ -114,5 +127,18 @@ def test_the_retaining_plate_leads_its_unit_and_group():
 def test_the_footing_stands_at_the_lowest_level_within_the_ground_bar():
     """20m "at the lowest road level": with the 0.5 m ground bar only the
     stations on the road's 32.0 part remain (its 32.6 end is another level)"""
-    (w,) = R.retaining_seats(_airport(), CFG, 0.5, 5.0, comps=[_comp()], level_m=0.5)
+    (w,) = R.retaining_seats(_airport(), CFG, 0.5, 5.0, comps=[_comp()], level_m=0.5,
+                             level_break=_break)
     assert w.stations and all(x < 30.0 for x, _y in w.stations)
+
+
+
+def test_a_wall_in_a_frame_of_several_keeps_its_upper_ground():
+    """20m never pulls a frame: a wall sharing its placement unit with other
+    members (one origin, one lift) keeps the 16d plate they ride"""
+    ap = _airport()
+    ap.partition.units = [types.SimpleNamespace(members=[types.SimpleNamespace(id="w"),
+                                                         types.SimpleNamespace(id="stand")])]
+    got = R.retaining_seats(ap, CFG, 0.5, 5.0, comps=[_comp()], level_break=_break)
+    assert {w.oid for w in got} == {"w", "stand"}
+    assert all(not w.footing and w.y == 0.0 for w in got)

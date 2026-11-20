@@ -28,7 +28,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["parted", "route_decks", "route_ends", "route_specs", "rings"]
+__all__ = ["parted", "route_ends", "route_specs", "rings"]
 
 XY = tuple[float, float]
 #: two crossing segments this near and this parallel are one route (m, deg)
@@ -163,20 +163,12 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
              f"taxiway {'/'.join(names) or '?'} class "
              f"{letter or (common or '?') + ' (the airport common)'}: deck "
              f"{width:g} m wide (taxiway + a half-width shoulder each side, RULINGS "
-             f"2026-11-19s (8) (a))", a_c, hc]
+             "2026-11-19s (8) (a))", a_c, hc]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
         got.append(d)
     return [((ux, uy), d) for d in _merged((ux, uy), got)]
-
-
-def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
-                cover=None, avoid=None) -> list[tuple[Polygon, str]]:
-    """``(deck ring, note)`` per taxi route across ``piece`` (module doc):
-    :func:`route_specs`, parted (:func:`parted`)."""
-    return rings(parted(route_specs(piece, road_dir, airport, law, pave_at, cover, avoid),
-                        law))
 
 
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
@@ -220,8 +212,8 @@ def _narrow(u: XY, d: list) -> bool:
         return False
     d[2], d[3] = a0, a1
     if "narrowed to part" not in d[6]:
-        d[6] += f"; narrowed to part from a neighbouring deck (parallel_gap_m, RULINGS " \
-                f"2026-11-19s (3) (b))"
+        d[6] += "; narrowed to part from a neighbouring deck (parallel_gap_m, RULINGS " \
+                "2026-11-19s (3) (b))"
     return True
 
 

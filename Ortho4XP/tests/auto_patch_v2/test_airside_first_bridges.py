@@ -55,8 +55,13 @@ def _law(**kw):
         structures=types.SimpleNamespace(deck_gen=g)))
 
 
+def route_decks(piece, road_dir, airport, law, pave_at=None, cover=None, avoid=None):
+    """``(ring, note)`` per route deck of one piece, parted."""
+    from auto_patch_v2.planar.deck_width import parted, rings, route_specs
+    return rings(parted(route_specs(piece, road_dir, airport, law, pave_at, cover, avoid), law))
+
+
 def test_one_deck_per_taxiway_at_its_class_width():
-    from auto_patch_v2.planar.deck_width import route_decks
     nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
              {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (90.0, -100.0), 4: (90.0, 100.0)}.items()}
     def edge(a, b, c, name):
@@ -122,7 +127,7 @@ def test_the_carve_fixes_unmapped_airside_and_frees_ground(monkeypatch):
 
 
 def test_one_taxiway_of_many_edges_is_one_deck_and_its_ends_are_read():
-    from auto_patch_v2.planar.deck_width import route_decks, route_ends
+    from auto_patch_v2.planar.deck_width import route_ends
     nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.5, 0.0)),
              3: types.SimpleNamespace(xy=(6.0, 100.0))}
     def edge(a, b):
@@ -147,7 +152,6 @@ def test_a_deck_spans_its_roads_whole_cover():
     (an apron the piece does not hold) is under the deck to the cover's end."""
     from shapely.geometry import LineString
 
-    from auto_patch_v2.planar.deck_width import route_decks
     nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
     airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
         a=1, b=2, name="A", is_runway=False, width_class="C")])

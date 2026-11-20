@@ -482,7 +482,11 @@ def _body_top(o, cache, law, lo: float, hi: float):
     v = g.vertices
     ny = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     ys = v[tris][:, :, 1]
-    up = (_face_normals_y(v, tris) >= ny) & (ys.min(axis=1) >= lo) & (ys.max(axis=1) <= hi)
+    # a DECK over a road: a clearance over the object's own lowest solid --
+    # never the road surface a tunnel-ramp object draws (KRDU NewC2_RP.obj)
+    floor = float(ys.min()) + float(law.tables.structures.bridge.clearance_minimum_m)
+    up = (_face_normals_y(v, tris) >= ny) & (ys.min(axis=1) >= max(lo, floor)) \
+        & (ys.max(axis=1) <= hi)
     if not up.any():
         return None
     polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
@@ -500,7 +504,9 @@ def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[st
     clearance_minimum_m`` over it (never a structure passing over: a
     people-mover guideway stands higher) -- over ``g``'s footprint by
     ``[deck_gen] min_area_m2``, and, with ``share``, over at least that
-    share of its covered roads' axis inside it (a bridge over the road)."""
+    share of its covered roads' axis inside it (a bridge over the road).
+    Its top stands a clearance over its own lowest solid (a deck, never a
+    ramp's road surface); a pack HARD deck is never one (the deck law's)."""
     from shapely.geometry import LineString
 
     from .deck_bridge import deck_polygon
@@ -515,6 +521,13 @@ def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[st
     for o in objects or ():
         bb = getattr(o, "plan_bbox", None)
         if str(o.id) in skip or bb is None or not bb.intersects(ring):
+            continue
+        hd = getattr(o, "hard_deck", None)
+        if (hd is not None and not hd.is_empty) or str(getattr(o, "deck_kind", "") or "") in (
+                "flag", "signature"):
+            # a pack HARD deck is the deck law's: it refused the crossing or
+            # passes over it (``deck_pack_cover.overhead_decks``: KRDU
+            # STH_TML.obj, the terminal over the taxiway) -- never hidden here
             continue
         top = _body_top(o, cache, law, lo, hi)
         if top is None:

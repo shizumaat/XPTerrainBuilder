@@ -350,7 +350,7 @@ def test_point_triangle_distance_and_meeting():
     from auto_patch_v2.geom import point_triangle as PT
     tri = np.array([[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 10.0]]])
     p = np.array([[2.0, 3.0, 2.0], [-4.0, 0.0, 0.0], [20.0, 0.0, 20.0]])
-    d = PT.point_triangle_distance(p, np.repeat(tri, 3, axis=0))
+    d = PT._point_triangle_distance(p, np.repeat(tri, 3, axis=0))
     # over the face, beside an edge, beyond the hypotenuse's middle
     assert np.allclose(d, [3.0, 4.0, np.hypot(15.0, 15.0)])
     # a vertex 0.05 m off a long face whose own vertices are 5 m away: meets

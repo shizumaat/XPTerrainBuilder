@@ -68,7 +68,7 @@ import numpy as np
 from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "static_triangles", "lowest_feet", "origin_set_lifts",
-           "origin_key", "origin_of_row", "frame_of_row", "feet_seats",
+           "origin_key", "origin_of_row", "feet_seats",
            "lifted_feet_seats", "LIFTED_FEET"]
 
 Surface = _t.Callable[[float, float], "float | None"]
@@ -263,7 +263,7 @@ def _bump(c: dict, key: str, n: int = 1) -> None:
     c[key] = c.get(key, 0) + n
 
 
-def frame_of_row(p: _t.Any) -> tuple:
+def _frame_of_row(p: _t.Any) -> tuple:
     """One DSF row's ANCHOR: lat, lon and heading (RULINGS 2026-11-20l: the
     sets of one anchor, by elevation, are one authored frame)."""
     return origin_of_row(p)[:3]
@@ -282,7 +282,7 @@ def feet_seats(dump: _t.Any, conversions: _t.Sequence[_t.Any], surface: Surface,
     for cv in conversions:
         if cv.kind_before == KIND_MSL and 0 <= cv.index < len(rows):
             p = rows[cv.index]
-            frames.setdefault(frame_of_row(p), {}).setdefault(
+            frames.setdefault(_frame_of_row(p), {}).setdefault(
                 origin_of_row(p), []).append(cv)
     read = _resource_reader(pack_root, tol_m)
     ctx = _SeatContext(rows, surface, unit_seats, tol_m, drape_tol_m, c)

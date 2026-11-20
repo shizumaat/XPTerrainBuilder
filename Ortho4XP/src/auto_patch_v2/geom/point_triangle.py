@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["point_triangle_distance", "Soup", "meshes_meet"]
+__all__ = ["Soup", "meshes_meet"]
 
 #: candidate pairs judged per batch (bounds the memory of one query)
 _CHUNK = 20000
 
 
-def point_triangle_distance(p: np.ndarray, tris: np.ndarray) -> np.ndarray:
+def _point_triangle_distance(p: np.ndarray, tris: np.ndarray) -> np.ndarray:
     """``(n,)`` 3D distance from each point ``p[k]`` (``(n, 3)``) to its
     triangle ``tris[k]`` (``(n, 3, 3)``).  A degenerate triangle is read by
     its edges."""
@@ -83,7 +83,7 @@ def _one_way(points: np.ndarray, soup: Soup, gap_m: float) -> bool:
                                  predicate="dwithin", distance=gap_m)
         for s in range(0, pi.shape[0], _CHUNK):
             k, t = pi[s:s + _CHUNK], ti[s:s + _CHUNK]
-            if (point_triangle_distance(chunk[k], soup.tris[t]) <= gap_m).any():
+            if (_point_triangle_distance(chunk[k], soup.tris[t]) <= gap_m).any():
                 return True
     return False
 

@@ -667,15 +667,21 @@ def deck_carve(classification, decks, airport, law, tunnels=()
                                cuts=lambda c: not _untouched(c, law))
     floors = unary_union([g for _o, part, g in regions if part == "floor" and g is not None])
     n_split = 0
+    taken_over = _taken_over(gen, tunnels, past)
     if not floors.is_empty:
-        cells, n_split = _split_structures(cells, floors.intersection(
-            _taken_over(gen, tunnels, past)), law)
-    cells, n_dense = _ring_dense(cells, unary_union([deck_polygon(d) for d in gen]).boundary,
-                                 law)
+        cells, n_split = _split_structures(cells, floors.intersection(taken_over), law)
+    # ... and along every generated deck's ring, so a corridor running on
+    # under the deck carries vertices on the ring (KJFK 1.0.565
+    # ``o4gen_a900c332``: one tunnel-ramp face spanned the ring, a 35 m
+    # triangle from the neighbour's ramp stood 0.15 m over its floor)
+    rings = unary_union([deck_polygon(d) for d in gen])
+    cells, n_ring = _split_structures(cells, rings.intersection(taken_over), law)
+    cells, n_dense = _ring_dense(cells, rings.boundary, law)
     cells = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     notes.append(f"{len(new)} cut cell(s) minted under {len(gen)} generated deck(s), "
                  f"{n} groundside cell(s) cut, {n_split} structure cell(s) under them split "
-                 f"along the roads' floors, {n_dense} noded every {RING_NODE_M:g} m along "
+                 f"along the roads' floors and {n_ring} along the rings, {n_dense} noded "
+                 f"every {RING_NODE_M:g} m along "
                  f"the rings (owner 2026-11-19T23:07Z)")
     out = tuple(_dc.replace(d, carve=carves.get(d.object_id)) if is_generated(d) else d
                 for d in decks)

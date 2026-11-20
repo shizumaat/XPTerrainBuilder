@@ -479,16 +479,22 @@ def _split_blocks(planar: PlanarMap,
     of a held pad (``<pad>/p<k>``, ``planar/low_level``: a storey under or
     over it) is its own plane too, whether its pad is a block or a whole
     unit (#1101: LPHR's conforming ``building1`` and its upper level read
-    one plane and the level's rigid row was relaxed)."""
+    one plane and the level's rigid row was relaxed).  A HELD TERRACE
+    below the airside (``PlanarMap.sunk_pads``, issue #2188) is its own
+    plane too: the cluster's other faces front the apron, it does not
+    (MEASURED ELLX: the fuel farm's cluster joined ``building49`` to
+    ``building48``'s apron frontage and held it 15 m over its ground)."""
     by_fid = {fid: g for fid, _r, g in groups}
+    sunk = getattr(planar, "sunk_pads", None) or {}
 
     def _key(ref):
-        return block_of(ref), plane_of(ref)
+        return (block_of(ref), plane_of(ref),
+                str(ref).split("#s")[0] if str(ref) in sunk else None)
     res: list[tuple[int, str, list[int], tuple[int, ...]]] = []
     for ent in out:
         fids = ent[3]
         keys = {_key(planar.faces[q].ref) for q in fids}
-        if len(keys) <= 1 or all(k == (None, None) for k in keys):
+        if len(keys) <= 1 or all(k == (None, None, None) for k in keys):
             res.append(ent)
             continue
         per: dict = {}

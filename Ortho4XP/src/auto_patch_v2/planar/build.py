@@ -25,6 +25,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.strtree import STRtree
 
+from ..classify.pad_sunk import sunk_levels
 from ..classify.roles import Classification
 from ..law import Law
 from ..law.reference_code import status_by_ref
@@ -729,6 +730,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    frontage_roads=frozenset(
                        c.ref for c in classification.cells
                        if (getattr(c, "evidence", None) or {}).get("frontage_road")),
+                   sunk_pads=sunk_levels(classification.cells),
                    ramp_runouts=_runouts(classification),
                    jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
                    storey_shells=tuple(storeys),

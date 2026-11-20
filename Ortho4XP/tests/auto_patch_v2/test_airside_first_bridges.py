@@ -346,7 +346,7 @@ def test_route_decks_read_the_pavement_at_both_ends():
     got = route_decks(piece, (1.0, 0.0), airport, _law(), pave_at=pave_at)
     assert len(got) == 1
     r, note = got[0]
-    assert round(r.bounds[2] - r.bounds[0], 1) == 60.0 and "narrower" in note
+    assert round(r.bounds[2] - r.bounds[0], 1) == 60.0 and "measured" in note
 
 
 def test_a_rider_widens_the_deck_on_its_own_side_only():
@@ -377,3 +377,50 @@ def test_the_end_pavement_width_never_reaches_over_a_neighbouring_taxiway():
                       pave_at=lambda xy: -60.0 <= xy[0] <= 140.0)
     r, _note = got[0]
     assert r.bounds[2] <= 39.0 + 1e-6 and r.bounds[2] - r.bounds[0] >= 76.0 - 1e-6
+
+
+def _krdu_route(letter="E"):
+    nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
+    return types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
+        a=1, b=2, name="K", is_runway=False, width_class=letter)])
+
+
+def _measured(taxi_half, paved_half, letter="E"):
+    from auto_patch_v2.planar.deck_width import rings, route_specs
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+
+    def taxi_at(xy):
+        return abs(xy[1]) > 15.0 and abs(xy[0]) <= taxi_half
+    pave_at = None if paved_half is None else (
+        lambda xy: abs(xy[1]) > 15.0 and abs(xy[0]) <= paved_half)
+    (r, note), = rings(route_specs(piece, (1.0, 0.0), _krdu_route(letter), _law(),
+                                   pave_at or taxi_at, None, None, taxi_at))
+    return round(r.bounds[2] - r.bounds[0], 1), note
+
+
+def test_the_deck_reads_the_measured_pavement_not_the_width_letter():
+    """Owner RULINGS 2026-11-20t (1), KRDU 35.880425,-78.788861: a route the
+    author lettered E (38 m, twice 76 m) over a ~20 m taxiway with ~8 m
+    paved shoulders each side gives the measured ~36 m deck."""
+    w, note = _measured(10.0, 18.0)
+    assert w == pytest.approx(36.0, abs=1.0) and "paved shoulders" in note
+
+
+def test_a_taxiway_run_holding_its_shoulders_is_the_deck():
+    """The shoulders classified as the taxiway (one 36 m run): the deck is
+    that run, never twice it."""
+    w, _n = _measured(18.0, 18.0)
+    assert w == pytest.approx(36.0, abs=1.0)
+
+
+def test_a_taxiway_with_no_shoulder_drawn_is_twice_its_measured_width():
+    w, note = _measured(10.0, 10.0)
+    assert w == pytest.approx(40.0, abs=1.0) and "twice the measured" in note
+
+
+def test_the_letter_holds_only_where_no_pavement_is_drawn():
+    from auto_patch_v2.planar.deck_width import rings, route_specs
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+    (r, _n), = rings(route_specs(piece, (1.0, 0.0), _krdu_route("E"), _law(),
+                                 lambda xy: False, None, None, lambda xy: False))
+    assert round(r.bounds[2] - r.bounds[0], 1) == 76.0

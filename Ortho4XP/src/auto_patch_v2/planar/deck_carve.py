@@ -89,6 +89,19 @@ def _carve_law(law, kind: str) -> tuple[float, float]:
     return float(law.tables.structures.tunnel.ramp_max_grade), float(rs["grade_change_per_m"])
 
 
+#: the road classes by seniority (a railway outranks them all)
+_SENIORITY = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified",
+              "residential", "service")
+
+
+def _rank(tags: _t.Mapping[str, str]) -> int:
+    """How senior a covered way is: a railway first, then its road class."""
+    if (tags or {}).get("railway"):
+        return len(_SENIORITY) + 1
+    hw = str((tags or {}).get("highway", "")).replace("_link", "")
+    return len(_SENIORITY) - _SENIORITY.index(hw) if hw in _SENIORITY else 0
+
+
 def _kind(tags: _t.Mapping[str, str]) -> str:
     return "rail" if (tags or {}).get("railway") else "road"
 
@@ -276,7 +289,10 @@ def _deck_paths(db, decks, airport, law, lines=None, tree=None) -> DeckCarve:
     cap, rate = _carve_law(law, kind)
     reach = _reach_m(db, law, cap, rate)
     if roads:
-        way, _k, tags, line = max(roads, key=lambda r: r[3].intersection(ring).length)
+        # the cut runs along its most senior road (rail first, then the
+        # road class), so two decks over one crossing share one line
+        way, _k, tags, line = max(roads, key=lambda r: (_rank(r[2]),
+                                                        round(r[3].intersection(ring).length)))
         cls = tags.get("railway") if _k == "rail" else tags.get("highway")
         path = _past_every_deck(line, reach, lines, tree, decks, past)
         direction = f"along OSM {_k} {way} ({cls})"

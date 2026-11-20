@@ -80,7 +80,7 @@ def _network(monkeypatch, live_urls, index_url):
 
     def refresh_index():
         calls["index"] += 1
-        with open(EXTRACTS._index_path(), "w", newline="\n") as handle:
+        with open(EXTRACTS._index_path(), "w", encoding="utf-8", newline="\n") as handle:
             json.dump(_index(index_url), handle)
         EXTRACTS._leaf_regions.cache = None
         return True

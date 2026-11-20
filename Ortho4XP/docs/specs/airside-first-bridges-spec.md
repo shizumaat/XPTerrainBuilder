@@ -189,3 +189,19 @@ Attributed, not fixed here (each to a Fable review per the one-miss cap):
   deck's cut is the structure pass's bores and bank (20i is a second
   consumer of the carve, not built here).
 * KDFW / KLAX (lmslframe A-C): not attempted.
+
+
+## 12. Lane lcross22 (2026-11-20, cloud): KDFW hides, measured width, span bands (RULINGS 2026-11-20t; owner 22:28Z-22:39Z)
+
+Cloud lane: twins only, no capture; the Mac replays and the integration
+census prove each row.
+
+| item | where | what |
+|------|-------|------|
+| 0 the hide guard | `planar/deck_takeover._rides` / `_mates` / `_frame_members` / `_capped`, `[deck_gen] hide_inside_share` (0.5), `hide_max_share` (0.03), `hide_floor_count` (12) | MEASURED KDFW 1.0.569: 103 placements hidden (220-224 plus ~98 terminal objects on the one Aerosoft anchor) -- plan overlap with a 313 x 176 m plate caught them. A mate is hidden only when half its solid plan lies within the deck's footprint over the crossing (the generated deck, `abutment_sample_step_m` out) and it is no building (an up-facing top a clearance over the deck level); a walled frame's takeover hides its deck placements, what rides the hull of its bridges and our decks on them, and its lights only where no stranger shares the anchor; one build hides at most `hide_max_share` of the pack (never under `hide_floor_count`), past it only the bodies, noted DEFECT. Every build notes `pack placements hidden: N of M` |
+| 1 measured width | `planar/deck_width._narrowest` / `_measured_width`, `[deck_gen] taxiway_max_m` (25, ICAO code F) | 20t (1): the narrower end's taxiway run; wider than `taxiway_max_m` it holds its shoulders (the deck is that run); else the taxiway plus the measured paved shoulders (the airport pavement's run holding it); else twice the measured taxiway. The class letter only where no taxiway pavement is drawn. Twin: letter E over 20 m + 8 m shoulders gives 36 m (was 76) |
+| 2 span bands | `planar/deck_takeover.span_bands` (called at `planar/build` after `one_decision`) | a pack span piece (18i `span_cut`) a generated deck stands on is dropped and its span leaves the cut every piece of its frame carries, so `deck_plates._span_plates` drops that band; the other spans stay the pack's; a frame left with no span is hidden with our deck. A span band still under a generated deck is its `pack_under` (census `pack_bridge_under_deck`) |
+
+Deferred: 19r (2) lidar crossings and the clearance work (owner 22:39Z:
+"You can defer the clearance work to beta 9"), 20i kept-bridge carve, 20j
+road-overlap classification, the item-5 wave and markings, LFPO stage 1.

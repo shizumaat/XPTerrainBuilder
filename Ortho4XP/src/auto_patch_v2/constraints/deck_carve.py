@@ -324,7 +324,7 @@ def _landing(rings, xy, bank: float, landing: float) -> float:
     return best
 
 
-def _flat_landing(rings, xy, landing: float) -> "float | None":
+def _flat_landing(rings, xy, landing: float, side: float = _SNAP_M) -> "float | None":
     """THE END LANDS FLUSH (lane lcross20, RULINGS 2026-11-19s (8) (d)): the
     end's level where ``xy`` stands past a deck's end line within its width
     and within ``landing`` of it -- the ground the deck end rests on, a
@@ -339,8 +339,10 @@ def _flat_landing(rings, xy, landing: float) -> "float | None":
         sp, tp = top.st(*xy)
         if 0.0 <= sp <= 1.0 and 0.0 <= tp <= 1.0:
             return None
-        # the corner's vertex stands within the snap of the deck's side
-        snap = _SNAP_M / max(_hyp(top.w), 1e-9)
+        # the corner's vertices stand within ``side`` of the deck's side (the
+        # ring's edge margin: the corner cone starts past it, KPHX
+        # ``o4gen_566de1cd``: a cone vertex 1 m beside the corner, 0.5 m down)
+        snap = side / max(_hyp(top.w), 1e-9)
         if not -snap <= tp <= 1.0 + snap or 0.0 <= sp <= 1.0:
             continue
         past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
@@ -350,13 +352,16 @@ def _flat_landing(rings, xy, landing: float) -> "float | None":
     return best
 
 
-def _road_flat(ends, xy, landing: float) -> "float | None":
-    """:func:`_flat_landing` past a generated ROAD deck's end (its width)."""
+def _road_flat(ends, xy, landing: float, side: float = _SNAP_M) -> "float | None":
+    """:func:`_flat_landing` past a generated ROAD deck's end (its width),
+    its end line's own vertices (within the snap inside it) among them --
+    nothing else holds a road deck's abutment crest (KPHX ``o4road_3c7e114a``:
+    the vertex 0.1 m inside its end stood on the trench bank, 4.8 m down)."""
     best = None
     for p, d, half, level in ends:
         dx, dy = xy[0] - p[0], xy[1] - p[1]
         past = dx * d[0] + dy * d[1]
-        if 0.0 <= past <= landing + _SNAP_M and abs(dx * d[1] - dy * d[0]) <= half + _SNAP_M:
+        if -_SNAP_M <= past <= landing + _SNAP_M and abs(dx * d[1] - dy * d[0]) <= half + side:
             best = level if best is None else max(best, level)
     return best
 
@@ -428,6 +433,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     out: dict[int, float] = {}
     n_fill = n_land = 0
     landing = float(law.tables.structures.deck_gen.end_landing_m)
+    margin = float(law.tables.structures.deck_gen.edge_margin_m)
     road_ends = _road_ends(decks, tops, roads, law) if roads else []
     for i in np.nonzero(np.isfinite(t))[0]:
         v = vids[int(i)]
@@ -452,8 +458,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             _landing(rings, vx.xy, bank, landing),
             _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
         flats = [] if floor_v[i] or trench else [
-            q for q in (_flat_landing(rings, vx.xy, landing),
-                        _road_flat(road_ends, vx.xy, landing) if road_ends else None)
+            q for q in (_flat_landing(rings, vx.xy, landing, margin),
+                        _road_flat(road_ends, vx.xy, landing, margin) if road_ends else None)
             if q is not None]
         flat = max(flats) if flats else None
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M or flat is not None):

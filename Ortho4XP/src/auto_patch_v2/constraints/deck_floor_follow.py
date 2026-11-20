@@ -78,30 +78,15 @@ class _StageTwo:
         return out
 
 
-#: the roles of a structure's cut (a mapped tunnel's trench, ramps and
-#: walls): no level of theirs is the pavement a deck's top carries
-_STRUCTURE_ROLES = frozenset((*_CUT_ROLES, "retaining_wall"))
-
-
-def _in_structure(pm, vx) -> bool:
-    """``vx`` stands on a structure's cut (:data:`_STRUCTURE_ROLES`): stage 1
-    keeps a MAPPED tunnel's trench under a withheld ring (lane lcross21,
-    LFPO 48.72558, 2.36983: its ramps at 80 m under the 86 m pavement read
-    into the deck's top, 6 m under the terrain at its ends)."""
-    return any(getattr(pm.faces[f], "role", "") in _STRUCTURE_ROLES
-               for f in getattr(vx, "incident_faces", ()) or ())
-
-
 def _samples(pm, levels: _t.Mapping[int, float], ring) -> list[tuple[float, float, float]]:
-    """``(x, y, z)`` of every ``pm`` vertex with a level on or inside ``ring``,
-    a structure's cut aside (:func:`_in_structure`)."""
+    """``(x, y, z)`` of every ``pm`` vertex with a level on or inside ``ring``."""
     from shapely.geometry import Point
     from shapely.prepared import prep
     near = prep(ring.buffer(_ON_RING_M))
     out = []
     for v, z in levels.items():
         vx = pm.vertices.get(v) if isinstance(pm.vertices, dict) else pm.vertices[v]
-        if vx is not None and near.contains(Point(vx.xy)) and not _in_structure(pm, vx):
+        if vx is not None and near.contains(Point(vx.xy)):
             out.append((float(vx.xy[0]), float(vx.xy[1]), float(z)))
     return out
 
@@ -324,7 +309,7 @@ def _tin(stage1, opened) -> "_t.Callable | None":
         vx = stage1.pm.vertices.get(v) if isinstance(stage1.pm.vertices, dict) \
             else stage1.pm.vertices[v]
         if vx is not None and x0 - 30.0 <= vx.xy[0] <= x1 + 30.0 \
-                and y0 - 30.0 <= vx.xy[1] <= y1 + 30.0 and not _in_structure(stage1.pm, vx):
+                and y0 - 30.0 <= vx.xy[1] <= y1 + 30.0:
             pts.append(vx.xy)
             zs.append(float(z))
     if len(pts) < 3:

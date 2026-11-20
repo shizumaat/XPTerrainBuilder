@@ -66,7 +66,7 @@ from ..model.constraints import Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.structures import Tunnel
 
-__all__ = ["viaduct_floor_rows", "is_viaduct_half", "HALF_PREFIX"]
+__all__ = ["viaduct_floor_rows", "is_viaduct_half", "half_rows", "stations_of", "HALF_PREFIX"]
 
 #: an R6 half's tunnel id prefix: ``planar/viaduct_road.ID_PREFIX`` + ``:``
 #: (a twin holds the two equal; the planar module is not imported here, so
@@ -119,15 +119,15 @@ def viaduct_floor_rows(planar: PlanarMap, law: Law, tunnels: _t.Sequence[Tunnel]
             continue
         src = Source(_GEN, _RULING, tuple(t.id for t in comp))
         for tn in comp:
-            st = _stations(planar, tn, stations[tn.id])
+            st = stations_of(planar, tn, stations[tn.id])
             level = _opens_onto_level_b(planar, tn, st)
             st = [(s_, vs) for s_, vs in st if not seam.intersection(vs)]
-            rows.extend(_half_rows(tn, st, ws, depth, src, done, level))
+            rows.extend(half_rows(tn, st, ws, depth, src, done, level))
     return rows
 
 
-def _stations(planar: PlanarMap, tn: Tunnel, groups
-              ) -> list[tuple[float, list[int]]]:
+def stations_of(planar: PlanarMap, tn: Tunnel, groups
+                ) -> list[tuple[float, list[int]]]:
     """The half's stations as the structure pass ties them: its ramp
     faces' station groups (each one ``Flat``, laterally level), joined
     where two faces' groups share a vertex, each at its vertices' mean
@@ -158,18 +158,27 @@ def _stations(planar: PlanarMap, tn: Tunnel, groups
     return sorted(out)
 
 
-def _half_rows(tn: Tunnel, stations, ws: _t.Sequence[int], depth: float, src: Source,
-               done: set[int], level: bool = False) -> list[Row]:
-    """One half's rows: every level station's vertices at the apron mean
+def half_rows(tn: Tunnel, stations, ws: _t.Sequence, depth: float, src: Source,
+              done: set[int], level: bool = False, ceiling: bool = False) -> list[Row]:
+    """One half's rows: every level station's vertices at the witness mean
     less ``depth``; every climb station's on the straight line from that
     floor (the level's end) to the plan's top, ``t`` of the way along it —
     none where the half opens onto level B (``level``: it stays at the
-    floor to its end).  ``done``: vertices not to tie (tied already, or
-    stage 1's), grown."""
+    floor to its end).  ``ws``: the witness vertices (their plain mean) or
+    ``(vertex, weight)`` terms summing to 1 (a weighted witness: the
+    surface under a seat's feet, ``constraints/soffit_floor``).  ``done``:
+    vertices not to tie (tied already, or stage 1's), grown.  ``ceiling``:
+    each row is the upper side only (a vertex at or under its line)."""
     s_f, top = _profile_ends(tn)
     if level:
         s_f, top = float(tn.top_s), None
+    weighted = bool(ws) and isinstance(ws[0], tuple)
     n = float(len(ws))
+
+    def lean(t: float) -> tuple:
+        if weighted:
+            return tuple((int(w), -(1.0 - t) * float(c)) for w, c in ws)
+        return tuple((int(w), -(1.0 - t) / n) for w in ws)
     out: list[Row] = []
     for s, vs in stations:
         s = min(float(s), float(tn.top_s))
@@ -183,10 +192,11 @@ def _half_rows(tn: Tunnel, stations, ws: _t.Sequence[int], depth: float, src: So
                 out.append(Pin(v, float(top[1]), src))
                 continue
             # z_v − (1 − t)·mean(w) = t·z_top − (1 − t)·depth, both sides
-            terms = ((v, 1.0), *((int(w), -(1.0 - t) / n) for w in ws))
+            terms = ((v, 1.0), *lean(t))
             rhs = (t * float(top[1]) if top is not None else 0.0) - (1.0 - t) * depth
             out.append(Linear(terms, None, rhs, src))
-            out.append(Linear(tuple((a, -c) for a, c in terms), None, -rhs, src))
+            if not ceiling:
+                out.append(Linear(tuple((a, -c) for a, c in terms), None, -rhs, src))
     return out
 
 

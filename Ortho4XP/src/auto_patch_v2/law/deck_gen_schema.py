@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["DeckGenLaw", "RoadGenLaw"]
+__all__ = ["DeckGenLaw", "RoadGenLaw", "ElevatedLaw"]
 
 
 @_dc.dataclass(frozen=True)
@@ -170,3 +170,13 @@ class RoadGenLaw:
     #: this share of ``[bridge] clearance_minimum_m`` over a lower road
     #: (16s/16t: the tag and the crossing are the witness; the rest is cut)
     witness_share: float = 0.5
+
+
+@_dc.dataclass(frozen=True)
+class ElevatedLaw:
+    """``[elevated]`` (owner RULINGS 2026-11-20g / 20s; ``planar/soffit_road``,
+    ``constraints/soffit_floor``): a road or rail under a pack soffit."""
+
+    #: the trench floor stands this far under the class minimum clearance
+    #: (m): the solve's hard tolerance and the mesh's read between vertices
+    clearance_margin_m: float = 0.10

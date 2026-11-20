@@ -90,6 +90,7 @@ from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
 from .airside_floor import lead, off_airside
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
+from .soffit_floor import is_soffit_half, soffit_floor_rows
 from .viaduct_floor import is_viaduct_half, viaduct_floor_rows
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
@@ -484,10 +485,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for s, vs in groups:
                 if len(vs) > 1:
                     rows.append(Flat(tuple(vs), src_flat))
-            if src_profile is not None and tn.profile and is_viaduct_half(tn):
+            if src_profile is not None and tn.profile and \
+                    (is_viaduct_half(tn) or is_soffit_half(tn)):
                 # an R6 viaduct road's floor is level B under the SOLVED
-                # apron beside it, one platform per road (#1808): its
-                # stations go to ``viaduct_floor``, never pinned at the plan
+                # apron beside it, one platform per road (#1808), and a 20g
+                # trench's the class clearance under the SOLVED seat witness
+                # (RULINGS 2026-11-20s): their stations go to
+                # ``viaduct_floor`` / ``soffit_floor``, never pinned at the plan
                 via_stations.setdefault(tn.id, []).extend(groups)
                 continue
             if src_profile is not None and tn.profile:
@@ -823,6 +827,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     rows.extend(viaduct_floor_rows(planar, law, tunnels, via_stations))
+    rows.extend(soffit_floor_rows(planar, law, airport, tunnels, via_stations))
     return off_airside(rows, air)[0]
 
 

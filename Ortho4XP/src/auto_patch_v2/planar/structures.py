@@ -97,6 +97,7 @@ from .bore_continuation import deck_gap_ways, walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .object_floor_cells import add_object_floor_cells
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
+from .soffit_road import soffit_road_groups
 from .viaduct_road import viaduct_road_groups
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
@@ -324,6 +325,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups += via_groups
     stats.viaduct_roads = via_notes
     stats.refused.extend(via_refused)
+    # 20g (3) (RULINGS 2026-11-20g / 20k / 20s): a road or rail under a pack
+    # soffit short of its class clearance is an open trench of the same family
+    sr_groups, sr_notes, sr_refused = soffit_road_groups(airport, law, cells, polys,
+                                                         level_seeds)
+    extra_groups += sr_groups
+    stats.soffit_roads = sr_notes
+    stats.refused.extend(sr_refused)
     tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
         channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
     if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:
@@ -1090,9 +1098,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 climb_from = s_lvl
                 stats.shell_levels.append(f"{tid}: level to s {s_lvl:.1f} m along a storey "
                                           "shell standing on its floor (R3b B)")
-        if g.climb_from_s is not None and not fits:
+        if g.climb_from_s is not None and (not fits or g.kind == "sunken_road"):
             # a door ramp (09-08b/c): the well floor stays at the sill, the
-            # climb starts at the well's outer edge
+            # climb starts at the well's outer edge; a sunken road that
+            # names its knee (a 20g trench, ``planar/soffit_road``) is level
+            # to it -- the station there is kept (§34 (7)'s protected knee)
             climb_from = max(climb_from, g.climb_from_s)
         # A RAMP THE PACK'S OWN OBJECTS FRAME (owner RULINGS 2026-10-07e)
         # takes its length and depth from them and no grade cap: the §34

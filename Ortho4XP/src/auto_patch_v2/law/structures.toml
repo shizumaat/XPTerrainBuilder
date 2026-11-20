@@ -1847,3 +1847,6 @@ cut_drop_m          = 1.0   # B3 / 16y (3): pack pavement over the lower road's 
 cut_reach_m         = 20.0  # ... read within this of the bridge's axis
 approach_probe_m    = 30.0  # #2141 item 5 (planar/road_bridge_clear; owner 2026-11-17 "might also be raising the road embankments on either side for that bridge, not just cutting"): an end stands on its embankment -- max(survey - service-road grade cap x distance) along its approaches out to this far
 witness_share       = 0.5   # ... and the bridge is generated where the survey then shows at least this share of [bridge] clearance_minimum_m over a lower road (RULINGS 16s/16t: the tag and the crossing are the witness); the lower roads are cut by the rest
+
+[elevated]                          # owner RULINGS 2026-11-20g / 20k / 20s (spec docs/specs/elevated-clearance-20g-round3-spec.md): a mapped road or rail under a pack soffit is an open trench tied to its group's seat witness (planar/soffit_road, constraints/soffit_floor)
+clearance_margin_m  = 0.10  # the trench floor stands this far under the class minimum clearance (the hard tolerance and the mesh between vertices)

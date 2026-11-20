@@ -175,7 +175,8 @@ def test_a_half_opening_onto_level_b_does_not_climb():
     no climb rows; a half ending on ordinary ground climbs."""
     from types import SimpleNamespace as NS
 
-    from auto_patch_v2.constraints.viaduct_floor import _half_rows, _opens_onto_level_b
+    from auto_patch_v2.constraints.viaduct_floor import _opens_onto_level_b
+    from auto_patch_v2.constraints.viaduct_floor import half_rows as _half_rows
     from auto_patch_v2.model.constraints import Linear, Pin, Source
     faces = {0: NS(ref="tunnel_ramp"), 1: NS(ref="building35/p2#strip"), 2: NS(ref="lot7")}
     pm = NS(vertices={0: NS(incident_faces=(0,)), 1: NS(incident_faces=(0,)),

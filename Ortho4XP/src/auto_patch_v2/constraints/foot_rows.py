@@ -109,15 +109,15 @@ import typing as _t
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
-from .face_index import FaceIndex
+from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
 from ..law import Law
 from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
-from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
 from ..model.ground_fit import Foot, GroundFit, ground_fit
 from ..model.planar import PlanarMap
 from ..model.wall_reach import is_wall_fill_ref
+from .face_index import FaceIndex
 from .structures import WALL_ROLE
 
 #: the ref prefix ``planar/basins`` mints for a pit's void face — with
@@ -284,6 +284,8 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     to_xy = airport.frame.entry()
     index = _FaceIndex(planar, law)
     floors = _FrameFloors(airport, law)
+    ties = _Ties(planar, law, airport)
+    counts["tied"] = 0
 
     rows: list[FootTarget] = []
     verdicts: list[BodyVerdict] = []
@@ -334,6 +336,17 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             verdicts.append(_verdict(g, "padded", roles, None, 0))
             counts["padded"] += 1
             continue
+        tie = ties.of(g)
+        if tie is not None:
+            # 20g / 20s §B.7: a low member of a LIFTED crossing group stands
+            # on the ground the lifted seat puts it at -- its feet tied to
+            # the group's seat witness, never its own DEM fit
+            got = _tied(g, pts, index, tie, dem)
+            rows.extend(got)
+            counts["tied"] += 1
+            counts["rows"] += len(got)
+            verdicts.append(_verdict(g, "tied" if got else "off_sheet", roles, None, len(got)))
+            continue
         fit = ground_fit(component_floor(g.feet), g.y_zero, _sampler(dem, to_xy),
                          bank, pairs=_pairs_fast)
         if fit is None or len(fit.keep) != len(g.feet):
@@ -381,6 +394,50 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
         counts["partial"] += int(fired != len(g.feet))   # 0 by construction
         verdicts.append(_verdict(g, "bare", roles, fit, fired))
     return rows, verdicts, counts
+
+
+class _Ties:
+    """§B.7: the tie of a body of a lifted crossing group's low member
+    (``soffit_floor.low_ties``, by ``(member id, comp)``)."""
+
+    def __init__(self, planar: PlanarMap, law: Law, airport) -> None:
+        from .soffit_floor import low_ties
+        self._ties = low_ties(planar, law, airport)
+        self._units = getattr(getattr(airport, "partition", None), "units", ()) or ()
+
+    def of(self, g) -> "tuple[tuple, float] | None":
+        if not self._ties:
+            return None
+        for ui, mi, comps in getattr(g, "body_comps", ()) or ():
+            try:
+                mid = str(self._units[ui].members[mi].id)
+            except (IndexError, AttributeError):
+                continue
+            for c in comps:
+                if (mid, int(c)) in self._ties:
+                    return self._ties[(mid, int(c))]
+        return None
+
+
+def _tied(g, pts, index, tie, dem) -> list[FootTarget]:
+    """The tie rows of one body: ``surface(foot) - Σ w z = y + offset`` per
+    foot -- all or none (11x (1))."""
+    terms_w, off = tie
+    out = []
+    for f, p in zip(g.feet, pts, strict=True):
+        t = index.terms_at(p)
+        if t is None:
+            return []
+        acc = {int(v): float(c) for v, c in t}
+        for v, w in terms_w:
+            acc[int(v)] = acc.get(int(v), 0.0) - float(w)
+        try:
+            d = float(dem.z(*p))
+        except Exception:  # noqa: BLE001 -- off the raster: the report's only
+            d = float("nan")
+        out.append(FootTarget(g.gid, tuple(sorted(acc.items())), float(f.y) + off, d,
+                              index.role_at(p) or ""))
+    return out
 
 
 def _raw_fit(g, dem, to_xy, bank: float) -> GroundFit | None:
@@ -483,8 +540,8 @@ class _FaceIndex(FaceIndex):
     (:meth:`kind`) and the basin rims (:meth:`basin_body`)."""
 
     def __init__(self, planar: PlanarMap, law: Law) -> None:
-        from .pads import rigid_roles
         from ..law.tables import is_structure_role, pavement_roles
+        from .pads import rigid_roles
         super().__init__(planar, law)
         self._rigid = frozenset(rigid_roles(law))
         self._pav = frozenset(pavement_roles(law)) - self._rigid

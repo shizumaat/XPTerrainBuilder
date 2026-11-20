@@ -435,6 +435,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.walled_plate",
     ),
     "planar": (
+        "auto_patch_v2.airport.crossing_seat",
+        "auto_patch_v2.airport.elevated_crossing",
+        "auto_patch_v2.planar.soffit_road",
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.access_road",
@@ -1467,6 +1470,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.walled_plate",
     ),
     "shapes": (
+        "auto_patch_v2.airport.crossing_seat",
+        "auto_patch_v2.airport.elevated_crossing",
+        "auto_patch_v2.constraints.soffit_floor",
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.access_road",
@@ -1733,7 +1739,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.ramp_runout",
         "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_bridge_ceiling",
-        "auto_patch_v2.constraints.elevated_clearance",
         "auto_patch_v2.constraints.road_ramp",
         "auto_patch_v2.constraints.roads",
         "auto_patch_v2.constraints.routes",
@@ -1921,7 +1926,6 @@ GENERATOR_MODULES: dict[str, str] = {
     "zone_bands": "zones",
     "strip_transverse": "zones",
     "road_bridge_ceiling": "road_bridge_ceiling",
-    "elevated_clearance": "elevated_clearance",
     "walled_plate_under": "walled_plate",
     "terrain_shaped_deck": "terrain_shaped",
     "strip_longitudinal": "strips",
@@ -2064,6 +2068,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.flat_site constraints.geometry constraints.precedence model.airport
     """),
     "foot_rows": _mods(_GENERATOR_CORE + """
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor
     constraints.airside_top
         geom.exact
         constraints.apron constraints.cluster_pad constraints.foot_rows
@@ -2176,15 +2181,6 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
-    "elevated_clearance": _mods("""
-    constraints constraints.elevated_clearance law law.agp_schema
-    law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
-    law.cutout_schema law.deck_gen_schema law.design_schema law.eat_schema
-    law.flat_pack_schema law.flat_site_schema law.model law.model_types law.rebake_schema
-    law.reference_code law.role_cap_schema law.runway_ends_schema law.tables
-    law.terrace_schema law.terrain_witness_schema law.tunnel_object_schema law.units
-    law.walled_plate_schema model model.constraints
-"""),
     "platform": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -2347,6 +2343,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.strips model.airport model.end_area model.threshold_datum
     """),
     "structures": _mods(_GENERATOR_CORE + """
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor
     constraints.airside_top
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -2364,6 +2361,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "shell_datum": _mods(_GENERATOR_CORE + """
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor
     constraints.airside_top
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -2433,6 +2431,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor
     geom.channel_declared
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
@@ -2583,7 +2582,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.touch_graph airport.touch_seat constraints.gap_follow law.deck_gen_schema
     airport.connector_warp airport.stacked_deck airport.tilt_float airport.split_bar
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
-    constraints.road_bridge_ceiling model.road_clearance constraints.elevated_clearance
+    constraints.road_bridge_ceiling model.road_clearance
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
@@ -2680,6 +2679,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.crossing_seat airport.elevated_crossing planar.soffit_road
     geom.deck_spans planar.deck_span_cut
     planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
@@ -2881,6 +2881,7 @@ CODE_MODULES["solve"] = _mods("""
     model.road_clearance
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor planar.soffit_road
     geom.deck_spans planar.deck_span_cut
     geom.channel_declared planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
@@ -3102,11 +3103,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.deck_pack_cover planar.deck_takeover
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
-    constraints.road_bridge_ceiling model.road_clearance constraints.elevated_clearance
+    constraints.road_bridge_ceiling model.road_clearance
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.crossing_seat airport.elevated_crossing constraints.soffit_floor constraints.viaduct_floor
     geom.deck_spans planar.deck_span_cut
-    airport.crossing_seat airport.elevated_crossing
     airport.band_run
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
     planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim
@@ -6750,6 +6751,23 @@ CODE_MODULES["emit"] = tuple(sorted({*CODE_MODULES["emit"], *_mods(
     "constraints.deck_carve constraints.deck_floor_follow geom.carve_profile "
     "geom.coons_patch model.deck_carve planar.deck_airside")}))
 CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.pack_bridge")}))
+
+# lskyclear3 (2026-11-20, RULINGS 20g/20k/20s): the crossing groups read at
+# load, the soffit trench planner and its floor rows widened these closures.
+_GROWN_SOFFIT = "airport.crossing_seat airport.elevated_crossing"
+for _stage, _names in {
+        "planar": "planar.soffit_road", "solve": "planar.soffit_road",
+        "late_cut": "planar.soffit_road constraints.soffit_floor",
+        "late_solve": "planar.soffit_road constraints.soffit_floor",
+        "shapes": "constraints.soffit_floor", "constraints.shell_datum": "constraints.soffit_floor",
+        "constraints.foot_rows": "constraints.soffit_floor",
+        "constraints.structures": "constraints.soffit_floor",
+        "constraints.rim_level": "constraints.soffit_floor",
+        "constraints.basins": "constraints.soffit_floor",
+        "constraints.assembly": "constraints.soffit_floor",
+        "emit": "constraints.soffit_floor constraints.viaduct_floor"}.items():
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                         *_mods(f"{_GROWN_SOFFIT} {_names}")}))
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

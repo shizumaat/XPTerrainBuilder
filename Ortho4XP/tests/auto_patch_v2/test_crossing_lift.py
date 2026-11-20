@@ -47,3 +47,21 @@ def test_a_seat_under_the_lower_vote_lifts_nothing():
     w, a, b = _pair()
     out, _t, _c = w.run(_law({"member": "dsf:a", "comp": 0, "zero": 430.5}))
     assert _zero(out[a]) == _zero(out[b]) == 431.0
+
+
+def test_a_crossing_the_patch_did_not_lift_lifts_nothing():
+    """20s: ``lift`` false (airside holds the group) or no zero: no lift."""
+    w, a, b = _pair()
+    out, _t, counts = w.run(_law({"member": "dsf:a", "comp": 0, "zero": 431.4, "lift": False},
+                                 {"member": "dsf:a", "comp": 0, "zero": None}))
+    assert _zero(out[a]) == _zero(out[b]) == 431.0
+    assert "touch_groups_crossing" not in counts
+
+
+def test_a_clamped_seat_is_counted():
+    """20s §B.4 (5): the highest vote clamping the published zero by more
+    than 0.05 m is counted (``crossing_seat_clamped``)."""
+    w, a, b = _pair()
+    out, _t, counts = w.run(_law({"member": "dsf:b", "comp": 0, "zero": 431.9}))
+    assert _zero(out[a]) == _zero(out[b]) == 431.6
+    assert counts.get("crossing_seat_clamped") == 1

@@ -1,46 +1,40 @@
-"""THE CROSSING FRAMES AND THEIR SEAT, read ONCE at load (owner RULINGS
-2026-11-20g / 20k; spec ``docs/specs/elevated-clearance-20g-spec.md`` §4).
+"""THE CROSSING GROUPS AND THEIR SEAT WITNESS, read ONCE at load (owner
+RULINGS 2026-11-20g / 20k / 20s; spec ``docs/specs/elevated-clearance-20g-
+round3-spec.md`` §B.2-§B.4).
 
 20g: an elevated pack structure crossing a mapped road or rail keeps the
 class minimum clearance over it -- first by seating its buildings high
-enough, then by lowering the road on a graded ramp.  20k (KMCO): "a group is
-lifted no higher than its own highest ground vote; the remaining clearance
-comes from 20g (3) ramps".
+enough, then by lowering the road or rail in an open trench under it.  20k:
+"a group is lifted no higher than its own highest ground vote".  20s (O1):
+the lift is capped so no member on airside-held or pavement ground floats
+more than the ground bar; the roads go deeper instead.
 
-The patch must know the seat BEFORE the mesh: it grades the roads under the
-soffit.  So the patch DECIDES the seat and the object stage obeys it (the
-road overpass precedent, ``planar/overpass_deck``): :func:`crossing_records`
-reads, per pack frame (plan unit) of the partition --
+:func:`crossing_records` reads, per pack frame (plan unit) of the partition,
+on the authored geometry placed in the airport frame:
 
-* its CROSSINGS: every component of a member whose soffit over a mapped
-  road's or rail's carriageway stands at least ``[road_gen] witness_share``
-  of ``[bridge] clearance_minimum_m`` (2.1 m) over the frame's zero and
-  SPANS it (``airport/elevated_crossing``, the one read, on the authored
-  geometry placed in the airport frame) -- the share the generated road
-  bridge reads as a crossing (RULINGS 16s/16t); a canopy or a roof the
-  author built a storey under that over a road is no passage;
+* its CROSSINGS: every component of a member whose soffit spans a mapped
+  road's or rail's carriageway over the frame's ``[rebake] elevated_base_m``
+  (``airport/elevated_crossing``, the one read; rails included).  A soffit
+  under ``[road_gen] witness_share`` x ``[bridge] clearance_minimum_m`` over
+  the frame zero is no passage (class ``low_soffit``: listed, never acted
+  on -- O5);
 * the CROSSING GROUP: the frame's parts touching the crossing components,
-  transitively (``[placement] touch_gap_m``, ``touch_graph.VETO_M`` -- the
-  touch pass's own relation, read on the parts);
-* its SEAT ``zero``: the area-weighted MEDIAN of the group's building parts'
-  ground votes (each part: the median of ``DEM - y`` over its own ground
-  feet).  The median, never the highest: the object stage seats the group at
-  ``min(zero, its highest vote on the mesh)`` (``touch_seat``), so a zero over
-  that vote would leave the road graded for a soffit that is not built.  A
-  group whose votes SPREAD (area-weighted p10..p90) more than
-  ``touch_seat.SEAT_MAX_M`` is no seat: the touch pass leaves its members on
-  their own pads (16v), nothing here can say which zero the crossing hangs
-  from, and its crossings are listed, never graded;
-* every crossing still SHORT at that seat over the DEM: its least soffit
-  ``y``, the cells' region and the class minimum, for the road ceiling
-  (``constraints/elevated_clearance``) and the published seat.  A crossing
-  whose soffit stands UNDER the road's own ground at that seat is no road
-  passing under a structure (the road runs over it -- a cut box, a portal),
-  and its group's seat says nothing of the others: the group's crossings are
-  listed, never graded.
+  transitively (``[placement] touch_gap_m``, ``touch_graph.VETO_M``), each
+  footed part with its GROUND VOTE (the median ``DEM - y`` over its feet);
+* its ANCHOR: the highest-vote BUILDING part (a footed part
+  ``chain_min_height_m`` tall) within the votes' area-weighted p90 (a DEM
+  reading over it is a roof the survey saw), its feet the group's SEAT
+  WITNESS; a group
+  whose building votes spread (area-weighted p10..p90) more than
+  ``touch_seat.SEAT_MAX_M`` has no one seat (class ``no_seat``, 16v).
 
-A frame the bridge law owns (a deck member, a free bridge) is not read here.
-Nothing names an airport, a pack or a resource.
+No seat is PREDICTED here.  :func:`seat_plan` decides, on whatever ground
+reading its caller has (the cells at plan time, the planar map at rows and
+emit time), the group's ``dz <= 0`` under its anchor and whether it is
+lifted at all; the trench floor is tied to the SOLVED surface under the
+witness (``constraints/soffit_floor``) and the patch publishes that solved
+seat (``soffit_floor.publication``, at emit), which the object stage obeys
+(``touch_seat``).  Nothing names an airport, a pack or a resource.
 """
 from __future__ import annotations
 
@@ -52,10 +46,36 @@ import numpy as np
 
 from . import elevated_crossing as _ec
 
-__all__ = ["crossing_records", "published", "PUBLISHED", "CELL_PAD_M"]
+__all__ = ["crossing_records", "seat_plan", "short_crossings", "ground_reader",
+           "margin_m", "VERDICTS", "PUBLISHED", "SHORT_M"]
 
-#: the crossing cells' region is grown by this (a cell is ``STEP_M`` wide)
-CELL_PAD_M = 0.5
+#: a crossing acts only where it falls short by more than this (m)
+SHORT_M = 0.05
+#: the low quantile a group's control seat and its unraisable floor read
+#: (area-weighted): the survey's pits and roofs are no ground (MEASURED KMCO
+#: unit:6, building votes 23.94 min, p02 26.57, p95 27.54, max 32.63 over a
+#: complex the drawn mesh seats at 26.35 .. 27.19)
+LOW_Q = 0.05
+#: R4: an anchor on a held pad is preferred within this of the highest vote (m)
+PREFER_M = 0.05
+#: a pad this close to airside pavement is welded to it (read as held), m
+WELD_M = 0.5
+
+#: ``(unit, member, comp, way) -> class`` of every crossing the last trench
+#: plan read (``planar/soffit_road`` fills it; ``constraints/soffit_floor.
+#: publication`` publishes it): ``trench``, ``airside_held``, ``level_seed``,
+#: ``depth_cap``, ``no_route``, ``no_seat``, ``low_soffit``
+VERDICTS: dict[tuple, str] = {}
+
+
+def margin_m(law) -> float:
+    """``[elevated] clearance_margin_m``: the trench floor stands this far
+    under the class minimum (the solve's hard tolerance, the mesh)."""
+    return float(law.tables.structures.elevated.clearance_margin_m)
+
+#: the keys of a crossing the graded surface publishes for the object stage
+PUBLISHED = ("unit", "member", "comp", "way", "kind", "need", "zero", "soffit_y",
+             "anchor", "dz", "lift", "class")
 
 
 def _placed(g, comp, o, heading_deg: float) -> np.ndarray:
@@ -156,61 +176,63 @@ def _weighted(vs: list[tuple[float, float]], q: float) -> float:
     return vs[-1][0]
 
 
-def _seat(group: list, to_xy, dem, wall_m: float) -> "tuple[float, float] | None":
-    """``(seat, spread)``: the area-weighted median of the group's BUILDING
-    parts' votes (a footed part ``wall_m`` tall), else of every footed
-    part's, and their p10..p90 spread."""
-    seen: set = set()
-    votes: list[tuple[float, float]] = []
-    walled: list[tuple[float, float]] = []
-    for mid, p, _g in group:
-        if (mid, p.comp) in seen or not p.feet:
+def _parts(group: list, to_xy, dem, wall_m: float) -> list[dict]:
+    """Every footed part of the group once, with its vote, plan and feet."""
+    from shapely.ops import unary_union
+    polys: dict[tuple, list] = {}
+    rec: dict[tuple, _t.Any] = {}
+    for mid, p, g in group:
+        polys.setdefault((mid, p.comp), []).append(g)
+        rec[(mid, p.comp)] = p
+    out = []
+    for (mid, comp), p in rec.items():
+        if not p.feet:
             continue
-        seen.add((mid, p.comp))
         v = _vote(p, to_xy, dem)
         if v is None:
             continue
-        votes.append((v, float(p.area_m2)))
-        if float(p.height_m) >= wall_m:
-            walled.append((v, float(p.area_m2)))
-    use = sorted(walled or votes)
-    if not use:
-        return None
-    return _weighted(use, 0.5), _weighted(use, 0.9) - _weighted(use, 0.1)
+        out.append({"member": str(mid), "comp": int(comp), "vote": float(v),
+                    "area": float(p.area_m2), "building": float(p.height_m) >= wall_m,
+                    "feet": [(float(a), float(b), float(y)) for a, b, y in p.feet],
+                    "fxy": [(*to_xy(float(b), float(a)), float(y)) for a, b, y in p.feet],
+                    "plan": unary_union(polys[(mid, comp)])})
+    return out
 
 
-def _region(c) -> list:
-    """The crossing cells' plan region (frame xy ring)."""
-    from shapely.geometry import box
-    from shapely.ops import unary_union
-    xs, ys, _z = c.grid
-    h = 0.5 * _ec.STEP_M + CELL_PAD_M
-    g = unary_union([box(x - h, y - h, x + h, y + h) for x, y in zip(xs, ys, strict=True)])
-    g = g.convex_hull if g.geom_type != "Polygon" else g
-    return [[round(x, 3), round(y, 3)] for x, y in g.exterior.coords]
+def _anchor(parts: list[dict], top: float) -> dict:
+    """The highest-vote BUILDING part (any footed part where none is one)
+    whose vote stands within the group's area-weighted p90 ``top``: a DEM
+    reading over the p90 is the survey's roof or bridge, not the ground the
+    group stands on (MEASURED KMCO unit:6: building votes p10..p90 26.69 ..
+    27.63, the highest 35.37 m)."""
+    pool = [p for p in parts if p["building"]] or parts
+    return max((p for p in pool if p["vote"] <= top + 1e-9), key=lambda p: p["vote"],
+               default=max(pool, key=lambda p: p["vote"]))
 
 
-#: the keys of a record the graded surface publishes for the object stage
-PUBLISHED = ("unit", "member", "comp", "way", "kind", "need", "zero", "soffit_y")
-
-
-def published(records: _t.Iterable[_t.Mapping]) -> list[dict]:
-    """The crossing records as the graded surface publishes them
-    (``provenance.elevated_crossings``; ``placement_read.
-    crossings_from_graded_doc`` reads them back)."""
-    return [{k: r[k] for k in PUBLISHED} for r in records]
+def _crossing(c, share: float) -> dict:
+    """One crossing as a plain record (``cells``: frame x, y, soffit y)."""
+    mid, comp = c.owner
+    xs, ys, zs = c.grid
+    soffit = float(np.min(zs))
+    return {"member": str(mid), "comp": int(comp), "way": c.way, "kind": c.kind,
+            "need": float(c.need_m), "soffit_y": round(soffit, 3),
+            "least_m": float(c.least_m), "at": (round(c.at[0], 3), round(c.at[1], 3)),
+            "cells": np.stack([xs, ys, zs], axis=1),
+            "class": "low_soffit" if soffit < share else ""}
 
 
 def crossing_records(airport, law, cache) -> tuple[tuple[dict, ...], list[str]]:
-    """``(records, notes)``: every crossing still short at its frame's seat
-    (module doc), one plain record each."""
+    """``(groups, notes)``: every crossing group of the partition (module
+    doc), one plain record each."""
+    from shapely.ops import unary_union
     part = getattr(airport, "partition", None)
     dem = getattr(airport, "dem", None)
     if part is None or dem is None or cache is None:
         return (), []
     st = law.tables.structures
-    floor = max(float(st.rebake.elevated_base_m),
-                float(st.road_gen.witness_share) * float(st.bridge.clearance_minimum_m))
+    base = float(st.rebake.elevated_base_m)
+    share = float(st.road_gen.witness_share) * float(st.bridge.clearance_minimum_m)
     touch_m = float(getattr(st.placement, "touch_gap_m", 0.0) or 0.0)
     wall_m = float(st.placement.chain_min_height_m)
     to_xy = airport.frame.entry()
@@ -226,43 +248,216 @@ def crossing_records(airport, law, cache) -> tuple[tuple[dict, ...], list[str]]:
     out: list[dict] = []
     notes: list[str] = []
     for u in part.units:
-        owners = _owners(u, cache, to_xy, floor)
-        if not owners:
-            continue
-        crossed = _ec.read_crossings(owners, cways, ground)
+        owners = _owners(u, cache, to_xy, base)
+        crossed = _ec.read_crossings(owners, cways, ground) if owners else []
         if not crossed:
             continue
-        group = _group(_part_polys(u, to_xy), {c.owner for c in crossed}, touch_m, VETO_M)
-        got = _seat(group, to_xy, dem, wall_m)
-        if got is None:
+        # the group hangs from its PASSAGES: a soffit under the share is no
+        # passage (O5) and joins nothing to it
+        seeds = {c.owner for c in crossed if float(np.min(c.grid[2])) >= share} or \
+            {c.owner for c in crossed}
+        group = _group(_part_polys(u, to_xy), seeds, touch_m, VETO_M)
+        parts = _parts(group, to_xy, dem, wall_m)
+        blds = sorted((p["vote"], p["area"]) for p in parts if p["building"]) or \
+            sorted((p["vote"], p["area"]) for p in parts)
+        if not blds:
             notes.append(f"{u.id}: {len(crossed)} crossing(s), no ground vote: no seat")
             continue
-        zero, spread = got
-        buried = [c for c in crossed if zero + c.least_m < 0.0]
-        short = [c for c in crossed if 0.0 <= zero + c.least_m < c.need_m]
-        if buried:
-            notes.append(f"{u.id}: {len(buried)} crossing(s) with the soffit under the "
-                         f"road's ground at seat {zero:.2f} (worst "
-                         f"{min(zero + c.least_m for c in buried):+.2f} m): the group "
-                         f"stands in a cut the roads run over, its {len(short)} short "
-                         f"crossing(s) listed")
-            continue
-        if spread > SEAT_MAX_M:
-            notes.append(f"{u.id}: {len(crossed)} crossing(s), {len(short)} short at the "
-                         f"median {zero:.2f}, but the group's votes spread {spread:.2f} m: "
-                         f"no one seat, listed")
-            continue
-        notes.append(f"{u.id}: {len(crossed)} crossing(s) at seat {zero:.2f} (spread "
-                     f"{spread:.2f}, {len(group)} group part(s)), {len(short)} short over "
-                     f"the DEM")
-        for c in short:
-            mid, comp = c.owner
-            out.append({"unit": str(u.id), "member": str(mid), "comp": int(comp),
-                        "way": c.way, "kind": c.kind, "need": float(c.need_m),
-                        "zero": round(float(zero), 3),
-                        "soffit_y": round(float(np.min(c.grid[2])), 3),
-                        "least_dem": round(float(zero + c.least_m), 3),
-                        "at": [round(c.at[0], 3), round(c.at[1], 3)],
-                        "region": _region(c)})
+        spread = _weighted(blds, 0.9) - _weighted(blds, 0.1)
+        anchor = _anchor(parts, _weighted(blds, 0.9))
+        rec = {"unit": str(u.id), "parts": parts, "spread": round(spread, 3),
+               "anchor": (anchor["member"], anchor["comp"]), "vote_anchor": anchor["vote"],
+               "plan": unary_union([g for _m, _p, g in group]),
+               "crossings": [_crossing(c, share) for c in crossed],
+               "class": "no_seat" if spread > SEAT_MAX_M else ""}
+        out.append(rec)
+        notes.append(f"{u.id}: {len(crossed)} crossing(s), anchor {anchor['member']}#"
+                     f"{anchor['comp']} vote {anchor['vote']:.2f}, spread {spread:.2f} over "
+                     f"{len(parts)} footed part(s)" + (" -- no one seat (16v), listed"
+                                                      if rec["class"] else ""))
     return tuple(out), notes
 
+
+# ── the seat plan ────────────────────────────────────────────────────────
+
+#: the ground at a frame point ``(x, y) -> (kind, z)``: ``kind`` ``"airside"`` (a
+#: pavement role), ``"held"`` (a pad welded to airside pavement),
+#: ``"raisable"`` (anything the solve may grade) or ``None`` (off the map);
+#: ``z`` the ground the seat stands on there -- a pad's LEVEL
+#: (:func:`pad_level`: a pad is one plane, whatever the survey reads under
+#: it), else the DEM
+Ground = _t.Callable[[float, float], "tuple[str | None, float]"]
+
+
+def pad_level(poly, dem, step: float = 4.0, out_m: float = 1.0) -> float:
+    """A pad's predicted level: the median DEM along its outline grown by
+    ``out_m``, every ``step`` -- the ground the pad meets at its edge (the
+    survey over a building's own footprint reads its roof: MEASURED KMCO
+    unit:6, part votes 23.9 .. 35.4 m over a complex the drawn mesh seats
+    at 26.35 .. 27.19)."""
+    ring = poly.buffer(out_m).exterior if poly.geom_type == "Polygon" else \
+        max(getattr(poly.buffer(out_m), "geoms", [poly.buffer(out_m)]),
+            key=lambda g: g.area).exterior
+    n = max(4, min(1024, int(ring.length // step)))
+    zs = []
+    for k in range(n):
+        q = ring.interpolate(ring.length * k / n)
+        z = float(dem.z(q.x, q.y))
+        if math.isfinite(z):
+            zs.append(z)
+    return float(np.median(zs)) if zs else float("nan")
+
+
+def ground_reader(items: _t.Sequence[tuple], law, dem) -> tuple:
+    """``(ground, airside_near)`` over ``(polygon, role, pad key)`` items
+    (the cells at plan time, the planar faces at rows and emit time -- one
+    reading for both): a point on airside value pavement (never a pad) is
+    ``("airside", DEM)``; on a pad ``("held" | "raisable", its level)`` --
+    held where any piece of the pad stands within the weld reach
+    (:data:`WELD_M`) of airside pavement; on anything else, or nothing,
+    ``("raisable" | None, DEM)``.  ``airside_near(poly)``: within
+    ``airside_group_seat.TOUCH_M`` of airside pavement."""
+    import shapely
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+
+    from ..law.tables import is_value_role, role_side
+    from .airside_group_seat import TOUCH_M
+
+    def pavement(role: str) -> bool:
+        return role != "building" and is_value_role(law, role) \
+            and role_side(law, role) == "airside"
+    rank = [0 if pavement(r) else 1 if r == "building" else 2 for _p, r, _k in items]
+    pave = [p for (p, _r, _k), k in zip(items, rank, strict=True) if k == 0]
+    pave_tree = STRtree(pave) if pave else None
+    tree = STRtree([p for p, _r, _k in items]) if items else None
+    pads: dict = {}
+    for (p, _r, k), q in zip(items, rank, strict=True):
+        if q == 1:
+            pads.setdefault(k, []).append(p)
+
+    def near_d(poly, d: float) -> bool:
+        return pave_tree is not None and len(pave_tree.query(
+            poly, predicate="dwithin", distance=d)) > 0
+    held = {k for k, ps in pads.items() if any(near_d(p, WELD_M) for p in ps)}
+    level: dict = {}
+
+    def ground(x: float, y: float) -> "tuple[str | None, float]":
+        hits = [] if tree is None else tree.query(shapely.points(x, y), predicate="intersects")
+        if not len(hits):
+            return None, float(dem.z(x, y))
+        j = min((int(h) for h in hits), key=lambda h: rank[h])
+        _p, role, key = items[j]
+        if rank[j] == 0:
+            return "airside", float(dem.z(x, y))
+        if rank[j] == 1:
+            if key not in level:
+                level[key] = pad_level(unary_union(pads[key]), dem)
+            return ("held" if key in held else "raisable"), level[key]
+        return "raisable", float(dem.z(x, y))
+
+    def near(poly) -> bool:
+        return near_d(poly, TOUCH_M)
+    return ground, near
+
+
+def _ground_vote(p: _t.Mapping, ground: Ground) -> "tuple[float, set]":
+    """``(vote, kinds)``: a part's vote on its predicted ground (the median
+    ``z - y`` over its feet; its DEM vote where none reads) and the kinds
+    of ground its feet stand on."""
+    vs, kinds = [], set()
+    for x, y_, y in p["fxy"]:
+        k, z = ground(x, y_)
+        kinds.add(k)
+        if z is not None and math.isfinite(z):
+            vs.append(z - float(y))
+    return (_st.median(vs) if vs else p["vote"]), kinds
+
+
+def seat_plan(rec: _t.Mapping, law, ground: Ground,
+              airside_near: _t.Callable[[_t.Any], bool]) -> dict:
+    """THE GROUP'S SEAT (spec §B.4 (2)-(3), RULINGS 2026-11-20s O1/O3):
+    ``{"anchor", "witness", "dz", "lift", "seat", "control", "ties",
+    "prior_float", "dz_by"}``.
+
+    * the CONTROL seat is the group's area-weighted :data:`LOW_Q` building
+      vote (the touch pass seats a group at its lowest vote; the quantile is
+      that vote without the survey's pits);
+    * the ANCHOR is the record's (the highest vote within the p90), or
+      within :data:`PREFER_M` of it a part standing on a held pad (R4);
+    * ``dz = min(0, low (vote_i) + split_bar_m - vote_anchor)`` over the
+      members on UNRAISABLE ground -- a foot on airside pavement or a held
+      pad (``ground``), or a building within ``airside_group_seat.TOUCH_M``
+      of an airside-role cell (``airside_near``) -- whose float at the
+      control seat is within ``[placement] split_bar_m`` (O1: no such member
+      floats past the ground bar), ``low`` their area-weighted
+      :data:`LOW_Q` vote (the survey's pits are no ground).  Where that leaves no lift over the
+      control the group is NOT lifted (``lift`` false) and ``dz`` brings the
+      seat to the control: the trench is graded for the seat the touch pass
+      gives it;
+    * ``ties``: the members on raisable ground of a lifted group within the
+      bar at control -- the ground under their feet is tied to the witness
+      (§B.7); ``prior_float``: members past the bar already at the control
+      (listed, O3: they never zero the lift).
+
+    ``seat`` is the PLANNED seat on the DEM votes (geometry only: the rows
+    tie the floor to the solved witness); ``slack`` the ground bar it may
+    solve under (``short_crossings`` plans for it)."""
+    bar = float(law.tables.structures.placement.split_bar_m) or 0.5
+    read = {(p["member"], p["comp"]): _ground_vote(p, ground) for p in rec["parts"]}
+    parts = [dict(p, vote=read[(p["member"], p["comp"])][0]) for p in rec["parts"]]
+    kinds_of = {(p["member"], p["comp"]): read[(p["member"], p["comp"])][1] for p in parts}
+    by = {(p["member"], p["comp"]): p for p in parts}
+    blds = [p for p in parts if p["building"]] or parts
+    ranked = sorted((p["vote"], p["area"]) for p in blds)
+    ctl, top = _weighted(ranked, LOW_Q), _weighted(ranked, 0.9)
+    a = _anchor(parts, top)
+    # R4: within PREFER_M of its vote, an anchor whose feet stand on a held
+    # pad (stage 1 solves its witness: the floor follows it, never pulls it)
+    a = next((p for p in sorted(blds, key=lambda p: -p["vote"])
+              if a["vote"] - PREFER_M <= p["vote"] <= a["vote"]
+              and kinds_of[(p["member"], p["comp"])] == {"held"}), a)
+    ties, prior, held = [], [], []
+    for p in parts:
+        float0 = ctl - p["vote"]
+        if float0 > bar:
+            prior.append((p["member"], p["comp"], round(float0, 3)))
+            continue
+        kinds = kinds_of[(p["member"], p["comp"])]
+        if kinds & {"airside", "held"} or (p["building"] and airside_near(p["plan"])):
+            held.append((p["vote"], p["area"]))
+        elif p is not a and kinds <= {"raisable"}:
+            ties.append((p["member"], p["comp"]))
+    floor = _weighted(sorted(held), LOW_Q) if held else None
+    dz = 0.0 if floor is None else min(0.0, floor + bar - a["vote"])
+    dz_by = "" if floor is None else f"p{round(100 * LOW_Q):02d} {floor:.2f} of {len(held)}"
+    lift = a["vote"] + dz > ctl + SHORT_M
+    if not lift:
+        dz, ties = min(0.0, ctl - a["vote"]), []
+    return {"anchor": (a["member"], a["comp"]), "witness": a["feet"], "dz": round(dz, 3),
+            "lift": lift, "seat": a["vote"] + dz, "control": ctl, "ties": ties,
+            "prior_float": prior, "dz_by": dz_by, "by": by, "slack": bar}
+
+
+def short_crossings(rec: _t.Mapping, plan: _t.Mapping, margin: float,
+                    ground: Ground) -> list[dict]:
+    """The crossings of ``rec`` short by more than :data:`SHORT_M` at the
+    planned seat less its ``slack`` (the seat the solve may give it: the
+    plan reads the DEM, the object stage the solved surface) over the ground
+    ``ground`` reads under their cells (a pad's level on a pad),
+    ``low_soffit`` ones left out (no passage), each with its ``short`` at the
+    planned seat and its planned floor (at the slackened seat: the trench
+    is laid out deep enough, the floor rows hold the real one)."""
+    out = []
+    for c in rec["crossings"]:
+        if c["class"]:
+            continue
+        cells = np.asarray(c["cells"])
+        gz = np.array([ground(float(x), float(y))[1] for x, y, _z in cells])
+        ok = np.isfinite(gz)
+        least = float(np.min(cells[ok, 2] - gz[ok])) if ok.any() else c["least_m"]
+        seat = plan["seat"] - float(plan.get("slack", 0.0))
+        if c["need"] - (seat + least) > SHORT_M:
+            out.append(dict(c, short=round(c["need"] - (plan["seat"] + least), 3),
+                            floor=seat + c["soffit_y"] - c["need"] - margin))
+    return out

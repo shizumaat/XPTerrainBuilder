@@ -199,14 +199,14 @@ def overlay_inputs(inputs, frame: dict | None):
     return _dc.replace(inputs, **over) if over else inputs
 
 
-def _crossings_published(airport) -> list:
-    """RULINGS 2026-11-20g/k: the airport's short crossings as the graded
-    surface publishes them (empty under a src that predates them)."""
+def _crossings_published(pm, law, airport, sol) -> list:
+    """RULINGS 2026-11-20g/k/s: the crossings and the SOLVED seat as the
+    graded surface publishes them (empty under a src that predates them)."""
     try:
-        from auto_patch_v2.airport.crossing_seat import published
+        from auto_patch_v2.constraints.soffit_floor import publication
     except ImportError:
         return []
-    return published(getattr(airport, "elevated_crossings", ()) or ())
+    return publication(pm, law, airport, getattr(sol, "z", None) or None)
 
 
 def capture_dem_inputs():
@@ -1205,7 +1205,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                            "generated": _generated(pm, law, airport, sol, generated_tops),
                            # RULINGS 2026-11-20g/k: the crossing seats, as the
                            # build publishes them (``pipeline/emit_stage``)
-                           "elevated_crossings": _crossings_published(airport)})
+                           "elevated_crossings": _crossings_published(pm, law, airport,
+                                                                      sol)})
     surf_out = with_terrain_edges(surf, pm, law)
     # §39 (1) THE SHORE WELD + §39 (iii) THE SUB-SPACING MERGE — the build's
     # last two passes before ``write_patch`` (``pipeline/build.py``).  They
@@ -2437,7 +2438,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if attach_crossings is not None:
             _ec_t, _ec_notes = time.perf_counter(), []
             airport = attach_crossings(airport, law, _ocache, _ec_notes)
-            print(f"[{icao}] elevated crossings: {len(airport.elevated_crossings)} short "
+            print(f"[{icao}] elevated crossings: {len(airport.elevated_crossings)} group(s) "
                   f"({time.perf_counter() - _ec_t:.1f} s)")
             for _n in _ec_notes:
                 print(f"[{icao}]   [crossing] {_n}")

@@ -43,13 +43,17 @@ THE RULES OF 2026-11-18h (owner, #2129: "only fix problem spots"):
 * (3) a connector between two separately seated buildings is the deck
   warp's (``deck_profile``), after this pass.
 
-THE CROSSING LIFT (owner RULINGS 2026-11-20g (2) / 20k): a group holding a
-component the patch read as an elevated crossing of a mapped road or rail
-(``airport/crossing_seat``, published on the graded surface and carried here
-as the law's ``crossings``) seats at the zero the patch graded the roads for,
-never above the group's own HIGHEST vote ("a group is lifted no higher than
-its own highest ground vote") -- every member with it, the low ones risen.
-Only a ``flat`` / ``seat`` group is lifted; a wider one is listed.
+THE CROSSING LIFT (owner RULINGS 2026-11-20g (2) / 20k / 20s): a group
+holding a component the patch read as an elevated crossing of a mapped road
+or rail (``airport/crossing_seat``; ``constraints/soffit_floor.publication``
+publishes the SOLVED seat its trenches were tied to, carried here as the
+law's ``crossings``) seats at ``min(published zero, its highest vote)`` ("a
+group is lifted no higher than its own highest ground vote") -- every member
+with it, the low ones risen; ``crossing_seat_clamped`` counts a group whose
+highest vote clamped the published zero by more than 0.05 m.  Only a
+``flat`` / ``seat`` group is lifted; a wider one is listed; a group the
+patch did not lift (``lift`` false: airside holds it) or with a member fixed
+by airside contact (``airside_deck``) is never lifted.
 
 A rider of a moved body that is in no group moves by the same amount.  The
 moved records are CUT AGAIN (``placement_file.recut``) and every rider's
@@ -79,6 +83,9 @@ PADS_MIN_M = 2.0
 LOW_BAND_M = 0.3
 #: the moved body's reason (``drawn_site_plan`` reads its ``fu:N:M``)
 REASON = "one touching group {root} at {z:.2f} (RULINGS 2026-11-16u/v)"
+#: a published crossing seat its group's highest vote clamps by more than
+#: this is counted (``crossing_seat_clamped``, RULINGS 2026-11-20s)
+CLAMP_M = 0.05
 #: the crossing lift's reason (RULINGS 2026-11-20g / 20k)
 _CROSS_REASON = ("one touching group {root} lifted to its crossing seat {z:.2f} "
                  "(RULINGS 2026-11-20g/k)")
@@ -213,9 +220,10 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
                     else "judge" if s <= PADS_MIN_M else "pads")
     if out["class"] == "pads":
         out["pads"] = [(nodes[i].name, round(z + nodes[i].bottom(), 3)) for i in blds]
-    if lift is not None:
+    if lift is not None and not any(nodes[i].fixed == "airside_deck" for i in g):
         out["crossing_zero"] = round(float(lift), 3)
         zc = min(float(lift), max(votes))
+        out["crossing_clamped"] = float(lift) - zc > CLAMP_M
         if out["class"] in ("flat", "seat") and zc > z + law.tol_m:
             return _lifted(nodes, g, out, zc, z, set(ride) & set(g))
     if out["class"] != "seat":
@@ -270,6 +278,8 @@ def _crossing_lifts(nodes: list, splits: _t.Sequence[_t.Any],
     seat where several do."""
     seats: dict[tuple[str, int], float] = {}
     for c in crossings:
+        if c.get("zero") is None or c.get("lift") is False:
+            continue
         k = (str(c.get("member")), int(c.get("comp", -1)))
         z = float(c.get("zero"))
         seats[k] = min(z, seats.get(k, z))
@@ -574,6 +584,7 @@ def _count(counts: dict, nodes: list, rows: list, moves: dict, riders: dict,
             counts[k] = counts.get(k, 0) + v
     for c in ("flat", "seat", "judge", "pads", "crossing"):
         add(f"touch_groups_{c}", sum(1 for r in rows if r["class"] == c))
+    add("crossing_seat_clamped", sum(1 for r in rows if r.get("crossing_clamped")))
     add("touch_bodies_moved", len(moves))
     add("touch_riders_moved", len(riders))
     add("touch_small_low", sum(len(r["small_low"]) for r in rows))

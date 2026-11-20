@@ -35,7 +35,7 @@ import tempfile
 
 import numpy as np
 
-__all__ = ["site_ways", "site_crossings", "print_crossings", "main"]
+__all__ = ["site_ways", "site_crossings", "print_crossings", "label_classes", "main"]
 
 #: the OSM feeds a mapped road or rail is read from
 FEEDS = ("big_roads", "airport_small_roads")
@@ -130,6 +130,29 @@ def site_crossings(site, picked, mesh, ways, law, step: float) -> list[dict]:
     return sorted(out, key=lambda r: (-r["short_m"], r["resource"], r["way"]))
 
 
+def label_classes(rows: list[dict], graded_doc: dict, plan_doc: dict) -> None:
+    """Each row's 20g class (RULINGS 2026-11-20s; ``class20g``): the class
+    the patch published for its body's components over its way
+    (``provenance.elevated_crossings``: ``trench``, ``airside_held``,
+    ``depth_cap``, ...; a body is read through the placement plan's split,
+    ``dsf:obj<index>`` and its components), ``unpublished`` where the patch
+    named none."""
+    pub: dict[tuple, str] = {}
+    for c in ((graded_doc or {}).get("provenance") or {}).get("elevated_crossings") or ():
+        pub[(str(c.get("member")), int(c.get("comp", -1)), str(c.get("way")))] = \
+            str(c.get("class") or "")
+    body: dict[str, tuple[str, tuple[int, ...]]] = {}
+    for s in (plan_doc or {}).get("splits") or ():
+        mid = f"dsf:obj{s['placement']['index']}"
+        for b in s.get("bodies") or ():
+            body[os.path.basename(b["new_resource"])] = (mid, tuple(b.get("components") or ()))
+    for r in rows:
+        mid, comps = body.get(os.path.basename(r["resource"]), ("", ()))
+        way = str(r["way"]).rsplit(":", 1)[-1]       # the feeds namespace a way by its tile
+        got = [pub[k] for k in ((mid, int(c), way) for c in comps) if k in pub]
+        r["class20g"] = got[0] if got else "unpublished"
+
+
 def print_crossings(site_rec: dict, top: int) -> None:
     """One line per crossing, worst shortfall first, and the site's count."""
     rows = site_rec.get("crossings") or []
@@ -144,13 +167,25 @@ def print_crossings(site_rec: dict, top: int) -> None:
               f"{r['least_m']:+.2f} m (p50 {r['p50_m']:+.2f}, {r['cells']} cells) need "
               f"{r['need_m']:.1f} -> {'SHORT %.2f' % r['short_m'] if r['short_m'] else 'ok'}"
               f" @{r['lat']:.6f},{r['lon']:.6f} soffit {r['soffit_z']:.2f} ground "
-              f"{r['ground_z']:.2f}")
+              f"{r['ground_z']:.2f}" + (f" [{r['class20g']}]" if "class20g" in r else ""))
 
 
-def main(argv) -> int:
+def main(argv=None) -> int:
+    # the console is UTF-8 before anything prints (#171, #125)
+    import O4_Console_Encoding as _o4console
+    _o4console.configure_console_streams()
     from auto_patch_v2.law import Law
-    from drawn_site import (DrawnMesh, Frame, Resources, dsftool, mesh_box, pack_rows,
-                            parse_site, select, tile_of)
+    from drawn_site import (
+        DrawnMesh,
+        Frame,
+        Resources,
+        dsftool,
+        mesh_box,
+        pack_rows,
+        parse_site,
+        select,
+        tile_of,
+    )
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--crossings", action="store_true")
     ap.add_argument("--pack", action="append", default=[])
@@ -166,6 +201,9 @@ def main(argv) -> int:
     ap.add_argument("--graded", default=None,
                     help="read the ground off this graded surface where it has a face")
     ap.add_argument("--cache", default=None)
+    ap.add_argument("--plan", default=None,
+                    help="the placement plan the pack was written from: each row's 20g "
+                         "class read off --graded's published crossings")
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--json", default=None)
     args = ap.parse_args(argv)
@@ -196,12 +234,19 @@ def main(argv) -> int:
                          args.cache, args.tile_dir)
         ground = GradedGround(args.graded, mesh) if args.graded else mesh
         rep = {"mesh": mesh.sources, "graded": args.graded, "packs": packs, "sites": []}
+        docs = None
+        if args.graded and args.plan:
+            with open(args.graded, encoding="utf-8") as fh, \
+                    open(args.plan, encoding="utf-8") as gh:
+                docs = (json.load(fh), json.load(gh))
         for s in sites:
             ways = site_ways(osm_root, s)
             rec = {"name": s.name, "lat": s.lat, "lon": s.lon, "radius_m": s.radius_m,
                    "ways": len(ways),
                    "crossings": site_crossings(s, [q for q in picked if s in q["sites"]],
                                                ground, ways, law, args.step)}
+            if docs is not None:
+                label_classes(rec["crossings"], *docs)
             rep["sites"].append(rec)
             print_crossings(rec, args.top)
     finally:
@@ -210,3 +255,10 @@ def main(argv) -> int:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(rep, fh, indent=1)
     return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "src"))
+    raise SystemExit(main(sys.argv[1:]))

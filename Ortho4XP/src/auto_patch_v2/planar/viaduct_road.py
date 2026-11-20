@@ -182,15 +182,16 @@ def _outward(route: LineString, s_end: float, forward: bool) -> LineString | Non
     return LineString(list(substring(route, 0.0, s_end).coords)[::-1])
 
 
-def _climb(airport, law: Law, out: LineString | None, floor: float
-           ) -> tuple[float | None, float]:
+def _climb(airport, law: Law, out: LineString | None, floor: float,
+           grade: float | None = None) -> tuple[float | None, float]:
     """Where the climb from ``floor`` at the start of ``out`` meets the DEM
-    at the design grade: ``(s_top, top_z)``, or ``(None, nan)`` within
-    ``max_ramp_length_m`` / the mapped road's end."""
+    at the design ``grade`` (the tunnel road's by default): ``(s_top,
+    top_z)``, or ``(None, nan)`` within ``max_ramp_length_m`` / the mapped
+    road's end."""
     if out is None:
         return None, math.nan
     tn = law.tables.structures.tunnel
-    grade = min(tn.ramp_grade, tn.ramp_max_grade)
+    grade = min(tn.ramp_grade, tn.ramp_max_grade) if grade is None else grade
     s = 0.0
     lim = min(out.length, tn.max_ramp_length_m)
     while s + _STEP_M <= lim + 1e-9:
@@ -232,20 +233,23 @@ def _straight_m(line: LineString, width: float) -> float:
 
 
 def _side(route: LineString, mid: float, end: float, floor: float, half_w: float,
-          airport, law: Law) -> tuple[LineString, float, float] | None:
+          airport, law: Law, grade: float | None = None, cap: float | None = None
+          ) -> tuple[LineString, float, float] | None:
     """One half's ``(axis from the midpoint, where the level ends, the top
     z)``: the climb beyond the run's ``end`` along the mapped route (R4's
-    design grade); where no mapped road carries it (or the road curls
+    design ``grade``); where no mapped road carries it (or the road curls
     tighter than the trench is wide), the climb INSIDE the run, ending on the
     ground there (the level shortens); ``None`` where neither fits within
-    ``ramp_max_grade``."""
+    ``cap``.  ``grade`` / ``cap``: the tunnel road's ``ramp_grade`` /
+    ``ramp_max_grade`` by default (a rail's are its own, 2026-11-20s O4)."""
     tn = law.tables.structures.tunnel
-    grade = min(tn.ramp_grade, tn.ramp_max_grade)
+    cap = tn.ramp_max_grade if cap is None else cap
+    grade = min(tn.ramp_grade, cap) if grade is None else min(grade, cap)
     fwd = end > mid
     run = substring(route, mid, end) if fwd else \
         LineString(list(substring(route, end, mid).coords)[::-1])
     out = _outward(route, end, fwd)
-    top, top_z = _climb(airport, law, out, floor)
+    top, top_z = _climb(airport, law, out, floor, grade)
     if top is not None:
         axis = LineString(list(run.coords) + list(substring(out, 0.0, top).coords)[1:])
         if _straight_m(axis, 2.0 * half_w) >= axis.length - 1e-6:
@@ -262,16 +266,21 @@ def _side(route: LineString, mid: float, end: float, floor: float, half_w: float
         return None
     rise = max(0.0, ground - floor)
     g = max(grade, rise / avail)
-    if g > tn.ramp_max_grade + 1e-9:
+    if g > cap + 1e-9:
         return None
     return run, run.length - rise / g, ground
 
 
 def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: str,
-          sib: str, half_w: float, law: Law, ground: float, notes: tuple) -> Group:
+          sib: str, half_w: float, law: Law, ground: float, notes: tuple,
+          grade: float | None = None, label: str = f"{ID_PREFIX} (OSM, R6)",
+          knee: bool = False) -> Group:
     """One half: s = 0 at the run's midpoint, level at ``floor`` to
-    ``flat_m``, climbing to ``top_z`` at the axis end."""
+    ``flat_m``, climbing to ``top_z`` at the axis end (``label`` the
+    corridor's name, ``grade`` its design grade: R6's by default; ``knee``:
+    the structure pass keeps a station at ``flat_m``, the climb's start)."""
     tn = law.tables.structures.tunnel
+    grade = min(tn.ramp_grade, tn.ramp_max_grade) if grade is None else grade
     rim = tn.wall_gap_m + tn.wall_band_width_m
     axis = [(float(x), float(y)) for x, y in axis_ln.coords]
     length = axis_ln.length
@@ -280,7 +289,7 @@ def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: s
     trench = axis_ln.buffer(half_w, cap_style="flat")
     foot = axis_ln.buffer(half_w + rim, cap_style="flat")
     mid_xy: XY = axis[0]
-    c = RampCorridor(rid, f"{ID_PREFIX} (OSM, R6)", (), tuple(axis), length, 2.0 * half_w,
+    c = RampCorridor(rid, label, (), tuple(axis), length, 2.0 * half_w,
                      rim, rim, "cut", ground, floor, foot, trench, foot, mid_xy, ground, 0.0,
                      ground - floor, notes, mouth_closed=False)
 
@@ -290,8 +299,9 @@ def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: s
     def rim_fn(s: float, _r=rim) -> tuple[float, float]:
         return (_r, _r)
     return Group([], mid_xy, (-u0[0], -u0[1]), 2.0 * half_w, axis, c, rid, length, True, False,
-                 False, half_fn, rim_fn, None, None, min(tn.ramp_grade, tn.ramp_max_grade),
-                 kind=_KIND, spacing_m=_STEP_M, profile=profile, mouth_strip=False, sibling=sib)
+                 False, half_fn, rim_fn, None, None, grade,
+                 kind=_KIND, spacing_m=_STEP_M, profile=profile, mouth_strip=False, sibling=sib,
+                 climb_from_s=flat_m if knee else None)
 
 
 def _covered_runs(airport, law: Law) -> list[tuple]:
@@ -422,17 +432,23 @@ def viaduct_road_groups(airport, law: Law, cells, polys, seeds: _t.Sequence = ()
     return groups, notes, refused
 
 
-def _runs(roads, deck, inside, law: Law) -> list[tuple]:
+def _runs(roads, deck, inside, law: Law, min_run: float | None = None,
+          pick: _t.Callable[[_t.Any], bool] | None = None) -> list[tuple]:
     """``(route, s0, s1, half width, ids)`` per covered run: every road's
-    route walked once, its runs under ``deck`` inside ``inside``; a run
+    route walked once, its runs under ``deck`` inside ``inside`` at least
+    ``min_run`` long (``[tunnel] viaduct_min_run_m`` by default); a run
     within ``dual_carriageway_max_separation_m`` of a longer one beside it
-    widens that one (a dual is one trench) instead of standing alone."""
+    widens that one (a dual is one trench) instead of standing alone.
+    ``pick``: the ways a route may start from (every road by default; the
+    walk still runs through all of ``roads``)."""
     tn = law.tables.structures.tunnel
+    min_run = tn.viaduct_min_run_m if min_run is None else min_run
     used: set[int] = set()
     found: list[tuple] = []
     nb = _graph(roads)
     for w in sorted(roads, key=lambda r: -LineString(r.points).length):
-        if id(w) in used or not LineString(w.points).intersects(deck):
+        if id(w) in used or (pick is not None and not pick(w)) \
+                or not LineString(w.points).intersects(deck):
             continue
         route = _route(w, nb, law)
         on = [r for r in roads if LineString(r.points).within(route.buffer(0.05))]
@@ -440,7 +456,7 @@ def _runs(roads, deck, inside, law: Law) -> list[tuple]:
         half_w = max([carriageway_width_m(r.tags, law) for r in on]
                      or [carriageway_width_m(w.tags, law)]) / 2.0
         ids = "+".join(str(r.id) for r in on[:4]) + ("+…" if len(on) > 4 else "")
-        for s0, s1 in covered_runs(route, deck.buffer(half_w), inside, tn.viaduct_min_run_m):
+        for s0, s1 in covered_runs(route, deck.buffer(half_w), inside, min_run):
             found.append([route, s0, s1, half_w, ids, substring(route, s0, s1)])
     found.sort(key=lambda f: -(f[2] - f[1]))
     kept: list[list] = []

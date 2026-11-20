@@ -325,15 +325,16 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if pass1a is not None and hasattr(hold, "apply"):
             return hold.apply(cs_x)    # stage 2 states pass 1b's hold law (§4)
         return cs_x
-    cs = _stage2_set(cs, free2)
+    cs_rw, cs = cs, _stage2_set(cs, free2)
     t2 = time.perf_counter()
     if shadow is not None:
         # RULINGS 2026-11-19s (1): the stage-2 airside a generated deck's cut
         # must not move, held at the surface solved without the cut
         from .stage_shadow import held_levels
-        fixed2 = held_levels(shadow, levels, fixed2, _stage2_set, lambda cs_x, fx: _solve_stage(
-            planar2, cs_x, law, options, method=method, low_rank=low_rank, fixed=fx,
-            seed=seed2), seed_rep)
+        fixed2 = held_levels(
+            shadow, cs_rw, levels, fixed2, _stage2_set, lambda cs_x, fx: _solve_stage(
+                planar2, cs_x, law, options, method=method, low_rank=low_rank, fixed=fx,
+                seed=seed2), seed_rep)
     sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=fixed2,
                               seed=seed2)

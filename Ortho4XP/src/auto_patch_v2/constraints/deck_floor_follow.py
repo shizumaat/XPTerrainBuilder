@@ -223,9 +223,8 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law) \
         if law is not None else ({}, {})
     # the same problem without the cut: its answer holds the stage-2 airside
-    shadow = {"cs": _floor_pins(pm, cs, target, {"floor": {}, "pins": 0}),
-              "fixed": dict(fixed), "free": frozenset(free),
-              "hold": _stage_two_airside(pm, law, levels)} if cut else {}
+    shadow = {"pins": cs.pins, "flats": cs.flats, "fixed": dict(fixed),
+              "free": frozenset(free), "hold": _stage_two_airside(pm, law)} if cut else {}
     fixed.update(cut)
     free.difference_update(cut)
     rep["fixed"], rep["freed"] = len(fixed), len(free)
@@ -247,11 +246,13 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     return cs2, _StageTwo(rep, fixed, frozenset(free), tops, shadow)
 
 
-def _stage_two_airside(pm, law, levels) -> frozenset:
-    """The AIRSIDE-CLASS vertices stage 2 solves: every vertex of a face
-    whose role is stage 1's (``law.tables.airside_stage_roles``) that
-    stage 1 does not level -- a plateau's or a lower level's pavement, a
-    vertex the full map minted -- never a road's."""
+def _stage_two_airside(pm, law) -> frozenset:
+    """The AIRSIDE-CLASS vertices: every vertex of a face whose role is
+    stage 1's (``law.tables.airside_stage_roles``), never a road's.  Those
+    stage 2 solves -- a plateau's or a lower level's pavement, a vertex the
+    full map minted, a stage-1 level a rewrite hands stage 2
+    (``stage2_free``) -- are held (``solve/stage_shadow``); the rest are
+    stage-2 constants already."""
     from ..law.tables import airside_stage_roles, family
     roles = set(airside_stage_roles(law))
     road = set(family(law, "road_cross_section").roles)
@@ -260,8 +261,8 @@ def _stage_two_airside(pm, law, levels) -> frozenset:
         if f.role in roles:
             for ring in (f.ring, *f.holes):
                 out.update(pm.ring_vertices(ring))
-    return frozenset(v for v in out if v not in levels
-                     and not road & {pm.faces[f].role for f in pm.vertices[v].incident_faces})
+    return frozenset(v for v in out
+                     if not road & {pm.faces[f].role for f in pm.vertices[v].incident_faces})
 
 
 def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:

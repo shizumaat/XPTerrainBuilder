@@ -40,7 +40,7 @@ import os
 import O4_Imagery_OnDemand_Index as INDEX
 
 __all__ = ["DRAPE_KIND", "forget", "is_drape_dir", "landed", "prepare",
-           "register", "water_mask"]
+           "prune_gone", "register", "water_mask"]
 
 #: The imagery manifest's ``kind`` of a drape's rows folder.
 DRAPE_KIND = "drape"
@@ -128,17 +128,42 @@ def register(pack: str, lat: int, lon: int, index: "str | None" = None,
         conn.close()
 
 
-def forget(lat: int, lon: int, store: "str | None" = None) -> bool:
-    """A full tile replaced the drape: its rows folder (and the drape's
-    kept files) removed; ``True`` when there was one."""
+def forget(lat: int, lon: int, store: "str | None" = None,
+           index: "str | None" = None) -> bool:
+    """A full tile replaced the drape, or the disk budget gave it back:
+    its rows folder (and the drape's kept files) removed, and its index
+    rows with it (#2193: rows left behind sent the follow job to land
+    into a folder that is gone, every pass); ``True`` when there was a
+    folder.  A full tile's own rows (another build folder) are kept."""
     import shutil
 
     import O4_File_Names as FNAMES
-    folder = _rows_dir(FNAMES.short_latlon(lat, lon), store)
+    tile = FNAMES.short_latlon(lat, lon)
+    folder = _rows_dir(tile, store)
+    with contextlib.suppress(Exception):    # the index is a cache
+        conn = INDEX.open_index(index)
+        try:
+            with INDEX.transaction(conn):
+                INDEX.forget_tile(conn, tile, build_dir=folder)
+        finally:
+            conn.close()
     if not os.path.isdir(folder):
         return False
     shutil.rmtree(folder, ignore_errors=True)
     return True
+
+
+def prune_gone(conn, store: "str | None" = None) -> int:
+    """The rows of drapes whose rows folder is gone (given back before
+    :func:`forget` took their rows, #2193) deleted; returns the rows."""
+    root = os.path.realpath(os.path.join(store or _store(), "drapes"))
+    gone = [(tile, folder) for tile, folder in conn.execute(
+                "SELECT DISTINCT tile, build_dir FROM textures")
+            if folder and not os.path.isdir(folder)
+            and os.path.realpath(folder).startswith(root + os.sep)]
+    with INDEX.transaction(conn):
+        return sum(INDEX.forget_tile(conn, tile, build_dir=folder)
+                   for tile, folder in gone)
 
 
 def prepare(tile) -> None:

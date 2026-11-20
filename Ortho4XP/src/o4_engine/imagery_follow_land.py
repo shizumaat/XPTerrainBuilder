@@ -78,7 +78,7 @@ from O4_Imagery_Tier_Plan import TIER_WIDTH
 
 from . import imagery_follow_drape as DRAPE
 
-__all__ = ["TierLander"]
+__all__ = ["SquareGone", "TierLander"]
 
 
 def texture_corner(name: str) -> tuple[int, int]:
@@ -102,6 +102,12 @@ OWN_KEYS = ("imprint_masks_to_dds", "mask_zl", "default_website",
 _COMBINED = threading.Lock()
 #: Seconds a source folder's presence (a library volume mounted) is kept.
 SOURCE_LOOK_S = 10.0
+
+
+class SquareGone(RuntimeError):
+    """The square's folders are gone (its drape given back to the disk
+    budget, #2193): nothing can land there; the follow job skips it at
+    once instead of fetching and converting into a missing folder."""
 
 
 class TierLander:
@@ -181,6 +187,9 @@ class TierLander:
         import O4_Imagery_Utils as IMG
         final = INDEX.texture_path(row)
         width = TIER_WIDTH[int(tier)]
+        for folder in (row["build_dir"], os.path.dirname(final)):
+            if not os.path.isdir(folder):
+                raise SquareGone(f"{row['name']}: {folder} is gone")
         took: dict = {}
         if _land_from_source(row.get("source_path"), final, width, took):
             return dict(_facts(final, width, None, None, False),

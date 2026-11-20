@@ -98,9 +98,11 @@ import O4_Machine_Slots as MACHINE_SLOTS
 import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
+from . import imagery_follow_drape as DRAPE_ROWS
 from .imagery_follow_ahead import PageAhead
 from .imagery_follow_ahead import merge as merge_ahead
 from .imagery_follow_house import ROWS_EVERY_S, SWEEP_EVERY_S, FollowHouse
+from .imagery_follow_land import SquareGone
 
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
            "ROWS_EVERY_S", "SWEEP_EVERY_S", "paused", "held_tiles",
@@ -338,6 +340,10 @@ class FollowJob:
             INDEX.rebuild(self._conn, self.rebuild_tiles,
                           placeholder_root=_placeholder_root())
         INDEX.reset_upgrading(self._conn)
+        with contextlib.suppress(Exception):    # the index is a cache
+            pruned = DRAPE_ROWS.prune_gone(self._conn)
+            if pruned:
+                self._log({"gone_drape_rows": pruned})
         if self.cap_bytes is None:
             from .imagery_downgrade import cap_bytes
             self.cap_bytes = cap_bytes()
@@ -817,8 +823,10 @@ class FollowJob:
 
     def _failed_landing(self, key: str, item: _InFlight, error) -> None:
         row = item.row
-        count = self._failures[key] = self._failures.get(key, 0) + 1
-        self._fail_streak += 1
+        gone = isinstance(error, SquareGone)   # #2193: no retry lands it
+        count = self._failures[key] = (
+            MAX_FAILURES if gone else self._failures.get(key, 0) + 1)
+        self._fail_streak += not gone           # not a network failure
         self.counts["failed"] += 1
         state = "failed" if count >= MAX_FAILURES else (
             "upgraded" if PLAN.tier_of_width(row["tier_px"]) > 0 else "low")

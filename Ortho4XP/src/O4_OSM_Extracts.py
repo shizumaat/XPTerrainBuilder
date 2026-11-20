@@ -57,6 +57,12 @@ HTTP_TIMEOUT_SECONDS = 60
 # download's residue, safe to ignore and replace).
 FOREGROUND_POLL_SECONDS = 2.0
 CONCURRENT_TMP_FRESH_SECONDS = 30.0
+# An extract address that answered 404 is not asked again for this long
+# (#2201), and a 404 re-reads the index only when the stored one is
+# older than NOT_FOUND_INDEX_FRESH_SECONDS (a fresh index that still
+# 404s means Geofabrik publishes nothing there).
+NOT_FOUND_RETRY_DAYS = 7.0
+NOT_FOUND_INDEX_FRESH_SECONDS = 3600.0
 
 # Module-level and mutable so tests monkeypatch it at a tmp_path.
 STORE_DIRECTORY = os.path.join(FNAMES.OSM_dir, "_regional_extracts")
@@ -568,8 +574,8 @@ def _ensure_extracts_foreground(regions) -> bool:
                         url = pbf_url or _url_for_region(region_id)
                         if url is None and _refresh_index():
                             url = _url_for_region(region_id)
-                        if not (url and _download_extract(
-                                region_id, url, foreground=True)):
+                        if not _acquire_extract(
+                                region_id, url, foreground=True):
                             return False
                 finally:
                     lock.release()
@@ -639,14 +645,21 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             # the want at once, #704) and nothing announces a fallback.
             return None
         if missing:
-            record_wanted_regions(missing)
-            UI.vprint(
-                1,
-                "      Regional extract(s)",
-                ", ".join(missing),
-                "not stored yet; queued for background download —"
-                " using Overpass this time.",
-            )
+            # A region whose address answered 404 is not queued again
+            # (#2201): its 404 was logged once when it happened.
+            gone = {region_id for (region_id, url) in regions
+                    if region_id in missing and _url_not_found(url)}
+            queued = [region_id for region_id in missing
+                      if region_id not in gone]
+            if queued:
+                record_wanted_regions(queued)
+                UI.vprint(
+                    1,
+                    "      Regional extract(s)",
+                    ", ".join(queued),
+                    "not stored yet; queued for background download —"
+                    " using Overpass this time.",
+                )
             return None
         import O4_OSM_Extract_Filter as FILTER
 
@@ -798,6 +811,8 @@ def _download_extract(region_id: str, pbf_url: str,
         )
         return True
     except Exception as error:
+        if _is_not_found(error):
+            _remember_not_found(region_id, pbf_url)
         UI.vprint(
             1, "   Extract download for", region_id, "failed:", str(error),
         )
@@ -813,6 +828,58 @@ def _download_extract(region_id: str, pbf_url: str,
                 METER.end("extract:" + region_id)
             except Exception:
                 pass
+
+
+def _is_not_found(error) -> bool:
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None) == 404
+
+
+def _remember_not_found(region_id: str, url: str) -> None:
+    with _store_lock:
+        gone = _read_json(_store_path("not_found.json")) or {}
+        gone[url] = {"region": region_id, "at": time.time()}
+        _write_json_atomic(_store_path("not_found.json"), gone)
+
+
+def _url_not_found(url) -> bool:
+    """True when ``url`` answered 404 within NOT_FOUND_RETRY_DAYS."""
+    if not url:
+        return False
+    entry = (_read_json(_store_path("not_found.json")) or {}).get(url)
+    return bool(entry) and (time.time() - float(entry.get("at", 0))
+                            < NOT_FOUND_RETRY_DAYS * 86400)
+
+
+def _index_recent() -> bool:
+    try:
+        return (time.time() - os.path.getmtime(_index_path())
+                < NOT_FOUND_INDEX_FRESH_SECONDS)
+    except OSError:
+        return False
+
+
+def _acquire_extract(region_id: str, url, foreground: bool = False) -> bool:
+    """Download one extract; a 404 re-reads the index once (#2201).
+
+    Geofabrik moves extracts (2026-11: leaves into per-region folders,
+    and the old address's redirect 404s), while the stored index waits
+    for the user's expiry (RULINGS 2026-11-13o).  A 404 proves the
+    stored address wrong, so the index is asked again — unless it was
+    just fetched — and the download retried at its new address.  An
+    address that still 404s is remembered (``not_found.json``): it is
+    logged once and not asked again for NOT_FOUND_RETRY_DAYS.
+    """
+    if not url or _url_not_found(url):
+        return False
+    if _download_extract(region_id, url, foreground=foreground):
+        return True
+    if not _url_not_found(url) or _index_recent() or not _refresh_index():
+        return False
+    fresh_url = _url_for_region(region_id)
+    if not fresh_url or fresh_url == url or _url_not_found(fresh_url):
+        return False
+    return _download_extract(region_id, fresh_url, foreground=foreground)
 
 
 def _regions_to_refresh() -> list:
@@ -862,9 +929,8 @@ def _maintenance_loop() -> None:
             # A stop is in flight: keep the network quiet.  Refreshes
             # resume at the next application start.
             break
-        url = pbf_url or _url_for_region(region_id)
-        if url:
-            _download_extract(region_id, url)
+        # The index's address first: a stored one may predate a move.
+        _acquire_extract(region_id, _url_for_region(region_id) or pbf_url)
     while True:
         # While a stop is in flight the wanted list is left untouched —
         # consuming it and aborting would drop the regions until some
@@ -878,8 +944,7 @@ def _maintenance_loop() -> None:
                     # No index yet (first run): fetch it, then retry once.
                     if _refresh_index():
                         url = _url_for_region(region_id)
-                if url:
-                    _download_extract(region_id, url)
+                _acquire_extract(region_id, url)
         time.sleep(WANTED_RESCAN_SECONDS)
 
 

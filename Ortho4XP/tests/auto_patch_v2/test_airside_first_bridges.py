@@ -287,3 +287,61 @@ def test_the_ground_past_a_road_decks_end_lands_at_the_taxiway_level():
     assert _road_landing(ends, (60.0, -30.0), 0.5, 3.0) == pytest.approx(99.0)
     assert _road_landing(ends, (68.0, -26.0), 0.5, 3.0) == pytest.approx(98.5)   # beside
     assert _road_landing(ends, (60.0, -20.0), 0.5, 3.0) == -math.inf             # its span
+
+
+def test_the_deck_end_landing_is_a_flush_constant_up_or_down():
+    """Lane lcross20 (KRDU 1.0.567 ``o4gen_2011dcf6``: a vertex 1 m past end
+    A left free, pulled 5.9 m down): within ``end_landing_m`` past an end
+    and the deck's width (its snap at the corners) the ground IS the end's
+    level; under the deck, beside it or farther out, no flat landing."""
+    from auto_patch_v2.constraints.deck_carve import _flat_landing
+    flat = ((0.0, 100.0), (1.0, 100.0))
+    top = CoonsPatch((0.0, 0.0), (0.0, 50.0), (40.0, 0.0), flat, ((0.0, 101.0), (1.0, 101.0)),
+                     ((0.0, 100.0), (1.0, 101.0)), ((0.0, 100.0), (1.0, 101.0)))
+    rings = [(None, top, 94.0)]
+    assert _flat_landing(rings, (20.0, -1.0), 3.0) == pytest.approx(100.0)
+    assert _flat_landing(rings, (20.0, 52.0), 3.0) == pytest.approx(101.0)
+    assert _flat_landing(rings, (40.3, -1.0), 3.0) == pytest.approx(100.0)   # the corner
+    assert _flat_landing(rings, (20.0, -5.0), 3.0) is None                   # past it
+    assert _flat_landing(rings, (45.0, -1.0), 3.0) is None                   # beside
+    assert _flat_landing(rings, (20.0, 25.0), 3.0) is None                   # under
+
+
+def test_the_deck_is_as_wide_as_the_narrower_pavement_at_its_ends():
+    """RULINGS 2026-11-20a (2): the narrower end's pavement, never under
+    the taxiway twice; an apron (broad) or no pavement never widens it."""
+    import math as _m
+
+    from auto_patch_v2.planar.deck_width import _pavement_width
+    # det 1: a-units are metres across the route; taxiway 25 m, twice 50 m
+    a0, a1, note = _pavement_width([(-35.0, 35.0), (-30.0, 32.0)], 0.0, 12.5, 25.0, 1.0, 50.0)
+    assert (a0, a1) == (-30.0, 32.0) and "62.0 m wide" in note
+    a0, a1, _n = _pavement_width([(-35.0, 35.0), (-_m.inf, _m.inf)], 0.0, 12.5, 25.0, 1.0, 50.0)
+    assert (a0, a1) == (-35.0, 35.0)                      # the apron end never widens it
+    a0, a1, _n = _pavement_width([(-15.0, 15.0), (-35.0, 35.0)], 0.0, 12.5, 25.0, 1.0, 50.0)
+    assert (a0, a1) == (-25.0, 25.0)                      # under twice the taxiway: twice
+    a0, a1, _n = _pavement_width([(-35.0, 35.0), None], 0.0, 12.5, 25.0, 1.0, 50.0)
+    assert (a0, a1) == (-25.0, 25.0)                      # an end meeting no pavement
+
+
+def test_route_decks_read_the_pavement_at_both_ends():
+    """The end runs read through ``route_specs``: a 70 m pavement past one
+    end and 60 m past the other give the 60 m (narrower) deck, centred on
+    that run; a C taxiway twice is 50 m."""
+    nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
+             {1: (0.0, -100.0), 2: (0.0, 100.0)}.items()}
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
+        a=1, b=2, name="A", is_runway=False, width_class="C")])
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+
+    def pave_at(xy):
+        x, y = xy
+        if y < -15.0:
+            return -35.0 <= x <= 35.0
+        if y > 15.0:
+            return -30.0 <= x <= 30.0
+        return -12.5 <= x <= 12.5
+    got = route_decks(piece, (1.0, 0.0), airport, _law(), pave_at=pave_at)
+    assert len(got) == 1
+    r, note = got[0]
+    assert round(r.bounds[2] - r.bounds[0], 1) == 60.0 and "narrower" in note

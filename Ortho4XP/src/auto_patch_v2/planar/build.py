@@ -57,7 +57,7 @@ from ..geom.parts import polygon_parts_with_area
 from .deck_carve import deck_carve
 from .deck_generated import carried_off, generated_decks
 from .deck_pack_cover import hidden_cells_off
-from .deck_takeover import attach, full_hidden, roads_under, take_frames
+from .deck_takeover import full_hidden, one_decision, roads_under, take_frames
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -403,7 +403,9 @@ def build(airport: Airport, classification: Classification, law: Law,
             [c.footprint for c in corridors] + [f.footprint for f in floors],
             objects, cache, deck_notes,
             covered=roads_under([b for t in takes for b in t.bridges], airport, law))
-        gen, tk_notes = attach(gen, takes, law)
+        # owner RULINGS 2026-11-20a (1): ONE decision per crossing -- the
+        # pack bridge bodies over every crossing we generated are hidden
+        gen, tk_notes = one_decision(gen, takes, objects, cache, airport, law)
         decks, deck_notes = tuple(decks) + gen, [*deck_notes, *gen_notes, *tk_notes]
     # owner RULINGS 2026-11-19s (1): stage 1 solves the airside with NO
     # generated bridge -- its decks withheld, their rings filled with the

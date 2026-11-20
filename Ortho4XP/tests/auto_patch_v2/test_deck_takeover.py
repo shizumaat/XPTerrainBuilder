@@ -120,7 +120,7 @@ def _take() -> dt._Takeover:
 def test_attach_hides_the_frame_with_the_first_deck_standing_on_it():
     law = load_default()
     gen = (_gen(200.0, "far"), _gen(0.0, "w"), _gen(60.0, "e"))
-    got, notes = dt.attach(gen, [_take()], law)
+    got, notes = dt._attach(gen, [_take()], law)
     far, w, e = got
     assert far.hides == () and far.replaces == () and e.hides == ()
     assert [h[0] for h in w.hides] == ["o", "o2"] and w.replaces == ("o", "o2")
@@ -131,7 +131,7 @@ def test_attach_hides_the_frame_with_the_first_deck_standing_on_it():
 
 def test_attach_names_a_frame_no_deck_stands_on():
     law = load_default()
-    got, notes = dt.attach((_gen(200.0, "far"),), [_take()], law)
+    got, notes = dt._attach((_gen(200.0, "far"),), [_take()], law)
     assert got[0].hides == () and "no generated deck stands on its bridges" in notes[0]
 
 
@@ -230,3 +230,50 @@ def test_roads_under_take_only_a_way_crossing_the_bridge_midline():
     got = dt.roads_under([deck], airport, load_default())
     assert [r.id for r in got] == ["-1"]
     assert abs(got[0].line.length - 10.0) < 1e-9 and got[0].parent.length == 70.0
+
+
+# ── ONE DECISION PER CROSSING (owner RULINGS 2026-11-20a (1), #2191) ──────
+
+def _placement(oid: str, path: str, xy=(5.0, 0.0), hdg: float = 0.0, bbox=True):
+    from shapely.geometry import box
+    return types.SimpleNamespace(id=oid, path=path, xy=xy, heading_deg=hdg, resolved=path,
+                                 plan_bbox=box(-50.0, -50.0, 60.0, 50.0) if bbox else None,
+                                 anchor_z=190.0, agl_m=0.0)
+
+
+def _airport():
+    return types.SimpleNamespace(
+        dem=types.SimpleNamespace(z=lambda x, y: 199.0),
+        frame=types.SimpleNamespace(transformers=lambda: (None, lambda x, y: (y, x))))
+
+
+def test_one_decision_hides_a_pack_bridge_over_our_crossing_with_its_mates(monkeypatch):
+    """KMCO ``puente.obj`` (no hard deck: the deck law cannot seat it) draws
+    the taxiway's deck over the road our deck spans: hidden with its
+    co-placed ``_luz`` lights; a lamp elsewhere stays."""
+    from shapely.geometry import box
+    g = dataclasses.replace(_gen(0.0), covered=(("-1", (("highway", "service"),),
+                                                 ((5.0, -30.0), (5.0, 30.0))),))
+    body, luz = _placement("b", "puente.obj"), _placement("l", "puente_luz.obj")
+    lamp = _placement("x", "lamp.obj", xy=(40.0, 40.0))
+    tops = {"b": box(-2.0, -20.0, 12.0, 20.0)}
+    monkeypatch.setattr(dt, "_body_top", lambda o, *_a: tops.get(str(o.id)))
+    monkeypatch.setattr(dt, "_plan", lambda *_a: ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)))
+    law = load_default()
+    out, notes = dt.one_decision([g], (), [body, luz, lamp], object(), _airport(), law)
+    assert [h[0] for h in out[0].hides] == ["b", "l"]
+    assert out[0].pack_under == ()
+    assert any("HIDDEN" in n for n in notes)
+
+
+def test_one_decision_counts_a_pack_top_left_under_our_deck_as_a_defect(monkeypatch):
+    """A deck-level top under the footprint that does not span the road is
+    no bridge to hide -- and the pack's and ours both stand there: the
+    build records it (``pack_under``, census ``pack_bridge_under_deck``)."""
+    from shapely.geometry import box
+    g = dataclasses.replace(_gen(0.0), covered=(("-1", (("highway", "service"),),
+                                                 ((5.0, -30.0), (5.0, 30.0))),))
+    shed = _placement("s", "shed.obj")
+    monkeypatch.setattr(dt, "_body_top", lambda o, *_a: box(0.0, 8.0, 10.0, 17.0))
+    out, _n = dt.one_decision([g], (), [shed], object(), _airport(), load_default())
+    assert out[0].hides == () and [u[0] for u in out[0].pack_under] == ["s"]

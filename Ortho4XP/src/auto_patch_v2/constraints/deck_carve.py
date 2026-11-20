@@ -324,6 +324,43 @@ def _landing(rings, xy, bank: float, landing: float) -> float:
     return best
 
 
+def _flat_landing(rings, xy, landing: float) -> "float | None":
+    """THE END LANDS FLUSH (lane lcross20, RULINGS 2026-11-19s (8) (d)): the
+    end's level where ``xy`` stands past a deck's end line within its width
+    and within ``landing`` of it -- the ground the deck end rests on, a
+    stage-2 CONSTANT at that level whether the survey there is lower or
+    higher (MEASURED KRDU 1.0.567 ``o4gen_2011dcf6``: a groundside vertex
+    1 m past end A, under neither the cut nor the landing's raise, was left
+    free and the abutment's bank rows pulled it 5.9 m down, a 1.9 m step at
+    the deck end); ``None`` elsewhere (between the end lines of any deck it
+    is the ring's or the cut's)."""
+    best = None
+    for _r, top, _fl in rings:
+        sp, tp = top.st(*xy)
+        if 0.0 <= sp <= 1.0 and 0.0 <= tp <= 1.0:
+            return None
+        # the corner's vertex stands within the snap of the deck's side
+        snap = _SNAP_M / max(_hyp(top.w), 1e-9)
+        if not -snap <= tp <= 1.0 + snap or 0.0 <= sp <= 1.0:
+            continue
+        past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
+        if past <= landing + _SNAP_M:
+            z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))
+            best = z if best is None else max(best, z)
+    return best
+
+
+def _road_flat(ends, xy, landing: float) -> "float | None":
+    """:func:`_flat_landing` past a generated ROAD deck's end (its width)."""
+    best = None
+    for p, d, half, level in ends:
+        dx, dy = xy[0] - p[0], xy[1] - p[1]
+        past = dx * d[0] + dy * d[1]
+        if 0.0 <= past <= landing + _SNAP_M and abs(dx * d[1] - dy * d[0]) <= half + _SNAP_M:
+            best = level if best is None else max(best, level)
+    return best
+
+
 def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[int],
                  values: _t.Mapping[int, float], fixed: _t.Mapping[int, float], law,
                  roads: _t.Sequence[_t.Mapping] = ()) -> tuple[dict[int, float], dict]:
@@ -414,7 +451,12 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         land = -math.inf if floor_v[i] or trench else max(
             _landing(rings, vx.xy, bank, landing),
             _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
-        if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
+        flats = [] if floor_v[i] or trench else [
+            q for q in (_flat_landing(rings, vx.xy, landing),
+                        _road_flat(road_ends, vx.xy, landing) if road_ends else None)
+            if q is not None]
+        flat = max(flats) if flats else None
+        if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M or flat is not None):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)
         if ring_of is not None:
@@ -428,6 +470,10 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
             cut = min(cut, fl) if floor_v[i] else max(fl, ab)
             out[v] = round(cut, 4)
             continue
+        if flat is not None:
+            # the deck end's own landing: at the end's level, up or down
+            n_land += 1
+            cut = flat
         if kerb is not None and not floor_v[i]:
             # the bank never undercuts the airside: over the deck's opened
             # pavement it rises to it; beyond, never over the ground.  A

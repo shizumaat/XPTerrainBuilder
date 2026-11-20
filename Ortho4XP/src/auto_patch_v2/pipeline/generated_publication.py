@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import statistics
 
-__all__ = ["generated_records"]
+__all__ = ["generated_records", "mapped_under"]
 
 
 def _ll(to_ll, pts) -> list[list[float]]:
@@ -39,13 +39,56 @@ def _zero(planar, law, db, z) -> "float | None":
     return statistics.median(zs) if zs else None
 
 
-def _roads(db, law, to_ll) -> list[dict]:
-    """The roads a deck covers (#2132: its piers stand at their floors'
-    edges): ``{"line": [[lon, lat], ...], "half_m": carriageway half}``."""
+def _roads(db, law, to_ll, airport=None) -> list[dict]:
+    """The roads under a deck (#2132: its piers stand at their floors'
+    edges): ``{"line": [[lon, lat], ...], "half_m": carriageway half}`` --
+    every road it covers and every other mapped road or railway passing
+    under its ring (:func:`mapped_under`)."""
     from ..planar.structure_approach import carriageway_width_m
-    return [{"line": _ll(to_ll, coords),
-             "half_m": round(carriageway_width_m(dict(tags), law) / 2.0, 3)}
-            for _id, tags, coords in getattr(db, "covered", ()) or () if len(coords) >= 2]
+    out = [{"line": _ll(to_ll, coords),
+            "half_m": round(carriageway_width_m(dict(tags), law) / 2.0, 3)}
+           for _id, tags, coords in getattr(db, "covered", ()) or () if len(coords) >= 2]
+    if airport is None or len(getattr(db, "ring", ()) or ()) < 3:
+        return out
+    return out + mapped_under(db.ring, law, to_ll, airport)
+
+
+def mapped_under(ring_xy, law, to_ll, airport) -> list[dict]:
+    """Every mapped road or railway (no bridge, no aeroway) whose carriageway
+    reaches under the ring ``ring_xy`` (frame), WHOLE (a covered road's
+    record is its clip: KPHX ``-23745``, a column 0.3 m off its mapped
+    way), as ``_roads`` records -- owner 2026-11-20T14:50Z: "pier placement
+    takes into account roads and rails passing under the bridge and are
+    only placed in between them never in a road or rail" (lane lcross20)."""
+    from shapely.geometry import LineString, Polygon
+
+    from ..planar.structure_approach import carriageway_width_m
+    ring = Polygon(ring_xy).buffer(0.0)
+    sh = float(law.tables.structures.deck_gen.shoulder_m)
+    out = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = dict(w.tags or {})
+        if len(w.points) < 2 or tags.get("aeroway") or tags.get("bridge") not in (None, "no") \
+                or not (tags.get("highway") or tags.get("railway")):
+            continue
+        half = carriageway_width_m(tags, law) / 2.0
+        if LineString(w.points).intersection(ring.buffer(half + sh)).length > 1.0:
+            out.append({"line": _ll(to_ll, w.points), "half_m": round(half, 3)})
+    return out
+
+
+def _ground_min(planar, db, z, reach: float = 5.0) -> "float | None":
+    """The deepest solved ground under a deck: the lowest vertex within
+    ``reach`` of its ring (owner 2026-11-20T14:50Z: "make sure the support
+    piers all reach the ground under them, it's fine to simply note the
+    deepest spot and make them all that length"; lane lcross20)."""
+    from shapely.geometry import Point, Polygon
+    from shapely.prepared import prep
+    if len(getattr(db, "ring", ()) or ()) < 3 or z is None:
+        return None
+    near = prep(Polygon(db.ring).buffer(reach))
+    zs = [float(z[v]) for v, vx in planar.vertices.items() if near.contains(Point(vx.xy))]
+    return min(zs) if zs else None
 
 
 def _surface(top: dict, to_ll) -> dict:
@@ -160,7 +203,9 @@ def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str
             "thickness_m": float(g.thickness_m), "top_lift_m": float(g.top_lift_m),
             # #2132 the piers: the floor under the top and each covered road
             "floor_m": round(float(db.floor_min_m), 4),
-            "roads": _roads(db, law, to_ll)})
+            **({"ground_m": round(gm, 4)} if (gm := _ground_min(planar, db, z)) is not None
+               else {}),
+            "roads": _roads(db, law, to_ll, airport)})
     # #2183 item 5: a road bridge is a narrow flat deck, or rides a taxiway
     # deck (#2181 item 1) -- never an X-Plane road chain
     from .road_deck import road_deck_records

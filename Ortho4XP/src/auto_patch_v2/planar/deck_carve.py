@@ -508,11 +508,95 @@ def _taken_over(decks, tunnels, past: float):
     return unary_union(parts)
 
 
-def _split_structures(cells, blade, law) -> tuple[list, int]:
+def _need_strips(carves, taken_over):
+    """THE ROADS' OWN FLOOR, NODED (lane lcross20): per path of every cut its
+    ``need`` strip -- every road under the deck with its shoulders
+    (``CarvePath.need``), the least floor stage 2 lays whatever the solved
+    top (``model/deck_carve.floor_band``) -- inside the ground the cut takes
+    over.  The planar floor estimate can be wider than stage 2's band; a
+    face spanning it then reads the road over its banks (MEASURED KRDU
+    1.0.567 ``o4gen_80bc82b9``: the deck-ground face across ``-254``'s floor
+    had no vertex within 10 m of the road, which stood 2.6 m over its floor,
+    clearance 3.55 m of 4.2)."""
+    parts = []
+    for dc in carves:
+        for p in dc.paths:
+            if len(p.need) != 2 or len(p.coords) < 2:
+                continue
+            frame = PathFrame(p.coords)
+            lo, hi = float(p.need[0]), float(p.need[1])
+            n = max(2, int(frame.length / STEP_M) + 1)
+            left, right = [], []
+            for k in range(n):
+                (x, y), (ux, uy) = frame.at(frame.length * k / (n - 1))
+                left.append((x - uy * hi, y + ux * hi))
+                right.append((x - uy * lo, y + ux * lo))
+            strip = Polygon(left + right[::-1]).buffer(0.0)
+            if not strip.is_empty:
+                parts.append(strip)
+    return unary_union(parts).intersection(taken_over) if parts else None
+
+
+def _landings(gen, carves, airport, law):
+    """THE LANDINGS, NODED (lane lcross20; RULINGS 2026-11-19s (8) (d)):
+    past each end line of every generated deck, across its width, and past
+    each end of every generated ROAD deck spanning a cut (``geom/road_span``,
+    as ``pipeline/road_deck`` draws it), a strip ``[deck_gen]
+    end_landing_m`` deep -- the ground ``constraints/deck_carve`` lands at
+    the end's level.  Splitting the cut's cells along it puts mesh vertices
+    on each end and on the landing's far line, so no face across the end
+    reads the trench bank under it (MEASURED KPHX 1.0.567: the road decks'
+    far ends ran down the bank, their end point inside a bank face)."""
+    import math
+
+    from ..geom.road_span import DeckSpan, span_to_cut
+    from ..model.deck_frame import deck_frame
+    depth = float(law.tables.structures.deck_gen.end_landing_m)
+    margin = float(law.tables.structures.deck_gen.edge_margin_m)
+    parts, spans = [], []
+    for d in gen:
+        fr = deck_frame(d)
+        if fr is None:
+            continue
+        (ox, oy), (ux, uy), (wx, wy) = fr
+        lu = hypot(ux, uy)
+        if lu < 1e-6:
+            continue
+        ex, ey = ux / lu * depth, uy / lu * depth
+        for (ax, ay), (dx, dy) in (((ox, oy), (-ex, -ey)), ((ox + ux, oy + uy), (ex, ey))):
+            parts.append(Polygon([(ax, ay), (ax + wx, ay + wy), (ax + wx + dx, ay + wy + dy),
+                                  (ax + dx, ay + dy)]))
+        dc = carves.get(d.object_id)
+        if dc is not None:
+            spans.append(DeckSpan(d.object_id, tuple(d.ring),
+                                  [tuple(p.coords) for p in dc.paths], fr))
+    riding = {str(r) for d in gen for r in getattr(d, "riders", ()) or ()}
+    for b in getattr(airport, "road_bridges", ()) or ():
+        axis = LineString(b.get("axis_xy") or ())
+        if str(b.get("id")) in riding or axis.length <= 1.0:
+            continue
+        got = span_to_cut(axis, spans)
+        if got is None:
+            continue
+        c = list(got[0].coords)
+        half = float(b.get("half_m") or 0.0) + margin
+        for p, q in ((c[0], c[1]), (c[-1], c[-2])):
+            n = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
+            ox_, oy_ = (p[0] - q[0]) / n, (p[1] - q[1]) / n
+            nx, ny = -oy_ * half, ox_ * half
+            parts.append(Polygon([(p[0] + nx, p[1] + ny), (p[0] - nx, p[1] - ny),
+                                  (p[0] - nx + ox_ * depth, p[1] - ny + oy_ * depth),
+                                  (p[0] + nx + ox_ * depth, p[1] + ny + oy_ * depth)]))
+    good = [q.buffer(0.0) for q in parts if q.is_valid or not q.buffer(0.0).is_empty]
+    return unary_union(good) if good else None
+
+
+def _split_structures(cells, blade, law, own: bool = False) -> tuple[list, int]:
     """``cells`` with every STRUCTURE cell the cut takes over (a corridor
     or deck ground under a generated deck) split along ``blade`` -- the
     roads' floors -- so the mesh carries vertices on each floor's edges
-    (role and ref kept; a second piece takes ``<ref>#<k>``)."""
+    (role and ref kept; a second piece takes ``<ref>#<k>``).  ``own``: the
+    cut's own cells too (:data:`~..model.deck_carve.CARVE_REF`)."""
     import dataclasses as _dcl
 
     from ..law.tables import airside_stage_roles
@@ -521,7 +605,7 @@ def _split_structures(cells, blade, law) -> tuple[list, int]:
     edge = blade.boundary
     out, n = [], 0
     for c in cells:
-        if c.kind != "structure" or c.role in air or str(c.ref).startswith(_ref) \
+        if c.kind != "structure" or c.role in air or (str(c.ref).startswith(_ref) and not own) \
                 or len(c.ring) < 3:
             out.append(c)
             continue
@@ -670,6 +754,14 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     taken_over = _taken_over(gen, tunnels, past)
     if not floors.is_empty:
         cells, n_split = _split_structures(cells, floors.intersection(taken_over), law)
+    need = _need_strips([carves[d.object_id] for d in gen], taken_over)
+    n_need = 0
+    if need is not None and not need.is_empty:
+        cells, n_need = _split_structures(cells, need, law, own=True)
+    land = _landings(gen, carves, airport, law)
+    n_land = 0
+    if land is not None and not land.is_empty:
+        cells, n_land = _split_structures(cells, land, law, own=True)
     # ... and along every generated deck's ring, so a corridor running on
     # under the deck carries vertices on the ring (KJFK 1.0.565
     # ``o4gen_a900c332``: one tunnel-ramp face spanned the ring, a 35 m
@@ -680,7 +772,8 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     cells = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     notes.append(f"{len(new)} cut cell(s) minted under {len(gen)} generated deck(s), "
                  f"{n} groundside cell(s) cut, {n_split} structure cell(s) under them split "
-                 f"along the roads' floors and {n_ring} along the rings, {n_dense} noded "
+                 f"along the roads' floors, {n_need} along their carriageways, {n_land} "
+                 f"along the deck ends' landings and {n_ring} along the rings, {n_dense} noded "
                  f"every {RING_NODE_M:g} m along "
                  f"the rings (owner 2026-11-19T23:07Z)")
     out = tuple(_dc.replace(d, carve=carves.get(d.object_id)) if is_generated(d) else d

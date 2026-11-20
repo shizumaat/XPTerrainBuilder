@@ -362,6 +362,18 @@ cockpit   = "step"
 # CLASS is "step": the edge of the deck object against the pavement the
 # aircraft rolls onto it from.
 
+[pack_bridge_under_deck]
+measures  = "a pack placement still drawing a deck-level top under a GENERATED deck's footprint after the one decision per crossing (published per deck in the sidecar `pack_bridge_under_deck`)"
+parameter = "structures.deck_gen.min_area_m2"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-11-20a"
+solver    = "construction"
+# owner RULINGS 2026-11-20a (1) (#2191, KMCO puente.obj under our decks):
+# the pack's bridge or ours, never both.  "keepout": PRESENCE, not a height
+# -- one pack bridge body under a generated deck is the whole defect.
+cockpit   = "keepout"
+
 [seam_residual]
 measures  = "a tile-seam band-edge vertex standing off its own tile's baked DEM sample (the value the solve PINNED, published per pin in the sidecar `seam_pins`)"
 parameter = "emit.seam.half_width_m"

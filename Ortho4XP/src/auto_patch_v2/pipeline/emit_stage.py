@@ -486,6 +486,13 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     if _touch:
         pub["pad_touch"] = _touch
     pub["design_target"] = design_rep.targets
+    # owner RULINGS 2026-11-20a (1): a pack bridge body left under a
+    # generated deck (``planar/deck_takeover.one_decision``) -- the census's
+    # ``pack_bridge_under_deck`` rows; ``[]`` where the decision was clean
+    pub["pack_bridge_under_deck"] = [
+        {"deck": d.object_id, "object": u[0], "resource": u[1], "lon": u[2][0],
+         "lat": u[2][1], "area_m2": u[3]}
+        for d in getattr(pm, "decks", ()) or () for u in getattr(d, "pack_under", ()) or ()]
     # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
     # the edge segments published as open ways over the vertices they
     # already run through — the owner's KML read of where ground ends

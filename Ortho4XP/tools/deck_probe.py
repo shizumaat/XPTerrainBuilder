@@ -137,6 +137,10 @@ def main(argv=None) -> int:
                          "2026-11-19T23:07Z): per path its evidence, direction, clearance, "
                          "floor against the rule, ramps back to the terrain and the "
                          "abutment bank; exit 1 on a FAIL")
+    ap.add_argument("--piers", action="store_true",
+                    help="the piers of every GENERATED deck (tools/deck_carve_bars.pier_bars, "
+                         "owner 2026-11-20T14:50Z): columns floating over the solved ground "
+                         "or standing on a mapped road / railway; exit 1 on any")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -204,13 +208,25 @@ def main(argv=None) -> int:
         from deck_carve_bars import carve_bars
         res["carve"] = carve_bars(pm, z, Law.for_airport(pm.icao), d.get("generated_tops"))
         for q in res["carve"]:
-            ok = q["pass_clearance"] and q["pass_grade"] and q["pass_meets"]
+            ok = q["pass_clearance"] and q["pass_grade"] and q["pass_meets"] \
+                and q.get("pass_ends", True)
             rc |= not ok
             print(f"CARVE {'PASS' if ok else 'FAIL'} {q['deck']} {q['kind']} {q['way']}: "
                   f"clearance {q['clearance_min_m']} (need {q['need_m']}), floor "
                   f"{q['floor_m']} rule {q['floor_rule_m']}, ramps {q.get('ramp_before')} "
-                  f"{q.get('ramp_after')} cap {q['cap']}, bank {q.get('bank_slope_max')}; "
+                  f"{q.get('ramp_after')} cap {q['cap']}, bank {q.get('bank_slope_max')}, ends "
+                  f"{[(e['end'], e['gap_m']) for e in q.get('end_gaps') or ()]}; "
                   f"{', '.join(q['evidence'])}; {q['direction']}")
+    if a.piers:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_carve_bars import pier_bars
+        res["piers"] = pier_bars(pm, z, Law.for_airport(pm.icao), d.get("airport"),
+                                 d.get("generated_tops"))
+        for q in res["piers"]:
+            bad = bool(q["floating"] or q["on_road"])
+            rc |= bad
+            print(f"PIERS {'FAIL' if bad else 'PASS'} {q['deck']}: {q['columns']} column(s), "
+                  f"floating {q['floating'][:4]}, on a road {q['on_road'][:4]}")
     if a.bank_perimeter:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from deck_bank_perimeter import bank_perimeter

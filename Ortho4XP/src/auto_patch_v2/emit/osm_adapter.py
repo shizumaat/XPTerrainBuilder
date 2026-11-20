@@ -122,6 +122,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # deck-end-anchors spec §6: every pack hard deck's end-line anchors —
     # LAW INPUT for the ``deck_end_flush`` census family
     "deck_anchors",
+    # RULINGS 2026-11-20a (1): the pack placements left under a generated
+    # deck after the one decision -- LAW INPUT for ``pack_bridge_under_deck``
+    "pack_bridge_under_deck",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # #2062 (RULINGS 2026-11-13w): the storey shells -- a REPORT key the
     # drawn check reads (``pipeline/storey_publication``)

@@ -7788,6 +7788,7 @@ from check_grade_lib.families.road_coverage_join import (  # noqa: E402,F401,I00
 )
 from check_grade_lib.families import road_coverage_join as _fam_road_coverage_join  # noqa: E402,I001
 from check_grade_lib.families import deck_end_flush as _fam_deck_end_flush  # noqa: E402,I001
+from check_grade_lib.families import pack_bridge_under_deck as _fam_pack_bridge  # noqa: E402,I001
 
 
 #: §37 (11) (5): the ``out_of_scope`` stamp of a ``sea_wall`` row.  The
@@ -11115,6 +11116,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     *_fam_road_coverage_join.LAW_FAMILY_ROWS,
     *_fam_deck_end_flush.LAW_FAMILY_ROWS,
+    *_fam_pack_bridge.LAW_FAMILY_ROWS,
     # §37 (11) (5) THE SEA WALL (owner RULINGS 2026-09-15f item 2): the
     # emitted edges standing ON the declared shore, named with their
     # drop, level and length.  Reported, NEVER adjudicated — a wall is
@@ -12747,6 +12749,7 @@ def run_checks(
     road_route_frame_ll: Optional[list] = None,
     road_coverage_join_ll: Optional[list] = None,
     deck_anchors: Optional[list] = None,
+    pack_bridge_under_deck: Optional[list] = None,
     ground_envelope: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
@@ -13270,6 +13273,12 @@ def run_checks(
         "2026-10-30a (1), 2026-11-03c; deck-end-anchors spec §6: every "
         "station flush within deck_flush_m)", deck_flush, top_n)
     within = within + deck_flush
+
+    pack_under = _fam("pack_bridge_under_deck",
+                      _fam_pack_bridge.check_pack_bridge_under_deck(pack_bridge_under_deck))
+    _pv("PACK BRIDGE left under a GENERATED deck (RULINGS 2026-11-20a (1): the "
+        "pack's bridge or ours, never both)", pack_under, top_n)
+    within = within + pack_under
 
     renode = _fam("pad_airside_renode",
                   _check_pad_airside_renode(pad_airside_renode_ll, nodes))

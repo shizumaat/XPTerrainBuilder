@@ -159,16 +159,88 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
             b0 = _reach(b0, -1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
             b1 = _reach(b1, 1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
-        d = [(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
+        lo_a, hi_a, why = a_c - ha, a_c + ha, (f"{width:g} m wide (taxiway + a half-width "
+                                               "shoulder each side, RULINGS 2026-11-19s (8) (a))")
+        if pave_at is not None:
+            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law, width)
+            lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
+        d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
-             f"{letter or (common or '?') + ' (the airport common)'}: deck "
-             f"{width:g} m wide (taxiway + a half-width shoulder each side, RULINGS "
-             "2026-11-19s (8) (a))", a_c, hc]
+             f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
         got.append(d)
     return [((ux, uy), d) for d in _merged((ux, uy), got)]
+
+
+def _run_at(b: float, a_c: float, hc: float, u: XY, w: XY, det: float, pave_at,
+            step: float, most: float) -> "tuple[float, float] | None":
+    """The run of the airport's pavement across the route at ``b`` holding
+    the taxiway (``a_c`` +- ``hc``), as ``(a0, a1)``; ``None`` with none;
+    ``(-inf, inf)`` where it runs on past ``most`` metres either way (broad
+    pavement: an apron)."""
+    (ux, uy), (wx, wy) = u, w
+
+    def paved(a: float) -> bool:
+        return bool(pave_at((a * ux + b * wx, a * uy + b * wy)))
+    da = step / max(abs(det), 1e-9)
+    start = next((a for a in (a_c + k * da for k in range(int(hc / da) + 1)
+                              for k in (k, -k)) if paved(a)), None) if hc > 0.0 else None
+    if start is None:
+        return None
+    lim = most / max(abs(det), 1e-9)
+    lo = hi = start
+    while paved(lo - da):
+        lo -= da
+        if start - lo > lim:
+            return -math.inf, math.inf
+    while paved(hi + da):
+        hi += da
+        if hi - start > lim:
+            return -math.inf, math.inf
+    return lo, hi
+
+
+def _end_runs(b0: float, b1: float, a_c: float, hc: float, u: XY, w: XY, det: float,
+              pave_at, law, width: float) -> list:
+    """The pavement run just past each end of a route deck (:func:`_run_at`
+    ``[deck_gen] end_width_probe_m`` past ``b0`` and ``b1``), read out to
+    ``end_width_broad`` x the deck's ``width``."""
+    g = law.tables.structures.deck_gen
+    probe, most = float(g.end_width_probe_m), float(g.end_width_broad) * width
+    lw = math.hypot(*w)
+    return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most)
+            for b in (b0 - probe / lw, b1 + probe / lw)]
+
+
+def _pavement_width(runs, a_c: float, hc: float, ha: float, det: float, width: float
+                    ) -> tuple[float, float, str]:
+    """``(a0, a1, note)``: THE DECK IS AS WIDE AS THE PAVEMENT IT MEETS
+    (owner RULINGS 2026-11-20a (2): "bridge width, should match the width of
+    the pack pavement it touches on either side of the cut as long as it's
+    larger than the taxiway x2 rule, if the two sides are different, use the
+    narrower one, we don't want to expand to match a whole apron"): of the
+    two end runs the NARROWER, never under ``width`` (19s (8) (a), the
+    taxiway twice) about the centreline; an end with no pavement run or a
+    broad one (an apron) never widens it."""
+    m = abs(det)
+    widths = [None if r is None else (math.inf if math.isinf(r[0]) else (r[1] - r[0]) * m)
+              for r in runs]
+    names = " / ".join("none" if x is None else ("broad" if math.isinf(x) else f"{x:.1f} m")
+                       for x in widths)
+    narrow = None if None in widths else min(zip(widths, runs, strict=True),
+                                             key=lambda q: q[0])
+    if narrow is None or math.isinf(narrow[0]) or narrow[0] <= width + 1e-6:
+        return (a_c - ha, a_c + ha,
+                f"{width:g} m wide (taxiway twice, RULINGS 2026-11-19s (8) (a); the pavement "
+                f"at its ends A / B: {names}, RULINGS 2026-11-20a (2))")
+    a0, a1 = min(narrow[1][0], a_c - hc), max(narrow[1][1], a_c + hc)
+    if a1 - a0 < 2.0 * ha:
+        grow = 0.5 * (2.0 * ha - (a1 - a0))
+        a0, a1 = a0 - grow, a1 + grow
+    return (a0, a1, f"{(a1 - a0) * m:.1f} m wide: the narrower pavement at its ends A / B "
+            f"{names} (RULINGS 2026-11-20a (2))")
 
 
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:

@@ -55,6 +55,12 @@ class DeckGenLaw:
     #: ... and its end runs on along the route until the airport's pavement
     #: meets it (a pack's hole spanned pavement to pavement), at most this (m)
     end_reach_m: float = 10.0
+    #: owner RULINGS 2026-11-20a (2): the deck is as wide as the narrower
+    #: pavement it meets past its two ends, read this far past each (m) ...
+    end_width_probe_m: float = 1.5
+    #: ... a run wider than this x the deck's taxiway-twice width is broad
+    #: (an apron) and never widens it (``planar/deck_width``)
+    end_width_broad: float = 3.0
     #: owner RULINGS 2026-11-19s (8) (a): the deck is ``width_by_class_m``
     #: (the taxiway as drawn) plus this share of it as a shoulder each side
     shoulder_share: float = 0.5

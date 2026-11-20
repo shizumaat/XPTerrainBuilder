@@ -68,7 +68,23 @@ def _spans(decks) -> list:
     return out
 
 
-def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":
+def _ground_min(ring, z_at, step: float = 2.0) -> "float | None":
+    """The lowest solved ground under ``ring`` (frame), read by ``z_at``
+    every ``step`` metres inside it; ``None`` with no reading."""
+    from shapely.geometry import Point
+    if z_at is None:
+        return None
+    x0, y0, x1, y1 = ring.bounds
+    zs = []
+    for i in range(int((x1 - x0) / step) + 1):
+        for j in range(int((y1 - y0) / step) + 1):
+            p = (x0 + i * step, y0 + j * step)
+            if ring.contains(Point(p)) and (q := z_at(p)) is not None:
+                zs.append(float(q))
+    return min(zs) if zs else None
+
+
+def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None) -> "dict | None":
     from ..planar.deck_generated import GENERATED_DIR
     g = law.tables.structures.deck_gen
     axis = LineString(b.get("axis_xy") or ())
@@ -89,6 +105,11 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":
     hid = hashlib.sha256(";".join(f"{x:.1f},{y:.1f}" for x, y in coords).encode()).hexdigest()[:8]
     roads = [{"line": _ll(to_ll, r["axis"]), "half_m": float(r["half"])}
              for r in b.get("ground") or () if len(r.get("axis") or ()) >= 2]
+    # owner 2026-11-20T14:50Z: no pier on any mapped road or railway under
+    # it; every pier down to the deepest ground under it (lane lcross20)
+    from .generated_publication import mapped_under
+    roads += mapped_under(coords, law, to_ll, airport) if airport is not None else []
+    ground = _ground_min(ring, z_at)
     return {"object_id": f"o4road_{hid}", "resource": f"{GENERATED_DIR}/road_{hid}.obj",
             "ring": _ll(to_ll, coords), "seats_a": _ll(to_ll, _end(axis, 0, w)),
             "seats_b": _ll(to_ll, _end(axis, -1, w)),
@@ -98,6 +119,7 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":
             "thickness_m": float(g.thickness_m), "top_lift_m": float(g.top_lift_m),
             "floor_m": round(float(law.tables.structures.bridge.clearance_minimum_m), 4),
             "roads": roads, "road_bridge": str(b.get("id")),
+            **({"ground_m": round(ground, 4)} if ground is not None else {}),
             **({"spans_cut": spans[1]} if spans is not None else {})}
 
 
@@ -113,7 +135,7 @@ def road_deck_records(bridges: _t.Sequence[_t.Mapping], riding: _t.AbstractSet[s
     for b in bridges:
         if str(b.get("id")) in riding:
             continue
-        rec = _record(b, law, to_ll, decks, z_at)
+        rec = _record(b, law, to_ll, decks, z_at, airport)
         if rec is not None:
             out.append(rec)
     keep = [{k: v for k, v in dict(b).items()

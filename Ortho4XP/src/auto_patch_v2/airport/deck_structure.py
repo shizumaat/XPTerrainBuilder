@@ -150,8 +150,9 @@ def _piers(ring: Polygon, roads: _t.Sequence[Road], floor_y: float, g
     col, gap = float(g.pier_col_m), float(g.pier_gap_m)
     depth, cap_w, cap_h = float(g.thickness_m), float(g.pier_cap_w_m), float(g.pier_cap_h_m)
     inner = ring.buffer(-float(g.edge_beam_m) - col / 2.0, join_style="mitre")
-    floors = unary_union([LineString(r.line).buffer(r.half_m + float(g.shoulder_m),
-                                                    cap_style="flat")
+    # round caps: a way ends or bends under the deck where the next one of
+    # its chain runs on (a flat cap left a wedge a column stood in, KPHX)
+    floors = unary_union([LineString(r.line).buffer(r.half_m + float(g.shoulder_m))
                           for r in roads if len(r.line) >= 2])
     cols: list[Point] = []
     caps = []
@@ -168,7 +169,8 @@ def _piers(ring: Polygon, roads: _t.Sequence[Road], floor_y: float, g
                     continue
                 n = max(1, math.ceil(seg.length / gap))
                 here = [p for p in (seg.interpolate(k / n, normalized=True) for k in range(n + 1))
-                        if not floors.contains(p) and all(p.distance(q) >= 2 * col for q in cols)]
+                        if floors.distance(p) >= col / 2.0 - 1e-6
+                        and all(p.distance(q) >= 2 * col for q in cols)]
                 if here:
                     cols += here
                     caps.append(seg.buffer(cap_w / 2.0, cap_style="flat"))

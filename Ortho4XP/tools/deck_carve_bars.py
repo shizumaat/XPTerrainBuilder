@@ -24,7 +24,14 @@ read off a ``--solved-out`` pickle, per deck and per path of its cut
 * EMBANKMENT: across the deck along its route through the path's
   crossing, the steepest solved slope over :data:`GRADE_WINDOW_M` between
   the end lines and the floor over :data:`BANK_WINDOW_M` (the abutment's
-  bank, 1V:1.5H by law).
+  bank, 1V:1.5H by law);
+* PIERS (:func:`pier_bars`, lane lcross20): no column floating over the
+  solved ground, none on a mapped road's or railway's carriageway;
+* END GAP (lane lcross20, RULINGS 2026-11-19s (8) (d)): along each end
+  line, across the deck's whole width every :data:`STEP_M`, the solved
+  surface :data:`END_PAST_M` past it against the top at the end -- the
+  step a deck end stands off the ground it lands on; bar ``<=``
+  :data:`END_GAP_M`.
 
 The surface is read over each map face within :data:`NEAR_M` of the path,
 triangulated on its own ring (``tools/deck_bank_perimeter._interp``: the
@@ -35,9 +42,10 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "BANK_WINDOW_M", "EDGE_M",
+__all__ = ["STEP_M", "MEET_M", "END_PAST_M", "END_GAP_M", "EDGE_STEP_M", "GRADE_WINDOW_M",
+           "BANK_WINDOW_M", "EDGE_M",
            "NEAR_M",
-           "carve_bars"]
+           "carve_bars", "end_gaps", "pier_bars"]
 
 #: a path is read this often (m)
 STEP_M = 1.0
@@ -57,6 +65,45 @@ EDGE_M = 0.5
 BANK_WINDOW_M = 2.0
 #: the surface is triangulated from the vertices this near the path (m)
 NEAR_M = 60.0
+#: the ground past a deck end is read this far past its end line (m)
+END_PAST_M = 0.3
+#: a deck end stands within this of the ground it lands on (m)
+END_GAP_M = 0.05
+
+
+def end_gaps(pm, z, top) -> "list[dict] | None":
+    """Per end (``s = 0`` end A, ``s = 1`` end B) of a deck's ``top`` the
+    worst step between the top along it and the solved surface
+    :data:`END_PAST_M` past it, across the deck's whole width (module doc):
+    ``{"end", "gap_m", "at": [x, y], "t"}``; ``None`` with no top."""
+    from deck_bank_perimeter import _interp
+    from shapely.geometry import Polygon
+    if top is None:
+        return None
+    (ox, oy), (ux, uy), (wx, wy) = top.o, top.u, top.w
+    lu, lw = math.hypot(ux, uy), math.hypot(wx, wy)
+    if lu < 1e-6 or lw < 1e-6:
+        return None
+    quad = Polygon([(ox, oy), (ox + ux, oy + uy), (ox + ux + wx, oy + uy + wy),
+                    (ox + wx, oy + wy)])
+    f = _interp(pm, z, quad.buffer(NEAR_M))
+    out = []
+    n = max(2, int(lw / STEP_M) + 1)
+    for end, s in (("A", -END_PAST_M / lu), ("B", 1.0 + END_PAST_M / lu)):
+        worst = None
+        for k in range(n):
+            t = k / (n - 1)
+            x, y = ox + s * ux + t * wx, oy + s * uy + t * wy
+            q = float(f([x], [y])[0])
+            if q != q:
+                continue
+            gap = q - top.z_st(0.0 if end == "A" else 1.0, t)
+            if worst is None or abs(gap) > abs(worst[0]):
+                worst = (gap, (round(x, 2), round(y, 2)), round(t, 3))
+        if worst is not None:
+            out.append({"end": end, "gap_m": round(worst[0], 3), "at": list(worst[1]),
+                        "t": worst[2]})
+    return out
 
 
 def _tin(pm, z, xs, ys):
@@ -159,6 +206,7 @@ def carve_bars(pm, z, law, tops=None) -> list[dict]:
     decks = {d.object_id: d for d in getattr(pm, "decks", ()) or ()
              if getattr(d, "carve", None) is not None}
     tops = {oid: _top(pm, z, d, law, (tops or {}).get(oid)) for oid, d in decks.items()}
+    gaps: dict = {}
     out = []
     for oid, d in sorted(decks.items()):
         dc = d.carve
@@ -243,5 +291,60 @@ def carve_bars(pm, z, law, tops=None) -> list[dict]:
             row["pass_grade"] = all(x <= p.cap + 0.005 for x in g)
             row["pass_meets"] = all(row.get(k) and row[k][0] is not None
                                     for k in ("ramp_before", "ramp_after"))
+            if oid not in gaps:
+                gaps[oid] = end_gaps(pm, z, top)
+            row["end_gaps"] = gaps[oid]
+            row["pass_ends"] = gaps[oid] is not None and all(
+                abs(e["gap_m"]) <= END_GAP_M for e in gaps[oid])
             out.append(row)
+    return out
+
+
+def pier_bars(pm, z, law, airport, tops=None) -> list[dict]:
+    """THE PIERS (owner 2026-11-20T14:50Z; lane lcross20): per generated
+    deck, the columns the object stage draws (``airport/deck_objects.
+    _structure`` on the deck's published record, ``pipeline/
+    generated_publication``) -- each FLOATING where its bottom stands over
+    the solved ground at any of its corners, and ON A ROAD where its plan
+    meets a mapped road's or railway's carriageway (``model/road_clearance.
+    carriageway_width_m``) under the deck.  ``{"deck", "columns",
+    "floating": [[lon, lat, over m]...], "on_road": [[lon, lat, way]...]}``."""
+    from auto_patch_v2.airport.deck_objects import _deck_frame as _obj_frame
+    from auto_patch_v2.airport.deck_objects import _structure, ring_polygon
+    from auto_patch_v2.model.road_clearance import carriageway_width_m
+    from auto_patch_v2.pipeline.generated_publication import generated_records
+    from deck_bank_perimeter import _interp
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import transform
+    g = law.tables.structures.deck_gen
+    to_xy = airport.frame.transformers()[0]
+    recs = generated_records(pm, law, airport, z, (), tops).get("decks") or []
+    ways = [(str(w.id), LineString(w.points), carriageway_width_m(dict(w.tags or {}), law) / 2.0)
+            for w in getattr(airport, "osm_ways", ()) or ()
+            if len(w.points) >= 2 and not (w.tags or {}).get("aeroway")
+            and (w.tags or {}).get("bridge") in (None, "no")
+            and ((w.tags or {}).get("highway") or (w.tags or {}).get("railway"))]
+    out = []
+    for rec in recs:
+        frame = _obj_frame(rec, ())
+        R = transform(lambda x, y, _z=None: frame.to_local(x, y), ring_polygon(rec["ring"]))
+        ends = [[frame.to_local(lo, la) for lo, la in rec[k]] for k in ("seats_a", "seats_b")]
+        cols = [p for p in _structure(R, rec, frame, ends, g) if p.name == "column"]
+        ring = Polygon([to_xy(lo, la) for lo, la in rec["ring"]]).buffer(0.0)
+        f = _interp(pm, z, ring.buffer(NEAR_M))
+        floating, on_road = [], []
+        for c in cols:
+            pts = [to_xy(*frame.to_lonlat(x, y)) for x, y in c.poly.exterior.coords[:-1]]
+            bottom = float(rec["zero_m"]) + float(c.floor_y)
+            grounds = [float(f([x], [y])[0]) for x, y in pts]
+            grounds = [q for q in grounds if q == q]
+            lon, lat = frame.to_lonlat(c.poly.centroid.x, c.poly.centroid.y)
+            if grounds and bottom > min(grounds) + 0.01:
+                floating.append([round(lon, 7), round(lat, 7), round(bottom - min(grounds), 3)])
+            plan = Polygon(pts)
+            hit = [wid for wid, ln, half in ways if ln.distance(plan) < half - 1e-6]
+            if hit:
+                on_road.append([round(lon, 7), round(lat, 7), hit[0]])
+        out.append({"deck": rec["object_id"], "columns": len(cols), "floating": floating,
+                    "on_road": on_road})
     return out

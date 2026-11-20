@@ -34,7 +34,7 @@ THE RULE (general: no airport, pack, resource or coordinate is named):
    build's object list (:func:`_without`; no corridor, trench, floor, basin
    or wall reads it, on either map: the build runs as if the user had hidden
    it), and the generated decks standing on its bridges carry it
-   (:func:`attach`): ``hides`` (the pack copy drops its rows,
+   (:func:`_attach`): ``hides`` (the pack copy drops its rows,
    ``airport/generated_pack``; the original stays the backup and Restore
    originals puts it back), ``hidden_plans`` (what the classification read
    off it is no ground, ``deck_pack_cover.hidden_cells_off``) and
@@ -73,7 +73,7 @@ from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 
 __all__ = ["take_frames", "full_hidden",
-           "roads_under", "attach"]
+           "roads_under", "one_decision"]
 
 
 @_dc.dataclass(frozen=True)
@@ -406,7 +406,7 @@ def _without(objects, hidden: _t.AbstractSet[str], cache=None) -> list:
     return out
 
 
-def attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], law
+def _attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], law
            ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``gen`` (the build's generated decks) with every hidden frame of
     ``takes`` carried by the first deck standing on one of its bridges
@@ -440,3 +440,136 @@ def _replaced_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
     """The placement ids every deck of ``decks`` takes over (stage 1's map
     reads them off the full map's decks)."""
     return frozenset(m for d in decks for m in getattr(d, "replaces", ()) or ())
+
+
+# ── ONE DECISION PER CROSSING (owner RULINGS 2026-11-20a (1), #2191) ──────
+#
+# "Should be the same rule that determines whether we build our own bridge
+# or not, that also hides the pack's bridges if we do" (owner 14:01Z).  The
+# pack's bridge is KEPT where it seats lawfully: a pack hard deck
+# (``deck_bridges``: its one zero flush at its end lines, the deck/flush law)
+# standing on the crossing refuses the generated deck (``deck_generated.
+# _blocked`` / ``deck_pack_cover.pack_refusal``), so no deck is generated
+# there.  Where we generate, EVERY pack bridge body over the crossing --
+# a walled multi-bridge frame (rule 3 above, 19p) or any other placement
+# drawing a deck-level top over the road the deck spans (a single span the
+# deck law cannot seat: no hard deck, no end lines) -- is hidden in the pack
+# copy with its frame mates (co-placed lights, riders), and Restore
+# originals puts it back.  Never both: a pack bridge body left under a
+# generated deck footprint is a DEFECT the build counts
+# (``DeckBridge.pack_under``, census family ``pack_bridge_under_deck``).
+# MEASURED KMCO 1.0.567 (owner pack copy 13:39Z): ``puente.obj`` /
+# ``puente2.obj`` (``deck_kind`` candidate, no hard deck, tops 6.2 m over
+# their anchors) under our decks, hides [] -- seated too low, flashing.
+
+
+def _body_top(o, cache, law, lo: float, hi: float):
+    """``o``'s up-facing solid faces (neither animated nor drawn under the
+    terrain) standing between the absolute levels ``lo`` and ``hi`` -- a
+    deck at the carried pavement's level -- as one frame plan, or ``None``."""
+    from ..airport import frame_entry as _fe
+    from ..airport.object_cut import _face_normals_y
+    g = cache.geometry(o.resolved) if cache is not None and o.resolved else None
+    if g is None or g.solid is None or not len(g.solid):
+        return None
+    tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
+    if not tris.shape[0]:
+        return None
+    base = float(getattr(o, "anchor_z", 0.0) or 0.0) + float(getattr(o, "agl_m", 0.0) or 0.0)
+    v = g.vertices
+    ny = float(law.tables.structures.bridge.deck_plate_normal_y_min)
+    ys = v[tris][:, :, 1] + base
+    up = (_face_normals_y(v, tris) >= ny) & (ys.min(axis=1) >= lo) & (ys.max(axis=1) <= hi)
+    if not up.any():
+        return None
+    polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
+             if p.is_valid and p.area > 1e-6]
+    return _placed(o, _fe.union(polys, "deck_takeover.body"), law) if polys else None
+
+
+def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[str],
+            share: "float | None") -> list[tuple[_t.Any, float]]:
+    """``[(placement, its deck-level top's area over the deck)]``: every
+    pack placement of ``objects`` (``skip`` aside) drawing a top at the
+    carried pavement's level (within ``[bridge] clearance_minimum_m`` of it:
+    never a structure passing over, never a pit) over ``g``'s footprint by
+    ``[deck_gen] min_area_m2`` -- and, with ``share``, over at least that
+    share of its covered roads' axis inside it (a bridge over the road)."""
+    from shapely.geometry import LineString
+
+    from .deck_bridge import deck_polygon
+    from .deck_generated import _carried_level
+    ring = deck_polygon(g)
+    level = _carried_level(airport, ring)
+    if level is None:
+        return []
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    axes = [LineString(c).intersection(ring) for _w, _t, c in g.covered or () if len(c) >= 2]
+    total = sum(x.length for x in axes)
+    out = []
+    for o in objects or ():
+        bb = getattr(o, "plan_bbox", None)
+        if str(o.id) in skip or bb is None or not bb.intersects(ring):
+            continue
+        top = _body_top(o, cache, law, level - clear, level + clear)
+        if top is None:
+            continue
+        try:
+            area = top.intersection(ring).area
+            if area < a_min:
+                continue
+            if share is not None and (total <= 0.0 or sum(
+                    x.intersection(top).length for x in axes) < share * total):
+                continue
+        except shapely.errors.GEOSException:         # an invalid pack outline
+            continue
+        out.append((o, area))
+    return out
+
+
+def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], objects,
+                 cache, airport, law) -> tuple[tuple[DeckBridge, ...], list[str]]:
+    """``(gen, notes)``: THE ONE DECISION per crossing our decks were
+    generated at (the block comment above): the walled frames this build
+    hid (:func:`_attach`), then every other pack bridge body over a
+    generated deck's crossing hidden with its frame mates (``hides``,
+    ``hidden_plans``), and what is still left under a deck's footprint
+    recorded as its defect (``pack_under``)."""
+    from .deck_bridge import co_placed
+    out, notes = _attach(gen, takes, law)
+    out = list(out)
+    if not objects or cache is None or getattr(airport, "dem", None) is None:
+        return tuple(out), notes
+    share = float(law.tables.structures.deck_gen.pack_cover_share)
+    tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
+    to_ll = airport.frame.transformers()[1]
+    hidden = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
+    for k, g in enumerate(out):
+        if g.family == "road":
+            continue
+        for o, area in _bodies(g, objects, cache, airport, law, hidden, share):
+            mates = [q for q in objects if q is o or (str(q.id) not in hidden
+                                                      and co_placed(o, q, tol))]
+            hidden.update(str(q.id) for q in mates)
+            g = _dc.replace(g, hides=tuple(g.hides) + tuple(
+                (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy)))) for q in mates),
+                hidden_plans=tuple(g.hidden_plans) + tuple(
+                    r for q in mates if (r := _plan(q, cache, law))))
+            notes.append(f"{g.object_id}: the pack's bridge {o.id} {o.path} ({area:,.0f} m2 "
+                         f"over it) cannot be seated by the deck law (no hard deck): our "
+                         f"deck takes the crossing, it is HIDDEN in the pack copy with "
+                         + ", ".join(f"{q.id} {q.path}" for q in mates if q is not o)
+                         + (" (none)" if len(mates) == 1 else "")
+                         + " (RULINGS 2026-11-20a (1))")
+        out[k] = g
+    for k, g in enumerate(out):
+        left = _bodies(g, objects, cache, airport, law, hidden, None)
+        if left:
+            out[k] = _dc.replace(g, pack_under=tuple(
+                (str(o.id), str(o.path), tuple(reversed(to_ll(*o.xy))), round(a, 1))
+                for o, a in left))
+            notes.append(f"{g.object_id}: DEFECT -- pack placement(s) under its footprint: "
+                         + ", ".join(f"{o.id} {o.path} {a:,.0f} m2" for o, a in left)
+                         + " (RULINGS 2026-11-20a (1))")
+    return tuple(out), notes

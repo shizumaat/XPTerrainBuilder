@@ -31,6 +31,7 @@ from .channel import channel_crest_at_edge, channel_floor_at_declaration
 from .contiguity import lateral_contiguity
 from .cutback import groundside_cutback
 from .deck_flush import deck_end_flush
+from .pack_bridge import pack_bridge_under_deck
 from .eat import eat_ceiling
 from .jetway import jetway_strip
 from .frontage import frontage_near_miss
@@ -98,6 +99,9 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     # deck-end-anchors spec §6 (#1715): every hard-deck end-line station
     # flush with the deck's one zero (``verify/deck_flush.py``)
     "deck_end_flush": deck_end_flush,
+    # RULINGS 2026-11-20a (1): a pack bridge body left under a generated
+    # deck (``verify/pack_bridge.py``)
+    "pack_bridge_under_deck": pack_bridge_under_deck,
     # RULINGS 2026-09-13m (lane ``v2zerocrater``; issue #186): the
     # SHIP-SIDE net — a vertex far below the patch's own 5th-percentile
     # ground band is a sentinel, not geometry.  Patch-intrinsic: no

@@ -353,6 +353,12 @@ def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> "list[
     floor = rec.get("floor_m")
     floor_y = (min(float(rec["top_a"]), float(rec["top_b"])) - float(floor)
                if floor is not None else None)
+    if rec.get("ground_m") is not None and rec.get("zero_m") is not None:
+        # every pier reaches the deepest solved ground under the deck, the
+        # rest buried (owner 2026-11-20T14:50Z; lane lcross20): a floor read
+        # off the planar estimate left them floating over a lidar trench
+        low = float(rec["ground_m"]) - float(rec["zero_m"])
+        floor_y = low if floor_y is None else min(floor_y, low)
     return structure_parts(R, ends, g, roads=roads, floor_y=floor_y)
 
 

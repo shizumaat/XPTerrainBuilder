@@ -72,27 +72,54 @@ def _axis(db, to_ll) -> list:
     return _ll(to_ll, [o, (o[0] + u[0], o[1] + u[1])])
 
 
-def _surface_at(planar, z, reach: float = 30.0):
-    """``z_at(xy)``: the solved surface at ``xy`` -- linear over the map's
-    vertices within ``reach`` metres -- or ``None`` off them."""
-    import numpy as np
-    vs = getattr(planar, "vertices", None)
-    if not vs or z is None:
+def _surface_at(planar, z, airport=None):
+    """``z_at(xy)``: the solved surface at ``xy`` as the mesh takes it --
+    linear over the map face holding it, triangulated on its own ring
+    (constrained Delaunay) -- off every face the survey (the base mesh
+    there), else ``None``."""
+    if z is None or not getattr(planar, "faces", None):
         return None
-    held: list = []                 # the vertex arrays, read on the first call
 
     def z_at(p) -> "float | None":
-        from scipy.interpolate import LinearNDInterpolator
-        if not held:
-            items = list(vs.items() if isinstance(vs, dict) else enumerate(vs))
-            held.append(np.array([vx.xy for _v, vx in items], float))
-            held.append(np.asarray(z, float)[[v for v, _vx in items]])
-        xy, zz = held
-        near = np.hypot(xy[:, 0] - p[0], xy[:, 1] - p[1]) <= reach
-        if near.sum() < 3:
-            return None
-        got = float(LinearNDInterpolator(xy[near], zz[near])(p[0], p[1]))
-        return got if got == got else None
+        import numpy as np
+        import shapely
+        from shapely.geometry import Point, Polygon
+        pt = Point(p)
+        vs = planar.vertices
+        for f in planar.faces.values():
+            ring = [vs[v].xy for v in planar.ring_vertices(f.ring)]
+            if len(ring) < 3:
+                continue
+            xs, ys = [q[0] for q in ring], [q[1] for q in ring]
+            if not (min(xs) - 0.01 <= p[0] <= max(xs) + 0.01
+                    and min(ys) - 0.01 <= p[1] <= max(ys) + 0.01):
+                continue
+            poly = Polygon(ring, [[vs[v].xy for v in planar.ring_vertices(h)] for h in f.holes])
+            if not poly.buffer(0.01).contains(pt):
+                continue
+            at = {tuple(vs[v].xy): v for v in planar.ring_vertices(f.ring)}
+            for h in f.holes:
+                at.update({tuple(vs[v].xy): v for v in planar.ring_vertices(h)})
+            for t in shapely.get_parts(shapely.constrained_delaunay_triangles(poly)):
+                if not t.buffer(0.01).contains(pt):
+                    continue
+                c = list(t.exterior.coords)[:3]
+                ids = [at.get(tuple(q)) for q in c]
+                if None in ids:
+                    continue
+                (x1, y1), (x2, y2), (x3, y3) = c
+                det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+                if abs(det) < 1e-12:
+                    continue
+                l1 = ((y2 - y3) * (p[0] - x3) + (x3 - x2) * (p[1] - y3)) / det
+                l2 = ((y3 - y1) * (p[0] - x3) + (x1 - x3) * (p[1] - y3)) / det
+                zz = np.asarray(z, float)
+                return float(l1 * zz[ids[0]] + l2 * zz[ids[1]] + (1 - l1 - l2) * zz[ids[2]])
+        if getattr(airport, "dem", None) is not None:
+            from ..airport.dem import dem_z_at
+            got = dem_z_at(airport, p)
+            return float(got) if got == got else None
+        return None
     return z_at
 
 
@@ -142,7 +169,7 @@ def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str
     road_decks, bridges = road_deck_records(
         getattr(airport, "road_bridges", ()) or (), riding, law, airport,
         [db for db in getattr(planar, "decks", ()) or () if is_generated(db)],
-        _surface_at(planar, z))
+        _surface_at(planar, z, airport))
     decks += road_decks
     out: dict[str, list] = {"decks": decks, "road_bridges": bridges}
     if offers:

@@ -69,7 +69,16 @@ def _tin(pm, z, xs, ys):
     return lambda x, y: float(f([x], [y])[0])
 
 
-def _top(pm, z, db, law):
+def _top(pm, z, db, law, rec=None):
+    """The deck's top: its PUBLISHED surface ``rec`` (the solved pickle's
+    ``generated_tops``, lane lbridge3), else read again off the final
+    airside on its ring -- which misses a deck's shoulders over the ground
+    (twice its taxiway, RULINGS 2026-11-19s (8) (a))."""
+    if rec is not None:
+        from auto_patch_v2.geom.coons_patch import CoonsPatch
+        return CoonsPatch(tuple(rec["o"]), tuple(rec["u"]), tuple(rec["w"]),
+                          *(tuple((float(q), float(zz)) for q, zz in rec[k])
+                            for k in ("a", "b", "s0", "s1")))
     from auto_patch_v2.constraints.deck_floor_follow import _patch
     from auto_patch_v2.model.platform import stage_air_vertices
     air = stage_air_vertices(pm, law)
@@ -138,8 +147,9 @@ def _bank(pm, surf, db, top, frame, s_mid: float) -> "float | None":
     return round(_grade(ss, zs, BANK_WINDOW_M), 3) if len(ss) > 2 else None
 
 
-def carve_bars(pm, z, law) -> list[dict]:
-    """One row per path of every generated deck's cut (module doc)."""
+def carve_bars(pm, z, law, tops=None) -> list[dict]:
+    """One row per path of every generated deck's cut (module doc);
+    ``tops``: the published tops by deck id (:func:`_top`)."""
     from auto_patch_v2.geom.carve_profile import PathFrame, smoothed
     from auto_patch_v2.model.road_clearance import design_clearance_m
     from auto_patch_v2.planar.deck_bridge import deck_polygon
@@ -148,7 +158,7 @@ def carve_bars(pm, z, law) -> list[dict]:
     probe = float(law.tables.structures.deck_gen.level_probe_m)
     decks = {d.object_id: d for d in getattr(pm, "decks", ()) or ()
              if getattr(d, "carve", None) is not None}
-    tops = {oid: _top(pm, z, d, law) for oid, d in decks.items()}
+    tops = {oid: _top(pm, z, d, law, (tops or {}).get(oid)) for oid, d in decks.items()}
     out = []
     for oid, d in sorted(decks.items()):
         dc = d.carve

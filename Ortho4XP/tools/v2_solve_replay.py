@@ -3120,6 +3120,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              # issue #1899: read by --rederive-from
                              "stage1_levels": _stage1_seen.get("levels"),
                              "stage1_taxi_trend_z": _stage1_seen.get("taxi_trend_z"),
+                             # the generated decks' tops as published
+                             # (RULINGS 2026-11-19s (1)): tools/deck_carve_bars
+                             # reads the clearance under them
+                             "generated_tops": (rep.reach_seed or {}).get("generated_tops"),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],

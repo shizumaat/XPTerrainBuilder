@@ -202,7 +202,7 @@ def main(argv=None) -> int:
     if a.carve:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from deck_carve_bars import carve_bars
-        res["carve"] = carve_bars(pm, z, Law.for_airport(pm.icao))
+        res["carve"] = carve_bars(pm, z, Law.for_airport(pm.icao), d.get("generated_tops"))
         for q in res["carve"]:
             ok = q["pass_clearance"] and q["pass_grade"] and q["pass_meets"]
             rc |= not ok

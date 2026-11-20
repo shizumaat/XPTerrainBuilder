@@ -28,7 +28,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["route_decks", "route_ends"]
+__all__ = ["parted", "route_decks", "route_ends", "route_specs", "rings"]
 
 XY = tuple[float, float]
 #: two crossing segments this near and this parallel are one route (m, deg)
@@ -37,17 +37,19 @@ _SAME_ROUTE_DEG = 20.0
 
 
 def _class_width_m(law, letter: "str | None", fallback: "str | None" = None) -> float:
-    """The deck width (m) of a width class letter: the taxiway as drawn
-    (``width_by_class_m``) plus ``shoulder_share`` of it each side (owner
-    RULINGS 2026-11-19s (8) (a): "the total bridge width is closer to twice
-    the width of the taxiway")."""
-    g = law.tables.structures.deck_gen
-    table = dict(g.width_by_class_m)
-    grow = 1.0 + 2.0 * float(g.shoulder_share)
+    """The taxiway as drawn (m) of a width class letter (``width_by_class_m``)."""
+    table = dict(law.tables.structures.deck_gen.width_by_class_m)
     for k in (letter, fallback, "C"):
         if k and str(k).upper() in table:
-            return grow * float(table[str(k).upper()])
-    return grow * max(float(v) for v in table.values())
+            return float(table[str(k).upper()])
+    return max(float(v) for v in table.values())
+
+
+def _grow(law) -> float:
+    """The deck's width over its taxiway's: a ``shoulder_share`` shoulder
+    each side (owner RULINGS 2026-11-19s (8) (a): "the total bridge width
+    is closer to twice the width of the taxiway")."""
+    return 1.0 + 2.0 * float(law.tables.structures.deck_gen.shoulder_share)
 
 
 def _crossings(piece: Polygon, airport) -> list[tuple[LineString, _t.Any]]:
@@ -121,11 +123,13 @@ def _reach(b: float, sign: float, a0: float, a1: float, u: XY, w: XY, pave_at, r
     return b
 
 
-def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
-                cover=None, avoid=None) -> list[tuple[Polygon, str]]:
-    """``(deck ring, note)`` per taxi route across ``piece`` (module doc);
-    ``[]`` where no route crosses it at an angle to the road (the caller
-    keeps the piece).  ``pave_at(xy)``: whether the airport's pavement
+def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
+                cover=None, avoid=None) -> list[tuple[XY, list]]:
+    """``(road direction, deck spec)`` per taxi route across ``piece``
+    (module doc; the spec ``[w, det, a0, a1, b0, b1, note, a_c, hc]``: the
+    ring ``a u + b w``, its centreline ``a_c`` and its taxiway's half
+    width ``hc``); ``[]`` where no route crosses it at an angle to the road
+    (the caller keeps the piece).  ``pave_at(xy)``: whether the airport's pavement
     stands there -- each end then reaches it (:func:`_reach`).  ``cover``:
     the cover each covered road needs past the piece, ``avoid`` where the
     pack stands (:func:`_spans_cover`)."""
@@ -145,23 +149,80 @@ def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         a_c = (mx * wy - my * wx) / det
         letters = sorted({str(e.width_class).upper() for e in edges if e.width_class})
         letter = letters[-1] if letters else None
-        width = _class_width_m(law, letter, common)
-        ha = 0.5 * width / abs(det)
+        core = _class_width_m(law, letter, common)
+        width = core * _grow(law)
+        ha, hc = 0.5 * width / abs(det), 0.5 * core / abs(det)
         if pave_at is not None:
+            # the taxiway's own pavement meets each end (its shoulders may
+            # stand over the ground)
             reach = float(law.tables.structures.deck_gen.end_reach_m)
-            b0 = _reach(b0, -1.0, a_c - ha, a_c + ha, (ux, uy), (wx, wy), pave_at, reach)
-            b1 = _reach(b1, 1.0, a_c - ha, a_c + ha, (ux, uy), (wx, wy), pave_at, reach)
+            b0 = _reach(b0, -1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
+            b1 = _reach(b1, 1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
         d = [(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
              f"{letter or (common or '?') + ' (the airport common)'}: deck "
              f"{width:g} m wide (taxiway + a half-width shoulder each side, RULINGS "
-             f"2026-11-19s (8) (a))"]
+             f"2026-11-19s (8) (a))", a_c, hc]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
         got.append(d)
-    return [(_ring((ux, uy), d), d[6]) for d in _merged((ux, uy), got)]
+    return [((ux, uy), d) for d in _merged((ux, uy), got)]
+
+
+def route_decks(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
+                cover=None, avoid=None) -> list[tuple[Polygon, str]]:
+    """``(deck ring, note)`` per taxi route across ``piece`` (module doc):
+    :func:`route_specs`, parted (:func:`parted`)."""
+    return rings(parted(route_specs(piece, road_dir, airport, law, pave_at, cover, avoid),
+                        law))
+
+
+def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
+    """``(deck ring, note)`` of each route deck spec."""
+    return [(_ring(u, d), d[6]) for u, d in specs]
+
+
+def parted(specs: list[tuple[XY, list]], law) -> list[tuple[XY, list]]:
+    """``specs`` with every two decks standing at least ``[deck_gen]
+    parallel_gap_m`` apart (owner RULINGS 2026-11-19s (3) (b): "two parallel
+    taxiways have to have a minimum gap between them which always leave a
+    gap between two bridges"): both give up their shoulders a metre at a
+    time, about their own centrelines, never below their taxiway's width.
+    MEASURED KRDU at twice the class width: two taxiways over one curving
+    road 64 m apart, their 76 m decks overlapping 422 m2."""
+    gap = float(law.tables.structures.deck_gen.parallel_gap_m)
+    for _ in range(_PART_STEPS):
+        moved = False
+        for i in range(len(specs)):
+            for j in range(i + 1, len(specs)):
+                ri, rj = _ring(*specs[i]), _ring(*specs[j])
+                if ri.distance(rj) >= gap - 1e-6:
+                    continue
+                moved = _narrow(*specs[i]) | _narrow(*specs[j]) or moved
+        if not moved:
+            break
+    return specs
+
+
+#: the most metres a deck gives up each side to part from its neighbours
+_PART_STEPS = 60
+
+
+def _narrow(u: XY, d: list) -> bool:
+    """``d`` a metre narrower each side about its centreline (``d[7]``), never
+    under its taxiway's half width (``d[8]``); whether it moved."""
+    step = 1.0 / max(abs(d[1]), 1e-9)
+    a_c, hc = d[7], d[8]
+    a0, a1 = max(d[2], min(a_c - hc, d[2] + step)), min(d[3], max(a_c + hc, d[3] - step))
+    if a0 == d[2] and a1 == d[3]:
+        return False
+    d[2], d[3] = a0, a1
+    if "narrowed to part" not in d[6]:
+        d[6] += f"; narrowed to part from a neighbouring deck (parallel_gap_m, RULINGS " \
+                f"2026-11-19s (3) (b))"
+    return True
 
 
 def _spans_cover(u: XY, d: list, cover, avoid=None) -> float:
@@ -219,17 +280,25 @@ def _ring(u: XY, d: list) -> Polygon:
                     for a, b in ((d[2], d[4]), (d[3], d[4]), (d[3], d[5]), (d[2], d[5]))])
 
 
+def _core(u: XY, d: list) -> Polygon:
+    """``d``'s ring over its taxiway alone (no shoulders)."""
+    return _ring(u, [d[0], d[1], d[7] - d[8], d[7] + d[8], d[4], d[5]])
+
+
 def _merged(u: XY, got: list[list]) -> list[list]:
-    """Route decks that overlap (a lead-in beside its taxiway, two routes
-    meeting over the road) are ONE deck: the senior's (the longer
-    crossing, first) widened over the other's plan."""
+    """Route decks whose taxiways overlap (a lead-in beside its taxiway, two
+    routes meeting over the road) are ONE deck: the senior's (the longer
+    crossing, first) widened over the other's plan, its taxiway over both."""
     out: list[list] = []
     for d in got:
-        ring = _ring(u, d)
+        core = _core(u, d)
         for k in out:
-            if _ring(u, k).intersection(ring).area > 1.0:
-                (a0, a1), _b = _span(u, k[0], ring.exterior.coords)
+            if _core(u, k).intersection(core).area > 1.0:
+                (a0, a1), _b = _span(u, k[0], _ring(u, d).exterior.coords)
+                (c0, c1), _b = _span(u, k[0], core.exterior.coords)
                 k[2], k[3] = min(k[2], a0), max(k[3], a1)
+                lo, hi = min(k[7] - k[8], c0), max(k[7] + k[8], c1)
+                k[7], k[8] = 0.5 * (lo + hi), 0.5 * (hi - lo)
                 k[6] += f"; widened over a second route ({d[6].split(':')[0]})"
                 break
         else:

@@ -256,12 +256,14 @@ def _landing(rings, xy, bank: float, landing: float) -> float:
     """The highest level the END LANDINGS (module doc) ask of ``xy``: per
     deck, past an end line, the end's level less ``bank`` per metre past
     ``landing`` and per metre beside the deck's width (its corners fall
-    away as a cone); ``-inf`` between its end lines (the cut)."""
+    away as a cone); ``-inf`` between the end lines of any deck within a
+    deck's width of it (its cut: KRDU, one deck's landing stood in its
+    neighbour's trench, 2.1 m of its 4.2 m clearance)."""
+    st = [top.st(*xy) for _r, top, _fl in rings]
+    if any(0.0 <= sp <= 1.0 and -1.0 <= tp <= 2.0 for sp, tp in st):
+        return -math.inf
     best = -math.inf
-    for _r, top, _fl in rings:
-        sp, tp = top.st(*xy)
-        if 0.0 <= sp <= 1.0:
-            continue
+    for (_r, top, _fl), (sp, tp) in zip(rings, st, strict=True):
         past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
         side = max(-tp, tp - 1.0, 0.0) * _hyp(top.w)
         z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))
@@ -347,9 +349,10 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         inside = own.contains(pt)
         if not inside and pack_tn is not None and pack_tn.contains(pt):
             continue            # a pack deck's own cut keeps its floor (19s (4))
-        mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or any(
-            str(pm.faces[f].ref).startswith(CARVE_REF + ":") for f in vx.incident_faces)
-        land = -math.inf if floor_v[i] else _landing(rings, vx.xy, bank, landing)
+        cut_cell = any(str(pm.faces[f].ref).startswith(CARVE_REF + ":")
+                       for f in vx.incident_faces)
+        mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or cut_cell
+        land = -math.inf if floor_v[i] or cut_cell else _landing(rings, vx.xy, bank, landing)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)

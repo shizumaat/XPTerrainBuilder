@@ -62,6 +62,9 @@ class DeckGenLaw:
     #: deck's width, the ground stands at the end's level this far (m),
     #: then falls at the deck bank's slope (``constraints/deck_carve``)
     end_landing_m: float = 3.0
+    #: owner RULINGS 2026-11-19s (3) (b): two generated decks stand at
+    #: least this far apart, each giving up shoulder (``planar/deck_width``)
+    parallel_gap_m: float = 3.0
     #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
     #: placement deeper than this under its own ground is a STRUCTURE; an
     #: up-facing face within it is a TOP; both over the road refuse (m)

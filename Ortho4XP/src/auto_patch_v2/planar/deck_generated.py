@@ -686,9 +686,10 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
     reaches (``deck_width._spans_cover``); ``airside``: the airside
     pavement over which a road's carriageway and shoulders count as its
     cover (:func:`_airside_near`)."""
-    from .deck_width import route_decks
+    from .deck_width import parted, rings, route_specs
     g = law.tables.structures.deck_gen
     out: list[Polygon] = []
+    held: list = []                   # (piece, its specs), parted together
     for piece in sorted(getattr(R, "geoms", [R]), key=lambda q: -q.area):
         if piece.geom_type != "Polygon" or piece.area < float(g.min_area_m2):
             continue
@@ -700,13 +701,18 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
             r.half_m + float(g.shoulder_m), cap_style="flat") for r in under])
         cover = cover.intersection(airside).difference(R.buffer(0.05)) \
             if under and airside is not None else None
-        decks = route_decks(piece, _mean_dir([r.line.intersection(piece) for r in under]),
-                            airport, law, pave_at, cover, avoid)
+        held.append((piece, route_specs(piece, _mean_dir([r.line.intersection(piece)
+                                                          for r in under]),
+                                        airport, law, pave_at, cover, avoid)))
+    # every two decks, of one piece or two, stand apart (``deck_width.parted``)
+    parted([sp for _p, specs in held for sp in specs], law)
+    for piece, specs in held:
+        decks = rings(specs)
         c = piece.centroid
         notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for _p, n in decks]
-        rings = [p for p, _n in decks if p.area >= float(g.min_area_m2)]
-        beside = piece.difference(unary_union(rings)) if rings else Polygon()
-        out += [(p, beside) for p in rings] or [(piece, Polygon())]
+        kept = [p for p, _n in decks if p.area >= float(g.min_area_m2)]
+        beside = piece.difference(unary_union(kept)) if kept else Polygon()
+        out += [(p, beside) for p in kept] or [(piece, Polygon())]
     return out
 
 

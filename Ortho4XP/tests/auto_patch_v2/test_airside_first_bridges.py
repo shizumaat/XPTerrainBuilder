@@ -232,3 +232,26 @@ def test_the_ground_past_each_deck_end_lands_at_its_level():
     assert _landing(rings, (-4.0, -2.0), 0.5, 3.0) == pytest.approx(98.0)    # its corner
     assert _landing(rings, (-5.0, 20.0), 0.5, 3.0) == -math.inf     # beside: the cut
     assert _landing(rings, (20.0, 25.0), 0.5, 3.0) == -math.inf     # under the deck
+
+
+def test_neighbouring_decks_give_up_their_shoulders_to_stay_apart():
+    """RULINGS 2026-11-19s (3) (b) at twice the width (KRDU: two taxiways
+    64 m apart over one road): both narrow about their centrelines to
+    ``parallel_gap_m`` apart, never below their taxiway's width."""
+    from auto_patch_v2.planar.deck_width import parted, rings, route_specs
+    nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
+             {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (40.0, -100.0), 4: (40.0, 100.0)}.items()}
+    def edge(a, b, name):
+        return types.SimpleNamespace(a=a, b=b, name=name, is_runway=False, width_class="C")
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[edge(1, 2, "A"),
+                                                                  edge(3, 4, "B")])
+    law = _law()
+    left = route_specs(Polygon([(-30, -15), (20, -15), (20, 15), (-30, 15)]), (1.0, 0.0),
+                       airport, law)
+    right = route_specs(Polygon([(20, -15), (70, -15), (70, 15), (20, 15)]), (1.0, 0.0),
+                        airport, law)
+    (ra, _), (rb, _) = rings(parted(left + right, law))
+    gap = float(law.tables.structures.deck_gen.parallel_gap_m)
+    assert ra.distance(rb) == pytest.approx(gap, abs=1.0)
+    assert ra.bounds[0] == pytest.approx(-(ra.bounds[2]))          # about its centreline
+    assert ra.bounds[2] - ra.bounds[0] >= 25.0 - 1e-6              # never under the taxiway

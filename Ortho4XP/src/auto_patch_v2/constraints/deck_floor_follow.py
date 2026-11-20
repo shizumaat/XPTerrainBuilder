@@ -248,21 +248,20 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
 
 def _stage_two_airside(pm, law) -> frozenset:
     """The AIRSIDE-CLASS vertices: every vertex of a face whose role is
-    stage 1's (``law.tables.airside_stage_roles``), never a road's.  Those
-    stage 2 solves -- a plateau's or a lower level's pavement, a vertex the
-    full map minted, a stage-1 level a rewrite hands stage 2
-    (``stage2_free``) -- are held (``solve/stage_shadow``); the rest are
-    stage-2 constants already."""
-    from ..law.tables import airside_stage_roles, family
+    stage 1's (``law.tables.airside_stage_roles``), a road's weld to the
+    pavement among them.  Those stage 2 solves -- a plateau's or a lower
+    level's pavement, a vertex the full map minted, a stage-1 level a
+    rewrite hands stage 2 (``stage2_free``) -- are held
+    (``solve/stage_shadow``); the rest are stage-2 constants already, the
+    cut's own among them."""
+    from ..law.tables import airside_stage_roles
     roles = set(airside_stage_roles(law))
-    road = set(family(law, "road_cross_section").roles)
     out: set[int] = set()
     for f in pm.faces.values():
         if f.role in roles:
             for ring in (f.ring, *f.holes):
                 out.update(pm.ring_vertices(ring))
-    return frozenset(v for v in out
-                     if not road & {pm.faces[f].role for f in pm.vertices[v].incident_faces})
+    return frozenset(out)
 
 
 def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:

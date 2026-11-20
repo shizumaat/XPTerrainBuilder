@@ -377,3 +377,18 @@ def test_a_long_cover_crossed_by_mapped_taxiway_bridges_is_one_deck_each():
     assert [round(p.covered_m) for p in pieces] == [44, 44]
     assert sorted(round(g.length) for g in gaps) == [28, 31, 83]
     assert _at_bridges(road, [], load_default()) == ([], None)
+
+
+def test_the_end_pavement_width_never_reaches_over_a_neighbouring_taxiway():
+    """KPHX taxiways S / T, 78 m apart, one paved run 98-137 m wide past
+    their ends: each deck's pavement width stops half way to the other."""
+    nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
+             {1: (0.0, -100.0), 2: (0.0, 100.0), 3: (78.0, -100.0), 4: (78.0, 100.0)}.items()}
+    edges = [types.SimpleNamespace(a=1, b=2, name="S", is_runway=False, width_class="E"),
+             types.SimpleNamespace(a=3, b=4, name="T", is_runway=False, width_class="E")]
+    airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=edges)
+    piece = Polygon([(-40, -15), (40, -15), (40, 15), (-40, 15)])
+    got = route_decks(piece, (1.0, 0.0), airport, _law(),
+                      pave_at=lambda xy: -60.0 <= xy[0] <= 140.0)
+    r, _note = got[0]
+    assert r.bounds[2] <= 39.0 + 1e-6 and r.bounds[2] - r.bounds[0] >= 76.0 - 1e-6

@@ -165,7 +165,8 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
                                                "shoulder each side, RULINGS 2026-11-19s (8) (a))")
         if (taxi_at or pave_at) is not None:
             runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at or pave_at, law,
-                             width)
+                             width, _between(airport, edges, (ux, uy), (wx, wy), det, a_c,
+                                             b0, b1))
             lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
         d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
@@ -177,8 +178,40 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
     return [((ux, uy), d) for d in _merged((ux, uy), got)]
 
 
+def _between(airport, own, u: XY, w: XY, det: float, a_c: float, b0: float, b1: float
+             ) -> tuple[float, float]:
+    """``(lo, hi)``: half way (in ``a``) to the nearest other taxi route
+    running beside this one either side over the deck's stretch -- a deck's
+    pavement width never reaches over its neighbour's taxiway (owner RULINGS
+    2026-11-19s (3) (b): one deck per taxiway; MEASURED KPHX taxiways S / T
+    78 m apart: one paved run 98-137 m wide past their ends)."""
+    nodes = getattr(airport, "taxi_nodes", {}) or {}
+    mine = {id(e) for e in own}
+    cos_t = math.cos(math.radians(_SAME_ROUTE_DEG))
+    (ux, uy), (wx, wy) = u, w
+    lo, hi = -math.inf, math.inf
+    for e in getattr(airport, "taxi_edges", ()) or ():
+        if id(e) in mine or e.a not in nodes or e.b not in nodes:
+            continue
+        (xa, ya), (xb, yb) = nodes[e.a].xy, nodes[e.b].xy
+        L = math.hypot(xb - xa, yb - ya)
+        if L < 1e-6 or abs(((xb - xa) * wx + (yb - ya) * wy) / L) < cos_t:
+            continue
+        ab = [((x * wy - y * wx) / det, (ux * y - uy * x) / det) for x, y in
+              ((xa, ya), (xb, yb))]
+        if max(q[1] for q in ab) < b0 or min(q[1] for q in ab) > b1:
+            continue
+        a = 0.5 * (ab[0][0] + ab[1][0])
+        if a < a_c - 1e-6:
+            lo = max(lo, 0.5 * (a + a_c))
+        elif a > a_c + 1e-6:
+            hi = min(hi, 0.5 * (a + a_c))
+    return lo, hi
+
+
 def _run_at(b: float, a_c: float, hc: float, u: XY, w: XY, det: float, pave_at,
-            step: float, most: float) -> "tuple[float, float] | None":
+            step: float, most: float, lim: tuple[float, float] = (-math.inf, math.inf)
+            ) -> "tuple[float, float] | None":
     """The run of the airport's pavement across the route at ``b`` holding
     the taxiway (``a_c`` +- ``hc``), as ``(a0, a1)``; ``None`` with none;
     ``(-inf, inf)`` where it runs on past ``most`` metres either way (broad
@@ -192,28 +225,29 @@ def _run_at(b: float, a_c: float, hc: float, u: XY, w: XY, det: float, pave_at,
                               for k in (k, -k)) if paved(a)), None) if hc > 0.0 else None
     if start is None:
         return None
-    lim = most / max(abs(det), 1e-9)
+    far = most / max(abs(det), 1e-9)
     lo = hi = start
-    while paved(lo - da):
+    while lo - da >= lim[0] and paved(lo - da):
         lo -= da
-        if start - lo > lim:
+        if start - lo > far:
             return -math.inf, math.inf
-    while paved(hi + da):
+    while hi + da <= lim[1] and paved(hi + da):
         hi += da
-        if hi - start > lim:
+        if hi - start > far:
             return -math.inf, math.inf
     return lo, hi
 
 
 def _end_runs(b0: float, b1: float, a_c: float, hc: float, u: XY, w: XY, det: float,
-              pave_at, law, width: float) -> list:
+              pave_at, law, width: float,
+              lim: tuple[float, float] = (-math.inf, math.inf)) -> list:
     """The pavement run just past each end of a route deck (:func:`_run_at`
     ``[deck_gen] end_width_probe_m`` past ``b0`` and ``b1``), read out to
     ``end_width_broad`` x the deck's ``width``."""
     g = law.tables.structures.deck_gen
     probe, most = float(g.end_width_probe_m), float(g.end_width_broad) * width
     lw = math.hypot(*w)
-    return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most)
+    return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most, lim)
             for b in (b0 - probe / lw, b1 + probe / lw)]
 
 

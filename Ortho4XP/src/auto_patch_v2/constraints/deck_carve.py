@@ -349,10 +349,13 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         inside = own.contains(pt)
         if not inside and pack_tn is not None and pack_tn.contains(pt):
             continue            # a pack deck's own cut keeps its floor (19s (4))
-        cut_cell = any(str(pm.faces[f].ref).startswith(CARVE_REF + ":")
-                       for f in vx.incident_faces)
-        mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or cut_cell
-        land = -math.inf if floor_v[i] or cut_cell else _landing(rings, vx.xy, bank, landing)
+        refs = [str(pm.faces[f].ref) for f in vx.incident_faces]
+        mine = inside or (gen_tn is not None and gen_tn.contains(pt)) or any(
+            r.startswith(CARVE_REF + ":") for r in refs)
+        # the trench (its floor and banks) never lands
+        trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0]
+                     in ("floor", "bank") for r in refs)
+        land = -math.inf if floor_v[i] or trench else _landing(rings, vx.xy, bank, landing)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)

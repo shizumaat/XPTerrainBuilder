@@ -21,7 +21,8 @@ read off a ``--solved-out`` pickle, per deck and per path of its cut
   grade over :data:`GRADE_WINDOW_M`; bar ``<= `` the path's cap;
 * EMBANKMENT: across the deck along its route through the path's
   crossing, the steepest solved slope over :data:`GRADE_WINDOW_M` between
-  the end lines and the floor (the abutment's bank, 1V:1.5H by law).
+  the end lines and the floor over :data:`BANK_WINDOW_M` (the abutment's
+  bank, 1V:1.5H by law).
 
 The surface is read over each map face within :data:`NEAR_M` of the path,
 triangulated on its own ring (``tools/deck_bank_perimeter._interp``: the
@@ -32,7 +33,8 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "NEAR_M", "carve_bars"]
+__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "BANK_WINDOW_M", "NEAR_M",
+           "carve_bars"]
 
 #: a path is read this often (m)
 STEP_M = 1.0
@@ -41,8 +43,12 @@ STEP_M = 1.0
 MEET_M = 0.30
 #: the patch's edge meets the base mesh within this (m)
 EDGE_STEP_M = 0.25
-#: grades are read over this run (m)
-GRADE_WINDOW_M = 4.0
+#: grades are read over this run (m): a road's grade over a design
+#: station (the mesh between the floor's edge vertices, noded every 4 m,
+#: reads a per cent or so more over a 3 m run where the curves bend)
+GRADE_WINDOW_M = 10.0
+#: the abutment's bank is read over this run (m)
+BANK_WINDOW_M = 2.0
 #: the surface is triangulated from the vertices this near the path (m)
 NEAR_M = 60.0
 
@@ -65,11 +71,11 @@ def _top(pm, z, db, law):
     return patch
 
 
-def _grade(ss, zs) -> float:
+def _grade(ss, zs, window: float = GRADE_WINDOW_M) -> float:
     best = 0.0
     j = 0
     for i in range(len(ss)):
-        while j < len(ss) and ss[j] - ss[i] < GRADE_WINDOW_M:
+        while j < len(ss) and ss[j] - ss[i] < window:
             j += 1
         if j < len(ss):
             best = max(best, abs(zs[j] - zs[i]) / max(ss[j] - ss[i], 1e-9))
@@ -123,7 +129,7 @@ def _bank(pm, surf, db, top, frame, s_mid: float) -> "float | None":
                 ss.append(k)
                 zs.append(q)
         k += 0.5
-    return round(_grade(ss, zs), 3) if len(ss) > 2 else None
+    return round(_grade(ss, zs, BANK_WINDOW_M), 3) if len(ss) > 2 else None
 
 
 def carve_bars(pm, z, law) -> list[dict]:

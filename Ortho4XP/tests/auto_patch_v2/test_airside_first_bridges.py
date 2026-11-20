@@ -276,3 +276,14 @@ def test_a_deck_gives_up_shoulder_over_a_structure_beside_it():
                                  ramp.union(road)))
     assert ring.bounds[2] <= 18.0 + 1e-6 and ring.bounds[0] == pytest.approx(-ring.bounds[2])
     assert ring.bounds[2] >= 12.5 - 1e-6 and "narrowed" in note
+
+
+def test_the_ground_past_a_road_decks_end_lands_at_the_taxiway_level():
+    """RULINGS 2026-11-19s (8) (d): a road deck spanning a deck's cut ends at
+    the taxiway deck's end level, and the ground past it lands there."""
+    from auto_patch_v2.constraints.deck_carve import _road_landing
+    ends = [((60.0, -25.0), (0.0, -1.0), 5.0, 100.0)]          # its end A, outward -y
+    assert _road_landing(ends, (60.0, -27.0), 0.5, 3.0) == pytest.approx(100.0)
+    assert _road_landing(ends, (60.0, -30.0), 0.5, 3.0) == pytest.approx(99.0)
+    assert _road_landing(ends, (68.0, -26.0), 0.5, 3.0) == pytest.approx(98.5)   # beside
+    assert _road_landing(ends, (60.0, -20.0), 0.5, 3.0) == -math.inf             # its span

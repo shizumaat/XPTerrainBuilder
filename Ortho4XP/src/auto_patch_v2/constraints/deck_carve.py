@@ -30,7 +30,9 @@ deck's TOP is known -- the no-bridge pavement over its ring, a Coons patch
   ground as well as its pavement), the ground stands at the end's level
   for ``[deck_gen] end_landing_m``, then falls at the bank's slope -- an
   embankment over the survey where the ground lies lower, so no deck end
-  floats (KPHX 1.0.566: the ground 0.3 m past a shoulder 1 m under it).
+  floats (KPHX 1.0.566: the ground 0.3 m past a shoulder 1 m under it);
+  so does the ground past each end of a generated ROAD deck spanning the
+  cut (``geom/road_span``), at the taxiway deck's end level there.
 
 UNDER THE RING the rule is absolute (owner 2026-11-20T00:30Z): a vertex
 on the floor stands at its deck's floor, any other on the embankment from
@@ -252,6 +254,54 @@ def _tunnel_regions(pm, gen: _t.AbstractSet[str]):
     return tuple(prep(unary_union(parts[k])) if parts[k] else None for k in (True, False))
 
 
+def _road_ends(decks, tops, roads, law) -> list[tuple]:
+    """``(end, outward, half width, level)`` of every generated road deck
+    that spans a deck's cut (``geom/road_span``): its ends land at the
+    taxiway deck's end level there (module doc); riders are the deck's."""
+    from shapely.geometry import LineString
+
+    from ..geom.road_span import DeckSpan, span_to_cut
+    riding = {str(r) for d in decks for r in getattr(d, "riders", ()) or ()}
+    spans = [DeckSpan(d.object_id, tuple(d.ring), [tuple(p.coords) for p in d.carve.paths],
+                      (tops[d.object_id].o, tops[d.object_id].u, tops[d.object_id].w))
+             for d in decks if getattr(d, "carve", None) is not None
+             and tops.get(d.object_id) is not None]
+    margin = float(law.tables.structures.deck_gen.edge_margin_m)
+    out = []
+    for b in roads:
+        axis = LineString(b.get("axis_xy") or ())
+        if str(b.get("id")) in riding or axis.length <= 1.0:
+            continue
+        got = span_to_cut(axis, spans)
+        if got is None:
+            continue
+        ext, oid = got
+        top = tops[oid]
+        c = list(ext.coords)
+        for p, q in ((c[0], c[1]), (c[-1], c[-2])):
+            n = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
+            sp, tp = top.st(*p)
+            level = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp)))
+            out.append((p, ((p[0] - q[0]) / n, (p[1] - q[1]) / n),
+                        float(b.get("half_m") or 0.0) + margin, level))
+    return out
+
+
+def _road_landing(ends, xy, bank: float, landing: float) -> float:
+    """The level the road decks' end landings ask of ``xy``: past an end,
+    the end's level for ``landing`` and within the deck's half width, then
+    falling at ``bank`` per metre past either; ``-inf`` off every end."""
+    best = -math.inf
+    for p, d, half, level in ends:
+        dx, dy = xy[0] - p[0], xy[1] - p[1]
+        past = dx * d[0] + dy * d[1]
+        if past < 0.0:
+            continue
+        side = abs(dx * d[1] - dy * d[0])
+        best = max(best, level - bank * (max(0.0, past - landing) + max(0.0, side - half)))
+    return best
+
+
 def _landing(rings, xy, bank: float, landing: float) -> float:
     """The highest level the END LANDINGS (module doc) ask of ``xy``: per
     deck, past an end line, the end's level less ``bank`` per metre past
@@ -272,8 +322,8 @@ def _landing(rings, xy, bank: float, landing: float) -> float:
 
 
 def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[int],
-                 values: _t.Mapping[int, float], fixed: _t.Mapping[int, float], law
-                 ) -> tuple[dict[int, float], dict]:
+                 values: _t.Mapping[int, float], fixed: _t.Mapping[int, float], law,
+                 roads: _t.Sequence[_t.Mapping] = ()) -> tuple[dict[int, float], dict]:
     """``({vertex: level}, report)``: the cut's stage-2 constants (module
     doc).  ``tops``: each generated deck's top (``geom/coons_patch``);
     ``air``: the airside vertices; ``values``: their stage-2 levels (and
@@ -338,6 +388,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     out: dict[int, float] = {}
     n_fill = n_land = 0
     landing = float(law.tables.structures.deck_gen.end_landing_m)
+    road_ends = _road_ends(decks, tops, roads, law) if roads else []
     for i in np.nonzero(np.isfinite(t))[0]:
         v = vids[int(i)]
         vx = pm.vertices[v]
@@ -357,7 +408,9 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         # under its end 0.6 m past it)
         trench = any(r.startswith(CARVE_REF + ":") and r.split(":")[2].split("#")[0] == "floor"
                      for r in refs)
-        land = -math.inf if floor_v[i] or trench else _landing(rings, vx.xy, bank, landing)
+        land = -math.inf if floor_v[i] or trench else max(
+            _landing(rings, vx.xy, bank, landing),
+            _road_landing(road_ends, vx.xy, bank, landing) if road_ends else -math.inf)
         if not (mine or cut < g - _UNDER_M or land > cut + _UNDER_M):
             continue
         ring_of = next((r for r in rings if r[0].contains(pt)), None)

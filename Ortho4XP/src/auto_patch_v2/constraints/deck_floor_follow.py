@@ -195,12 +195,14 @@ def _edge_points(o, u, w, step: float) -> list[tuple[float, float]]:
     return out
 
 
-def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, law=None
-                         ) -> tuple[_t.Any, _StageTwo]:
+def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, law=None,
+                         roads: _t.Sequence[_t.Mapping] = ()) -> tuple[_t.Any, _StageTwo]:
     """``(cs with the generated decks' floor pins moved, _StageTwo)``
     (module doc).  ``levels``: stage 1's levels on the full map's ids;
     ``stage1``: the stage-1 problem (``pipeline/stage_one_map.StageOne``,
-    duck-typed: ``.pm`` and ``.solved``), ``law`` for the airside set."""
+    duck-typed: ``.pm`` and ``.solved``), ``law`` for the airside set;
+    ``roads``: the generated road bridges (``Airport.road_bridges``), whose
+    decks over a deck's cut land at its ends (``deck_carve``)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
 
@@ -261,7 +263,7 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     # abutment embankments and ramps back to the terrain, levelled from the
     # top just read (``constraints/deck_carve``); never an airside vertex
     from .deck_carve import carve_levels
-    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law) \
+    cut, rep["carve"] = carve_levels(pm, decks, patches, air, levels, fixed, law, roads) \
         if law is not None else ({}, {})
     # the same problem without the cut: its answer holds the stage-2 airside
     shadow = {"pins": cs.pins, "flats": cs.flats, "fixed": dict(fixed),

@@ -2811,7 +2811,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             cs2, rep2 = reach_seed_rewrite(pm, law, cs, lv1)
             try:
                 from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
-                cs2, _s2 = floor_follow_rewrite(pm, cs2, lv1, prob.get("stage1"), law)
+                cs2, _s2 = floor_follow_rewrite(pm, cs2, lv1, prob.get("stage1"), law,
+                                                getattr(airport, "road_bridges", ()) or ())
                 rep2.update(_s2.stage_two(rep2))
                 print(f"[{icao}] generated decks take the no-bridge airside (RULINGS "
                       f"2026-11-19s): {_s2.report}")

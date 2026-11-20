@@ -24,15 +24,11 @@ writer), ``family`` ``road``:
 A road bridge riding a generated taxiway deck (``planar/deck_gen_pairs.
 riders``, ``DeckBridge.riders``) is carried by that deck: no record.
 
-A ROAD DECK SPANS THE WHOLE CUT (owner RULINGS 2026-11-19s (8) (d), KPHX
-1.0.566: "The two road bridges to the east of the eastern most taxiway
-bridge, done reach across their whole span, leaving floating ends ... the
-bridges are the same length as the taxiway ones they are paralleling, just
-narrower"): a road bridge whose axis crosses a generated taxiway deck's
-cut (``DeckBridge.carve``) running along that deck runs on, straight past
-its mapped ends, to the deck's two end lines -- the cut's crests -- and
-each end then stands at the solved ground there (``z_at``): flush, no end
-floats over the trench.
+A ROAD DECK SPANS THE WHOLE CUT (owner RULINGS 2026-11-19s (8) (d);
+``geom/road_span``): a road bridge over a generated taxiway deck's cut,
+running along that deck, runs on to the deck's two end lines, and each end
+stands at the solved ground there (``z_at``), which the carve landed at the
+taxiway deck's end level (``constraints/deck_carve``): no end floats.
 
 Nothing here names an airport.  Build-time impact: a few coordinate
 conversions per road bridge.
@@ -43,7 +39,7 @@ import hashlib
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString
 
 from .generated_publication import _ll
 
@@ -59,60 +55,17 @@ def _end(axis: LineString, end: int, w: float) -> list[tuple[float, float]]:
     return [(a[0] + nx * w, a[1] + ny * w), (a[0], a[1]), (a[0] - nx * w, a[1] - ny * w)]
 
 
-#: a road bridge runs along a taxiway deck within this angle of its axis (deg)
-_ALONG_DEG = 30.0
-
-
-def _param(p, d, q, w) -> "float | None":
-    """``s`` where the line ``p + s d`` meets the line through ``q`` along ``w``."""
-    det = d[0] * w[1] - d[1] * w[0]
-    if abs(det) < 1e-9:
-        return None
-    return ((q[0] - p[0]) * w[1] - (q[1] - p[1]) * w[0]) / det
-
-
-def _to_cut(axis: LineString, decks) -> "tuple[LineString, str] | None":
-    """``axis`` run on straight past its ends to the end lines of the
-    generated deck whose cut it crosses running along it (module doc);
-    ``None`` where it crosses none or already reaches both."""
-    c = list(axis.coords)
-    (ax, ay), (bx, by) = c[0], c[-1]
-    L = math.hypot(bx - ax, by - ay)
-    if L <= 1e-9:
-        return None
-    d = ((bx - ax) / L, (by - ay) / L)
+def _spans(decks) -> list:
+    """Each generated deck with a cut as ``geom/road_span`` reads it."""
     from ..constraints.deck_floor_follow import _deck_frame
-    cos_t = math.cos(math.radians(_ALONG_DEG))
-    best = None
+    from ..geom.road_span import DeckSpan
+    out = []
     for db in decks:
-        carve = getattr(db, "carve", None)
-        fr = _deck_frame(db)
-        if carve is None or fr is None or not any(
-                len(p.coords) >= 2 and LineString(p.coords).intersects(axis)
-                for p in carve.paths):
-            continue
-        o, u, w = fr
-        lu = math.hypot(*u)
-        if lu <= 1e-9 or abs(d[0] * u[0] + d[1] * u[1]) / lu < cos_t:
-            continue
-        # its end lines: end A through ``o`` along ``w``, end B through ``o + u``
-        ts = [_param((ax, ay), d, q, w) for q in (o, (o[0] + u[0], o[1] + u[1]))]
-        if None in ts:
-            continue
-        s0, s1 = min(0.0, *ts), max(L, *ts)
-        if s0 < -1e-3 or s1 > L + 1e-3:
-            # the deck it parallels: the nearest whose cut it crosses (two
-            # decks over one road share a cut: KJFK -833 ran to the far one)
-            near = Polygon(db.ring).distance(axis)
-            if best is None or near < best[0]:
-                best = (near, s0, s1, db.object_id)
-    if best is None:
-        return None
-    _n, s0, s1, oid = best
-    pts = [(ax + d[0] * s0, ay + d[1] * s0)] if s0 < -1e-3 else []
-    pts += c
-    pts += [(ax + d[0] * s1, ay + d[1] * s1)] if s1 > L + 1e-3 else []
-    return LineString(pts).simplify(0.01), oid
+        carve, fr = getattr(db, "carve", None), _deck_frame(db)
+        if carve is not None and fr is not None:
+            out.append(DeckSpan(db.object_id, tuple(db.ring),
+                                [tuple(p.coords) for p in carve.paths], fr))
+    return out
 
 
 def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":
@@ -122,7 +75,8 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None) -> "dict | None":
     levels = list(b.get("levels") or ())
     if axis.length <= 1.0 or len(levels) != 2:
         return None
-    spans = _to_cut(axis, decks)
+    from ..geom.road_span import span_to_cut
+    spans = span_to_cut(axis, _spans(decks))
     if spans is not None:
         axis, _oid = spans
         ends = [z_at(axis.coords[k]) if z_at is not None else None for k in (0, -1)]

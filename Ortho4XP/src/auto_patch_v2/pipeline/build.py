@@ -707,7 +707,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
         # RULINGS 2026-11-19s: a generated deck takes the no-bridge airside
         # as given -- its top, its fixed ring and its floor
-        cs2, s2 = floor_follow_rewrite(pm, cs2, lv1, _s1, law)
+        cs2, s2 = floor_follow_rewrite(pm, cs2, lv1, _s1, law,
+                                       getattr(airport, "road_bridges", ()) or ())
         rep.update(s2.stage_two(rep))
         if s2.report["fixed"] or s2.report["pins"] or s2.tops:
             _say(f"[{icao}] generated decks take the no-bridge airside (RULINGS "

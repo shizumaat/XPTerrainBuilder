@@ -360,3 +360,20 @@ def test_a_rider_widens_the_deck_on_its_own_side_only():
     assert ids == ("-1",)
     x0, _y0, x1, _y1 = grown.bounds
     assert x0 == pytest.approx(-38.0) and x1 == pytest.approx(44.0 + 3.5 + 1.5)
+
+
+def test_a_long_cover_crossed_by_mapped_taxiway_bridges_is_one_deck_each():
+    """Owner 2026-11-20T15:30Z (KIAH JFK Blvd, item 13): a road under one
+    paved area longer than ``max_cover_m`` that two mapped taxiway bridges
+    cross is no tunnel: a covered piece under each bridge, the rest open."""
+    from shapely.geometry import LineString as L
+
+    from auto_patch_v2.law.tables import load_default
+    from auto_patch_v2.planar.deck_generated import _Road, _at_bridges
+    road = _Road("-1", {"highway": "primary"}, L([(0.0, 0.0), (0.0, 230.0)]), 230.0, 5.25)
+    aero = [L([(-30.0, 50.0), (30.0, 50.0)]), L([(-30.0, 125.0), (30.0, 125.0)])]
+    pieces, (r, gaps) = _at_bridges(road, aero, load_default())
+    assert len(pieces) == 2 and all(p.parent is None for p in pieces)
+    assert [round(p.covered_m) for p in pieces] == [44, 44]
+    assert sorted(round(g.length) for g in gaps) == [28, 31, 83]
+    assert _at_bridges(road, [], load_default()) == ([], None)

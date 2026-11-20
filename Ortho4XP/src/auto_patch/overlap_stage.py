@@ -82,10 +82,10 @@ def _candidates(scenery_dir: str, lat: int, lon: int) -> tuple[list[str], list[s
     import O4_Overlay_Pack as _OP
     from auto_patch_v2.airport import dsf as _dsf2
 
-    from .drape_stage import _folder_packs, _runway_apt
+    from .drape_stage import _runway_apt
     from .post_mesh import _is_protected_scenery_root
     airports, packs = [], []
-    for p in _folder_packs(scenery_dir, lat, lon):
+    for p in _tile_roots(scenery_dir, lat, lon):
         if _is_protected_scenery_root(p) or os.path.isfile(os.path.join(p, _OP.MARKER)):
             continue
         if _runway_apt(p):
@@ -94,6 +94,14 @@ def _candidates(scenery_dir: str, lat: int, lon: int) -> tuple[list[str], list[s
         elif _H.dsf_is_overlay(_dsf2.dsf_path_in_pack(p, lat, lon)):
             packs.append(p)
     return airports, packs
+
+
+def _tile_roots(scenery_dir: str, lat: int, lon: int) -> list[str]:
+    """The enabled packs with a DSF on the tile, from the folder's held
+    index (``O4_Custom_Scenery.tile_pack_names``, #2200)."""
+    import O4_Custom_Scenery as _CS
+    return [os.path.join(scenery_dir, n)
+            for n in _CS.tile_pack_names(scenery_dir, lat, lon)]
 
 
 def _structures(pack_root: str, lat: int, lon: int, frame, region, ctx
@@ -213,11 +221,28 @@ def _asked(scenery_dir: str, airports: _t.Collection[str],
 
 def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
     """THE TILE'S READING (module doc): one row per pack pair, with what
-    each condensed answer gives it (#2190)."""
+    each condensed answer gives it (#2190).  Read once per state of the
+    tile's packs (``auto_patch_v2.airport.pack_overlap_memo``, #2200): an
+    ask on an unchanged tile opens no pack file, only the stored answers."""
+    from auto_patch_v2.airport import pack_overlap_memo as _om
+
     from .duplicate_stage import family
+    rows = _om.held(scenery_dir, lat, lon)
+    if rows is not None:
+        return [{**r, "winner": _stored(r)} for r in rows]
     is_airport = family(scenery_dir)[1]
-    return [{**r, **_odf.winners(r, is_airport)}
+    rows = [{**r, **_odf.winners(r, is_airport)}
             for r in _pairs(scenery_dir, lat, lon, xplane_root)]
+    _om.keep(scenery_dir, lat, lon, rows)
+    return rows
+
+
+def _stored(row: _t.Mapping) -> str:
+    """The row's answer as the stores hold it now."""
+    from . import duplicate_stage as _ds
+    if row.get("kind") == _ds.KIND:
+        return _ds.stored(str(row["key"]))
+    return _ovc.winner(str(row["key"]))
 
 
 def _pairs(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
@@ -226,10 +251,9 @@ def _pairs(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]
 
     from . import drape_overlap_stage as _dov
     from . import duplicate_stage as _ds
-    from .drape_stage import _folder_packs
     airports, packs = _candidates(scenery_dir, lat, lon)
     pairs = _ds.rows(scenery_dir, [os.path.basename(os.path.normpath(p))
-                                  for p in _folder_packs(scenery_dir, lat, lon)])
+                                  for p in _tile_roots(scenery_dir, lat, lon)])
     if not airports or len(packs) < 2:
         return pairs
     anames = [os.path.basename(os.path.normpath(a)) for a in airports]
@@ -340,6 +364,17 @@ def _hidden(scenery: str, name: str, lat: int, lon: int) -> list:
     return _ovc.overlap_hides(root, _dsf2.dsf_path_in_pack(root, lat, lon))
 
 
+def _resign(scenery: str, written: _t.Iterable[tuple[str, int, int]]) -> None:
+    """Each tile's held reading after this answer's own writes
+    (``pack_overlap_memo.resign``): the packs as installed did not change."""
+    from auto_patch_v2.airport import pack_overlap_memo as _om
+    by_tile: dict[tuple[int, int], set[str]] = {}
+    for name, la, lo in written:
+        by_tile.setdefault((la, lo), set()).add(name)
+    for (la, lo), names in by_tile.items():
+        _om.resign(scenery, la, lo, names)
+
+
 def _answer(scenery: str, action: str, items: _t.Sequence[_t.Mapping]) -> dict:
     """Store the answers of ``items`` and rewrite every pack whose hiding
     changed (a pack whose rows stay is never written); a same-airport
@@ -359,8 +394,9 @@ def _answer(scenery: str, action: str, items: _t.Sequence[_t.Mapping]) -> dict:
             raise ValueError(f"{after!r} is not one of {doc['packs']}")
         _ovc.STORE.remember(key, after)
         rows.append({"key": key, "packs": list(doc["packs"]), "winner": after})
-    files = [f for t in sorted(packs) if _hidden(scenery, *t) != before[t]
-             for f in [_rewrite(scenery, *t)] if f]
+    changed = [t for t in sorted(packs) if _hidden(scenery, *t) != before[t]]
+    files = [f for t in changed for f in [_rewrite(scenery, *t)] if f]
+    _resign(scenery, changed)
     for r in rows:
         UI.vprint(0, f"  [overlap] {' and '.join(r['packs'])}: "
                 + (f"keeping {r['winner']}'s structures, hiding the other's"

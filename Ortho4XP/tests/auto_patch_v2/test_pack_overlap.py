@@ -474,11 +474,11 @@ def test_no_is_remembered_and_not_now_asks_again(same_airport, monkeypatch):
 
 
 def test_a_same_airport_pair_is_not_also_a_structure_pair(detect, tmp_path, monkeypatch):
-    import auto_patch.drape_stage as DSTG
+    from auto_patch import overlap_stage as OS
     (tmp_path / "Custom Scenery").mkdir()
     (tmp_path / "Custom Scenery" / "scenery_packs.ini").write_text(
         _INI, encoding="utf-8", newline="")
-    monkeypatch.setattr(DSTG, "_folder_packs", lambda d, la, lo: [
+    monkeypatch.setattr(OS, "_tile_roots", lambda d, la, lo: [
         os.path.join(d, "Alpha_ABCD_Airport")])
     rows = detect(["Zeta_ABCD_Field", "Alpha_ABCD_Airport"], ["Other_City"])
     kinds = sorted((r.get("kind", "overlap"), tuple(sorted(r["packs"]))) for r in rows)

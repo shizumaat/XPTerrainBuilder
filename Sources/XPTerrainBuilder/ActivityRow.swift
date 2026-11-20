@@ -25,7 +25,7 @@ struct ActivityRow: View {
         let progress = activity.tiles[coord]
             ?? TileProgress(state: .queued, label: "queued", percent: 0)
         let text = ProgressRowText(
-            tileKey: coord.key, tag: activity.runTags[coord] ?? "",
+            tileKey: coord.key, tag: activity.runTags[coord] ?? buildModel.titleTag(coord),
             status: progress.state == .active
                 ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
             clock: activity.tileClocks[coord])

@@ -441,6 +441,8 @@ final class BuildModel: ObservableObject {
     /// The tiles table's model (#2006), parked with it (RULINGS 2026-11-11k).
     let library = LibraryModel()
     let console = BuildConsoleModel()
+    /// Pack commands pressed and not yet answered (#2200).
+    let packWaits = PackCommandWaits()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
     /// Live map imagery for the selected provider (Qt-map parity).
@@ -841,7 +843,7 @@ final class BuildModel: ObservableObject {
 
     // MARK: - Engine session (protocol path)
 
-    private func connectIfNeeded() {
+    func connectIfNeeded() {
         guard usesProtocol, client == nil, let engine else { return }
         let newClient = OrthoEngineClient(
             onEvent: { [weak self] event in
@@ -1632,14 +1634,26 @@ final class BuildModel: ObservableObject {
     /// The progress rows of `todo` name each tile's largest airports, a
     /// searched one first when it is not among them (#815, after #667).
     private func stampRunTags(_ todo: [TileCoord]) {
+        for coord in todo { activity.runTags[coord] = titleTag(coord) }
+    }
+
+    /// THE tile title's airport codes (#815, #2199): ` (KCLT, KJQF)` — the
+    /// tile's largest airports, a searched one first when it is not among
+    /// them. One derivation for the Activity rows (stamped when a run
+    /// queues the tile) and the Build History cells (`tileTitle`).
+    func titleTag(_ coord: TileCoord) -> String {
         let largest = largestAirportsByTile ?? AirportRank.largestByTile(globalAirports)
         largestAirportsByTile = largest
-        for coord in todo {
-            let tile = AirportTile(lat: coord.lat, lon: coord.lon)
-            activity.runTags[coord] = TileSearchTags.suffix(
-                AirportRank.titleCodes(largest: largest[tile] ?? [],
-                                       searched: searchTags.codes[tile] ?? []))
-        }
+        let tile = AirportTile(lat: coord.lat, lon: coord.lon)
+        return TileSearchTags.suffix(
+            AirportRank.titleCodes(largest: largest[tile] ?? [],
+                                   searched: searchTags.codes[tile] ?? []))
+    }
+
+    /// A tile's title as its Activity row shows it: the coordinate and the
+    /// run's stamped codes, else `titleTag` now (#2199).
+    func tileTitle(_ coord: TileCoord) -> String {
+        coord.key + (activity.runTags[coord] ?? titleTag(coord))
     }
 
     func clearSelection() {
@@ -2276,6 +2290,7 @@ final class BuildModel: ObservableObject {
     /// console through the engine's log line, and an upgrade or undo
     /// refreshes the tile's Modified airports rows.
     private func packOldForests(_ forests: O4PackOldForests) {
+        packWaits.end(PackCommandWaits.packKey(forests.packRoot))
         if forests.state == "upgraded" || forests.state == "undone" {
             packForestsChanged += 1
         }
@@ -2305,8 +2320,9 @@ final class BuildModel: ObservableObject {
 
     /// The pack row's Undo 3D trees: every upgraded DSF of the pack.
     func undoPackForests(packPath: String) {
-        connectIfNeeded()
-        client?.packForests(packRoot: packPath, action: "undo")
+        sendPackRowCommand(packPath: packPath) { done in
+            client?.packForests(packRoot: packPath, action: "undo", completion: done)
+        }
     }
 
     /// The package adjustments question to present, or nil (#1916).
@@ -2324,6 +2340,7 @@ final class BuildModel: ObservableObject {
     /// the tile's Modified airports rows. "adjust" (the pack row's Adjust…)
     /// asks every time; an outcome with `rebuild` rebuilds the tile.
     private func packAdjust(_ adjust: O4PackAdjust) {
+        packWaits.end(PackCommandWaits.packKey(adjust.packRoot))
         if adjust.state == "applied" || adjust.state == "undone" {
             packForestsChanged += 1
         }
@@ -2358,9 +2375,10 @@ final class BuildModel: ObservableObject {
     /// The pack row's Adjust… (owner 2026-11-15T13:12Z): the engine's report
     /// of the pack as it is on the tile opens the question (`state` "adjust").
     func adjustPackFromRow(packPath: String, tile: TileCoord) {
-        connectIfNeeded()
-        client?.packAdjust(packRoot: packPath, action: "adjust",
-                           lat: tile.lat, lon: tile.lon)
+        sendPackRowCommand(packPath: packPath) { done in
+            client?.packAdjust(packRoot: packPath, action: "adjust",
+                               lat: tile.lat, lon: tile.lon, completion: done)
+        }
     }
 
     /// A pack adjustment the tile's mesh reads (the terrain objects'): the
@@ -2479,23 +2497,32 @@ final class BuildModel: ObservableObject {
     /// report asks again, and says so when the tile has no pair); an
     /// outcome asks nothing (the engine's log line
     /// says what was hidden).
+    /// One question per tile (#2200): a tile's question already on screen
+    /// is not asked again behind itself, and a newer one for a tile in the
+    /// queue replaces the older (pressing Pack choices… twice, or a build's
+    /// question arriving after the report, never re-opens the sheet after
+    /// Apply).
     private func packOverlaps(_ offer: O4PackOverlaps) {
+        packOverlapsArrived(offer)
         if offer.state == "ask" { packOverlapsSeen.remove(offer.id) }
         guard offer.asks || offer.reportsNone,
               !packOverlapsSeen.contains(offer.id) else { return }
         packOverlapsSeen.insert(offer.id)
-        if packOverlapsPrompt == nil {
-            packOverlapsPrompt = offer
-        } else {
-            packOverlapsQueue.append(offer)
-        }
+        (packOverlapsPrompt, packOverlapsQueue) = PackOverlapsQueue.arrive(
+            offer, onScreen: packOverlapsPrompt, queue: packOverlapsQueue)
     }
 
     /// The tile pane's "Pack choices…" (#2180): the tile's report, every
     /// pair on its stored answer (or "no pairs"), as the same question.
+    /// Its working state shows at once (#2200).
     func reviewPackOverlaps(_ tile: TileCoord) {
         connectIfNeeded()
-        client?.packOverlaps(action: "ask", lat: tile.lat, lon: tile.lon)
+        let key = PackCommandWaits.overlapsKey(lat: tile.lat, lon: tile.lon)
+        guard !packWaits.isWaiting(key) else { return }
+        packWaits.start(key)
+        console.append(PackWaitCopy.checkingLine(tile: tile.key))
+        client?.packOverlaps(action: "ask", lat: tile.lat, lon: tile.lon,
+                             completion: packCommandReply(key))
     }
 
     /// Whether the engine asks the condensed question (#2190).
@@ -2506,12 +2533,18 @@ final class BuildModel: ObservableObject {
     /// The user's answer to the question on screen: Apply (every pair's
     /// `[pair key: pack or "both"]`, and the default for all tiles) sends
     /// `pack_overlaps` "choose"; nil (Not now) sends nothing.
+    /// The sheet closes at once; the outcome is a console line (#2200).
     func answerPackOverlapsPrompt(_ reply: PackOverlapsSheet.Answer?) {
         if let offer = packOverlapsPrompt, let reply {
+            let key = PackCommandWaits.overlapsKey(lat: offer.lat, lon: offer.lon)
+            packWaits.start(key)
+            console.append(PackWaitCopy.applyingLine(tile: TileMath.key(lat: offer.lat, lon: offer.lon)))
             client?.packOverlaps(action: "choose", lat: offer.lat, lon: offer.lon,
-                                 winners: reply.winners, defaultMode: reply.defaultMode)
+                                 winners: reply.winners, defaultMode: reply.defaultMode,
+                                 completion: packCommandReply(key))
         }
-        packOverlapsPrompt = packOverlapsQueue.isEmpty ? nil : packOverlapsQueue.removeFirst()
+        (packOverlapsPrompt, packOverlapsQueue) = PackOverlapsQueue.closed(
+            packOverlapsPrompt, answered: reply != nil, queue: packOverlapsQueue)
     }
 
     /// Packages already noticed this session (one per package and state).
@@ -2557,6 +2590,7 @@ final class BuildModel: ObservableObject {
     /// Modified airports rows; the other states are on the console
     /// through the engine's log line.
     private func packOptimise(_ optimise: O4PackOptimise) {
+        packWaits.end(PackCommandWaits.packKey(optimise.packRoot))
         if optimise.state == "optimised" || optimise.state == "undone" {
             packOptimiseChanged += 1
         }
@@ -2594,13 +2628,14 @@ final class BuildModel: ObservableObject {
     /// steps ticked as the pack's current choice) or Undo optimise (every
     /// optimised DSF of the pack).
     func packOptimiseFromRow(packPath: String, undo: Bool, tile: TileCoord) {
-        connectIfNeeded()
-        if undo {
-            client?.packOptimise(packRoot: packPath, action: "undo")
-        } else {
-            // the question with the pack's current choice ticked
-            client?.packOptimise(packRoot: packPath, action: "ask",
-                                 lat: tile.lat, lon: tile.lon)
+        sendPackRowCommand(packPath: packPath) { done in
+            if undo {
+                client?.packOptimise(packRoot: packPath, action: "undo", completion: done)
+            } else {
+                // the question with the pack's current choice ticked
+                client?.packOptimise(packRoot: packPath, action: "ask",
+                                     lat: tile.lat, lon: tile.lon, completion: done)
+            }
         }
     }
 

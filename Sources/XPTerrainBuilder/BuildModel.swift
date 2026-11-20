@@ -2498,13 +2498,18 @@ final class BuildModel: ObservableObject {
         client?.packOverlaps(action: "ask", lat: tile.lat, lon: tile.lon)
     }
 
-    /// The user's answer to the question on screen: `winners` (Apply,
-    /// `[pair key: pack or "both"]`) sends `pack_overlaps` "choose"; nil
-    /// (Not now) sends nothing.
-    func answerPackOverlapsPrompt(winners: [String: String]?) {
-        if let offer = packOverlapsPrompt, let winners {
+    /// Whether the engine asks the condensed question (#2190).
+    var supportsPackOverlapsDefault: Bool {
+        engineCapabilities.supports(O4EngineCapabilities.packOverlapsDefault)
+    }
+
+    /// The user's answer to the question on screen: Apply (every pair's
+    /// `[pair key: pack or "both"]`, and the default for all tiles) sends
+    /// `pack_overlaps` "choose"; nil (Not now) sends nothing.
+    func answerPackOverlapsPrompt(_ reply: PackOverlapsSheet.Answer?) {
+        if let offer = packOverlapsPrompt, let reply {
             client?.packOverlaps(action: "choose", lat: offer.lat, lon: offer.lon,
-                                 winners: winners)
+                                 winners: reply.winners, defaultMode: reply.defaultMode)
         }
         packOverlapsPrompt = packOverlapsQueue.isEmpty ? nil : packOverlapsQueue.removeFirst()
     }

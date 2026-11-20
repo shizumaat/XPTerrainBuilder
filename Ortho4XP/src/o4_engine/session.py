@@ -2634,12 +2634,16 @@ class EngineSession:
         (#2145): the ``PackOverlaps`` event (``UI.pack_overlaps`` hook)."""
         self._emit_known(PackOverlaps, fields)
 
-    def pack_overlaps(self, action="", lat=None, lon=None, items=None):
+    def pack_overlaps(self, action="", lat=None, lon=None, items=None,
+                      default=None):
         """THE USER'S ANSWER (capability ``pack_overlaps``, #2145):
         ``action`` is ``"choose"`` (``items``: ``{"key", "winner"}`` per
         pack pair; the losing pack's overlapping placements are hidden in
         its tile DSF), ``"undo"`` (forget the answers of ``items``' keys)
-        or ``"ask"`` (the tile's report).  Replies ``{"status":
+        or ``"ask"`` (the tile's report); ``default`` (capability
+        ``pack_overlaps_default``, #2190) sets the condensed answer for
+        all tiles (``"prefer_airports"`` / ``"keep_all"``; ``""`` clears
+        it; omitted leaves it).  Replies ``{"status":
         "started"}`` at once and completes with a ``PackOverlaps`` event
         (``overlap_stage.overlap_choice``)."""
         from auto_patch import overlap_stage as _OV
@@ -2655,7 +2659,8 @@ class EngineSession:
                 root = xplane_root_for(la, lo) if la is not None else None
             except Exception:
                 root = None
-            _OV.overlap_choice(root, act, picked, la, lo)
+            _OV.overlap_choice(root, act, picked, la, lo,
+                               None if default is None else str(default))
 
         threading.Thread(target=work, daemon=True,
                          name="o4-pack-overlaps").start()

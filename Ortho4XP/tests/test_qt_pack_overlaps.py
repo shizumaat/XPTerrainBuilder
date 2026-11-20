@@ -96,7 +96,8 @@ def test_a_drape_row_offers_to_hide_the_lower_packs_polygons(qapp):
     assert [pick.itemText(i) for i in range(pick.count())] == [
         "Hide World's polygons inside the airport", "Keep both"]
     assert pick.currentData() == "Airport"
-    assert box.answer_extra("choose") == {"items": [{"key": row["key"], "winner": "Airport"}]}
+    assert box.answer_extra("choose") == {"items": [{"key": row["key"], "winner": "Airport"}],
+                                          "default": ""}
 
 
 def test_the_copy_matches_the_mac_app():
@@ -131,6 +132,15 @@ def test_the_copy_matches_the_mac_app():
     assert joined("static let reviewHelp", "static let noPairs") == QTOVER.REVIEW_HELP
     assert joined("static let noPairs", "static let okButton") == QTOVER.NO_PAIRS
     assert joined("static let okButton", "}") == QTOVER.OK_BUTTON
+    assert joined("static let condensedBody", "static let preferLabel") == QTOVER.CONDENSED_BODY
+    assert joined("static let preferLabel", "static let keepAllLabel") == QTOVER.PREFER_LABEL
+    assert joined("static let keepAllLabel", "static let allTiles ") == QTOVER.KEEP_ALL_LABEL
+    assert joined("static let allTiles ", "static let allTilesNote") == QTOVER.ALL_TILES
+    assert joined("static let allTilesNote", "static let undecidedNote") == QTOVER.ALL_TILES_NOTE
+    assert joined("static let undecidedNote", "static let byAirport") == QTOVER.UNDECIDED_NOTE
+    assert joined("static let byAirport", "/// The condensed answers") == QTOVER.BY_AIRPORT
+    assert joined("static let prefer ", "static let keepAll ") == QTOVER.PREFER
+    assert joined("static let keepAll ", "// End of the condensed") == QTOVER.KEEP_ALL
     for s in (QTOVER.APPLY_BUTTON, QTOVER.NOT_NOW_BUTTON):
         assert '"%s"' % s in text
 
@@ -160,7 +170,7 @@ def test_apply_sends_every_pick_and_not_now_nothing(window, monkeypatch):
     _button(box, "Apply").click()
     assert sent == [{"action": "choose", "lat": 24, "lon": 55, "items": [
         {"key": ITEMS[0]["key"], "winner": "Autogen"},
-        {"key": ITEMS[1]["key"], "winner": "both"}]}]
+        {"key": ITEMS[1]["key"], "winner": "both"}], "default": ""}]
 
 
 DUPS = [{"key": "/CS/same airport/Alpha | Zeta", "kind": "duplicate",
@@ -258,3 +268,64 @@ def test_pack_choices_asks_for_the_active_tiles_report(window, monkeypatch):
     window._on_engine_event(_event(state="ask"))
     [box] = window._pack_art_boxes
     assert box.pickers[ITEMS[1]["key"]].currentData() == "both"
+
+
+# --- #2190: the condensed question -----------------------------------------
+
+CONDENSED = [{"key": "/CS/City | Field", "packs": ["City", "Field"], "airport": "Field",
+              "default": "Field", "winner": "", "prefer": "Field", "keep": "both",
+              "count": 4, "rows": [2, 2], "summary": "City and Field both draw 4"},
+             {"key": "/CS/World | Field", "packs": ["World", "Field"], "airport": "Field",
+              "default": "Field", "winner": "", "prefer": "Field", "keep": "both",
+              "count": 2, "rows": [1, 1], "summary": "World and Field both draw 2"},
+             {"key": "/CS/Field | Other Field", "packs": ["Field", "Other Field"],
+              "airport": "Field", "default": "Field", "winner": "", "prefer": "",
+              "keep": "both", "count": 1, "rows": [1, 1], "summary": "two airports"}]
+
+
+def _visible(box, key):
+    return not box.pickers[key].isHidden()
+
+
+def test_the_question_opens_condensed_on_prefer_the_airports(qapp):
+    """Owner 2026-11-20T01:00Z: two choices for the tile, the pairs the
+    choice decides folded under Choose by airport…, the rest listed."""
+    box, _ = QTOVER.pack_overlaps_box(_event(items=CONDENSED))
+    assert box.mode() == QTOVER.PREFER and not box.all_tiles.isChecked()
+    assert not box.by_airport.isChecked() and not box.by_airport.isHidden()
+    assert [_visible(box, r["key"]) for r in CONDENSED] == [False, False, True]
+    assert not box.undecided_note.isHidden()
+    assert box.answer_extra("choose") == {"items": [
+        {"key": CONDENSED[0]["key"], "winner": "Field"},
+        {"key": CONDENSED[1]["key"], "winner": "Field"},
+        {"key": CONDENSED[2]["key"], "winner": "Field"}], "default": ""}
+
+
+def test_keep_everything_for_all_tiles_and_a_pick_by_airport(qapp):
+    box, _ = QTOVER.pack_overlaps_box(_event(items=CONDENSED))
+    box.mode_buttons[QTOVER.KEEP_ALL].setChecked(True)
+    assert [_visible(box, r["key"]) for r in CONDENSED] == [False, False, False]
+    assert box.undecided_note.isHidden()
+    box.by_airport.setChecked(True)
+    assert all(_visible(box, r["key"]) for r in CONDENSED)
+    pick = box.pickers[CONDENSED[0]["key"]]
+    pick.setCurrentIndex(pick.findData("City"))
+    pick.activated.emit(pick.currentIndex())                 # the user's pick
+    box.mode_buttons[QTOVER.PREFER].setChecked(True)
+    box.mode_buttons[QTOVER.KEEP_ALL].setChecked(True)
+    box.all_tiles.setChecked(True)
+    assert box.answer_extra("choose") == {"items": [
+        {"key": CONDENSED[0]["key"], "winner": "City"},
+        {"key": CONDENSED[1]["key"], "winner": "both"},
+        {"key": CONDENSED[2]["key"], "winner": "both"}], "default": QTOVER.KEEP_ALL}
+
+
+def test_the_report_opens_on_the_stored_default_and_answers(qapp):
+    """Pack choices… still opens every pair: the stored default checked,
+    a stored answer it would change kept and shown expanded."""
+    rows = [dict(CONDENSED[0], winner="City"), dict(CONDENSED[1], winner="both")]
+    box, _ = QTOVER.pack_overlaps_box(_event(items=rows, state="ask",
+                                             default=QTOVER.KEEP_ALL))
+    assert box.mode() == QTOVER.KEEP_ALL and box.all_tiles.isChecked()
+    assert box.by_airport.isChecked()
+    assert [p.currentData() for p in box.pickers.values()] == ["City", "both"]

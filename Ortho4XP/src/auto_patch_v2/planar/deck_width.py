@@ -28,7 +28,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["parted", "route_ends", "route_specs", "rings"]
+__all__ = ["cores", "parted", "route_ends", "route_specs", "rings"]
 
 XY = tuple[float, float]
 #: two crossing segments this near and this parallel are one route (m, deg)
@@ -174,6 +174,11 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
     """``(deck ring, note)`` of each route deck spec."""
     return [(_ring(u, d), d[6]) for u, d in specs]
+
+
+def cores(specs: _t.Sequence[tuple[XY, list]]) -> list[Polygon]:
+    """Each route deck spec's ring over its taxiway alone (no shoulders)."""
+    return [_core(u, d) for u, d in specs]
 
 
 def parted(specs: list[tuple[XY, list]], law, avoid=None) -> list[tuple[XY, list]]:

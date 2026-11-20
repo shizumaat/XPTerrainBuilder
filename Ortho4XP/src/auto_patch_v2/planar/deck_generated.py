@@ -535,9 +535,9 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     # where the pack stands: a deck grown over its road's cover never reaches it
     avoid = unary_union([deck_polygon(d) for d in taken] + [b for b in blocked if b.is_valid]
                         + [p.plan for p in packs if p.plan is not None and p.plan.is_valid])
-    for piece, beside in _route_pieces(R, roads, airport, law, notes,
-                                       lambda xy: pave(roles.at_xy(xy)), avoid,
-                                       _airside_near(classification, law, near)):
+    for piece, beside, core in _route_pieces(R, roads, airport, law, notes,
+                                             lambda xy: pave(roles.at_xy(xy)), avoid,
+                                             _airside_near(classification, law, near)):
         under = [r for r in roads if r.line.intersection(piece).length > 1.0]
         if not under:
             continue
@@ -552,8 +552,13 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             continue
         # #2181 item 2: a pack deck standing a road's clearance over the
         # carried pavement passes OVER the crossing (``overhead_decks``)
-        over = overhead_decks(objects, cache, piece, _carried_level(airport, piece), law)
-        why = _blocked(piece, [d for d in taken if not (over & {d.object_id, *d.members})],
+        # the pack's refusals read the taxiway's own plan, never its
+        # shoulders (RULINGS 2026-11-19s (8) (a): the deck widens over what
+        # the class-width deck was refused or admitted by -- KRDU at twice
+        # the width read the pack's dsf:obj140 as standing OVER two
+        # crossings it stands ON)
+        over = overhead_decks(objects, cache, core, _carried_level(airport, core), law)
+        why = _blocked(core, [d for d in taken if not (over & {d.object_id, *d.members})],
                        blocked, [r.line for r in under],
                        [p for p in packs if p.object_id not in over], law,
                        why_of, [r.parent or r.line for r in under]) or refused_pack
@@ -681,12 +686,13 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
     2026-11-19s (3) (b), (4) (c); ``planar/deck_width``) -- never the
     pavement's width; a piece no taxi route crosses (a runway's) as read.
     ``(deck ring, the pavement over the cut beside every deck of its
-    piece)`` each: that pavement is opened with the deck's ring.  ``avoid``:
+    piece, the ring over its taxiway alone)`` each: that pavement is opened
+    with the deck's ring; the pack's refusals read the last.  ``avoid``:
     the pack's decks and frames a deck grown over its roads' cover never
     reaches (``deck_width._spans_cover``); ``airside``: the airside
     pavement over which a road's carriageway and shoulders count as its
     cover (:func:`_airside_near`)."""
-    from .deck_width import parted, rings, route_specs
+    from .deck_width import cores, parted, rings, route_specs
     g = law.tables.structures.deck_gen
     out: list[Polygon] = []
     held: list = []                   # (piece, its specs), parted together
@@ -707,12 +713,12 @@ def _route_pieces(R, roads, airport, law, notes: list[str], pave_at=None, avoid=
     # every two decks, of one piece or two, stand apart (``deck_width.parted``)
     parted([sp for _p, specs in held for sp in specs], law, avoid)
     for piece, specs in held:
-        decks = rings(specs)
+        decks = list(zip(rings(specs), cores(specs), strict=True))
         c = piece.centroid
-        notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for _p, n in decks]
-        kept = [p for p, _n in decks if p.area >= float(g.min_area_m2)]
-        beside = piece.difference(unary_union(kept)) if kept else Polygon()
-        out += [(p, beside) for p in kept] or [(piece, Polygon())]
+        notes += [f"generated deck piece at ({c.x:.0f}, {c.y:.0f}): {n}" for (_p, n), _c in decks]
+        kept = [(p, k) for (p, _n), k in decks if p.area >= float(g.min_area_m2)]
+        beside = piece.difference(unary_union([p for p, _k in kept])) if kept else Polygon()
+        out += [(p, beside, k) for p, k in kept] or [(piece, Polygon(), piece)]
     return out
 
 

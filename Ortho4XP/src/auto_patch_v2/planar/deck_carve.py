@@ -633,12 +633,17 @@ def _landings(gen, carves, airport, law):
     return unary_union(good) if good else None
 
 
-def _split_structures(cells, blade, law, own: bool = False) -> tuple[list, int]:
+def _split_structures(cells, blade, law, own: bool = False, ground: bool = False
+                      ) -> tuple[list, int]:
     """``cells`` with every STRUCTURE cell the cut takes over (a corridor
     or deck ground under a generated deck) split along ``blade`` -- the
     roads' floors -- so the mesh carries vertices on each floor's edges
     (role and ref kept; a second piece takes ``<ref>#<k>``).  ``own``: the
-    cut's own cells too (:data:`~..model.deck_carve.CARVE_REF`)."""
+    cut's own cells too (:data:`~..model.deck_carve.CARVE_REF`); ``ground``:
+    every groundside cell the cut may take as well (never airside pavement,
+    a road, a building: ``_untouched``) -- a landing past a road deck's end
+    lies on the plain ground (KPHX ``o4road_eb86b0fb``: no vertex within 3 m
+    of its end, 1.6 m under it)."""
     import dataclasses as _dcl
 
     from ..law.tables import airside_stage_roles
@@ -647,8 +652,10 @@ def _split_structures(cells, blade, law, own: bool = False) -> tuple[list, int]:
     edge = blade.boundary
     out, n = [], 0
     for c in cells:
-        if c.kind != "structure" or c.role in air or (str(c.ref).startswith(_ref) and not own) \
-                or len(c.ring) < 3:
+        mine = (c.kind == "structure" and c.role not in air
+                and (own or not str(c.ref).startswith(_ref))) \
+            or (ground and c.kind != "structure" and not _untouched(c, law))
+        if not mine or len(c.ring) < 3:
             out.append(c)
             continue
         poly = Polygon(c.ring, c.holes).buffer(0.0)
@@ -816,7 +823,7 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     land = _landings(gen, carves, airport, law)
     n_land = 0
     if land is not None and not land.is_empty:
-        cells, n_land = _split_structures(cells, land, law, own=True)
+        cells, n_land = _split_structures(cells, land, law, own=True, ground=True)
     # ... and along every generated deck's ring, so a corridor running on
     # under the deck carries vertices on the ring (KJFK 1.0.565
     # ``o4gen_a900c332``: one tunnel-ramp face spanned the ring, a 35 m

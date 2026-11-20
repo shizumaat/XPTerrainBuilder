@@ -66,6 +66,9 @@ _KERB_K = 24
 #: floor's edge vertices (noded every ``planar/deck_carve.NODE_M``) reads a
 #: few tenths of a per cent steeper over a short run than the profile
 _CAP_SHARE = 0.95
+#: a road's own vertex this far past a path's floor band still takes the
+#: floor (a junction's ribbon flaring off the road in the cut, m)
+_ROAD_FLARE_M = 5.0
 #: a floor-edge vertex stands this far off its line at most (the planar
 #: build snaps a vertex to its identity lattice, ``law.tables.snap_margin_m``)
 _SNAP_M = 0.5
@@ -392,6 +395,15 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     # can reach is never the cut's
     reach = max(max(-b[0], b[1]) for _p, _f, _s, _z, b in profs) + 40.0
     vids = [v for v in pm.vertices if v not in air and v not in fixed]
+    # a ROAD's own vertex near a path's floor takes the floor, never the
+    # bank (lane lcross21, KJFK ``o4gen_e74205d8``: the ribbon of ``-41758``
+    # flaring off ``-6514`` 1.5 m past the floor band stood 1.2 m over it,
+    # 12 % over 10 m along the ramp)
+    from ..law.tables import family
+    road_roles = set(family(law, "road_cross_section").roles)
+    road_v = np.array([any(getattr(pm.faces[f], "role", "") in road_roles for f in pm.vertices[v].incident_faces)
+                       for v in vids], dtype=bool)
+    flare = _ROAD_FLARE_M
     xs = np.array([pm.vertices[v].xy[0] for v in vids], dtype=np.float64)
     ys = np.array([pm.vertices[v].xy[1] for v in vids], dtype=np.float64)
     # THE FLOOR FIRST: a vertex on a road's floor takes that road's floor
@@ -418,7 +430,7 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
         sv, nv = frame.project_signed(xs[m], ys[m])
         fz = np.interp(sv, s, z)
         lo_, hi_ = lo - _SNAP_M, hi + _SNAP_M
-        on = (nv >= lo_) & (nv <= hi_)
+        on = ((nv >= lo_) & (nv <= hi_)) | (road_v[m] & (nv >= lo_ - flare) & (nv <= hi_ + flare))
         deeper = on & (fz < on_floor[m])
         on_ground[m] = np.where(deeper, np.interp(sv, s, _path_stations(p_)[1]), on_ground[m])
         on_floor[m] = np.where(on, np.minimum(on_floor[m], fz), on_floor[m])

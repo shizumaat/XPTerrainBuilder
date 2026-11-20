@@ -389,7 +389,12 @@ def _shared_mains(gen, carves, law) -> dict[str, tuple]:
     out: dict[str, tuple] = {}
     for grp in _cut_groups(gen, carves):
         ways = {p.way for d in grp for p in carves[d.object_id].paths}
-        if len(ways) < 2:
+        lines = {tuple(p.coords) for d in grp for p in carves[d.object_id].paths}
+        if len(ways) < 2 and len(lines) < 2:
+            # one road, one line (lane lcross21: KJFK ``o4gen_6f1f538c`` /
+            # ``o4gen_e74205d8`` both ran along ``-6514`` on lines 14.8 m
+            # apart, each chained from its own clip -- two floors where they
+            # disagreed, a 12 % step on the ramp)
             continue
         rings = [deck_polygon(d) for d in grp]
         cands = {r[0]: r for d in grp for r in _covered_roads(d)}

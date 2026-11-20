@@ -11,7 +11,8 @@ the hill below the apron reads no step at all.  Two witnesses of the pad's
 OWN level are read here instead, one derivation each:
 
 * (b) THE PAD'S AREA DEM (:func:`_ground_dem_m`, the median over its
-  area — its rim is where the apron or a bund's crest stands) against the median DEM along its rim within the frontage radius of the
+  area — its rim is where the apron or a bund's crest stands) against the
+  median DEM along its rim within the frontage radius of the
   airside (``pad_touch._median_dem``, the datum ``dem_step_m`` reads);
 * (a) THE AUTHORED HEIGHT of the objects the pad carries
   (``PadEvidence.tops``: each component's authored top over its object's
@@ -81,7 +82,7 @@ def _authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy) -> float
             continue
         if u.intersection(pad).area * 2.0 < u.area:
             continue
-        for r, t in zip(rows, tops):
+        for r, t in zip(rows, tops, strict=False):
             num += float(r[3]) * float(t)
             den += float(r[3])
     return None if den <= 0.0 else num / den
@@ -132,7 +133,8 @@ def hold_sunk_cells(cells: list, airport: _t.Any, law: Law, min_area: float = 0.
     ``building`` cell is replaced by its cut-back parts (the first keeps
     the ref and the cell's id, the rest ``ref#s<k>`` appended LAST, so no
     other cell's id moves), its evidence plus :data:`SUNK_KEY`.  Returns
-    the cells and how many pads were held.  Run LAST, so every cell was read against the pad as drawn and the
+    the cells and how many pads were held.  Run LAST, so every cell was
+    read against the pad as drawn and the
     strip it yields is bare ground."""
     wit = _witness(cells, airport, law)
     if wit is None:

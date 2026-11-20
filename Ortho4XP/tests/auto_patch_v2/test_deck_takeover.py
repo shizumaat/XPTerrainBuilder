@@ -381,29 +381,35 @@ def _ll(x, y):
     return (35.0 + y * 1e-5, -78.0 + x * 1e-5)
 
 
-def test_a_span_band_our_deck_takes_leaves_the_pack_frame():
-    """KRDU 35.8713,-78.7996: our deck takes the crossing of the pack's
-    combined south deck's span 0-10 m -- that band leaves the frame (the
-    object stage drops it), the other span stays the pack's; nothing of
-    the pack is left under our deck."""
+def test_a_combined_frame_one_span_of_which_our_deck_takes_is_dropped_whole(monkeypatch):
+    """Owner 2026-11-20T23:53Z (KRDU south STH_TML, #2202 items 2-3): our
+    deck takes one span of the pack's combined deck -- the WHOLE object
+    goes (no piece kept, not the raised middle), its riders with it, a
+    terminal on the anchor stays; the span no deck of ours takes is named."""
     law = load_default()
-    decks = (_span_piece(0.0, 10.0), _span_piece(60.0, 70.0), _gen(0.0))
-    out, notes = dt.span_bands(decks, [], law, _ll)
-    assert [d.object_id for d in out] == ["o140", "o4gen_g"]
-    assert out[0].span_cut[2] == ((60.0, 70.0),)
-    assert out[1].pack_under == () and out[1].hides == ()
-    assert any("1 span(s) stay the pack's" in n for n in notes)
-
-
-def test_every_span_taken_hides_the_frame():
-    law = load_default()
-    P = lambda i, xy: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=xy)
-    decks = (_span_piece(0.0, 10.0, cut_spans=((0.0, 10.0),)), _gen(0.0))
-    out, notes = dt.span_bands(decks, [P("o140", (50.0, 0.0)), P("o141", (50.0, 0.0)),
-                                      P("t", (900.0, 0.0))], law, _ll)
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"o140": rect(0.0, -20.0, 70.0, 20.0), "o141": rect(2.0, -18.0, 68.0, 18.0),
+             "t": rect(300.0, 300.0, 400.0, 400.0)}
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    monkeypatch.setattr(dt, "_body_top", lambda *a: None)
+    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(50.0, 0.0))
+    a = dataclasses.replace(_span_piece(0.0, 10.0), members=("o140", "o141", "t"))
+    b = dataclasses.replace(_span_piece(60.0, 70.0), members=("o140", "o141", "t"))
+    out, notes = dt.span_bands((a, b, _gen(0.0)), [P("o140"), P("o141"), P("t")], None, law,
+                               _ll)
     (g,) = out
     assert sorted(h[0] for h in g.hides) == ["o140", "o141"]
-    assert any("HIDDEN" in n for n in notes)
+    assert any("whole object is HIDDEN" in n and "no generated deck takes span(s) 60-70 m"
+               in n for n in notes)
+
+
+def test_a_frame_cut_to_two_spans_is_a_combined_frame():
+    """The full map's takeover reads it as a multi-bridge frame (hidden
+    whole where our decks take every span)."""
+    assert dt._combined([_span_piece(0.0, 10.0), _span_piece(60.0, 70.0)])
+    assert not dt._combined([_span_piece(0.0, 10.0, cut_spans=((0.0, 10.0),))])
+    assert len(dt._multibridge_frames([_span_piece(0.0, 10.0), _span_piece(60.0, 70.0)],
+                                      GAP)) == 1
 
 
 def test_a_span_band_left_under_our_deck_is_counted():
@@ -412,5 +418,5 @@ def test_a_span_band_left_under_our_deck_is_counted():
     it stands over (a cut whose span reading misses it) is ``pack_under``."""
     law = load_default()
     d = _span_piece(0.0, 10.0, cut_spans=((40.0, 50.0),))       # no span holds it
-    out, _n = dt.span_bands((d, _gen(0.0)), [], law, _ll)
+    out, _n = dt.span_bands((d, _gen(0.0)), [], None, law, _ll)
     assert [u[0] for u in out[1].pack_under] == ["o140"]

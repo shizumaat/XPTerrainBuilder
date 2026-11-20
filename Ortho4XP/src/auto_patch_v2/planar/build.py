@@ -408,7 +408,7 @@ def build(airport: Airport, classification: Classification, law: Law,
         gen, tk_notes = one_decision(gen, takes, objects, cache, airport, law)
         # a pack span band a generated deck takes is dropped from its frame
         # (``deck_takeover.span_bands``; #2202 KRDU STH_TML)
-        decks, sp_notes = span_bands(tuple(decks) + gen, objects, law,
+        decks, sp_notes = span_bands(tuple(decks) + gen, objects, cache, law,
                                      airport.frame.transformers()[1])
         deck_notes = [*deck_notes, *gen_notes, *tk_notes, *sp_notes]
     # owner RULINGS 2026-11-19s (1): stage 1 solves the airside with NO

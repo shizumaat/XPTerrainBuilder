@@ -1,5 +1,27 @@
-"""THE RETAINING WALL'S SEAT: its zero on the ground it retains (#1934 R3;
-owner RULINGS 2026-11-16d, 2026-11-13u (1); spec ``docs/specs/1934-R3.md``).
+"""THE RETAINING WALL'S SEAT: its FOOTING on the lowest ground beside its
+LOW face (owner RULINGS 2026-11-20m, KLAX; replaces the 16d reading below;
+#1934 R3, 2026-11-13u (1); spec ``docs/specs/1934-R3.md``).
+
+20m, verbatim: "Retaining wall here ... between apron and road, should be
+seated at the lowest road level, about 2m lower, so it's partially
+submerged".  RULED: a wall-type object standing on a level break between
+higher pavement and a lower road seats at the lowest level beside it (the
+road), its upper side partly buried; it never pulls either pavement.  So
+the plate of a wall standing on its ground (no ``sunk_frame`` reading:
+a sunk frame's wall keeps the upper-ground plate below, 16l / 16n) on a
+LEVEL BREAK (the caller's ``level_break``: its low side on a road, its
+upper side on airside pavement), alone in its placement frame (a frame of
+several members rides one plate, and the wall would pull them: KHMP's
+speedway, 2,031 bodies 2.5 m), is its
+FOOTING ``y`` (its lowest static extent, ``top_y - height_m``) on the
+stations a grid step outside its LOW face, the ones within the ground bar
+(``[placement] split_bar_m``) of the lowest ground along it; the wall's
+upper part stands into the higher side's ground.
+MEASURED KLAX ``Fence_Terminal_1.obj`` (y -4.20 .. +3.80): the 16d plate
+put its footing at 30.87 on the road at 32.6 (test-568 replay), 1.0.562's
+connected group at 34.54; 20m puts it on the road.
+
+THE 16d READING IT REPLACES (kept for the record):
 
 A retaining wall's zero is the upper ground it holds
 (``wall_class._depth_under_zero``): its retained face reaches down from
@@ -54,17 +76,19 @@ RETAINING_PLATE = "retaining"
 
 @_dc.dataclass(frozen=True)
 class _RetainingSeat:
-    """One retaining wall's plate: its placement id, the authored ``y`` its
-    retained face reaches (the height put on the upper ground) and the
-    stations (frame xy) on that ground."""
+    """One retaining wall's plate: its placement id, the authored ``y`` put
+    on the ground (its FOOTING, 20m) and the stations (frame xy) on that
+    ground (the low side's)."""
 
     oid: str
-    top_y: float
+    y: float
     stations: tuple
     resource: str = ""
+    #: 20m: the footing on the low side (else the 16d upper ground)
+    footing: bool = False
 
 
-def _upper_stations(face, grid_m: float, step_m: float) -> list:
+def _face_stations(face, grid_m: float, step_m: float) -> list:
     """Points ``grid_m`` outside ``face`` (outward is its right:
     ``wall_sides._wall_faces``), every ``step_m`` along it, ends included."""
     off = face.offset_curve(-float(grid_m), join_style="mitre", mitre_limit=2.0)
@@ -89,9 +113,10 @@ def _ring_points(whole, ring: float) -> np.ndarray:
     return np.asarray(pts, dtype=float).reshape(-1, 2)
 
 
-def _high_ring(dem, pieces, ring: float, clear: float) -> list:
+def _side_ring(dem, pieces, ring: float, clear: float, low: bool) -> list:
     """The ring stations round ``pieces`` (:func:`_ring_points`) on the
-    HIGH side: ground within ``clear`` of the ring's 90th percentile."""
+    HIGH side (ground within ``clear`` of the ring's 90th percentile) or,
+    ``low``, the LOW side (within ``clear`` of its 10th)."""
     from shapely.ops import unary_union
 
     from .dem import dem_z_many
@@ -102,8 +127,26 @@ def _high_ring(dem, pieces, ring: float, clear: float) -> list:
     ok = np.isfinite(z)
     if not ok.any():
         return []
+    if low:
+        lo = float(np.percentile(z[ok], 10.0))
+        return [tuple(p) for p in xy[ok & (z <= lo + clear)]]
     hi = float(np.percentile(z[ok], 90.0))
     return [tuple(p) for p in xy[ok & (z >= hi - clear)]]
+
+
+def _lowest(dem, pts: list, clear: float) -> list:
+    """The stations of ``pts`` at the LOWEST level beside the wall (20m):
+    ground within ``clear`` of the least; every station where none reads."""
+    from .dem import dem_z_many
+    if not pts:
+        return pts
+    xy = np.asarray(pts, dtype=float).reshape(-1, 2)
+    z = dem_z_many(dem, xy[:, 0], xy[:, 1])
+    ok = np.isfinite(z)
+    if not ok.any():
+        return pts
+    lo = float(z[ok].min())
+    return [tuple(p) for p in xy[ok & (z <= lo + clear)]]
 
 
 def _frame_of(airport) -> dict:
@@ -117,11 +160,18 @@ def _frame_of(airport) -> dict:
 
 def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                     taken: _t.Container[str] = frozenset(),
-                    comps=None) -> tuple[_RetainingSeat, ...]:
+                    comps=None, level_m: float = 0.0,
+                    level_break: "_t.Callable[[list, list], bool] | None" = None
+                    ) -> tuple[_RetainingSeat, ...]:
     """Every retaining wall of ``airport``'s pack the rule seats (module
     doc), one record per placement.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record (the wall-class law), supplied by the caller;
-    ``comps`` the wall-class components when the caller has them."""
+    ``comps`` the wall-class components when the caller has them;
+    ``level_m`` the band that is ONE level at the lowest ground beside a
+    wall (``[placement] split_bar_m``, the 12y ground bar; 0 = the clear
+    step); ``level_break(low stations, upper stations)`` says whether the
+    wall stands on a LEVEL BREAK between higher pavement and a lower road
+    (20m; ``None``: none does, every wall keeps the upper-ground plate)."""
     dem = getattr(airport, "dem", None)
     if cfg is None or dem is None or getattr(airport, "partition", None) is None:
         return ()
@@ -133,6 +183,7 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
     clear = float(getattr(cfg, "retaining_wall_clear_step_m", 0.0) or 0.0)
     ring = getattr(cfg, "retaining_wall_step_ring_m", None)
     plated = _walled_plate_ids(airport)
+    frame = _frame_of(airport)
     by_id: dict[str, _RetainingSeat] = {}
     for w in comps:
         oid = str(getattr(getattr(w, "member", None), "id", "") or "")
@@ -141,20 +192,38 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                 or w.retained_top_y is None or h <= clear:
             continue
         smear = wall_smear_m(h)
-        pts: list = list(by_id[oid].stations) if oid in by_id else []
+        up: list = []
+        lo: list = []
         for i, g in enumerate(w.pieces):
             faces = _wall_faces(g)
             k = None if faces is None else _upper_index(dem, w, i, faces, smear)
             if k is not None:
-                pts.extend(_upper_stations(faces[k], grid_m, step_m))
-        if not pts and ring is not None:
-            pts = _high_ring(dem, w.pieces, float(ring), clear)
+                up.extend(_face_stations(faces[k], grid_m, step_m))
+                lo.extend(_face_stations(faces[1 - k], grid_m, step_m))
+        if not up and ring is not None:
+            up = _side_ring(dem, w.pieces, float(ring), clear, False)
+            lo = _side_ring(dem, w.pieces, float(ring), clear, True)
+        # 20m: a wall on a level break between higher pavement and a lower
+        # road seats its footing on the road -- a wall alone in its frame:
+        # one whose frame carries other members (one origin, one lift) would
+        # pull them with it ("it never pulls either pavement"; a wall never
+        # chains a building, 14a (2)).  A SUNK frame's wall (``sunk_frame``,
+        # 16l / 16n) and any other keep the upper ground (13u (1): a footing
+        # under the low side's ground stays buried)
+        low = (not getattr(w, "sunk_rule", "") and w.top_y is not None and bool(lo)
+               and len(frame.get(oid, (oid,))) <= 1
+               and level_break is not None and level_break(lo, up))
+        if low:
+            pts = _lowest(dem, lo, float(level_m) if level_m > 0.0 else clear)
+            y = float(w.top_y) - float(w.height_m)
+        else:
+            pts, y = up, float(w.retained_top_y)
+        if oid in by_id:
+            pts = list(by_id[oid].stations) + list(pts)
         if pts:
-            by_id[oid] = _RetainingSeat(oid, float(w.retained_top_y), tuple(pts),
-                                       str(w.resource or ""))
+            by_id[oid] = _RetainingSeat(oid, y, tuple(pts), str(w.resource or ""), low)
     # the wall's frame rides its plate: every other member of its placement
     # unit no other rule seats (one origin, one lift: one seat)
-    frame = _frame_of(airport)
     for oid, seat in list(by_id.items()):
         for k in frame.get(oid, ()):
             if k not in by_id and k not in taken and k not in plated:

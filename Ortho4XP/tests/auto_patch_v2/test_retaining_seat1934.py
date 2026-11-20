@@ -1,9 +1,10 @@
-"""#1934 R3 (spec ``docs/specs/1934-R3.md`` §2; RULINGS 2026-11-16d): a
-retaining wall whose retained face reaches its zero is plate-seated on its
-UPPER ground -- one plate entry, stations a grid step outside its upper
-face -- and the object stage reads that plate as its datum (never its
-footing).  A wall retaining nothing, one too low to be two levels, one
-another rule seats and one whose face reaches no stated height get none."""
+"""#1934 R3 (spec ``docs/specs/1934-R3.md`` §2) as RULINGS 2026-11-20m
+reads it: a retaining wall standing on its ground is plate-seated by its
+FOOTING on the lowest ground beside its LOW face -- one plate entry,
+stations a grid step outside its low face at its lowest level -- and the
+object stage reads that plate as its datum.  A wall retaining nothing, one
+too low to be two levels, one another rule seats and one whose face reaches
+no stated height get none."""
 from __future__ import annotations
 
 import types
@@ -20,7 +21,13 @@ WALL = box(0.0, 0.0, 40.0, 0.5)
 
 class _Dem:
     def z(self, x, y):
-        return 35.0 if y > 0.25 else 32.0
+        if y > 0.25:
+            return 35.0
+        return 32.0 if x < 30.0 else 32.6          # the road climbs at its east end
+
+    def z_many(self, xs, ys):
+        import numpy as np
+        return np.array([self.z(x, y) for x, y in zip(xs, ys, strict=True)], dtype=float)
 
 
 def _airport():
@@ -37,17 +44,32 @@ def _comp(oid="w", retains=True, retained=2.84, kept=0.0):
 CFG = types.SimpleNamespace(retaining_wall_clear_step_m=2.0)
 
 
-def _run(comps, taken=frozenset()):
-    return R.retaining_seats(_airport(), CFG, 0.5, 5.0, taken, comps=comps)
+def _break(low, up):
+    """the 20m level break: here every wall stands between apron and road"""
+    return True
 
 
-def test_buried_wall_is_seated_on_its_upper_ground():
+def _run(comps, taken=frozenset(), level_break=_break):
+    return R.retaining_seats(_airport(), CFG, 0.5, 5.0, taken, comps=comps,
+                             level_break=level_break)
+
+
+def test_a_wall_on_no_level_break_keeps_its_upper_ground():
+    """16d stands where 20m does not reach (no road below, no pavement above)"""
+    (w,) = _run([_comp()], level_break=lambda low, up: False)
+    assert w.y == 0.0 and not w.footing
+    assert all(y == pytest.approx(1.0) for _x, y in w.stations)
+
+
+def test_a_wall_between_apron_and_road_is_seated_by_its_footing_on_the_road():
+    """20m (KLAX ``Fence_Terminal_1``): the footing y -4.2 (top 3.8 less its
+    8 m) on the stations outside the LOW (south) face, at its lowest level
+    (the road's 32.0 part; the 32.6 end is within the clear step too)"""
     got = _run([_comp()])
     assert len(got) == 1
     w = got[0]
-    assert w.oid == "w" and w.top_y == 0.0
-    # every station a grid step outside the UPPER (north) face, 5 m apart
-    assert all(y == pytest.approx(1.0) for _x, y in w.stations)
+    assert w.oid == "w" and w.y == pytest.approx(-4.2) and w.footing
+    assert all(y == pytest.approx(-0.5) for _x, y in w.stations)
     xs = sorted(x for x, _y in w.stations)
     assert xs[0] == pytest.approx(0.0) and xs[-1] == pytest.approx(40.0)
     assert len(xs) == 9
@@ -100,3 +122,23 @@ def test_the_retaining_plate_leads_its_unit_and_group():
     assert OF.walled_lead(rec, m) is None
     other = types.SimpleNamespace(plate_y=0.0, plate_kind="edge", plate_stations=m.plate_stations)
     assert OF.walled_lead(rec, other, surface) is None
+
+
+def test_the_footing_stands_at_the_lowest_level_within_the_ground_bar():
+    """20m "at the lowest road level": with the 0.5 m ground bar only the
+    stations on the road's 32.0 part remain (its 32.6 end is another level)"""
+    (w,) = R.retaining_seats(_airport(), CFG, 0.5, 5.0, comps=[_comp()], level_m=0.5,
+                             level_break=_break)
+    assert w.stations and all(x < 30.0 for x, _y in w.stations)
+
+
+
+def test_a_wall_in_a_frame_of_several_keeps_its_upper_ground():
+    """20m never pulls a frame: a wall sharing its placement unit with other
+    members (one origin, one lift) keeps the 16d plate they ride"""
+    ap = _airport()
+    ap.partition.units = [types.SimpleNamespace(members=[types.SimpleNamespace(id="w"),
+                                                         types.SimpleNamespace(id="stand")])]
+    got = R.retaining_seats(ap, CFG, 0.5, 5.0, comps=[_comp()], level_break=_break)
+    assert {w.oid for w in got} == {"w", "stand"}
+    assert all(not w.footing and w.y == 0.0 for w in got)

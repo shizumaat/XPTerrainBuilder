@@ -466,21 +466,55 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
 
 
 def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
-    """#1934 R3 (``airport/retaining_seat``): placement id -> ``(retained
-    top y, upper-side stations, 0.0, RETAINING_PLATE)`` for each retaining
-    wall no other rule seats."""
+    """#1934 R3, RULINGS 2026-11-20m (``airport/retaining_seat``): placement
+    id -> ``(footing y, low-side stations, 0.0, RETAINING_PLATE)`` for each
+    retaining wall no other rule seats."""
     from ..airport.retaining_seat import RETAINING_PLATE, retaining_seats
     from ..classify.rules import load_rules
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
-    got = retaining_seats(airport, load_rules().service,
+    service = load_rules().service
+    got = retaining_seats(airport, service,
                           float(law.tables.emit.identity.min_distinct_spacing_m),
                           float(law.tables.structures.bridge.abutment_sample_step_m),
-                          taken)
+                          taken, level_m=float(getattr(law.tables.structures.placement,
+                                                       "split_bar_m", 0.0) or 0.0),
+                          level_break=_level_break(pm, law, service))
     for w in got:
+        where = ("footing y {:+.2f} on the road beside it (RULINGS 2026-11-20m)" if w.footing
+                 else "y {:+.2f} on its upper ground").format(w.y)
         print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
-              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on its upper "
-              f"ground, {len(w.stations)} stations")
-    return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+              f"({w.resource.rsplit('/', 1)[-1]}): {where}, {len(w.stations)} stations")
+    return {w.oid: (w.y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+
+
+def _level_break(pm, law, service):
+    """RULINGS 2026-11-20m: ``def (low stations, upper stations) -> bool`` --
+    a wall stands on a LEVEL BREAK where at least half its low-side stations
+    are within ``[service] retaining_wall_step_ring_m`` of a GROUNDSIDE
+    pavement (the road) and half its upper-side stations of an AIRSIDE one
+    (``law.tables.contact_roles``); ``None`` with no planar map."""
+    if pm is None or not getattr(pm, "faces", None):
+        return None
+    from shapely import STRtree, points
+
+    from ..law.tables import contact_roles, pavement_roles, role_side
+    from ..planar.index import face_polygon
+    reach = float(getattr(service, "retaining_wall_step_ring_m", 0.0) or 0.0)
+    air = contact_roles(law)
+    road = frozenset(r for r in pavement_roles(law) if role_side(law, r) == "groundside")
+
+    def tree(roles):
+        polys = [face_polygon(pm, fid) for fid, f in pm.faces.items() if f.role in roles]
+        polys = [p for p in polys if p is not None and not p.is_empty]
+        return STRtree(polys) if polys else None
+    t_road, t_air = tree(road), tree(air)
+
+    def near(t, pts) -> bool:
+        if t is None or not pts:
+            return False
+        hit = t.query(points([tuple(p) for p in pts]), predicate="dwithin", distance=reach)[0]
+        return 2 * len(set(hit.tolist())) >= len(pts)
+    return lambda low, up: near(t_road, low) and near(t_air, up)
 
 
 def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
@@ -679,7 +713,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
             law, airport, objects, _portal_cuts(pm, airport),
             set(plates) | excluded | shelled | modelled | set(free_decks)
             | {str(r.get("id")) for r in authored}))
-    # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
+    # #1934 R3 (RULINGS 2026-11-20m): a retaining wall's footing on its low side
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the

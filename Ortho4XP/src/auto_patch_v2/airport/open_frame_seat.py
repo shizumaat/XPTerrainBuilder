@@ -637,7 +637,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                               f"{GROUP_REASON} led by its {m.plate_kind} plate's datum at "
                               f"{lead:.2f} (RULINGS "
                               + ("2026-10-27u, #1201)" if m.plate_kind == "walled"
-                                 else "2026-11-16d, #1934)"))
+                                 else "2026-11-20m, #1934)"))
         return record
     if not plan_wide or not zeros:
         return record
@@ -782,7 +782,7 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
 
 #: the plate kinds whose datum LEADS its §16g unit and its connected group:
 #: a runway-end walled plate (#1201, RULINGS 2026-10-27u) and a retaining
-#: wall's upper ground (#1934 R3, RULINGS 2026-11-16d; ``airport/retaining_seat``)
+#: wall's footing on its low side (#1934 R3, RULINGS 2026-11-20m; ``airport/retaining_seat``)
 #: and a bridge over a portal's cut's deck end (#2120 S; ``airport/cut_bridge``)
 LEAD_PLATES = frozenset({"walled", "retaining", CUT_BRIDGE_PLATE})
 

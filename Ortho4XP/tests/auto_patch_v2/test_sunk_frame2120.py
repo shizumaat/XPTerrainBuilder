@@ -168,7 +168,7 @@ def test_w3_one_seat_path_the_frame_rides_its_wall_plate():
     ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
     got = {s.oid: s for s in retaining_seats(ap, CFG, 0.5, 5.0)}
     assert set(got) == {"dsf:obj1", "dsf:obj2"}
-    assert got["dsf:obj1"].top_y == got["dsf:obj2"].top_y == pytest.approx(20.0)
+    assert got["dsf:obj1"].y == got["dsf:obj2"].y == pytest.approx(20.0)
     z = ap.dem.z_many([p[0] for p in got["dsf:obj1"].stations],
                       [p[1] for p in got["dsf:obj1"].stations])
     assert np.all(z == 300.0)                           # the upper level only
@@ -184,7 +184,8 @@ def test_w3_a_block_with_no_two_long_faces_is_seated_on_its_high_ring():
     _x, y_axis = FRAME.entry()(LON0, LAT0 + 10.0 * _M_LAT)
     tri = Polygon([(0.0, y_axis - 15.0), (60.0, y_axis - 15.0), (30.0, y_axis + 15.0)])
     comp = WallComponent((tri,), 20.0, "objects/block_000.obj", 0, True, 10.0, 20.0, None,
-                         (LAT0, LON0), NS(id="dsf:obj1"), 19.81, "dem")
+                         (LAT0, LON0), NS(id="dsf:obj1"), 19.81, "dem",
+                         sunk_rule="upper")       # the sunk witness's reading (R2)
     (s,) = retaining_seats(ap, CFG, 0.5, 5.0, comps=[comp])
     z = ap.dem.z_many([p[0] for p in s.stations], [p[1] for p in s.stations])
     assert len(s.stations) >= 4 and np.all(z == 300.0)

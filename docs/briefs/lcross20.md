@@ -1,4 +1,4 @@
-# Brief pack — lane `lbridge4`
+# Brief pack — lane `lcross20`
 
 Base: main `e3ee2bb97` · generated 2026-11-20 by `tools/brief_pack.py`
 
@@ -13,7 +13,7 @@ Bridge round 4: one decision per crossing, width, clearance/ramp/end gaps
 
 OWNER 2026-11-20T14:21Z, verbatim: "Go ahead with one more bridge round to address the open bridge issues." ONE round; a miss goes back to the master (one-miss cap → Fable review), not another round.
 
-Base: origin/claude/lbridge3 e3ee2bb97 (= app 1.0.567 3d74abae7 + RULINGS 20a). Branch: claude/lbridge4. Opus, effort high.
+Base: origin/claude/lbridge3 e3ee2bb97 (= app 1.0.567 3d74abae7 + RULINGS 20a). Branch: claude/lcross20. Opus, effort high.
 
 ## Items, in order (each with its site; replay-first, synthetic where possible)
 
@@ -29,10 +29,10 @@ NOT in scope: #2192 KMCO terminal grouping (owner question open), ELLX #2194-#21
 
 ## Process
 - Read Ortho4XP/CLAUDE.md and src/auto_patch/CLAUDE.md; `tools/blast.py <file>` before editing; extend existing modules.
-- `lane_worktree.sh up lbridge4 origin/claude/lbridge3`; lane-local tmp `Ortho4XP/tmp/lbridge4`; never raise the lane cap; delete your scratch builds when you report.
+- `lane_worktree.sh up lcross20 origin/claude/lbridge3`; lane-local tmp `Ortho4XP/tmp/lcross20`; never raise the lane cap; delete your scratch builds when you report.
 - Synthetic-first, STOP at replay/capture evidence on the six bridge airports (KRDU KJFK KORD KPHX KBNA KMCO); no closing tile build (17r). KMCO has no capture yet: take one with the harness (`build_airport.py KMCO --tile 28 -82`, capture only) if needed for item 1.
 - CI registry gates named in your PR tests: windows_text_io, patch_env_classification, tile_failures, console_encoding; ratchets dupes/unused/layers may fall, never rise.
-- Report: push claude/lbridge4, remove the worktree, per-item MEASURED before→after at each site, net lines ±, new public symbols, a "Process" line; spec section 10 in airside-first-bridges-spec.md.
+- Report: push claude/lcross20, remove the worktree, per-item MEASURED before→after at each site, net lines ±, new public symbols, a "Process" line; spec section 10 in airside-first-bridges-spec.md.
 
 ## Bars
 

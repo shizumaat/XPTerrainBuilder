@@ -1634,14 +1634,26 @@ final class BuildModel: ObservableObject {
     /// The progress rows of `todo` name each tile's largest airports, a
     /// searched one first when it is not among them (#815, after #667).
     private func stampRunTags(_ todo: [TileCoord]) {
+        for coord in todo { activity.runTags[coord] = titleTag(coord) }
+    }
+
+    /// THE tile title's airport codes (#815, #2199): ` (KCLT, KJQF)` — the
+    /// tile's largest airports, a searched one first when it is not among
+    /// them. One derivation for the Activity rows (stamped when a run
+    /// queues the tile) and the Build History cells (`tileTitle`).
+    func titleTag(_ coord: TileCoord) -> String {
         let largest = largestAirportsByTile ?? AirportRank.largestByTile(globalAirports)
         largestAirportsByTile = largest
-        for coord in todo {
-            let tile = AirportTile(lat: coord.lat, lon: coord.lon)
-            activity.runTags[coord] = TileSearchTags.suffix(
-                AirportRank.titleCodes(largest: largest[tile] ?? [],
-                                       searched: searchTags.codes[tile] ?? []))
-        }
+        let tile = AirportTile(lat: coord.lat, lon: coord.lon)
+        return TileSearchTags.suffix(
+            AirportRank.titleCodes(largest: largest[tile] ?? [],
+                                   searched: searchTags.codes[tile] ?? []))
+    }
+
+    /// A tile's title as its Activity row shows it: the coordinate and the
+    /// run's stamped codes, else `titleTag` now (#2199).
+    func tileTitle(_ coord: TileCoord) -> String {
+        coord.key + (activity.runTags[coord] ?? titleTag(coord))
     }
 
     func clearSelection() {

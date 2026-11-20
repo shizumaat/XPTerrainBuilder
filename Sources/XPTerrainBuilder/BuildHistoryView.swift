@@ -3,11 +3,14 @@ import SceneryKit
 
 /// The Build History list beside the console (#1226, owner Q139): every
 /// built tile, newest first, narrowed by the one date filter that also
-/// dims the map. Clicking a row selects its tile, so the console shows
-/// its log. Mirrored by the Qt drawer's history panel
+/// dims the map. Each row is titled as the tile's Activity row is
+/// (`BuildModel.tileTitle`: the tile and its top airport codes, #2199);
+/// clicking one selects its tile (so the console shows its log) and
+/// frames it on the map. Mirrored by the Qt drawer's history panel
 /// (`O4_Qt_Build_History.BuildHistoryPanel`).
 struct BuildHistoryView: View {
     @EnvironmentObject var buildModel: BuildModel
+    @EnvironmentObject var controller: AnalysisController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,8 +42,9 @@ struct BuildHistoryView: View {
                 List(rows) { row in
                     Button {
                         buildModel.selectFromHistory(row.coord)
+                        controller.zoomToTile(lat: row.coord.lat, lon: row.coord.lon)
                     } label: {
-                        HistoryRowView(row: row,
+                        HistoryRowView(row: row, title: buildModel.tileTitle(row.coord),
                                        selected: buildModel.selected.contains(row.coord))
                     }
                     .buttonStyle(.plain)
@@ -53,6 +57,7 @@ struct BuildHistoryView: View {
 
 private struct HistoryRowView: View {
     let row: BuildHistoryRow
+    let title: String
     let selected: Bool
 
     var body: some View {
@@ -62,9 +67,11 @@ private struct HistoryRowView: View {
                 .help(row.outcomeText)
             VStack(alignment: .leading, spacing: 1) {
                 HStack {
-                    Text(row.coord.key)
+                    Text(title)
                         .scaledFont(.caption, weight: selected ? .bold : .semibold,
                                     monospacedDigit: true)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     Spacer()
                     Text(dateText)
                         .scaledFont(.caption)

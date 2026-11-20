@@ -1798,8 +1798,8 @@ class MainWindow(QMainWindow):
         # beside the console (BuildConsoleView.swift is the layout).
         self.console_drawer = QTHIST.ConsoleDrawer(
             self.console, lambda: self._built,
-            lambda lat, lon: self.map.set_active(lat, lon),
-            self.map.set_dimmed)
+            lambda lat, lon: self._show_tile_on_map((lat, lon)),   # #2199
+            self.map.set_dimmed, title=self._tile_title)
 
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(center)
@@ -4964,12 +4964,7 @@ class MainWindow(QMainWindow):
             # The status elides before it reaches the clock, which never
             # shrinks (a plain QLabel's minimum is its full text).
             # The tile's largest airports, a searched one first (#815).
-            title = ElidedRowLabel(
-                FNAMES.short_latlon(*tile)
-                + APTBATCH.tile_tag(RANK.title_codes(
-                    self._largest_airports().get(tile, ()),
-                    self._search_tags.get(tile, ())))
-            )
+            title = ElidedRowLabel(self._tile_title(tile))
             title.setObjectName("tile_title")
             rl.addWidget(title)
             # The bar sits right under the title (owner 2026-10-24) so
@@ -5094,6 +5089,16 @@ class MainWindow(QMainWindow):
             lambda _result, box=box: box in self._pack_art_boxes
             and self._pack_art_boxes.remove(box))
         box.show()
+
+    def _tile_title(self, tile):
+        """THE tile title (#815, #2199; the mac app's
+        ``BuildModel.tileTitle``): the coordinate and the tile's largest
+        airports, a searched one first — the Activity rows' and the Build
+        History cells'."""
+        return (FNAMES.short_latlon(*tile)
+                + APTBATCH.tile_tag(RANK.title_codes(
+                    self._largest_airports().get(tile, ()),
+                    self._search_tags.get(tile, ()))))
 
     def _show_tile_on_map(self, tile):
         """An Activity row was clicked (#816): select its tile, as a

@@ -1,6 +1,6 @@
 """#2200: the Pack choices… ask reads the selected tile's packs once and
-holds the reading (``auto_patch.overlap_memo``): a second ask on an
-unchanged tile opens no pack file; a pack changed on disk is read again;
+holds the reading (``auto_patch_v2.airport.pack_overlap_memo``): a second
+ask on an unchanged tile opens no pack file; a pack changed on disk is read again;
 an answer's own DSF rewrite keeps the reading.  Synthetic packs, no
 X-Plane, no DSFTool."""
 from __future__ import annotations
@@ -59,7 +59,8 @@ def ask(tmp_path, monkeypatch):
     _pack(scenery, "Airport", apt="ABCD")
     _pack(scenery, "Autogen")
     for i in range(38):
-        _pack(scenery, f"Elsewhere {i:02d}", tile=(40, 10 + i), apt=f"E{i:03d}" if i % 3 == 0 else "")
+        _pack(scenery, f"Elsewhere {i:02d}", tile=(40, 10 + i),
+              apt=f"E{i:03d}" if i % 3 == 0 else "")
     reads = {"n": 0}
     real_pairs = OS._pairs
 

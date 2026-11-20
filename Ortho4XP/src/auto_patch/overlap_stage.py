@@ -222,9 +222,10 @@ def _asked(scenery_dir: str, airports: _t.Collection[str],
 def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict]:
     """THE TILE'S READING (module doc): one row per pack pair, with what
     each condensed answer gives it (#2190).  Read once per state of the
-    tile's packs (``overlap_memo``, #2200): an ask on an unchanged tile
-    opens no pack file, only the stored answers."""
-    from . import overlap_memo as _om
+    tile's packs (``auto_patch_v2.airport.pack_overlap_memo``, #2200): an
+    ask on an unchanged tile opens no pack file, only the stored answers."""
+    from auto_patch_v2.airport import pack_overlap_memo as _om
+
     from .duplicate_stage import family
     rows = _om.held(scenery_dir, lat, lon)
     if rows is not None:
@@ -365,8 +366,8 @@ def _hidden(scenery: str, name: str, lat: int, lon: int) -> list:
 
 def _resign(scenery: str, written: _t.Iterable[tuple[str, int, int]]) -> None:
     """Each tile's held reading after this answer's own writes
-    (``overlap_memo.resign``): the packs as installed did not change."""
-    from . import overlap_memo as _om
+    (``pack_overlap_memo.resign``): the packs as installed did not change."""
+    from auto_patch_v2.airport import pack_overlap_memo as _om
     by_tile: dict[tuple[int, int], set[str]] = {}
     for name, la, lo in written:
         by_tile.setdefault((la, lo), set()).add(name)

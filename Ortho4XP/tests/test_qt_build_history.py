@@ -134,6 +134,24 @@ def test_history_rows_and_date_filter_dim_the_map(drawer):
     assert drawer.test_selected == [(47, -123)]
 
 
+def test_history_cells_take_the_activity_title_and_a_click_frames_the_tile(qapp, tmp_path):
+    """#2199: each cell is titled by the window's Activity-row title
+    function (the tile and its top airport codes); a click hands the tile
+    to ``select_tile`` (the window selects it and frames it on the map)."""
+    built = {(47, -123): _info(tmp_path, (47, -123), mesh_date=1.0)}
+    shown = []
+    console = QPlainTextEdit()
+    widget = QTHIST.ConsoleDrawer(
+        console, lambda: built, lambda lat, lon: shown.append((lat, lon)),
+        lambda _tiles: None, title=lambda tile: "%+03d%+04d (KSEA, KBFI)" % tile)
+    widget.history_btn.setChecked(True)
+    item = widget.history.list.item(0)
+    assert item.text().split("   ")[0].endswith("+47-123 (KSEA, KBFI)")
+    widget.history.list.itemClicked.emit(item)
+    assert shown == [(47, -123)]
+    widget.deleteLater()
+
+
 def test_clear_clears_the_view_only(drawer, tmp_path):
     drawer.append_text("[+47-123] live\n")
     drawer.clear()

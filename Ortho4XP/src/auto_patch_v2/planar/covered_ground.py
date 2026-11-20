@@ -454,9 +454,23 @@ def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
         return [], None
     airside = airside_cover(classification, law)
     pack_decks = [d for d in decks if getattr(d, "witness", "") != "generated"]
-    served = [(b, None) for b in (_served(chains(ways), airside,
-                                          float(tn.terrain_cover_min_m), pack_decks)
-                                  if ways else [])] + gen
+    # a MAPPED tunnel a generated deck covers is read down to that deck's
+    # floor depth as its own covered roads are (lane lcross21, owner
+    # 2026-11-20T17:13Z, LFPO 48.72558, 2.36983: a 7.1 m cut under the
+    # mouth depth's 7.5 read no cut, and stage 1 solved the airside down
+    # the bare-earth trench -- the deck 6 m under the terrain at its ends)
+    depth_of: dict[str, float] = {}
+    for d in decks:
+        if getattr(d, "witness", "") == "generated" and float(d.floor_min_m) > 0.0:
+            for rid, _tags, _pts in getattr(d, "covered", ()) or ():
+                depth_of[str(rid)] = min(depth_of.get(str(rid), math.inf), float(d.floor_min_m))
+
+    def _rise_of(b) -> "float | None":
+        got = [depth_of[str(w.id)] for w in b.ways if str(w.id) in depth_of]
+        return min(got) if got else None
+    served = [(b, _rise_of(b)) for b in (_served(chains(ways), airside,
+                                                 float(tn.terrain_cover_min_m), pack_decks)
+                                         if ways else [])] + gen
     cuts = []
     for b, rise in served:
         for run in section_runs(_sections(dem, b, law, rise)):

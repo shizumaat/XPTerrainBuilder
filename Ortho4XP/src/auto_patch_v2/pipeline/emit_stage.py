@@ -425,6 +425,7 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     from ..airport.centreline_seat import runway_ends_ll
     from .generated_publication import generated_records
     from .publication import jetway_strips_ll
+    from ..airport.crossing_seat import published as _crossings_published
     _strip_records = jetway_strips_ll(pm, airport, strips,
                                       design_rep.jetway_strip)
     # #2090 A5: the AGP groups' datum as the stage-2 rewrite read it — the
@@ -447,6 +448,11 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            "runway_ends": runway_ends_ll(airport),
                            # #2090 A5: the AGP groups' published datum
                            "agp_groups": _agp_records,
+                           # RULINGS 2026-11-20g / 20k: the crossing frames'
+                           # seat the roads were graded for -- the object
+                           # stage lifts the group to it
+                           "elevated_crossings": _crossings_published(
+                               getattr(airport, "elevated_crossings", ()) or ()),
                            # spec 2123 (RULINGS 2026-11-16y): the generated
                            # decks and road bridges the object stage writes
                            "generated": generated_records(

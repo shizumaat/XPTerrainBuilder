@@ -18,7 +18,8 @@ from ..model.planar import PlanarMap
 from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank,
                flat_site, foot_rows, groundside, hard_plane, door_pad,
                junction_mesh,
-               deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting,
+               deck_stack, elevated_clearance, no_step, object_floor, pad_frontage_gs,
+               pad_fronting,
                pad_sunk_level, pads,
                platform,
                proximity, ramp_runout, road_bridge_ceiling, road_ramp, roads, routes,
@@ -112,6 +113,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # owner 2026-11-17 18:30Z: the lower road under a generated road bridge
     # holds its clearance (a hard groundside ceiling)
     ("road_bridge_ceiling", road_bridge_ceiling.road_bridge_ceiling_rows),
+    # owner RULINGS 2026-11-20g / 20k: the road under a pack's elevated
+    # structure holds its class clearance under the frame's seat (hard)
+    ("elevated_clearance", elevated_clearance.elevated_clearance_rows),
     # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end
     # walled plate never rises through its top (a hard constant ceiling)
     ("walled_plate_under", walled_plate.under_plate_rows),

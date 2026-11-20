@@ -128,6 +128,13 @@ def _agp_published(graded_doc):
     return agp_groups_from_graded_doc(graded_doc)
 
 
+def _crossings_published(graded_doc):
+    """RULINGS 2026-11-20g / 20k: the graded surface's published crossing
+    seats (empty when it predates the key or has none)."""
+    from auto_patch_v2.airport.placement_read import crossings_from_graded_doc
+    return crossings_from_graded_doc(graded_doc or {})
+
+
 def _agp_surface(mesh_sample, dump, pack_root: str, surface):
     """#2090: the built mesh over the pack's on-ground ``.agp`` ground
     points, carrying ``surface``'s graded roles (the group governor)."""
@@ -740,7 +747,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             # #1837: a stock MSL row on an OBJECT / AGL frame rides it
             ground_rider_law=_gfr.law_of(law.tables.structures.placement),
             # #2110 R3 (RULINGS 2026-11-16k/u/v): touching buildings, one seat
-            touch_seat=_tseat.law_of(law.tables.structures.placement),
+            # RULINGS 2026-11-20g/k: the crossing seats the patch graded for
+            touch_seat=_tseat.law_of(law.tables.structures.placement,
+                                     _crossings_published(_gd)),
             # #2144 P2: a deck touching buildings at two levels is warped
             deck_warp=_dprof.law_of(law.tables.structures),
             # RULINGS 2026-11-19j: a placement split only past the ground bar

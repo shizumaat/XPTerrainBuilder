@@ -21,6 +21,7 @@ from ..model.rebake import RebakePlan
 from . import anchor_rule as _ar
 
 __all__ = ["read_plan", "pads_rims_from_graded", "pads_rims_from_graded_doc",
+           "crossings_from_graded_doc",
            "decks_from_graded_doc", "decks_from_graded",
            "PAD_FACE_ROLE", "RIM_BREAKLINE_KIND", "DECK_REF_PREFIX", "CUT_RINGS_KEY"]
 
@@ -107,6 +108,15 @@ def agp_groups_from_graded_doc(d: _t.Mapping[str, _t.Any]
     if "agp_groups" not in prov:
         return None
     return tuple(dict(g) for g in prov.get("agp_groups") or ())
+
+
+def crossings_from_graded_doc(d: _t.Mapping[str, _t.Any]) -> tuple[dict, ...]:
+    """RULINGS 2026-11-20g / 20k: the crossing seats a parsed
+    ``<ICAO>.graded.json`` publishes (``provenance.elevated_crossings``,
+    ``airport/crossing_seat``) -- empty where the surface predates the key
+    or crosses nothing (the touch pass then lifts no group)."""
+    prov = (d or {}).get("provenance") or {}
+    return tuple(dict(r) for r in prov.get("elevated_crossings") or ())
 
 
 def decks_from_graded(path: str) -> tuple[_ar.DeckFace, ...]:

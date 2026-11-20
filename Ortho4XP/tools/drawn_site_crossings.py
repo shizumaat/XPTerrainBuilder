@@ -15,7 +15,14 @@ rail) and the shortfall.  A row whose lowest face stands on the road is a
 building the road enters, never a crossing.  Read-only (temp dumps).
 
     venv/bin/python tools/drawn_site.py --crossings --pack PACK \\
-        --site NAME=LAT,LON,RADIUS_M [--tile-dir DIR] [--json OUT]
+        --site NAME=LAT,LON,RADIUS_M [--tile-dir DIR] [--graded G.json] [--json OUT]
+
+``--graded G.json`` reads the ground off a graded surface where one of its
+faces covers the point (``obj8_split_report.GradedInterpolator`` /
+``GradedFaceMask``, the replay's own graded sampler), the drawn mesh
+elsewhere: the ground a patch not yet built into a tile WILL draw -- a
+replay's ``--emit`` beside a pack copy the object replay wrote
+(``v2_rebake_replay plan --write-pack``).
 """
 from __future__ import annotations
 
@@ -58,6 +65,29 @@ def origin_of(q: dict) -> str:
     if not phys.startswith(os.path.abspath(q["root"]) + os.sep):
         return "library"
     return "generated" if "o4_generated" in phys.replace(os.sep, "/") else "pack"
+
+
+class GradedGround:
+    """``z(lats, lons)``: a graded surface's height where one of its faces
+    covers the point, else ``fallback``'s."""
+
+    def __init__(self, path: str, fallback):
+        from obj8_split_report import GradedFaceMask, GradedInterpolator
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        verts = data["vertices"]
+        self.interp = GradedInterpolator([[v[1], v[2]] for v in verts], [v[3] for v in verts])
+        self.faces = GradedFaceMask(data, self.interp.origin)
+        self.fallback = fallback
+
+    def z(self, lat, lon) -> np.ndarray:
+        lat = np.asarray(lat, float).reshape(-1)
+        lon = np.asarray(lon, float).reshape(-1)
+        z = np.asarray(self.faces.mask(lat, lon, self.interp(lat, lon)), dtype=float)
+        miss = ~np.isfinite(z)
+        if miss.any():
+            z[miss] = self.fallback.z(lat[miss], lon[miss])
+        return z
 
 
 def site_crossings(site, picked, mesh, ways, law, step: float) -> list[dict]:
@@ -133,6 +163,8 @@ def main(argv) -> int:
     ap.add_argument("--tile-dir", action="append", default=[])
     ap.add_argument("--osm-root", default=None, help="default: the engine's OSM_data")
     ap.add_argument("--step", type=float, default=1.0, help="carriageway grid, m")
+    ap.add_argument("--graded", default=None,
+                    help="read the ground off this graded surface where it has a face")
     ap.add_argument("--cache", default=None)
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--json", default=None)
@@ -162,13 +194,14 @@ def main(argv) -> int:
         picked = select(rows, sites, [], frames, res, args.search_m)
         mesh = DrawnMesh(mesh_box(sites, picked), args.custom_scenery, tool, args.tile_dsf,
                          args.cache, args.tile_dir)
-        rep = {"mesh": mesh.sources, "packs": packs, "sites": []}
+        ground = GradedGround(args.graded, mesh) if args.graded else mesh
+        rep = {"mesh": mesh.sources, "graded": args.graded, "packs": packs, "sites": []}
         for s in sites:
             ways = site_ways(osm_root, s)
             rec = {"name": s.name, "lat": s.lat, "lon": s.lon, "radius_m": s.radius_m,
                    "ways": len(ways),
                    "crossings": site_crossings(s, [q for q in picked if s in q["sites"]],
-                                               mesh, ways, law, args.step)}
+                                               ground, ways, law, args.step)}
             rep["sites"].append(rec)
             print_crossings(rec, args.top)
     finally:

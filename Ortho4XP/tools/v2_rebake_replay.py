@@ -226,14 +226,24 @@ def _foreign_outlines(paths: "list[str] | None") -> tuple:
     return tuple(out)
 
 
-def _touch_law(law):
+def _touch_law(law, graded_doc=None):
     """#2110 R3: ``[placement] touch_gap_m`` as the touch pass's law,
-    ``None`` under a src or law that predates it (the pass stays off)."""
+    ``None`` under a src or law that predates it (the pass stays off);
+    RULINGS 2026-11-20g/k: with the graded surface's published crossing
+    seats, where this src reads them."""
     try:
         from auto_patch_v2.airport import touch_seat as _ts
-        return _ts.law_of(law.tables.structures.placement)
-    except (ImportError, AttributeError):
+    except ImportError:
         return None
+    try:
+        from auto_patch_v2.airport.placement_read import crossings_from_graded_doc
+        return _ts.law_of(law.tables.structures.placement,
+                          crossings_from_graded_doc(graded_doc or {}))
+    except (ImportError, AttributeError, TypeError):
+        try:
+            return _ts.law_of(law.tables.structures.placement)
+        except AttributeError:
+            return None
 
 
 def _deck_warp_law(law):
@@ -657,7 +667,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
                                           "isolated_sheet_max_aspect", None),
         ground_rider_law=_ground_rider_law(law),
-        touch_seat=_touch_law(law),
+        touch_seat=_touch_law(law, _gdoc),
         deck_warp=_deck_warp_law(law),
         split_bar=_split_bar_law(law),
         floor_deck_ends=_floor_deck_ends_law(law))

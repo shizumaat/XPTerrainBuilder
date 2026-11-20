@@ -38,6 +38,8 @@ def test_crossable_ways(law):
     assert crossable({"highway": "service", "tunnel": "yes", "layer": "-1"})
     assert not crossable({"highway": "service", "bridge": "yes"})
     assert not crossable({"building": "yes"})
+    assert not crossable({"highway": "footway"})
+    assert not crossable({"railway": "abandoned"})
     cw = carriageways([_way("1", [(0, -50), (0, 50)], highway="service"),
                        _way("2", [(10, -50), (10, 50)], highway="primary"),
                        _way("3", [(20, -50), (20, 50)], railway="rail")],

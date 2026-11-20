@@ -581,6 +581,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     for _n in _rb_notes:
         if "GENERATED" in _n or "REFUSED" in _n:
             _say(f"[{icao}] {_n}", out)
+    # RULINGS 2026-11-20g / 20k: the pack's elevated structures over mapped
+    # roads and rails, their frames' seat and the roads to lower under them
+    from ..planar.elevated_crossings import attach_crossings
+    _ec_notes: list[str] = []
+    airport = attach_crossings(airport, law, ocache, _ec_notes)
+    for _n in _ec_notes:
+        _say(f"[{icao}] elevated crossings: {_n}", out)
     # THE STAGE CACHE (issue #843; ``pipeline/front_cache.py``): classify,
     # planar, flat_site, road_profile and the shapes are served from their
     # records when key and witnesses hold.  Off (``Config.stage_cache``

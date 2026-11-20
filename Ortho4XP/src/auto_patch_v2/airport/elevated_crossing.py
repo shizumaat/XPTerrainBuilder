@@ -12,8 +12,10 @@ THE ONE READING, for every consumer (the census tool, the object stage):
 * A MAPPED WAY a structure may stand over (:func:`crossable`): a
   ``highway`` or ``railway`` way that is no bridge itself
   (``deck_signature.is_bridge_way``: a bridge is the elevated thing, never
-  the thing under it).  A ``tunnel`` way is kept: a road the map tags as
-  passing under a building is exactly a crossing (KMCO's ``-1878``,
+  the thing under it) and carries traffic -- a footway, a path, a corridor,
+  a platform or a line out of use (:data:`NO_TRAFFIC`) is no road or rail.
+  A ``tunnel`` way is kept: a road the map tags as passing under a
+  building is exactly a crossing (KMCO's ``-1878``,
   §34 (12) (5) (e) "the road's passage under it").
 * Its CARRIAGEWAY (:func:`carriageways`): the centreline grown by half the
   mapped carriageway width (``model/road_clearance.carriageway_width_m``),
@@ -49,8 +51,8 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Carriageway", "Crossing", "crossable", "carriageways", "read_crossings",
-           "OVER_GROUND_M", "STEP_M", "SPAN_SHARE"]
+__all__ = ["crossable", "carriageways", "read_crossings",
+           "OVER_GROUND_M", "STEP_M", "SPAN_SHARE", "NO_TRAFFIC"]
 
 #: overhead geometry stands at least this far over the ground where no
 #: floor is known (``planar/level_underside.OVER_FLOOR_M``'s reading: a
@@ -58,13 +60,18 @@ __all__ = ["Carriageway", "Crossing", "crossable", "carriageways", "read_crossin
 OVER_GROUND_M = 0.5
 #: the carriageway is read on a grid this fine, metres
 STEP_M = 1.0
+#: the ``highway`` / ``railway`` values that carry no vehicle or train: a
+#: structure over them keeps no road or rail clearance
+NO_TRAFFIC = frozenset((
+    "footway", "path", "cycleway", "pedestrian", "steps", "corridor", "bridleway",
+    "elevator", "platform", "proposed", "construction", "abandoned", "disused", "razed"))
 #: a structure spans the carriageway at a station where its crossing cells
 #: are at least this share of the carriageway's cells there
 SPAN_SHARE = 0.8
 
 
 @_dc.dataclass(frozen=True)
-class Carriageway:
+class _Carriageway:
     """One mapped way's carriageway: ``way`` its id, ``kind`` its class
     (``highway=service``, ``railway=rail``), ``need_m`` the class minimum
     clearance, ``poly`` the carriageway in the caller's metric frame."""
@@ -79,7 +86,7 @@ class Carriageway:
 
 
 @_dc.dataclass(frozen=True)
-class Crossing:
+class _Crossing:
     """One structure (``owner``, the caller's key) over one carriageway:
     the crossing cells read, the LEAST clearance and where it is (``at``,
     frame xy), the soffit and ground there, the median clearance."""
@@ -94,6 +101,9 @@ class Crossing:
     soffit_z: float
     ground_z: float
     p50_m: float
+    #: the crossing cells ``(xs, ys, soffits)``: frame xy and the soffit's
+    #: z there (the road ceiling reads them; not compared)
+    grid: tuple = _dc.field(default=(), compare=False, repr=False)
 
     @property
     def short_m(self) -> float:
@@ -106,20 +116,21 @@ def crossable(tags: _t.Mapping[str, str]) -> bool:
     """A mapped road or rail a structure may stand over (module doc)."""
     from .deck_signature import is_bridge_way
     tags = tags or {}
-    if not (tags.get("highway") or tags.get("railway")):
+    kind = tags.get("highway") or tags.get("railway")
+    if not kind or str(kind) in NO_TRAFFIC:
         return False
     return not is_bridge_way(tags)
 
 
 def carriageways(ways: _t.Iterable[_t.Any], xy_of: _t.Callable[[_t.Any], list],
-                 law: _t.Any) -> list[Carriageway]:
+                 law: _t.Any) -> list[_Carriageway]:
     """Every :func:`crossable` way's carriageway (module doc); ``xy_of(way)``
     its centreline in the caller's metric frame."""
     from shapely.geometry import LineString
 
     from ..model.road_clearance import carriageway_width_m, design_clearance_m
     from .deck_signature import is_tunnel_way
-    out: list[Carriageway] = []
+    out: list[_Carriageway] = []
     for w in ways:
         tags = getattr(w, "tags", None) or {}
         if not crossable(tags):
@@ -133,7 +144,7 @@ def carriageways(ways: _t.Iterable[_t.Any], xy_of: _t.Callable[[_t.Any], list],
             continue
         kind = (f"highway={tags['highway']}" if tags.get("highway")
                 else f"railway={tags.get('railway')}")
-        out.append(Carriageway(str(w.id), kind, design_clearance_m(tags, law), poly,
+        out.append(_Carriageway(str(w.id), kind, design_clearance_m(tags, law), poly,
                                is_tunnel_way(tags), line))
     return out
 
@@ -155,7 +166,7 @@ def _cells(poly, box, step: float, pad: float = 0.0) -> tuple[np.ndarray, np.nda
     return px[keep], py[keep]
 
 
-def _spanning(c: Carriageway, px: np.ndarray, py: np.ndarray, hit: np.ndarray,
+def _spanning(c: _Carriageway, px: np.ndarray, py: np.ndarray, hit: np.ndarray,
               step: float) -> np.ndarray:
     """``hit`` kept only at the stations (``step`` along the centreline)
     where it covers :data:`SPAN_SHARE` of the carriageway's cells."""
@@ -172,9 +183,9 @@ def _spanning(c: Carriageway, px: np.ndarray, py: np.ndarray, hit: np.ndarray,
 
 
 def read_crossings(owners: _t.Iterable[tuple[_t.Any, np.ndarray, "float | None"]],
-                   cways: _t.Sequence[Carriageway],
+                   cways: _t.Sequence[_Carriageway],
                    ground: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                   step: float = STEP_M, over_m: float = OVER_GROUND_M) -> list[Crossing]:
+                   step: float = STEP_M, over_m: float = OVER_GROUND_M) -> list[_Crossing]:
     """Every crossing of ``owners`` -- ``(key, faces, floor)``: a placed
     structure's static solid faces ``(n, 3, 3)`` (frame x, y, world z) and
     the world z its geometry is at grade on (``None``: read
@@ -187,7 +198,7 @@ def read_crossings(owners: _t.Iterable[tuple[_t.Any, np.ndarray, "float | None"]
     if not cways:
         return []
     tree = STRtree([c.poly for c in cways])
-    out: list[Crossing] = []
+    out: list[_Crossing] = []
     for key, faces, floor in owners:
         faces = np.asarray(faces, dtype=np.float64)
         if not len(faces):
@@ -222,9 +233,10 @@ def read_crossings(owners: _t.Iterable[tuple[_t.Any, np.ndarray, "float | None"]
                 continue
             d = low[hit] - g[hit]
             k = int(np.argmin(d))
-            out.append(Crossing(key, c.way, c.kind, c.need_m, int(hit.sum()),
+            out.append(_Crossing(key, c.way, c.kind, c.need_m, int(hit.sum()),
                                 round(float(d[k]), 3),
                                 (float(px[hit][k]), float(py[hit][k])),
                                 round(float(low[hit][k]), 3), round(float(g[hit][k]), 3),
-                                round(float(np.median(d)), 3)))
+                                round(float(np.median(d)), 3),
+                                (px[hit], py[hit], low[hit])))
     return out

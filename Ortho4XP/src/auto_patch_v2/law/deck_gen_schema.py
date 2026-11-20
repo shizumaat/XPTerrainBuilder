@@ -64,6 +64,10 @@ class DeckGenLaw:
     #: owner RULINGS 2026-11-19s (8) (a): the deck is ``width_by_class_m``
     #: (the taxiway as drawn) plus this share of it as a shoulder each side
     shoulder_share: float = 0.5
+    #: owner RULINGS 2026-11-20t (1): ICAO Annex 14 §3.9.3's widest taxiway
+    #: (code F, m): a measured taxiway run wider than this holds its paved
+    #: shoulders (``planar/deck_width._measured_width``)
+    taxiway_max_m: float = 25.0
     #: owner RULINGS 2026-11-19s (8) (d): past each end line, across the
     #: deck's width, the ground stands at the end's level this far (m),
     #: then falls at the deck bank's slope (``constraints/deck_carve``)

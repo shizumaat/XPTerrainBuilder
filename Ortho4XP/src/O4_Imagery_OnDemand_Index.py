@@ -373,10 +373,15 @@ def mark_near(conn: sqlite3.Connection, tile: str, names, now: float, *,
     return written
 
 
-def forget_tile(conn: sqlite3.Connection, tile: str) -> int:
-    """Delete every row of ``tile``; returns the rows deleted."""
-    return conn.execute("DELETE FROM textures WHERE tile = ?",
-                        (tile,)).rowcount
+def forget_tile(conn: sqlite3.Connection, tile: str,
+                build_dir: "str | None" = None) -> int:
+    """Delete every row of ``tile`` (only those of ``build_dir`` when
+    named); returns the rows deleted."""
+    if build_dir is None:
+        return conn.execute("DELETE FROM textures WHERE tile = ?",
+                            (tile,)).rowcount
+    return conn.execute("DELETE FROM textures WHERE tile = ? AND build_dir = ?",
+                        (tile, build_dir)).rowcount
 
 
 #: The columns that name a file or folder (:func:`repoint_folder`).

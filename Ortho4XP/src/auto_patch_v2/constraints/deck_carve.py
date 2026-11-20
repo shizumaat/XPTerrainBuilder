@@ -346,11 +346,18 @@ def _flat_landing(rings, xy, landing: float, side: float = _SNAP_M) -> "float | 
         # ring's edge margin: the corner cone starts past it, KPHX
         # ``o4gen_566de1cd``: a cone vertex 1 m beside the corner, 0.5 m down)
         snap = side / max(_hyp(top.w), 1e-9)
-        if not -snap <= tp <= 1.0 + snap or 0.0 <= sp <= 1.0:
+        if not -snap <= tp <= 1.0 + snap:
             continue
-        past = (-sp if sp < 0.0 else sp - 1.0) * _hyp(top.u)
+        # beside the deck within ``side`` of its end line the corner lands
+        # too (KRDU taxiway d's deck: its side's bank vertex 0.8 m inside the
+        # end, 1 m beside, held the corner 0.12 m under the deck end)
+        back = side / max(_hyp(top.u), 1e-9)
+        if 0.0 <= sp <= 1.0 and not (min(sp, 1.0 - sp) <= back
+                                     and not 0.0 <= tp <= 1.0):
+            continue
+        past = max(0.0, -sp if sp < 0.5 else sp - 1.0) * _hyp(top.u)
         if past <= landing + _SNAP_M:
-            z = top.z_st(0.0 if sp < 0.0 else 1.0, min(1.0, max(0.0, tp)))
+            z = top.z_st(0.0 if sp < 0.5 else 1.0, min(1.0, max(0.0, tp)))
             best = z if best is None else max(best, z)
     return best
 

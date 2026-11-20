@@ -107,6 +107,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.hung_wall_seat",
     "auto_patch_v2.airport.interior_deck",
     "auto_patch_v2.airport.isolated_seat",
+    "auto_patch_v2.airport.level_base",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.line_solidity",
     "auto_patch_v2.airport.msl_feet",

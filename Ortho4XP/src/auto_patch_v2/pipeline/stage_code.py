@@ -219,6 +219,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
+        "auto_patch_v2.airport.level_base",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
@@ -520,6 +521,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
+        "auto_patch_v2.airport.level_base",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
@@ -1027,6 +1029,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.hung_wall_seat",
         "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
+        "auto_patch_v2.airport.level_base",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
@@ -1251,6 +1254,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.hung_wall_seat",
         "auto_patch_v2.airport.interior_deck",
         "auto_patch_v2.airport.isolated_seat",
+        "auto_patch_v2.airport.level_base",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.lot_level",
@@ -1540,6 +1544,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
+        "auto_patch_v2.airport.level_base",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
@@ -2454,6 +2459,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
+    airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
@@ -2597,6 +2603,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.deck_family_contact
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
+    airport.level_base
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
@@ -2709,7 +2716,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit
+    airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
@@ -2912,7 +2919,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit
+    airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
@@ -3138,6 +3145,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
+    airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
@@ -3307,6 +3315,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.deck_family_contact airport.deck_signature airport.dem airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
+    airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
@@ -3575,7 +3584,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -3670,7 +3679,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -3765,7 +3774,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -3854,7 +3863,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -3905,7 +3914,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -3956,7 +3965,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4007,7 +4016,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4058,7 +4067,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4109,7 +4118,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4160,7 +4169,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4211,7 +4220,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4262,7 +4271,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4319,7 +4328,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -4414,7 +4423,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -4509,7 +4518,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -4606,7 +4615,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -4701,7 +4710,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -4790,7 +4799,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4841,7 +4850,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4892,7 +4901,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4943,7 +4952,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -4994,7 +5003,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5045,7 +5054,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5096,7 +5105,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5147,7 +5156,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5198,7 +5207,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5249,7 +5258,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5300,7 +5309,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5351,7 +5360,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5402,7 +5411,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5459,7 +5468,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -5555,7 +5564,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -5644,7 +5653,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5695,7 +5704,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5746,7 +5755,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5797,7 +5806,7 @@ _GROWN: dict[str, str] = {
     airport.drawn_anchor airport.dsf airport.entrance_seat airport.exclusion
     airport.extension_cache airport.facade airport.file_hash airport.floor_rim
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_shell airport.hanging_objects
     airport.hung_wall_seat airport.interior_deck airport.isolated_seat
     airport.line_object airport.line_solidity airport.msl_feet airport.obj8
@@ -5854,7 +5863,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -5949,7 +5958,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6045,7 +6054,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6141,7 +6150,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6237,7 +6246,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6333,7 +6342,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6431,7 +6440,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity
@@ -6527,7 +6536,7 @@ _GROWN: dict[str, str] = {
     airport.exclusion airport.extension_cache airport.facade airport.facade_seat
     airport.file_hash airport.floor_deck_ends airport.floor_rim airport.footed_portal
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
-    airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.footprint_unit airport.level_base airport.frame_entry airport.free_bridge_seat
     airport.free_column airport.ground_route_ways airport.ground_shell
     airport.hanging_objects airport.hung_wall_seat airport.interior_deck
     airport.isolated_seat airport.jetways airport.line_object airport.line_solidity

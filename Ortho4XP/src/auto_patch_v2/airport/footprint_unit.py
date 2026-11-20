@@ -927,6 +927,8 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         Law.load().tables.structures.rebake.elevated_base_m))
     terrain_of = (terrain, member_of, counts) if terrain is not None else None
     all_pids = frozenset(q for v in units for q in v.pids)
+    #: #2195: pad piece -> (root, its pad's level, root base, own base)
+    levels: dict[str, tuple[str, float, float, float]] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -995,6 +997,9 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 zero, where, src = _median(list(p.z)) - base, p.ref, "pad"
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
+                # #2195: the piece's OWN walls' base, for ``level_base``
+                levels[un.id] = (_unit_root(un.id), zero + base, base, _wall_base(
+                    un, [un], parts, wall_min_m, {}, frame_of, terrain_of))
             else:
                 zero, where, src = _median([q[3] for q in cc]) - base, "", "ground"
             # owner RULINGS 2026-10-19u (#798 (a)): a unit standing on
@@ -1006,6 +1011,10 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             if top is not None:
                 pav[un.id] = (top, walled_files(mine, plan, wall_min_m))
         out[un.id] = (zero, where, src)
+    # #2195: a unit authored on two levels, standing on pads at both
+    from .level_base import level_zeros
+    for uid, z in level_zeros(levels, storey, counts if counts is not None else {}).items():
+        out[uid] = (z, *out[uid][1:])
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
 

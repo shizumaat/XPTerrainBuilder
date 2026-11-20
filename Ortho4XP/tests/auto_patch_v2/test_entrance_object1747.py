@@ -448,3 +448,43 @@ def test_a_stop_beyond_an_entrances_walls_clips_but_never_steepens_them(law):
     east = [t for t in tunnels if t.axis[0][0] > 0]
     assert east and max(x for x, _y in east[0].axis) == pytest.approx(100.0, abs=0.6), \
         (st.refused, east[0].axis if east else None)
+
+
+def _surveyed_pins(tmp_path, law, ground_under_zero, **kw):
+    """:func:`_walled_pins` with the survey (``dem_z``) standing
+    ``ground_under_zero`` m under the object's zero everywhere."""
+    d = tmp_path / "objects"
+    d.mkdir()
+    (tmp_path / "Earth nav data").mkdir()
+    (tmp_path / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8",
+                                                         newline="")
+    objs = {"dir": d, "walled": _walled_entrance(d / "walled.obj", **kw)}
+    tunnel = OsmWay(-7, "big_roads", ((0.0, 1.0), (0.0, 300.0)), False, _T)
+    airport = _airport(objs, law, [("walled", (0.0, 0.0), 0.0, 0.0, "OBJECT")], (tunnel,))
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    zero = objects[0].anchor_z + objects[0].agl_m
+    trenches, _notes = read_trench_objects(objects, cache, law, [tunnel])
+    pins = mouth_portals(trenches, objects, cache, law, [tunnel],
+                         lambda x, y: zero - ground_under_zero)
+    return zero, pins
+
+
+def test_walls_hanging_under_a_cutting_the_survey_carries_are_no_floor(tmp_path, law):
+    """20e (#2194): a bridge's walls hang 26.7 m under its zero, the survey
+    carries the road's cutting 13.5 m under it: the mouth's floor is the
+    surveyed road, never the walls' bottom, and the entrance keeps its seat
+    (``floor - bottom`` = its zero)."""
+    zero, pins = _surveyed_pins(tmp_path, law, 13.5, bottom=-26.7)
+    assert len(pins) == 1, pins
+    p = pins[0]
+    assert p.floor_z == pytest.approx(zero - 13.5, abs=0.01)
+    assert p.floor_z - p.bottom_y == pytest.approx(zero, abs=0.01)
+
+
+def test_walls_standing_on_the_surveyed_road_keep_their_bottom(tmp_path, law):
+    """Walls whose bottom stands within a wall's height of the surveyed
+    road are the floor as before (the survey only confirms the cut)."""
+    zero, pins = _surveyed_pins(tmp_path, law, 5.0, bottom=-6.0)
+    assert len(pins) == 1, pins
+    assert pins[0].floor_z == pytest.approx(zero - 6.0, abs=0.01)

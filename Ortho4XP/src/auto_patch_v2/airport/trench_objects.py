@@ -23,7 +23,9 @@ front side" — the zones keeping off the outline — is HELD: measured on
 EDDF it regressed the taxiway the object passes under (spec E3).
 
 The depth stays the survey's or the bore law's (20e: the pack portal sets
-the mouth only where the ground does not already carry the cutting).
+the mouth only where the ground does not already carry the cutting): an
+entrance whose walls hang under a cutting the survey already carries
+(:func:`mouth_portals`) takes the surveyed road as its floor (#2194).
 Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
@@ -462,6 +464,14 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             walled = top - bottom >= floor_min
             cover = _cover_over(plan, dem_z) if walled and abs(top) <= flush else None
             floor = (zero + bottom) if cover is None else cover - (top - bottom)
+            # 20e (#2194): where the survey ALREADY CARRIES THE CUTTING -- the
+            # ground at the end a wall's height under the face's top -- walls
+            # hanging below it are the author's skirt, never the road: the
+            # floor is the surveyed road there and the face keeps its seat
+            # (its bottom read from that floor, so ``portal_seat`` is unmoved)
+            seat = floor - bottom
+            if walled and seat + top - ground >= floor_min and floor < ground - floor_min:
+                floor, bottom = ground, ground - seat
             # RULINGS 2026-11-16a: an opening under one road lane is a misread;
             # the face is re-read off its walls (:func:`_misread_face`)
             misread = 0.0 < width < lane

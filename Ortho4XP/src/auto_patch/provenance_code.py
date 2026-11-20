@@ -516,6 +516,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.isolated_seat",
     "auto_patch_v2.airport.jetways",
     "auto_patch_v2.airport.junction_witness",
+    "auto_patch_v2.airport.level_base",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.line_solidity",
     "auto_patch_v2.airport.load",

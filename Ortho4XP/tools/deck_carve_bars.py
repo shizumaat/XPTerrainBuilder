@@ -6,8 +6,10 @@ read off a ``--solved-out`` pickle, per deck and per path of its cut
 
 * EVIDENCE and DIRECTION: what put the deck there and which way its ramps
   run (the record's);
-* CLEARANCE: at every station of the path under the ring (every
-  :data:`STEP_M`) and every mapped road node there, the deck's underside
+* CLEARANCE: at every metre and node of every road under the deck
+  inside the ring (more than :data:`EDGE_M` inside its edge; the edge band
+  is reported apart, ``edge_short_m``: a road leaving the deck under
+  pavement meets a wall there), the deck's underside
   (its top -- the Coons patch of the solved airside on its ring,
   ``constraints/deck_floor_follow._patch`` -- less ``[deck_gen]
   thickness_m``) over the solved surface; bar ``>= `` the road's clearance;
@@ -33,7 +35,8 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "BANK_WINDOW_M", "NEAR_M",
+__all__ = ["STEP_M", "MEET_M", "EDGE_STEP_M", "GRADE_WINDOW_M", "BANK_WINDOW_M", "EDGE_M",
+           "NEAR_M",
            "carve_bars"]
 
 #: a path is read this often (m)
@@ -47,6 +50,9 @@ EDGE_STEP_M = 0.25
 #: station (the mesh between the floor's edge vertices, noded every 4 m,
 #: reads a per cent or so more over a 3 m run where the curves bend)
 GRADE_WINDOW_M = 10.0
+#: a road sample this near the ring's edge is the edge's (m): the snap
+#: lattice (0.35 m) puts the pavement's own vertex there
+EDGE_M = 0.5
 #: the abutment's bank is read over this run (m)
 BANK_WINDOW_M = 2.0
 #: the surface is triangulated from the vertices this near the path (m)
@@ -158,7 +164,7 @@ def carve_bars(pm, z, law) -> list[dict]:
             row = {"deck": oid, "evidence": list(dc.evidence), "direction": dc.direction,
                    "way": p.way, "kind": p.kind, "need_m": p.clearance_m, "cap": p.cap}
             own = [(a, b) for a, b, o in p.stretches if o == oid]
-            clear, floors, unders, lidar = [], [], [], []
+            clear, floors, unders, lidar, edge = [], [], [], [], []
             short = None
             # every road or rail under the deck, at every metre and node of
             # it inside the ring, against ITS clearance (the cut is one, the
@@ -179,6 +185,11 @@ def carve_bars(pm, z, law) -> list[dict]:
                         if q != q:
                             continue
                         under = top.z(x, y) - slab
+                        if ring.exterior.distance(Point(x, y)) < EDGE_M:
+                            # the ring's edge: where the road leaves the deck
+                            # under pavement the cut meets it as a wall here
+                            edge.append(under - q - need)
+                            continue
                         clear.append(under - q)
                         floors.append(q)
                         unders.append(under - need)
@@ -202,6 +213,7 @@ def carve_bars(pm, z, law) -> list[dict]:
             for a, b in own:
                 lidar += [zz for ss, zz in terrain if a - probe <= ss <= b + probe]
             row["clearance_min_m"] = round(min(clear), 3) if clear else None
+            row["edge_short_m"] = round(min(edge), 3) if edge else None
             row["clearance_short_m"] = round(short[0], 3) if short else None
             if short:
                 row["need_m"] = short[1]

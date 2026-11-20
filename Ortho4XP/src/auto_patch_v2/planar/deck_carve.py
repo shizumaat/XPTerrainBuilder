@@ -537,6 +537,57 @@ def _need_strips(carves, taken_over):
     return unary_union(parts).intersection(taken_over) if parts else None
 
 
+def _road_spans(gen, carves, airport, law, spans=None) -> list[tuple]:
+    """``(axis run on to the end lines, half width with the ring's margin,
+    the taxiway deck's id)`` of every generated ROAD deck spanning a
+    generated deck's cut (``geom/road_span``, as ``pipeline/road_deck``
+    draws it); riders aside (the deck carries them)."""
+    from ..geom.road_span import DeckSpan, span_to_cut
+    from ..model.deck_frame import deck_frame
+    if spans is None:
+        spans = [DeckSpan(d.object_id, tuple(d.ring), [tuple(p.coords) for p in
+                                                       carves[d.object_id].paths], fr)
+                 for d in gen if d.object_id in carves and (fr := deck_frame(d)) is not None]
+    margin = float(law.tables.structures.deck_gen.edge_margin_m)
+    riding = {str(r) for d in gen for r in getattr(d, "riders", ()) or ()}
+    out = []
+    for b in getattr(airport, "road_bridges", ()) or ():
+        axis = LineString(b.get("axis_xy") or ())
+        if str(b.get("id")) in riding or axis.length <= 1.0:
+            continue
+        got = span_to_cut(axis, spans)
+        if got is not None:
+            out.append((got[0], float(b.get("half_m") or 0.0) + margin, got[1]))
+    return out
+
+
+class _RoadSpan(_t.NamedTuple):
+    """A generated road deck over a deck's cut, as the cut's stretches read
+    it: the ring it spans and the TAXIWAY deck's id (its floor, its top)."""
+
+    object_id: str
+    ring: tuple
+
+
+def _road_stretch_decks(gen, carves, airport, law) -> list[_RoadSpan]:
+    """THE ROAD DECK OVER THE CUT IS CUT LIKE ITS TAXIWAY DECK (owner
+    2026-11-20T15:20Z: "Road bridges we create ... require the same
+    clearance under them as taxiway bridges ... assume they will have the
+    same height and slope as the taxiway bridges"; lane lcross20): each
+    road deck spanning a generated deck's cut (:func:`_road_spans`) is a
+    stretch of that deck on every path running under it -- the floor stays
+    the taxiway deck's, level under it, and the ramps start past it.
+    MEASURED KPHX 1.0.567 road bridges ``-301`` / ``-302`` (33.436006,
+    -111.991618): the floor ramped up between the taxiway decks and them,
+    0.93 / 0.30 m short of clearance."""
+    out = []
+    for ext, half, oid in _road_spans(gen, carves, airport, law):
+        ring = ext.buffer(half, cap_style="flat", join_style="mitre")
+        if ring.geom_type == "Polygon":
+            out.append(_RoadSpan(oid, tuple(ring.exterior.coords)[:-1]))
+    return out
+
+
 def _landings(gen, carves, airport, law):
     """THE LANDINGS, NODED (lane lcross20; RULINGS 2026-11-19s (8) (d)):
     past each end line of every generated deck, across its width, and past
@@ -549,10 +600,9 @@ def _landings(gen, carves, airport, law):
     far ends ran down the bank, their end point inside a bank face)."""
     import math
 
-    from ..geom.road_span import DeckSpan, span_to_cut
+    from ..geom.road_span import DeckSpan
     from ..model.deck_frame import deck_frame
     depth = float(law.tables.structures.deck_gen.end_landing_m)
-    margin = float(law.tables.structures.deck_gen.edge_margin_m)
     parts, spans = [], []
     for d in gen:
         fr = deck_frame(d)
@@ -570,16 +620,8 @@ def _landings(gen, carves, airport, law):
         if dc is not None:
             spans.append(DeckSpan(d.object_id, tuple(d.ring),
                                   [tuple(p.coords) for p in dc.paths], fr))
-    riding = {str(r) for d in gen for r in getattr(d, "riders", ()) or ()}
-    for b in getattr(airport, "road_bridges", ()) or ():
-        axis = LineString(b.get("axis_xy") or ())
-        if str(b.get("id")) in riding or axis.length <= 1.0:
-            continue
-        got = span_to_cut(axis, spans)
-        if got is None:
-            continue
-        c = list(got[0].coords)
-        half = float(b.get("half_m") or 0.0) + margin
+    for ext, half, _oid in _road_spans(gen, carves, airport, law, spans):
+        c = list(ext.coords)
         for p, q in ((c[0], c[1]), (c[-1], c[-2])):
             n = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
             ox_, oy_ = (p[0] - q[0]) / n, (p[1] - q[1]) / n
@@ -698,12 +740,25 @@ def deck_carve(classification, decks, airport, law, tunnels=()
     carves = {d.object_id: _deck_paths(d, gen, airport, law, lines, tree) for d in gen}
     by_id = {d.object_id: d for d in gen}
     notes: list[str] = []
-    for oid, main in _shared_mains(gen, carves, law).items():
+    mains = _shared_mains(gen, carves, law)
+    for oid, main in mains.items():
         got = _deck_paths(by_id[oid], gen, airport, law, lines, tree, main)
         if any(o == oid for p in got.paths for _a, _b, o in p.stretches):
             carves[oid] = got
             notes.append(f"{oid}: one cut with its neighbours -- along their most senior "
                          f"road {main[0]} (lane lcarve2)")
+    road = _road_stretch_decks(gen, carves, airport, law)
+    if road:
+        # every path read again with the road decks over its cut as stretches
+        with_road = [*gen, *road]
+        for d in gen:
+            main = mains.get(d.object_id)
+            got = _deck_paths(d, with_road, airport, law, lines, tree, main)
+            if main is None or any(o == d.object_id for p in got.paths
+                                   for _a, _b, o in p.stretches):
+                carves[d.object_id] = got
+        notes.append(f"{len(road)} generated road deck(s) over a deck's cut: cut like it, the "
+                     f"floor level under them (owner 2026-11-20T15:20Z)")
     past = bank_past_m(law)
     regions: list[tuple[str, str, _t.Any]] = []
     for d in gen:

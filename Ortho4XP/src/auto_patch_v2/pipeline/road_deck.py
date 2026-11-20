@@ -84,7 +84,49 @@ def _ground_min(ring, z_at, step: float = 2.0) -> "float | None":
     return min(zs) if zs else None
 
 
-def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None) -> "dict | None":
+def _top_of(rec) -> "_t.Any | None":
+    """The taxiway deck's published top (``deck_floor_follow``'s record:
+    ``o``, ``u``, ``w`` and the four profiles) as a Coons patch."""
+    if not rec:
+        return None
+    from ..geom.coons_patch import CoonsPatch
+    return CoonsPatch(tuple(rec["o"]), tuple(rec["u"]), tuple(rec["w"]),
+                      *(tuple((float(q), float(zz)) for q, zz in rec[k])
+                        for k in ("a", "b", "s0", "s1")))
+
+
+def _surface_from(top, axis: LineString, w: float, to_ll, step: float = 2.0) -> dict:
+    """THE ROAD DECK TAKES ITS TAXIWAY DECK'S HEIGHT AND SLOPE (owner
+    2026-11-20T15:20Z; lane lcross20): its own parallelogram (end A's left
+    corner ``o``, ``u`` along its axis, ``w`` across it) with each edge's
+    profile read off the taxiway deck's top ``top`` at the same stations
+    (clamped onto it: beside the deck, its side's level), in the published
+    surface form (``generated_publication._surface``: lon/lat corners,
+    absolute levels)."""
+    (ax, ay), (bx, by) = axis.coords[0], axis.coords[-1]
+    L = math.hypot(bx - ax, by - ay) or 1.0
+    nx, ny = -(by - ay) / L, (bx - ax) / L
+    o = (ax - nx * w, ay - ny * w)
+    u = (bx - ax, by - ay)
+    ww = (2.0 * w * nx, 2.0 * w * ny)
+
+    def z(sv: float, tv: float) -> float:
+        x, y = o[0] + sv * u[0] + tv * ww[0], o[1] + sv * u[1] + tv * ww[1]
+        sp, tp = top.st(x, y)
+        return float(top.z_st(min(1.0, max(0.0, sp)), min(1.0, max(0.0, tp))))
+    ns, nt = max(2, int(L / step) + 1), max(2, int(2.0 * w / step) + 1)
+    ss = [k / (ns - 1) for k in range(ns)]
+    ts = [k / (nt - 1) for k in range(nt)]
+    corners = _ll(to_ll, [o, (o[0] + u[0], o[1] + u[1]), (o[0] + ww[0], o[1] + ww[1])])
+    return {"o": corners[0], "ou": corners[1], "ow": corners[2],
+            "a": [[round(t, 6), round(z(0.0, t), 4)] for t in ts],
+            "b": [[round(t, 6), round(z(1.0, t), 4)] for t in ts],
+            "s0": [[round(q, 6), round(z(q, 0.0), 4)] for q in ss],
+            "s1": [[round(q, 6), round(z(q, 1.0), 4)] for q in ss]}
+
+
+def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None,
+            tops=None) -> "dict | None":
     from ..planar.deck_generated import GENERATED_DIR
     g = law.tables.structures.deck_gen
     axis = LineString(b.get("axis_xy") or ())
@@ -93,10 +135,17 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None) -> "di
         return None
     from ..geom.road_span import span_to_cut
     spans = span_to_cut(axis, _spans(decks))
+    top = None
     if spans is not None:
-        axis, _oid = spans
-        ends = [z_at(axis.coords[k]) if z_at is not None else None for k in (0, -1)]
-        levels = [lv if e is None else e for lv, e in zip(levels, ends, strict=True)]
+        axis, oid = spans
+        # owner 2026-11-20T15:20Z: "assume they will have the same height
+        # and slope as the taxiway bridges" -- its top is read off the
+        # taxiway deck's (:func:`_surface_from`); with none published, its
+        # ends at the solved ground there (lane lcross20)
+        top = _top_of((tops or {}).get(oid))
+        if top is None:
+            ends = [z_at(axis.coords[k]) if z_at is not None else None for k in (0, -1)]
+            levels = [lv if e is None else e for lv, e in zip(levels, ends, strict=True)]
     w = float(b.get("half_m") or 0.0) + float(g.edge_margin_m)
     ring = axis.buffer(w, cap_style="flat", join_style="mitre")
     if ring.geom_type != "Polygon":
@@ -110,7 +159,12 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None) -> "di
     from .generated_publication import mapped_under
     roads += mapped_under(coords, law, to_ll, airport) if airport is not None else []
     ground = _ground_min(ring, z_at)
+    surface = _surface_from(top, axis, w, to_ll) if top is not None else None
+    if surface is not None:
+        zero = min(zz for k in ("a", "b", "s0", "s1") for _q, zz in surface[k])
+        levels = [zero, zero]
     return {"object_id": f"o4road_{hid}", "resource": f"{GENERATED_DIR}/road_{hid}.obj",
+            **({"surface": surface} if surface is not None else {}),
             "ring": _ll(to_ll, coords), "seats_a": _ll(to_ll, _end(axis, 0, w)),
             "seats_b": _ll(to_ll, _end(axis, -1, w)),
             "top_a": 0.0, "top_b": round(float(levels[1]) - float(levels[0]), 4),
@@ -124,7 +178,8 @@ def _record(b: _t.Mapping, law, to_ll, decks=(), z_at=None, airport=None) -> "di
 
 
 def road_deck_records(bridges: _t.Sequence[_t.Mapping], riding: _t.AbstractSet[str],
-                      law, airport, decks=(), z_at=None) -> tuple[list[dict], list[dict]]:
+                      law, airport, decks=(), z_at=None, tops=None
+                      ) -> tuple[list[dict], list[dict]]:
     """``(deck records, bridge records)``: every generated road bridge not
     ``riding`` a taxiway deck as a narrow flat deck (module doc) -- across
     the whole cut of a generated taxiway deck ``decks`` it runs along, its
@@ -135,7 +190,7 @@ def road_deck_records(bridges: _t.Sequence[_t.Mapping], riding: _t.AbstractSet[s
     for b in bridges:
         if str(b.get("id")) in riding:
             continue
-        rec = _record(b, law, to_ll, decks, z_at, airport)
+        rec = _record(b, law, to_ll, decks, z_at, airport, tops)
         if rec is not None:
             out.append(rec)
     keep = [{k: v for k, v in dict(b).items()

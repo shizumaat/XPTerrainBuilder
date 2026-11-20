@@ -214,7 +214,7 @@ def generated_records(planar, law, airport, z, offers=(), tops=None) -> dict[str
     road_decks, bridges = road_deck_records(
         getattr(airport, "road_bridges", ()) or (), riding, law, airport,
         [db for db in getattr(planar, "decks", ()) or () if is_generated(db)],
-        _surface_at(planar, z, airport))
+        _surface_at(planar, z, airport), tops)
     decks += road_decks
     out: dict[str, list] = {"decks": decks, "road_bridges": bridges}
     if offers:

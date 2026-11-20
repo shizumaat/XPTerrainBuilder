@@ -92,8 +92,8 @@ class DeckGenLaw:
     line_lib: str = "lib/airport/lines/1_single_taxi.lin"
     #: the films over the top (m): the pack author's pages (#2183 (2),
     #: ``airport/deck_author_art``), then the paint over them
-    film_lift_m: float = 0.02
-    paint_lift_m: float = 0.03
+    film_lift_m: float = 0.001
+    paint_lift_m: float = 0.001
     #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
     #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
     #: ``airport/deck_structure``: the slab's depth under the top (m) ...

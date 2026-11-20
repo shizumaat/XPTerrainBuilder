@@ -465,8 +465,12 @@ def _replaced_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
 
 def _body_top(o, cache, law, lo: float, hi: float):
     """``o``'s up-facing solid faces (neither animated nor drawn under the
-    terrain) standing between the absolute levels ``lo`` and ``hi`` -- a
-    deck at the carried pavement's level -- as one frame plan, or ``None``."""
+    terrain) standing between ``lo`` and ``hi`` over its own ground (its
+    placement's ``y = 0``: a pack bridge stands on the road it spans, its
+    deck a slab and a clearance over it) as one frame plan, or ``None``.
+    Read in the object's own frame, never against the survey: the pack's
+    anchor level is what the object stage re-seats (KMCO ``puente2.obj``:
+    980 m wide, its anchor's survey 5 m over the taxiway it carries)."""
     from ..airport import frame_entry as _fe
     from ..airport.object_cut import _face_normals_y
     g = cache.geometry(o.resolved) if cache is not None and o.resolved else None
@@ -475,10 +479,9 @@ def _body_top(o, cache, law, lo: float, hi: float):
     tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
     if not tris.shape[0]:
         return None
-    base = float(getattr(o, "anchor_z", 0.0) or 0.0) + float(getattr(o, "agl_m", 0.0) or 0.0)
     v = g.vertices
     ny = float(law.tables.structures.bridge.deck_plate_normal_y_min)
-    ys = v[tris][:, :, 1] + base
+    ys = v[tris][:, :, 1]
     up = (_face_normals_y(v, tris) >= ny) & (ys.min(axis=1) >= lo) & (ys.max(axis=1) <= hi)
     if not up.any():
         return None
@@ -490,20 +493,21 @@ def _body_top(o, cache, law, lo: float, hi: float):
 def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[str],
             share: "float | None") -> list[tuple[_t.Any, float]]:
     """``[(placement, its deck-level top's area over the deck)]``: every
-    pack placement of ``objects`` (``skip`` aside) drawing a top at the
-    carried pavement's level (within ``[bridge] clearance_minimum_m`` of it:
-    never a structure passing over, never a pit) over ``g``'s footprint by
-    ``[deck_gen] min_area_m2`` -- and, with ``share``, over at least that
+    pack placement of ``objects`` (``skip`` aside) drawing a top at a
+    bridge deck's height over its own ground -- from ``[deck_gen]
+    pack_structure_depth_m`` under it to the generated deck's own depth
+    (``floor_min_m``: the slab and the road's clearance) plus ``[bridge]
+    clearance_minimum_m`` over it (never a structure passing over: a
+    people-mover guideway stands higher) -- over ``g``'s footprint by
+    ``[deck_gen] min_area_m2``, and, with ``share``, over at least that
     share of its covered roads' axis inside it (a bridge over the road)."""
     from shapely.geometry import LineString
 
     from .deck_bridge import deck_polygon
-    from .deck_generated import _carried_level
     ring = deck_polygon(g)
-    level = _carried_level(airport, ring)
-    if level is None:
-        return []
     clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    lo = -float(law.tables.structures.deck_gen.pack_structure_depth_m)
+    hi = float(g.floor_min_m) + clear
     a_min = float(law.tables.structures.deck_gen.min_area_m2)
     axes = [LineString(c).intersection(ring) for _w, _t, c in g.covered or () if len(c) >= 2]
     total = sum(x.length for x in axes)
@@ -512,7 +516,7 @@ def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[st
         bb = getattr(o, "plan_bbox", None)
         if str(o.id) in skip or bb is None or not bb.intersects(ring):
             continue
-        top = _body_top(o, cache, law, level - clear, level + clear)
+        top = _body_top(o, cache, law, lo, hi)
         if top is None:
             continue
         try:
@@ -539,7 +543,7 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
     from .deck_bridge import co_placed
     out, notes = _attach(gen, takes, law)
     out = list(out)
-    if not objects or cache is None or getattr(airport, "dem", None) is None:
+    if not objects or cache is None:
         return tuple(out), notes
     share = float(law.tables.structures.deck_gen.pack_cover_share)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)

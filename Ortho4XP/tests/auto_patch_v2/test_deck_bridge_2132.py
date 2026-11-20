@@ -244,8 +244,10 @@ def test_recipe_draws_the_carried_surface_line_art_and_no_tire_marks_of_ours(tmp
         # weather-transparency or polygon offset (deck_objects._FILM_STEP_M)
         for row in ("DECAL_LIB", "WEATHER_TRANSPARENT", "ATTR_poly_os"):
             assert row not in text
-    # each film clear of the one under it at distance (cm, not mm)
-    assert float(G.paint_lift_m) - float(G.film_lift_m) >= 0.01 - 1e-9 <= float(G.film_lift_m)
+    # owner 2026-11-20T15:17Z: every overlay 1 mm over the top at most, on
+    # top by draw order (the slab, then layer group objects 1, then 2)
+    assert 0.0 < float(G.film_lift_m) <= 0.001 and 0.0 < float(G.paint_lift_m) <= 0.001
+    assert "ATTR_layer_group objects 2" in paint and "ATTR_layer_group" not in slab
     assert {f"{gen.GENERATED_DIR}/xp_a_wm.png", f"{gen.GENERATED_DIR}/xp_taxilines.dds"} \
         <= set(rec["links"])
     assert all(os.path.isabs(p) for p in rec["links"].values())

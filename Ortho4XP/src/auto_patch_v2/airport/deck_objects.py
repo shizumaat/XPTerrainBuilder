@@ -69,10 +69,16 @@ _CENTRE_LIGHTS = frozenset((101, 107))
 #: pavement / marking decal) and ``WEATHER_TRANSPARENT`` only on DRAPED
 #: geometry (``ATTR_draped``; no non-draped default-scenery OBJ carries
 #: either).  So the overlays carry none of the three: each film stands
-#: ``[deck_gen] film_lift_m`` / ``paint_lift_m`` over the top, and a
-#: line's layers (a ``_b`` line's black border, then its colour) this far
-#: apart, so nothing coplanar fights at distance.
-_FILM_STEP_M = 0.01
+#: ``[deck_gen] film_lift_m`` / ``paint_lift_m`` (1 mm) over the top and
+#: draws over it by DRAW ORDER, never by height (owner 2026-11-20T15:17Z:
+#: "as close as possible to the pavement so they don't float, but still
+#: draw on top ... try only 1mm"; lane lcross20): the slab is in the depth
+#: buffer first (group ``objects``), the films after it (``ATTR_layer_group
+#: objects 1``), the paint, lines and marks last (``objects 2``), and a
+#: line's layers (a ``_b`` line's black border, then its colour) in one
+#: batch in that order, at one height -- this step between them is 0 (it
+#: was 0.01 m: 1.0.567's overlays floated 3-6 cm over the deck).
+_FILM_STEP_M = 0.0
 
 #: the films' draw order over the slab (``deck_obj8.overlay_obj8_text``
 #: ``layer``): the author's pages first, then the paint and runway marks

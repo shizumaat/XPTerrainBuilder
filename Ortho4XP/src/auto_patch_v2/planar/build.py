@@ -57,7 +57,8 @@ from ..geom.parts import polygon_parts_with_area
 from .deck_carve import deck_carve
 from .deck_generated import carried_off
 from .deck_pack_cover import hidden_cells_off
-from .deck_takeover import decide_crossings, full_hidden, roads_under, take_frames
+from .deck_takeover import (decide_crossings, full_hidden, roads_under, take_frames,
+                             without_hidden)
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -407,6 +408,9 @@ def build(airport: Airport, classification: Classification, law: Law,
             [c.footprint for c in corridors] + [f.footprint for f in floors], deck_notes,
             covered=roads_under([b for t in takes for b in t.bridges], airport, law))
         deck_notes = [*deck_notes, *gen_notes]
+        # owner 2026-11-21T07:36Z: what the decision hid leaves every pass
+        # after it, as stage 1's map never reads it (``full_hidden``)
+        objects = without_hidden(objects, decks, cache)
     # owner RULINGS 2026-11-19s (1): stage 1 solves the airside with NO
     # generated bridge -- its decks withheld, their rings filled with the
     # pavement they carry (``planar/deck_airside``); the full map builds them

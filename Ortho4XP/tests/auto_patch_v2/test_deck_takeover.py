@@ -126,7 +126,7 @@ def test_attach_hides_the_frame_with_the_first_deck_standing_on_it():
     assert [h[0] for h in w.hides] == ["o", "o2"] and w.replaces == ("o", "o2")
     assert len(w.hidden_plans) == 1
     assert "o4gen_w, o4gen_e" in notes[0]
-    assert dt._replaced_ids(got) == {"o", "o2"}
+    assert dt.hidden_ids(got) == {"o", "o2"}
 
 
 def test_attach_names_a_frame_no_deck_stands_on():
@@ -149,6 +149,23 @@ def test_stage_one_reads_the_hidden_set_off_the_full_map():
         kept, cl, notes = dt.full_hidden(objs, None, None, load_default())
     assert [o.id for o in kept] == ["x"] and cl is None and notes == []
     assert dt.full_hidden(objs, None, None, load_default())[0] is objs     # no full map
+
+
+def test_stage_one_hides_what_the_one_decision_hid_not_only_the_frames():
+    """KRDU STH_TML obj140 (+ obj141 / obj142): a combined frame dropped by
+    the span bands rides a generated deck's ``hides``, never its
+    ``replaces`` -- stage 1's map still read it (lane lkrdue).  A ``hides``
+    row with a ``within`` plan (a piece) keeps its placement."""
+    from auto_patch_v2.model.stage_one import from_full
+    g = dataclasses.replace(_gen(0.0), replaces=("o",), hides=(
+        ("o", "a.obj", (0.0, 0.0)), ("c140", "STH_TML.obj", (0.0, 0.0)),
+        ("c141", "r.obj", (0.0, 0.0)), ("p", "plate.obj", (0.0, 0.0), ((0.0, 0.0),))))
+    assert dt.hidden_ids((g,)) == {"o", "c140", "c141"}
+    objs = [types.SimpleNamespace(id=i) for i in ("o", "c140", "c141", "p", "x")]
+    with from_full(types.SimpleNamespace(decks=(g,))):
+        kept = dt.full_hidden(objs, None, None, load_default())[0]
+    assert [o.id for o in kept] == ["p", "x"]
+    assert [o.id for o in dt.without_hidden(objs, (g,))] == ["p", "x"]
 
 
 def test_without_hands_every_pass_one_list():

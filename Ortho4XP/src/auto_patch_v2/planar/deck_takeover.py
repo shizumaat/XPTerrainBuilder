@@ -72,7 +72,7 @@ from .deck_bridge import (
 from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 
-__all__ = ["take_frames", "full_hidden",
+__all__ = ["take_frames", "full_hidden", "hidden_ids", "without_hidden",
            "roads_under", "decide_crossings"]
 
 
@@ -352,14 +352,16 @@ def _takeovers(objects, cache, classification, airport, law, ground=None, trench
 
 def full_hidden(objects, classification, cache, law) -> tuple[list, _t.Any, list[str]]:
     """``(objects, classification, notes)`` on stage 1's map: the pack less
-    the frames the full map hid (:func:`_replaced_ids`, never a second
-    reading), their deck plates paved; unchanged anywhere else."""
+    every placement the full map's one decision hid (:func:`hidden_ids`,
+    never a second reading: the walled frames, the combined frames, the
+    bridge bodies and their mates), their deck plates paved; unchanged
+    anywhere else."""
     from ..model.stage_one import full_map
     from .deck_airside import withheld
     full = full_map()
     # the no-bridge arm's full map withholds the decks that carry them
     # (``planar/deck_airside.no_bridge_arm``)
-    hid = _replaced_ids((*(getattr(full, "decks", ()) or ()), *withheld())) \
+    hid = hidden_ids((*(getattr(full, "decks", ()) or ()), *withheld())) \
         if full is not None else frozenset()
     if not hid:
         return objects, classification, []
@@ -488,10 +490,29 @@ def _attach(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], law
     return tuple(out), notes
 
 
-def _replaced_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
-    """The placement ids every deck of ``decks`` takes over (stage 1's map
-    reads them off the full map's decks)."""
-    return frozenset(m for d in decks for m in getattr(d, "replaces", ()) or ())
+def hidden_ids(decks: _t.Sequence[DeckBridge]) -> frozenset:
+    """THE ONE HIDDEN SET (owner 2026-11-21T07:36Z): the placement ids the
+    one decision per crossing hid on ``decks`` -- every deck's ``replaces``
+    (the walled frames, :func:`_attach`) and every whole-placement row of
+    its ``hides`` (the bridge bodies and their mates, :func:`_one_decision`;
+    the combined frames, :func:`_span_bands`).  A ``hides`` row with a
+    ``within`` plan (a piece of a placement drawing pieces at other sites
+    too, RULINGS 2026-11-20u) is no whole placement: its other sites stand,
+    so the placement stays in every solve input."""
+    return frozenset((*(m for d in decks for m in getattr(d, "replaces", ()) or ()),
+                      *(h[0] for d in decks for h in getattr(d, "hides", ()) or ()
+                        if len(h) < 4)))
+
+
+def without_hidden(objects, decks: _t.Sequence[DeckBridge], cache=None) -> list:
+    """``objects`` less :func:`hidden_ids` of ``decks``: the passes of the
+    full map after the decision read the pack as stage 1's map does; the
+    very list where none of them is still in it (the pack reads are
+    memoised on its identity)."""
+    hid = hidden_ids(decks)
+    if not any(str(o.id) in hid for o in objects or ()):
+        return objects
+    return _without(objects, hid, cache)
 
 
 # ── ONE DECISION PER CROSSING (owner RULINGS 2026-11-20a (1), #2191) ──────

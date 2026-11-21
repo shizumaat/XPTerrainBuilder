@@ -741,16 +741,23 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # the sources (after the borrow's last word) carry under the key's share
     # of the network, the §60 pages are the pack's pavement — sources, not
     # sheets (``airport/network_pages.py``)
+    # sheets, and (RULINGS 2026-10-30e, #2215) a page that alone holds a
+    # taxiway no source holds is one too
     n_pol = len(pol_sheets)
+    pol_part = tuple(gap_sheets[len(gap_sheets) - n_pol:]) if n_pol else ()
     netdec, net_pages = _netpages.decide(
-        pavements, tuple(gap_sheets[len(gap_sheets) - n_pol:]) if n_pol else (),
-        taxi_nodes, taxi_edges,
-        float(law.tables.structures.load.network_pages_share_max))
+        pavements, pol_part, taxi_nodes, taxi_edges,
+        float(law.tables.structures.load.network_pages_share_max),
+        [_shape_of(r.slab_corners) for r in runways],
+        float(law.tables.structures.load.network_page_unheld_min_m))
     rep.network_pages_line = netdec.line(icao)
     if net_pages:
         pavements = pavements + net_pages
-        gap_sheets = gap_sheets[:len(gap_sheets) - n_pol]
-        rep.dsf_gap_sheets, rep.dsf_gap_sheet_m2 = 0, 0.0
+        taken = set(netdec.ids)
+        gap_sheets = [g for g in gap_sheets if g.id not in taken]
+        kept = [g for g in pol_part if g.id not in taken]
+        rep.dsf_gap_sheets = len(kept)
+        rep.dsf_gap_sheet_m2 = float(sum(_sheet_area(s) for s in kept))
 
     # ── DEM ────────────────────────────────────────────────────────
     if inputs.elevation_root and inputs.dem_frame == "production":

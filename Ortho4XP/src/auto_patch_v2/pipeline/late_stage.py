@@ -544,8 +544,14 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
                for v in junior}
     sol, design = solve_late_stage(pm, cs, law, {**fixed, **held_at}, options, **solve_kw)
     if dissolved and sol.z:
-        # a lifted node stands on the edge it was lifted onto
-        sol = _dc.replace(sol, z=tuple(dissolved_levels(sol.z, dissolved)))
+        # a lifted node on a standing rim takes that rim's base edge, as the
+        # next stage's rim node did; one on this stage's own ring the edge
+        # it was lifted onto
+        on_rim: dict[int, float] = {}
+        late_rim_levels(pm_base, z_base, pm_full, on_rim,
+                        frozenset(pm_full.vertices) - frozenset(dissolved), ident * 0.02,
+                        notch_m=stand_off_m(law), rigid=rigid)
+        sol = _dc.replace(sol, z=tuple(dissolved_levels(sol.z, dissolved, on_rim)))
     hard_conflict = [*base_conf, *(dict(r) for r in design.hard_conflict)]
     t_solve = time.perf_counter() - t0
     feas = getattr(design, "hard_feasibility", None)

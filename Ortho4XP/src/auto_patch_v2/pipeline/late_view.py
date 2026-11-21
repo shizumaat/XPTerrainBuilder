@@ -136,11 +136,17 @@ def _splice(cyc: list[int], a: int, b: int, new: int) -> list[int]:
 
 
 def dissolved_levels(z: _t.Sequence[float],
-                     dissolved: _t.Mapping[int, tuple[int, int, float]]) -> list[float]:
-    """``z`` with every dissolved node at its level on the edge it was lifted
-    onto (a node lifted onto an edge whose end was itself lifted is read
-    after it: the map is applied in lifting order, reversed)."""
+                     dissolved: _t.Mapping[int, tuple[int, int, float]],
+                     standing: _t.Mapping[int, float] | None = None) -> list[float]:
+    """``z`` with every dissolved node at its level: ``standing``'s where it
+    has one (a node on a standing cell's rim takes that cell's base edge,
+    ``stage_one_map.late_rim_levels`` — the rule the next stage's rim nodes
+    were levelled by), else on the edge it was lifted onto (a node lifted
+    onto an edge whose end was itself lifted is read after it: the map is
+    applied in lifting order, reversed)."""
     out = list(z)
+    standing = standing or {}
     for v, (u, w, t) in reversed(list(dissolved.items())):
-        out[v] = (1.0 - t) * float(out[u]) + t * float(out[w])
+        out[v] = float(standing[v]) if v in standing else \
+            (1.0 - t) * float(out[u]) + t * float(out[w])
     return out

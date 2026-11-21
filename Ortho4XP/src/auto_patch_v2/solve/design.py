@@ -228,7 +228,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                     v: retarget["tz"].get(v, t)
                     for v, t in pm_x.taxi_trend_z.items()})
             got = _s1_once(pm_x, cs_x)
-            if hold_rewrite is None:
+            if hold_rewrite is None or _arm("nohold"):
                 return got
             tz = hold_rewrite(pm_x, got[4])
             if tz is None:
@@ -237,7 +237,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
         got = _s1_once(pm_x, cs_x)
         retarget["tz"] = tz = trend_rewrite(pm_x, got[4])
-        if tz is None:
+        if tz is None or _arm("s1once"):
             return got
         return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
 
@@ -308,6 +308,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if extra2:
             fixed2 = {**fixed2, **{int(v): float(z) for v, z in extra2.items()}}
         shadow = seed_rep.pop("stage2_shadow", None)
+        if _arm("noshadow"):
+            shadow = None
     else:
         shadow = None
 
@@ -335,12 +337,23 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             shadow, cs_rw, levels, fixed2, _stage2_set, lambda cs_x, fx: _solve_stage(
                 planar2, cs_x, law, options, method=method, low_rank=low_rank, fixed=fx,
                 seed=seed2), seed_rep)
-    sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
-                              method=method, low_rank=low_rank, fixed=fixed2,
-                              seed=seed2)
-    yielded: list[dict] = []
-    cs2_used = cs
-    if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
+    if _arm("yield1") and yield_heads:
+        # #2206 ARM: stage 2 solved ONCE, its yielding pins released up front
+        from .pin_yield import released_once
+        sol2, rep2, yielded, cs2_used = released_once(
+            planar2, cs, law, {p.v for p in cs.pins} - set(s1_read),
+            lambda cs_x: _solve_stage(planar2, cs_x, law, options, size_out=size_out,
+                                      method=method, low_rank=low_rank, fixed=fixed2,
+                                      seed=seed2))
+        for r in yielded:
+            r["stage"] = 2
+    else:
+        sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
+                                  method=method, low_rank=low_rank, fixed=fixed2,
+                                  seed=seed2)
+        yielded = []
+        cs2_used = cs
+    if sol2.z and yield_heads and not _arm("yield1"):     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
                                 method=method, low_rank=low_rank, fixed=fixed2,
@@ -490,6 +503,13 @@ def _with_facade_strips(planar: PlanarMap, law: Law, sol: Solution,
         return sol, rep
     z, rep.facade_strip = project_facade_strips(planar, law, sol.z)
     return _dc.replace(sol, z=z), rep
+
+
+def _arm(name: str) -> bool:
+    """#2206 MEASUREMENT ARM (``O4_ONESOLVE_ARM``, a comma list; never a
+    build default): ``s1once`` / ``nohold`` / ``yield1`` / ``noshadow``."""
+    import os
+    return name in (os.environ.get("O4_ONESOLVE_ARM") or "").split(",")
 
 
 def solve_late_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,

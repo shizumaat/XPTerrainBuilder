@@ -17,10 +17,14 @@ piece's extent along the route) and whose SIDES run along the route at
 on its centreline.
 A route of no class takes the airport's most common class.
 
-THE MEASURED PAVEMENT FIRST (owner RULINGS 2026-11-20t (1)): where the
-taxiway's pavement is drawn past an end, the deck is that measured taxiway
-with its measured paved shoulders (:func:`_measured_width`); the class
-letter, which authors sometimes get wrong, holds only where none is drawn.
+THE PAVEMENT CHORD, CAPPED BY THE CLASS (owner RULINGS 2026-11-20w,
+replacing 20t (1)'s measuring rule and 19s (8) (a)'s floor): where pavement
+is drawn past an end, the deck is the narrower end's straight chord across
+ALL the pavement there, edge to edge (:func:`_chord_width`), at most the
+class width above (the class maximum) even where the pavement runs on; the
+class maximum alone where none is drawn.  Nothing later widens it but a
+rider (19s (8) (c), noted): ``deck_generated`` squares the deck on its own
+axes and ``_spans_cover`` only lengthens it.
 
 Nothing here names an airport.  Build-time impact: a few shapely
 intersections per generated deck piece.
@@ -166,27 +170,33 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
             b0 = _reach(b0, -1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
             b1 = _reach(b1, 1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
-        lo_a, hi_a, why = a_c - ha, a_c + ha, (f"{width:g} m wide (taxiway + a half-width "
-                                               "shoulder each side, RULINGS 2026-11-19s (8) (a))")
+        lo_a, hi_a, why = a_c - ha, a_c + ha, (
+            f"{width:g} m wide: the class maximum (taxiway + its shoulders), no pavement "
+            f"drawn past its ends (RULINGS 2026-11-20w)")
         band = (a_c - hc, a_c + hc)
-        if (taxi_at or pave_at) is not None:
+        if pave_at is not None:
+            # owner RULINGS 2026-11-20w: the straight chord across ALL the
+            # pavement past each end, edge to edge; the narrower, capped at
+            # the class maximum even where the pavement runs on
+            # ... never over a neighbouring taxiway's (half way to it: one
+            # deck per taxiway, 19s (3) (b))
             lim = _between(airport, edges, (ux, uy), (wx, wy), det, a_c, b0, b1)
-            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at or pave_at, law,
-                             width, lim)
-            meas = _narrowest(runs)
-            if meas is not None:
-                # owner RULINGS 2026-11-20t (1): the MEASURED pavement, the
-                # class letter only where none is drawn
-                paved = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law,
-                                  width, lim) if taxi_at is not None and pave_at is not None \
-                    else runs
-                lo_a, hi_a, why = _measured_width(meas, paved, det, law)
-                band = (min(meas[0], a_c), max(meas[1], a_c))
-                hc = max(a_c - band[0], band[1] - a_c)
-                width = (hi_a - lo_a) * abs(det)
+            chords = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law, width,
+                               lim)
+            lo_a, hi_a, why = _chord_width(chords, a_c, det, width)
+            if taxi_at is not None:
+                # the taxiway's own paved band inside the deck (20f's gap
+                # never narrows the deck inside it, ``parted``)
+                taxi = _narrowest(_end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at,
+                                            law, width, lim))
+                band = (max(lo_a, taxi[0]), min(hi_a, taxi[1])) if taxi is not None \
+                    else (max(lo_a, a_c - hc), min(hi_a, a_c + hc))
             else:
-                lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
-                band = _band(runs, a_c, hc)
+                band = (max(lo_a, a_c - hc), min(hi_a, a_c + hc))
+            if band[1] <= band[0]:
+                band = (lo_a, hi_a)
+            hc = max(a_c - band[0], band[1] - a_c, 0.0)
+            width = (hi_a - lo_a) * abs(det)
         d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
              f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc,
@@ -263,9 +273,10 @@ def _end_runs(b0: float, b1: float, a_c: float, hc: float, u: XY, w: XY, det: fl
               lim: tuple[float, float] = (-math.inf, math.inf)) -> list:
     """The pavement run just past each end of a route deck (:func:`_run_at`
     ``[deck_gen] end_width_probe_m`` past ``b0`` and ``b1``), read out to
-    ``end_width_broad`` x the deck's ``width``."""
+    ``width`` (the class maximum) either way of the taxiway: a run going on
+    past it is broad (``(-inf, inf)``, RULINGS 2026-11-20w's cap)."""
     g = law.tables.structures.deck_gen
-    probe, most = float(g.end_width_probe_m), float(g.end_width_broad) * width
+    probe, most = float(g.end_width_probe_m), width
     lw = math.hypot(*w)
     return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most, lim)
             for b in (b0 - probe / lw, b1 + probe / lw)]
@@ -279,81 +290,37 @@ def _narrowest(runs) -> "tuple[float, float] | None":
     return min(got, key=lambda r: r[1] - r[0]) if got else None
 
 
-def _measured_width(taxi: tuple[float, float], paved, det: float, law
-                    ) -> tuple[float, float, str]:
-    """``(a0, a1, note)``: THE DECK FROM THE MEASURED PAVEMENT (owner
-    RULINGS 2026-11-20t (1), KRDU 35.880425,-78.788861: "I see the taxiway
-    as about 20m wide, with about an 8m shoulder on either side ... How are
-    you getting 76m? We need to check the pavement width, not just what the
-    author put in the taxiroute size letter"): ``taxi`` is the narrower
-    end's taxiway run (:func:`_narrowest`).  A run wider than ``[deck_gen]
-    taxiway_max_m`` (ICAO Annex 14 §3.9.3's widest taxiway) already holds
-    its paved shoulders: the deck is that run.  Otherwise the deck is the
-    taxiway with its MEASURED paved shoulders -- the narrower finite end run
-    of the airport's pavement ``paved`` holding it -- where they are drawn,
-    and twice the measured taxiway (19s (8) (a)) where none are."""
+def _chord_width(chords, a_c: float, det: float, cap: float) -> tuple[float, float, str]:
+    """``(a0, a1, note)``: THE DECK IS THE NARROWER END'S PAVEMENT CHORD,
+    CAPPED BY THE TAXIWAY CLASS (owner RULINGS 2026-11-20w, 2026-11-21T01:23Z:
+    "The taxiway width we care about for the deck is the total width of all
+    pavement perpendicular to the bridge at either end. A straight chord from
+    pavement edge to pavement edge, with taxiway letter class determining the
+    maximum deck width even when there's continuous pavement").  ``chords``:
+    the run of ALL the airport's pavement across the route just past each end
+    (:func:`_end_runs`; ``None`` meets none, ``(-inf, inf)`` runs on past
+    ``cap``).  The deck is the narrower end's chord, at most ``cap`` (m: the
+    route's class taxiway + its shoulders) -- a wider one gives its ``cap``
+    window nearest the taxiway centreline ``a_c``; no floor.  No end meeting
+    pavement: ``cap`` about ``a_c``."""
     m = abs(det)
-    t = (taxi[1] - taxi[0]) * m
-    most = float(law.tables.structures.deck_gen.taxiway_max_m)
-    if t > most + 1e-6:
-        return (taxi[0], taxi[1], f"{t:.1f} m wide: the measured taxiway pavement with its "
-                f"shoulders (over {most:g} m; RULINGS 2026-11-20t (1))")
-    held = [r for r in paved or () if r is not None and not math.isinf(r[0])
-            and r[0] <= taxi[0] + 1e-6 and r[1] >= taxi[1] - 1e-6]
-    p = min(held, key=lambda r: r[1] - r[0]) if held else None
-    if p is not None and (p[1] - p[0]) * m > t + 1.0:
-        return (p[0], p[1], f"{(p[1] - p[0]) * m:.1f} m wide: the measured {t:.1f} m taxiway "
-                f"and its paved shoulders (RULINGS 2026-11-20t (1))")
-    c = 0.5 * (taxi[0] + taxi[1])
-    return (c - (taxi[1] - taxi[0]), c + (taxi[1] - taxi[0]),
-            f"{2.0 * t:.1f} m wide: twice the measured {t:.1f} m taxiway, no paved shoulder "
-            f"drawn (RULINGS 2026-11-19s (8) (a), 2026-11-20t (1))")
-
-
-def _pavement_width(runs, a_c: float, hc: float, ha: float, det: float, width: float
-                    ) -> tuple[float, float, str]:
-    """``(a0, a1, note)``: THE DECK IS AS WIDE AS THE PAVEMENT IT MEETS
-    (owner RULINGS 2026-11-20a (2): "bridge width, should match the width of
-    the pack pavement it touches on either side of the cut as long as it's
-    larger than the taxiway x2 rule, if the two sides are different, use the
-    narrower one, we don't want to expand to match a whole apron"): of the
-    two end runs the NARROWER, never under ``width`` (19s (8) (a), the
-    taxiway twice) about the centreline; an end with no pavement run or a
-    broad one never widens it.  The runs are the TAXIWAY pavement's
-    (``route_specs`` ``taxi_at``): MEASURED KPHX taxiway S, the airport's
-    pavement past its end ran on into the apron, 207 m, and the 207 m deck
-    moved the airside 3.5 m."""
-    m = abs(det)
+    half = 0.5 * cap / m
     widths = [None if r is None else (math.inf if math.isinf(r[0]) else (r[1] - r[0]) * m)
-              for r in runs]
-    names = " / ".join("none" if x is None else ("broad" if math.isinf(x) else f"{x:.1f} m")
-                       for x in widths)
-    narrow = None if None in widths else min(zip(widths, runs, strict=True),
-                                             key=lambda q: q[0])
-    if narrow is None or math.isinf(narrow[0]) or narrow[0] <= width + 1e-6:
-        return (a_c - ha, a_c + ha,
-                f"{width:g} m wide (taxiway twice, RULINGS 2026-11-19s (8) (a); the pavement "
-                f"at its ends A / B: {names}, RULINGS 2026-11-20a (2))")
-    a0, a1 = min(narrow[1][0], a_c - hc), max(narrow[1][1], a_c + hc)
-    if a1 - a0 < 2.0 * ha:
-        grow = 0.5 * (2.0 * ha - (a1 - a0))
-        a0, a1 = a0 - grow, a1 + grow
-    return (a0, a1, f"{(a1 - a0) * m:.1f} m wide: the narrower pavement at its ends A / B "
-            f"{names} (RULINGS 2026-11-20a (2))")
-
-
-def _band(runs, a_c: float, hc: float) -> tuple[float, float]:
-    """``(a0, a1)``: the taxiway's whole PAVED BAND (owner RULINGS
-    2026-11-20f: "the bridges are quite a bit larger than the taxiways" --
-    the concrete taxiway with its asphalt shoulders): the narrower finite
-    end run (:func:`_end_runs`) holding the taxiway, never under the taxiway
-    as drawn (``a_c`` +- ``hc``, ``width_by_class_m``)."""
-    got = [r for r in runs if r is not None and not math.isinf(r[0])
-           and r[0] <= a_c - hc + 1e-6 and r[1] >= a_c + hc - 1e-6]
-    if len(got) < len([r for r in runs if r is not None]) or not got:
-        return a_c - hc, a_c + hc
-    lo, hi = min(got, key=lambda r: r[1] - r[0])
-    return min(lo, a_c - hc), max(hi, a_c + hc)
+              for r in chords]
+    names = " / ".join("none" if x is None else ("over the cap" if math.isinf(x)
+                                                  else f"{x:.1f} m") for x in widths)
+    got = [(x, r) for x, r in zip(widths, chords, strict=True) if x is not None]
+    if not got:
+        return (a_c - half, a_c + half,
+                f"{cap:g} m wide: the class maximum, no pavement drawn past its ends "
+                f"(RULINGS 2026-11-20w)")
+    x, r = min(got, key=lambda q: q[0])
+    if x >= cap - 1e-6:
+        lo = a_c - half if math.isinf(r[0]) else min(max(a_c - half, r[0]), r[1] - 2 * half)
+        return (lo, lo + 2 * half, f"{cap:g} m wide: the class maximum (the pavement chords "
+                f"at its ends A / B: {names}; RULINGS 2026-11-20w)")
+    return (r[0], r[1], f"{x:.1f} m wide: the narrower pavement chord at its ends A / B "
+            f"{names}, under the class maximum {cap:g} m (RULINGS 2026-11-20w)")
 
 
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
@@ -446,8 +413,9 @@ def _narrow(u: XY, d: list) -> bool:
 
 
 def _spans_cover(u: XY, d: list, cover, avoid=None) -> float:
-    """THE DECK SPANS ITS CROSSING (lane lcarve2): ``d``'s ring grown, in
-    place, over every part of ``cover`` it touches -- the carriageway and
+    """THE DECK SPANS ITS CROSSING (lane lcarve2): ``d``'s ring lengthened
+    along its route (never widened: RULINGS 2026-11-20w), in place, over
+    every part of ``cover`` it touches -- the carriageway and
     its shoulders of each road the pavement covers, where it runs on under
     pavement past the piece (an apron or a pack junction the road leaves
     the deck under: KRDU 1.0.565 ``-255`` met the apron's no-bridge level
@@ -470,15 +438,13 @@ def _spans_cover(u: XY, d: list, cover, avoid=None) -> float:
         parts = [q for q in parts if not q.intersects(ring)]
         for q in hit:
             (qa0, qa1), (qb0, qb1) = _span(u, d[0], q.exterior.coords)
-            d[2], d[3] = min(d[2], qa0), max(d[3], qa1)
+            # RULINGS 2026-11-20w: the cover LENGTHENS the deck along its
+            # route, never widens it past its chord
             d[4], d[5] = min(d[4], qb0), max(d[5], qb1)
     if avoid is not None and _ring(u, d).intersection(avoid).area > on_pack + 1.0:
         d[2], d[3], d[4], d[5] = a0, a1, b0, b1
         return 0.0
-    lw = math.hypot(*d[0])
-    da = max(a0 - d[2], d[3] - a1) * abs(d[1]) / max(lw, 1e-9)
-    db = max(b0 - d[4], d[5] - b1) * abs(d[1])
-    return max(da, db, 0.0)
+    return max(max(b0 - d[4], d[5] - b1) * abs(d[1]), 0.0)
 
 
 #: a cover part this near a deck's ring runs on from it (m)

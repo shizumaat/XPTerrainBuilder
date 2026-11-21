@@ -73,7 +73,7 @@ from .deck_generated import generated_decks
 from .deck_pack_cover import _placed, _static_solid
 
 __all__ = ["take_frames", "full_hidden",
-           "roads_under", "one_decision", "span_bands"]
+           "roads_under", "decide_crossings"]
 
 
 @_dc.dataclass(frozen=True)
@@ -654,6 +654,67 @@ def _mates(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float,
     return [o, *solid] if stranger else [o, *solid, *bare]
 
 
+def _solid_plan(o, cache, law):
+    """``o``'s drawn solid as one frame plan (the union of its static
+    triangles), or ``None``: a placement whose solid stands at many sites
+    (one object holding pieces at several bridges) reads as what it draws,
+    never its hull."""
+    from ..airport import frame_entry as _fe
+    read = getattr(cache, "geometry", None)
+    g = read(o.resolved) if read is not None and o.resolved else None
+    if g is None or g.solid is None or not len(g.solid):
+        return None
+    tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
+    if not tris.shape[0]:
+        return None
+    polys = [p for p in shapely.polygons(g.vertices[tris][:, :, [0, 2]])
+             if p.is_valid and p.area > 1e-6]
+    return _placed(o, _fe.union(polys, "deck_takeover.solid"), law) if polys else None
+
+
+def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, footprint,
+               hi: float) -> list[tuple[_t.Any, _t.Any]]:
+    """``[(placement, its pieces' plan within the footprint)]``: every frame
+    mate of ``o`` (co-placed, its plan overlapping ``o``'s) that is no
+    building but draws PIECES at other sites too -- under ``[deck_gen]
+    hide_inside_share`` of its drawn solid within our decks' ``footprint``,
+    at least ``min_area_m2`` of it there.  Only those pieces are hidden
+    (``hides`` row with its ``within`` plan: the pack copy drops the bodies
+    of its split standing there).  MEASURED KDFW 1.0.570: 224.obj / 223.obj,
+    96 / 40 triangles over 0.9 x 2.8 km (hull 2.35 km2), 567 / 229 m2 of
+    their solid under the four taxiway A / B decks, floating 9.4 / 13.0 m
+    over the valley the decks span."""
+    from shapely.geometry import Polygon
+
+    from .deck_bridge import co_placed
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    share = float(law.tables.structures.deck_gen.hide_inside_share)
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    own = _plan(o, cache, law)
+    body = Polygon(own).buffer(0.0) if own else None
+    out = []
+    for q in objects:
+        if q is o or str(q.id) in hidden or body is None or not co_placed(o, q, tol):
+            continue
+        pq = _plan(q, cache, law)
+        try:
+            if pq is None or Polygon(pq).buffer(0.0).intersection(body).area < a_min:
+                continue
+            sol = _solid_plan(q, cache, law)
+            if sol is None or sol.is_empty:
+                continue
+            on = sol.intersection(footprint)
+            if on.area < a_min or on.area >= share * sol.area:
+                continue
+        except shapely.errors.GEOSException:         # an invalid pack outline
+            continue
+        roof = _body_top(q, cache, law, hi + clear, float("inf"))
+        if roof is not None and roof.intersection(footprint).area >= a_min:
+            continue                                  # a building there: never
+        out.append((q, on))
+    return out
+
+
 def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], law) -> list:
     """THE HIDE GUARD (owner 2026-11-20T22:39Z): the decks of ``out`` hide
     at most ``[deck_gen] hide_max_share`` of the pack's placements
@@ -678,7 +739,7 @@ def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], l
     return kept
 
 
-def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], objects,
+def _one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], objects,
                  cache, airport, law) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(gen, notes)``: THE ONE DECISION per crossing our decks were
     generated at (the block comment above): the walled frames this build
@@ -697,11 +758,14 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
     to_ll = airport.frame.transformers()[1]
     hidden = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
     bodies = {m for t in takes for m in t.bodies}
+    # the decks over the crossings: what rides them is hidden with the body
+    # -- read against ALL our decks, one piece crossing several (MEASURED
+    # KDFW 1.0.570: 223.obj / 224.obj each over four taxiway A / B decks,
+    # under half of it on any one, left floating over the valley)
+    foot = unary_union([deck_polygon(g).buffer(reach) for g in out if g.family != "road"])
     for k, g in enumerate(out):
         if g.family == "road":
             continue
-        # the deck over the crossing: what rides it is hidden with the body
-        foot = deck_polygon(g).buffer(reach)
         for o, area in _bodies(g, objects, cache, airport, law, hidden, share):
             mates = _mates(o, objects, hidden, cache, law, tol, foot,
                            float(g.floor_min_m) + clear)
@@ -717,6 +781,19 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
                          + ", ".join(f"{q.id} {q.path}" for q in mates if q is not o)
                          + (" (none)" if len(mates) == 1 else "")
                          + " (RULINGS 2026-11-20a (1))")
+            for q, on in _pieces_on(o, objects, hidden, cache, law, tol, foot,
+                                    float(g.floor_min_m) + clear):
+                hidden.add(str(q.id))
+                within = on.convex_hull.buffer(reach)
+                g = _dc.replace(g, hides=tuple(g.hides) + ((
+                    str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))),
+                    tuple(tuple(reversed(to_ll(x, y))) for x, y in within.exterior.coords)),),
+                    hidden_plans=tuple(g.hidden_plans) + tuple(
+                        tuple(p.exterior.coords[:-1]) for p in getattr(on, "geoms", [on])
+                        if p.geom_type == "Polygon"))
+                notes.append(f"{g.object_id}: {q.id} {q.path} draws pieces at other sites too: "
+                             f"only its {on.area:,.0f} m2 on our decks is HIDDEN (the bodies "
+                             f"of its split there; RULINGS 2026-11-20a (1), 20u)")
         out[k] = g
     out = _capped(out, objects, bodies, notes, law)
     hidden = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
@@ -743,7 +820,7 @@ def one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], ob
 # it is kept (not the raised middle of a taxiway either).  The full map's
 # takeover reads such a frame as a multi-bridge frame (:func:`_combined`)
 # and hides it whole where our decks take every span; where a generated
-# deck still stands on one of its spans after that, :func:`span_bands`
+# deck still stands on one of its spans after that, :func:`_span_bands`
 # drops it whole too and names any span left without our deck.  Never
 # both: a pack span band still under a generated deck is the deck's
 # ``pack_under`` defect (census ``pack_bridge_under_deck``).
@@ -761,7 +838,7 @@ def _span_of(d: DeckBridge) -> "int | None":
     return next((k for k, (sa, sb) in enumerate(spans) if sa - 1.0 <= st <= sb + 1.0), None)
 
 
-def span_bands(decks: _t.Sequence[DeckBridge], objects, cache, law, to_ll=None
+def _span_bands(decks: _t.Sequence[DeckBridge], objects, cache, law, to_ll=None
                ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(decks, notes)``: every pack frame cut to its spans (18i) one of
     whose spans a GENERATED deck of ``decks`` stands on by ``[deck_gen]
@@ -827,6 +904,44 @@ def span_bands(decks: _t.Sequence[DeckBridge], objects, cache, law, to_ll=None
     out = [d for i, d in enumerate(out) if i not in gone]
     gen = [(k, deck_polygon(d)) for k, d in enumerate(out) if is_generated(d)]
     return _under_defects(tuple(out), gen, a_min, to_ll), notes
+
+
+def decide_crossings(decks: _t.Sequence[DeckBridge], takes, objects, cache, classification,
+                     airport, law, blocked=(), deck_notes=(), covered=()
+                     ) -> tuple[tuple[DeckBridge, ...], list[str]]:
+    """``(the pack decks ``decks`` with the generated decks, notes)``: the
+    decks generated (``generated_decks``), the one decision per crossing
+    (:func:`_one_decision`) and the span bands (:func:`_span_bands`), with a
+    combined frame :func:`_span_bands` DROPS never refusing our decks (owner
+    RULINGS 2026-11-20v): a generated deck refused because that frame stood
+    on its crossing is offered again with the frame gone, so every crossing
+    of a dropped object gets our deck (MEASURED KRDU 1.0.570: STH_TML obj140
+    dropped for its taxiway E north span, its south spans over -17013 / -454
+    refused by it and left with no bridge).  One more ``generated_decks``
+    read where a frame is dropped; none elsewhere."""
+    pack = tuple(decks)
+    to_ll = airport.frame.transformers()[1]
+    gone: set[str] = set()
+    for _ in range(2):
+        live = tuple(d for d in pack if d.object_id not in gone)
+        members = {m for d in pack if d.object_id in gone for m in (d.members or (d.object_id,))}
+        gen, gen_notes = generated_decks(
+            classification, airport, law, live, blocked,
+            [o for o in objects or () if str(o.id) not in members], cache, deck_notes,
+            covered=covered)
+        gen, tk_notes = _one_decision(gen, takes, objects, cache, airport, law)
+        out, sp_notes = _span_bands(pack + tuple(gen), objects, cache, law, to_ll)
+        kept = {d.object_id for d in out if not is_generated(d)}
+        dropped = {d.object_id for d in pack if d.object_id not in kept}
+        if dropped <= gone:
+            break
+        gone |= dropped
+    notes = [*gen_notes, *tk_notes, *sp_notes]
+    if gone:
+        notes.append("combined frame(s) dropped whole: " + ", ".join(sorted(gone))
+                     + " -- every crossing they stood on offered to our decks again "
+                     "(RULINGS 2026-11-20v)")
+    return out, notes
 
 
 def _under_defects(decks: tuple, gen, a_min: float, to_ll) -> tuple:

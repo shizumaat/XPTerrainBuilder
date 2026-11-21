@@ -733,6 +733,13 @@ def _ring_dense(cells, rings, law) -> tuple[list, int]:
         if len(ring) == len(c.ring) and sum(map(len, holes)) == sum(len(h) for h in c.holes):
             out.append(c)
             continue
+        if Polygon(c.ring, c.holes).is_valid and not Polygon(ring, holes).is_valid:
+            # a hairline cut cell its own noding folds (MEASURED KMCO 1.0.570
+            # ``o4gen_6c61fae4:ground#1``, 13.7 m2: two sides ~0.1 m apart
+            # crossed once noded, and the next union threw "non-noded
+            # intersection"): it stays as it was
+            out.append(c)
+            continue
         n += 1
         out.append(_dcl.replace(c, ring=ring, holes=holes))
     return out, n

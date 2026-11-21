@@ -267,14 +267,27 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
         counts["pages_cut"] += rep.pages_cut
         counts["lines_cut"] += rep.lines_cut
         counts["area_removed_m2"] += rep.area_removed_m2
-    hides = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()]
-    if hides:
-        text, counts["hidden"] = _hide.hide_rows(text, _hide.through_splits(hides, splits))
+    hides = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()
+             if not h.get("within")]
+    # a piece-wise hide: only the bodies of its split standing within
+    pieces = [(h["resource"], h["lon"], h["lat"], h["within"])
+              for h in rec.get("hides") or () if h.get("within")]
+    rows = _hide.through_splits(hides, splits, pack_root=pack_root) if hides else []
+    if pieces:
+        rows += _hide.pieces_within(pieces, splits, pack_root=pack_root)
+    if hides or pieces:
+        text, counts["hidden"] = _hide.hide_rows(text, rows)
+    if hides or pieces:
+        # the written text read back: no hidden placement, nor any body of
+        # its split (within a piece-wise hide's plan), may still be drawn
+        # (census ``pack_bridge_under_deck``)
+        counts["hides_drawn"] = [list(r) for r in _hide.drawn_rows(text, hides, splits)
+                                 + _hide.drawn_pieces(text, pieces, splits)]
     if rec.get("overlap_hides"):
         # #2145: the structures another pack also draws, the user's answer
         # (``pack_overlap_choice.overlap_hides``)
         text, counts["overlap_hidden"] = _hide.hide_rows(
-            text, _hide.through_splits(rec["overlap_hides"], splits))
+            text, _hide.through_splits(rec["overlap_hides"], splits, pack_root=pack_root))
     text, ride, _rides = _ride.ride_text(text, rec.get("deck_tops") or (), pack_root)
     counts.update(ride)
     if rec.get("drop_network"):

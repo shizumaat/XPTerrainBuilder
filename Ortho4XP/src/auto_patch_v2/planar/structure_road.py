@@ -67,6 +67,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from ..classify.roles import Cell
+from ..geom.valid_area import valid_area
 from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
@@ -112,7 +113,10 @@ def mouth_pair_roads(airport: Airport, classification, law: Law,
         if is_tunnel_way(tags, tn.admitted_values):
             bore_ends[w.id] = (w.points[0], w.points[-1])
     cells = list(classification.cells)
-    taken = unary_union([Polygon(c.ring, c.holes) for c in cells]) if cells else None
+    # each cell's VALID area (``geom/valid_area``): one folded cell never
+    # aborts the airport's build (KMCO 1.0.570, a "non-noded intersection")
+    taken = unary_union([valid_area(Polygon(c.ring, c.holes)) for c in cells]) \
+        if cells else None
     out: list[Cell] = []
     refused_structure = 0
     for w in airport.osm_ways:

@@ -615,13 +615,19 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             notes.append(f"{where}: REFUSED -- {why}")
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
+        # RULINGS 2026-11-20w: the deck is squared on ITS OWN axes (the
+        # route deck's sides, ``deck_width``), never re-squared on another
+        # route's -- a skewed bounding quad widened KRDU o4gen_476a2069 from
+        # its 32.5 m to 51.3 m
+        axes = _own_axes(piece, road_dir,
+                         _route_dir(carried_route(airport, piece)[1], piece))
         # #2181 item 1 / #2183 item 5: a road bridge beside the deck rides it
         piece, rides, ride_notes = riders(
             piece, P.intersection(piece), {r.id for r in under},
             getattr(airport, "road_bridges", ()) or (), law)
         notes += [f"{where}: {n}" for n in ride_notes]
-        piece = _straight_sided(piece, road_dir,
-                               _route_dir(carried_route(airport, piece)[1], piece))
+        piece = _straight_sided(piece, *axes) if axes is not None else _straight_sided(
+            piece, road_dir, _route_dir(carried_route(airport, piece)[1], piece))
 
         def ends_of(pc, road_dir=road_dir):
             pairs = facing_contacts([to_ll(x, y) for x, y in pc.exterior.coords[:-1]],
@@ -637,8 +643,9 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             # #2131: the carried pavement ends inside the bank's reach (a
             # taxiway between two aprons): the longest deck short of it
             short = _shortened(piece, under, P, law, frac)
-            short = _straight_sided(short, road_dir, _route_dir(
-                carried_route(airport, short)[1], short)) if short is not None else None
+            short = (_straight_sided(short, *axes) if axes is not None else _straight_sided(
+                short, road_dir, _route_dir(carried_route(airport, short)[1], short))) \
+                if short is not None else None
             pair = ends_of(short) if short is not None else None
             if pair is not None:
                 notes.append(f"{where}: the carried pavement ends inside the bank's reach "
@@ -931,6 +938,37 @@ def _straight_sided(piece: Polygon, road_dir: "XY | None",
     b0, b1 = min(b for _a, b in ab), max(b for _a, b in ab)
     return Polygon([(a * ux + b * wx, a * uy + b * wy)
                     for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))])
+
+
+def _own_axes(piece: Polygon, road_dir: "XY | None", route_dir: "XY | None" = None
+              ) -> "tuple[XY, XY] | None":
+    """``(u, w)``: the two side directions of a four-sided ``piece`` (a route
+    deck, ``deck_width.rings``: two sides along the road, two along its
+    route), ``u`` the one nearer ``road_dir`` (signed with it), ``w`` signed
+    with ``route_dir`` (else with the road's left normal: the deck's ends A
+    and B where :func:`_straight_sided` read them); ``None`` for any other
+    piece.  :func:`_straight_sided` on them gives the piece back unchanged,
+    a rider's growth squared on the deck's own axes."""
+    pts = list(piece.exterior.coords)[:-1] if not piece.is_empty else []
+    if road_dir is None or len(pts) != 4:
+        return None
+
+    def unit(p, q):
+        dx, dy = q[0] - p[0], q[1] - p[1]
+        n = math.hypot(dx, dy)
+        return None if n <= 1e-9 else (dx / n, dy / n)
+    s0, s1 = unit(pts[0], pts[1]), unit(pts[1], pts[2])
+    if s0 is None or s1 is None:
+        return None
+    u, w = sorted((s0, s1), key=lambda d: -abs(d[0] * road_dir[0] + d[1] * road_dir[1]))
+    if u[0] * road_dir[0] + u[1] * road_dir[1] < 0.0:
+        u = (-u[0], -u[1])
+    ref = route_dir if route_dir is not None else (-u[1], u[0])
+    if w[0] * ref[0] + w[1] * ref[1] < 0.0:
+        w = (-w[0], -w[1])
+    if abs(u[0] * w[0] + u[1] * w[1]) >= math.cos(math.radians(_CREST_TURN_DEG)):
+        return None
+    return u, w
 
 
 def _route_dir(route, piece: Polygon) -> "XY | None":

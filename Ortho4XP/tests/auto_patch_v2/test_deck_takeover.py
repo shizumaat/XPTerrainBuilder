@@ -262,7 +262,7 @@ def test_one_decision_hides_a_pack_bridge_over_our_crossing_with_its_mates(monke
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: None if str(o.id) == "l"
                         else ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)))
     law = load_default()
-    out, notes = dt.one_decision([g], (), [body, luz, lamp], object(), _airport(), law)
+    out, notes = dt._one_decision([g], (), [body, luz, lamp], object(), _airport(), law)
     assert [h[0] for h in out[0].hides] == ["b", "l"]
     assert out[0].pack_under == ()
     assert any("HIDDEN" in n for n in notes)
@@ -277,7 +277,7 @@ def test_one_decision_counts_a_pack_top_left_under_our_deck_as_a_defect(monkeypa
                                                  ((5.0, -30.0), (5.0, 30.0))),))
     shed = _placement("s", "shed.obj")
     monkeypatch.setattr(dt, "_body_top", lambda o, *_a: box(0.0, 8.0, 10.0, 17.0))
-    out, _n = dt.one_decision([g], (), [shed], object(), _airport(), load_default())
+    out, _n = dt._one_decision([g], (), [shed], object(), _airport(), load_default())
     assert out[0].hides == () and [u[0] for u in out[0].pack_under] == ["s"]
 
 
@@ -296,7 +296,7 @@ def test_a_shared_anchor_is_no_frame(monkeypatch):
              "t": ((300.0, 300.0), (400.0, 300.0), (400.0, 400.0))}
     monkeypatch.setattr(dt, "_body_top", lambda o, *_a: tops.get(str(o.id)))
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
-    out, _n = dt.one_decision([g], (), [body, plate, lights, terminal], object(), _airport(),
+    out, _n = dt._one_decision([g], (), [body, plate, lights, terminal], object(), _airport(),
                               load_default())
     assert sorted(h[0] for h in out[0].hides) == ["b", "p"]
 
@@ -329,7 +329,7 @@ def test_a_giant_shared_anchor_plate_never_hides_the_terminal(monkeypatch):
     monkeypatch.setattr(dt, "_body_top", top)
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
     objs = [plate, piece, tower, *terms]
-    out, notes = dt.one_decision([g], (), objs, object(), _airport(), load_default())
+    out, notes = dt._one_decision([g], (), objs, object(), _airport(), load_default())
     assert sorted(h[0] for h in out[0].hides) == ["p220", "p221"]
     assert any("pack placements hidden: 2 of 103" in n for n in notes)
 
@@ -395,7 +395,7 @@ def test_a_combined_frame_one_span_of_which_our_deck_takes_is_dropped_whole(monk
     P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(50.0, 0.0))
     a = dataclasses.replace(_span_piece(0.0, 10.0), members=("o140", "o141", "t"))
     b = dataclasses.replace(_span_piece(60.0, 70.0), members=("o140", "o141", "t"))
-    out, notes = dt.span_bands((a, b, _gen(0.0)), [P("o140"), P("o141"), P("t")], None, law,
+    out, notes = dt._span_bands((a, b, _gen(0.0)), [P("o140"), P("o141"), P("t")], None, law,
                                _ll)
     (g,) = out
     assert sorted(h[0] for h in g.hides) == ["o140", "o141"]
@@ -418,5 +418,5 @@ def test_a_span_band_left_under_our_deck_is_counted():
     it stands over (a cut whose span reading misses it) is ``pack_under``."""
     law = load_default()
     d = _span_piece(0.0, 10.0, cut_spans=((40.0, 50.0),))       # no span holds it
-    out, _n = dt.span_bands((d, _gen(0.0)), [], None, law, _ll)
+    out, _n = dt._span_bands((d, _gen(0.0)), [], None, law, _ll)
     assert [u[0] for u in out[1].pack_under] == ["o140"]

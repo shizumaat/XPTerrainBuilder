@@ -586,7 +586,7 @@ class DeckBridge:
     #: owner RULINGS 2026-11-20a (1): ``(id, resource, (lon, lat), m2)`` of
     #: every pack placement still drawing a deck-level top under a GENERATED
     #: deck's footprint after the one decision (``planar/deck_takeover.
-    #: one_decision``) -- a DEFECT the census counts
+    #: _one_decision``) -- a DEFECT the census counts
     #: (``pack_bridge_under_deck``); ``()`` when the decision was clean
     pack_under: tuple = ()
 

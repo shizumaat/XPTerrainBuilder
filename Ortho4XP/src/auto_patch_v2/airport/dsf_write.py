@@ -1572,6 +1572,12 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     if off_tile:
         notes.append(f"{off_tile} object row(s) outside the tile {base} covers were "
                      f"left out of it (#2178)")
+    if gen_counts.get("hides_drawn"):
+        # RULINGS 2026-11-20a (1): a hidden pack bridge still drawn in the
+        # written pack is the census's ``pack_bridge_under_deck`` defect
+        notes.append(f"DEFECT -- {len(gen_counts['hides_drawn'])} row(s) of hidden pack "
+                     f"placement(s) still drawn in {base}: "
+                     + ", ".join(sorted({str(r[0]) for r in gen_counts["hides_drawn"]})))
     notes.extend(f"a hand-set object elevation was not applied: {why}; set it "
                  f"again in the patch editor" for why in refused)
     report = verify_roundtrip(out_dsf, edited, tool)

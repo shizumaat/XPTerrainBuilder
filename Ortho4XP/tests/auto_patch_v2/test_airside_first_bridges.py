@@ -147,9 +147,10 @@ def test_one_taxiway_of_many_edges_is_one_deck_and_its_ends_are_read():
         assert len({round(lat, 6) for lat, _lon in e}) == 1     # one edge each, along the road
 
 
-def test_a_deck_spans_its_roads_whole_cover():
-    """lane lcarve2: a road that runs on under pavement past the deck's side
-    (an apron the piece does not hold) is under the deck to the cover's end."""
+def test_the_roads_cover_never_widens_the_deck():
+    """RULINGS 2026-11-20w ("the drawn deck equals this width"): a road that
+    runs on under pavement past the deck's side (lane lcarve2's cover) no
+    longer widens the deck across its route -- the class maximum holds."""
     from shapely.geometry import LineString
 
     nodes = {1: types.SimpleNamespace(xy=(0.0, -100.0)), 2: types.SimpleNamespace(xy=(0.0, 100.0))}
@@ -162,9 +163,9 @@ def test_a_deck_spans_its_roads_whole_cover():
     (ring, note), = route_decks(piece, (1.0, 0.0), airport, _law(), None,
                                 cover.difference(Polygon([(-25, -15), (25, -15),
                                                           (25, 15), (-25, 15)])))
-    assert ring.bounds[2] == pytest.approx(40.0)
-    assert ring.bounds[0] == pytest.approx(-25.0)          # the open side stays
-    assert "whole cover" in note
+    assert ring.bounds[2] == pytest.approx(25.0)
+    assert ring.bounds[0] == pytest.approx(-25.0)
+    assert "whole cover" not in note
     (plain, _n), = route_decks(piece, (1.0, 0.0), airport, _law())
     assert plain.bounds[2] == pytest.approx(25.0)
 
@@ -309,27 +310,33 @@ def test_the_deck_end_landing_is_a_flush_constant_up_or_down():
     assert _flat_landing(rings, (20.0, 25.0), 3.0) is None                   # under
 
 
-def test_the_deck_is_as_wide_as_the_narrower_pavement_at_its_ends():
-    """RULINGS 2026-11-20a (2): the narrower end's pavement, never under
-    the taxiway twice; an apron (broad) or no pavement never widens it."""
+def test_the_deck_is_the_narrower_pavement_chord_capped_by_the_class():
+    """RULINGS 2026-11-20w: the narrower end's chord across all the pavement,
+    edge to edge, capped at the class maximum even where the pavement runs
+    on; no floor; no pavement at either end gives the class maximum."""
     import math as _m
 
-    from auto_patch_v2.planar.deck_width import _pavement_width
-    # det 1: a-units are metres across the route; taxiway 25 m, twice 50 m
-    a0, a1, note = _pavement_width([(-35.0, 35.0), (-30.0, 32.0)], 0.0, 12.5, 25.0, 1.0, 50.0)
-    assert (a0, a1) == (-30.0, 32.0) and "62.0 m wide" in note
-    a0, a1, _n = _pavement_width([(-35.0, 35.0), (-_m.inf, _m.inf)], 0.0, 12.5, 25.0, 1.0, 50.0)
-    assert (a0, a1) == (-35.0, 35.0)                      # the apron end never widens it
-    a0, a1, _n = _pavement_width([(-15.0, 15.0), (-35.0, 35.0)], 0.0, 12.5, 25.0, 1.0, 50.0)
-    assert (a0, a1) == (-25.0, 25.0)                      # under twice the taxiway: twice
-    a0, a1, _n = _pavement_width([(-35.0, 35.0), None], 0.0, 12.5, 25.0, 1.0, 50.0)
-    assert (a0, a1) == (-25.0, 25.0)                      # an end meeting no pavement
+    from auto_patch_v2.planar.deck_width import _chord_width
+    # det 1: a-units are metres across the route; class maximum 50 m
+    a0, a1, note = _chord_width([(-35.0, 35.0), (-20.0, 22.0)], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-20.0, 22.0) and "42.0 m wide" in note
+    a0, a1, _n = _chord_width([(-35.0, 35.0), (-30.0, 32.0)], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-25.0, 25.0)                      # 62 m capped at 50
+    a0, a1, _n = _chord_width([(-_m.inf, _m.inf), (-_m.inf, _m.inf)], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-25.0, 25.0)                      # an apron both ends: the cap
+    a0, a1, _n = _chord_width([(-7.5, 7.5), (-35.0, 35.0)], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-7.5, 7.5)                        # no 2x floor
+    a0, a1, _n = _chord_width([(-35.0, 35.0), None], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-25.0, 25.0)                      # the end meeting pavement
+    a0, a1, _n = _chord_width([(-10.0, 80.0), None], 0.0, 1.0, 50.0)
+    assert (a0, a1) == (-10.0, 40.0)                      # the cap window on the pavement
+    assert _chord_width([None, None], 0.0, 1.0, 50.0)[:2] == (-25.0, 25.0)
 
 
 def test_route_decks_read_the_pavement_at_both_ends():
-    """The end runs read through ``route_specs``: a 70 m pavement past one
-    end and 60 m past the other give the 60 m (narrower) deck, centred on
-    that run; a C taxiway twice is 50 m."""
+    """The end chords read through ``route_specs``: a 44 m pavement past one
+    end and 40 m past the other give the 40 m (narrower) deck, under the C
+    class maximum (50 m)."""
     nodes = {k: types.SimpleNamespace(xy=xy) for k, xy in
              {1: (0.0, -100.0), 2: (0.0, 100.0)}.items()}
     airport = types.SimpleNamespace(taxi_nodes=nodes, taxi_edges=[types.SimpleNamespace(
@@ -339,14 +346,14 @@ def test_route_decks_read_the_pavement_at_both_ends():
     def pave_at(xy):
         x, y = xy
         if y < -15.0:
-            return -35.0 <= x <= 35.0
+            return -22.0 <= x <= 22.0
         if y > 15.0:
-            return -30.0 <= x <= 30.0
+            return -20.0 <= x <= 20.0
         return -12.5 <= x <= 12.5
     got = route_decks(piece, (1.0, 0.0), airport, _law(), pave_at=pave_at)
     assert len(got) == 1
     r, note = got[0]
-    assert round(r.bounds[2] - r.bounds[0], 1) == 60.0 and "measured" in note
+    assert round(r.bounds[2] - r.bounds[0], 1) == 40.0 and "chord" in note
 
 
 def test_a_rider_widens_the_deck_on_its_own_side_only():
@@ -399,11 +406,11 @@ def _measured(taxi_half, paved_half, letter="E"):
 
 
 def test_the_deck_reads_the_measured_pavement_not_the_width_letter():
-    """Owner RULINGS 2026-11-20t (1), KRDU 35.880425,-78.788861: a route the
+    """Owner RULINGS 2026-11-20t / 20w, KRDU 35.880425,-78.788861: a route the
     author lettered E (38 m, twice 76 m) over a ~20 m taxiway with ~8 m
-    paved shoulders each side gives the measured ~36 m deck."""
+    paved shoulders each side gives the ~36 m chord deck."""
     w, note = _measured(10.0, 18.0)
-    assert w == pytest.approx(36.0, abs=1.0) and "paved shoulders" in note
+    assert w == pytest.approx(36.0, abs=1.0) and "chord" in note
 
 
 def test_a_taxiway_run_holding_its_shoulders_is_the_deck():
@@ -413,9 +420,29 @@ def test_a_taxiway_run_holding_its_shoulders_is_the_deck():
     assert w == pytest.approx(36.0, abs=1.0)
 
 
-def test_a_taxiway_with_no_shoulder_drawn_is_twice_its_measured_width():
+def test_a_taxiway_with_no_shoulder_drawn_is_its_own_chord():
+    """RULINGS 2026-11-20w replaces 19s (8) (a)'s 2x floor: the chord."""
     w, note = _measured(10.0, 10.0)
-    assert w == pytest.approx(40.0, abs=1.0) and "twice the measured" in note
+    assert w == pytest.approx(20.0, abs=1.0) and "chord" in note
+
+
+def test_a_skewed_deck_is_squared_on_its_own_axes_never_widened():
+    """KRDU o4gen_476a2069 (32.5 m note, 51.3 m drawn): the route deck's
+    parallelogram squared again on another route's direction grew; on its
+    own axes (``deck_generated._own_axes``) it comes back unchanged."""
+    import math as _m
+
+    from auto_patch_v2.planar.deck_generated import _own_axes, _straight_sided
+    u, w = (1.0, 0.0), (_m.cos(_m.radians(60)), _m.sin(_m.radians(60)))
+    quad = Polygon([(a * u[0] + b * w[0], a * u[1] + b * w[1])
+                    for a, b in ((-16.0, -20.0), (16.0, -20.0), (16.0, 20.0), (-16.0, 20.0))])
+    road = (_m.cos(_m.radians(5)), _m.sin(_m.radians(5)))          # the mean road read
+    axes = _own_axes(quad, road)
+    assert axes is not None
+    again = _straight_sided(quad, *axes)
+    assert again.symmetric_difference(quad).area < 1e-6
+    # the old squaring, square to the road: larger
+    assert _straight_sided(quad, road).area > quad.area + 50.0
 
 
 def test_the_letter_holds_only_where_no_pavement_is_drawn():

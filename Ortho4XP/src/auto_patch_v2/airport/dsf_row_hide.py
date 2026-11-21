@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["TOL_DEG", "hide_rows", "through_splits", "drop_segments"]
+__all__ = ["TOL_DEG", "hide_rows", "through_splits", "drawn_rows", "pieces_within",
+           "drawn_pieces", "drop_segments"]
 
 #: how close an anchor must be to name a row (degrees, ~0.2 m)
 TOL_DEG = 2e-6
@@ -39,10 +40,14 @@ def _hit(anchors, lon: float, lat: float, tol: float) -> bool:
 
 
 def through_splits(rows: _t.Iterable[_t.Sequence], splits: _t.Iterable,
-                   tol_deg: float = TOL_DEG) -> list[tuple]:
+                   tol_deg: float = TOL_DEG, pack_root: str = "") -> list[tuple]:
     """``rows`` (each ``(resource, lon, lat)``) plus the row of every body
     of each split (``model.placement.Split``) whose original placement one
-    of them names."""
+    of them names -- by its DSF definition, which a library export may
+    name for the pack file the split records (``obj8.same_resource`` in
+    ``pack_root``: MEASURED KRDU 1.0.570, the hide named
+    ``KRDU/F3R8/STH_TML.obj``, the split ``F3R8_Summer/STH_TML.obj``, and its
+    renamed bodies stayed drawn)."""
     rows = [tuple(r) for r in rows]
     if not rows:
         return rows
@@ -52,9 +57,106 @@ def through_splits(rows: _t.Iterable[_t.Sequence], splits: _t.Iterable,
     out = list(rows)
     for sp in splits:
         p = sp.placement
-        if _hit(by_res.get(str(p.resource), ()), float(p.lon), float(p.lat), tol_deg):
+        if any(_hit(at, float(p.lon), float(p.lat), tol_deg) and _same(res, str(p.resource),
+                                                                       pack_root)
+               for res, at in by_res.items()):
             out += [(b.new_resource, b.anchor.lon, b.anchor.lat) for b in sp.bodies]
     return out
+
+
+def _inside(ring, lon: float, lat: float) -> bool:
+    from shapely.geometry import Point, Polygon
+    return len(ring) >= 3 and Polygon(ring).buffer(0.0).covers(Point(lon, lat))
+
+
+def pieces_within(pieces: _t.Iterable[_t.Sequence], splits: _t.Iterable,
+                  tol_deg: float = TOL_DEG, pack_root: str = "") -> list[tuple]:
+    """The rows of the bodies, standing within each PIECE-WISE hide's plan
+    (``(resource, lon, lat, within)``, ``within`` a lon/lat ring), of the
+    split of the placement it names (as :func:`through_splits` names it):
+    the object keeps its pieces at its other sites (owner RULINGS
+    2026-11-20u: a hide takes only what stands on the deck).  A placement
+    the object stage did not split hides nothing (:func:`drawn_pieces`
+    names it)."""
+    pieces = list(pieces)
+    out: list[tuple] = []
+    for sp in splits if pieces else ():
+        p = sp.placement
+        for res, lon, lat, within in pieces:
+            if _hit([(float(lon), float(lat))], float(p.lon), float(p.lat), tol_deg) \
+                    and _same(str(res), str(p.resource), pack_root):
+                out += [(b.new_resource, b.anchor.lon, b.anchor.lat) for b in sp.bodies
+                        if _inside(within, float(b.anchor.lon), float(b.anchor.lat))]
+    return out
+
+
+def drawn_pieces(text: str, pieces: _t.Iterable[_t.Sequence], splits: _t.Iterable = (),
+                 tol_deg: float = TOL_DEG) -> list[tuple[str, float, float]]:
+    """:func:`drawn_rows` for the piece-wise hides: a body of the split
+    standing within the hide's plan still drawn, or -- no split of it
+    written -- the placement's own row (its pieces on the deck drawn)."""
+    out: list[tuple[str, float, float]] = []
+    splits = list(splits or ())
+    for res, lon, lat, within in pieces:
+        mine = [sp for sp in splits if _name(str(sp.placement.resource)) == _name(str(res))
+                and _hit([(float(lon), float(lat))], float(sp.placement.lon),
+                         float(sp.placement.lat), tol_deg)]
+        rows = [(b.new_resource, b.anchor.lon, b.anchor.lat) for sp in mine for b in sp.bodies
+                if _inside(within, float(b.anchor.lon), float(b.anchor.lat))] if mine \
+            else [(res, lon, lat)]
+        out += drawn_rows(text, rows)
+    return out
+
+
+def _same(def_path: str, resource: str, pack_root: str) -> bool:
+    if def_path == resource:
+        return True
+    from .obj8 import same_resource
+    return same_resource(def_path, resource, pack_root or None)
+
+
+def drawn_rows(text: str, rows: _t.Iterable[_t.Sequence], splits: _t.Iterable = (),
+               tol_deg: float = TOL_DEG) -> list[tuple[str, float, float]]:
+    """The OBJECT rows of ``text`` (a written DSF dump) that still draw a
+    hidden placement of ``rows`` (each ``(resource, lon, lat)``), as
+    ``(definition, lon, lat)``: its own row, or a row of a body of a split
+    of it -- the split's original read by its anchor and its file NAME
+    (``a/b/STH_TML.obj`` and ``c/STH_TML.obj`` name one placement), not by
+    :func:`through_splits`'s resolution, so a resolution miss reads here
+    (the written-pack read of census ``pack_bridge_under_deck``)."""
+    rows = [(str(r), float(lo), float(la)) for r, lo, la in rows]
+    if not rows:
+        return []
+    want = {(r, lo, la) for r, lo, la in rows}
+    by_name: dict[str, list[tuple[float, float]]] = {}
+    for r, lo, la in rows:
+        by_name.setdefault(_name(r), []).append((lo, la))
+    for sp in splits or ():
+        p = sp.placement
+        if _hit(by_name.get(_name(str(p.resource)), ()), float(p.lon), float(p.lat), tol_deg):
+            want |= {(str(b.new_resource), float(b.anchor.lon), float(b.anchor.lat))
+                     for b in sp.bodies}
+    lines = text.split("\n")
+    defs = [ln.split(None, 1)[1].strip() for ln in lines if ln.startswith("OBJECT_DEF ")]
+    at: dict[str, list[tuple[float, float]]] = {}
+    for r, lo, la in want:
+        at.setdefault(r, []).append((lo, la))
+    out = []
+    for ln in lines:
+        toks = ln.split(None, 4)
+        if not toks or toks[0] not in _OBJECT_ROWS or len(toks) < 4:
+            continue
+        try:
+            k, lon, lat = int(toks[1]), float(toks[2]), float(toks[3])
+        except ValueError:
+            continue
+        if 0 <= k < len(defs) and _hit(at.get(defs[k], ()), lon, lat, tol_deg):
+            out.append((defs[k], lon, lat))
+    return out
+
+
+def _name(resource: str) -> str:
+    return resource.replace("\\", "/").rsplit("/", 1)[-1].lower()
 
 
 def hide_rows(text: str, rows: _t.Iterable[_t.Sequence], tol_deg: float = TOL_DEG

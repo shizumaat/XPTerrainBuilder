@@ -487,7 +487,7 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
         pub["pad_touch"] = _touch
     pub["design_target"] = design_rep.targets
     # owner RULINGS 2026-11-20a (1): a pack bridge body left under a
-    # generated deck (``planar/deck_takeover.one_decision``) -- the census's
+    # generated deck (``planar/deck_takeover._one_decision``) -- the census's
     # ``pack_bridge_under_deck`` rows; ``[]`` where the decision was clean
     pub["pack_bridge_under_deck"] = [
         {"deck": d.object_id, "object": u[0], "resource": u[1], "lon": u[2][0],

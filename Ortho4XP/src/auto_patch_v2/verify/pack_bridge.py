@@ -3,7 +3,7 @@ family ``pack_bridge_under_deck`` (owner RULINGS 2026-11-20a (1), #2191).
 
 The publication's ``pack_bridge_under_deck`` names every pack placement
 the build left drawing a deck-level top under a GENERATED deck's footprint
-after its one decision per crossing (``planar/deck_takeover.one_decision``:
+after its one decision per crossing (``planar/deck_takeover._one_decision``:
 a pack bridge body over a crossing we generated is hidden in the pack
 copy).  Each record is one PRESENCE row, whatever its height; ``[]`` (or no
 key, every patch built before it) reads none.  The census reads the same

@@ -732,7 +732,11 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["road_route_frame_ll"] = data.get("road_route_frame") or None
     ctx["road_coverage_join_ll"] = data.get("road_coverage_join") or None
     ctx["deck_anchors"] = data.get("deck_anchors") or None
-    ctx["pack_bridge_under_deck"] = data.get("pack_bridge_under_deck") or None
+    # ... and every hidden row the WRITTEN pack still draws (the family's
+    # ``written_pack_records``)
+    from check_grade_lib.families.pack_bridge_under_deck import written_pack_records
+    ctx["pack_bridge_under_deck"] = [*(data.get("pack_bridge_under_deck") or ()),
+                                     *written_pack_records(osm_path)] or None
     ctx["ground_envelope"] = data.get("ground_envelope") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None

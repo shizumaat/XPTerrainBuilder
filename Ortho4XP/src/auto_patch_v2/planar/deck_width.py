@@ -33,7 +33,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["cores", "parted", "route_ends", "route_specs", "rings"]
+__all__ = ["cores", "full_ends", "parted", "route_ends", "route_specs", "rings"]
 
 XY = tuple[float, float]
 #: two crossing segments this near and this parallel are one route (m, deg)
@@ -384,3 +384,45 @@ def route_ends(ring: Polygon, road_dir: "XY | None", at_role, pave, step: float,
             return None
         out.append(best)
     return out[0], out[1]
+
+
+def full_ends(ring: Polygon, sa: tuple, sb: tuple, step: float) -> tuple[tuple, tuple]:
+    """THE END LINES RUN THE DECK'S WHOLE END (owner 2026-11-21T07:36Z: "be
+    sure we grade the terrain to the full end width of the bridges and
+    adjust the cut size, which should simply get wider as it should be
+    calculated from the bridge sides"; RULINGS 2026-11-19s (7), (8) (d),
+    2026-11-21c): each end line ``sa`` / ``sb`` (where the pavement runs onto
+    the deck, its crest) carried out to the ring's end edge it lies on,
+    corner to corner, every ``step`` metres in the run's own direction --
+    so the abutment's bank under the ring (``constraints/edge_deck``), the
+    cut cover and every reader of ``DeckBridge.seats_*`` stand on the TSA
+    deck's ends, not on the narrower pavement's.  A ring of other than four
+    corners, or an end line of fewer than two stations, as given."""
+    pts = list(ring.exterior.coords)[:-1]
+    if len(pts) != 4 or step <= 0.0:
+        return sa, sb
+    edges = [(pts[i], pts[(i + 1) % 4]) for i in range(4)]
+    return tuple(_full_end(st, edges, step) for st in (sa, sb))
+
+
+def _full_end(st: tuple, edges, step: float) -> tuple:
+    if len(st) < 2:
+        return st
+    (x0, y0), (x1, y1) = st[0], st[-1]
+    dx, dy = x1 - x0, y1 - y0
+    n = math.hypot(dx, dy)
+    if n < 1e-9:
+        return st
+    mid = LineString(st).interpolate(0.5, normalized=True)
+
+    def fit(e) -> float:
+        ex, ey = e[1][0] - e[0][0], e[1][1] - e[0][1]
+        le = math.hypot(ex, ey) or 1.0
+        return LineString(e).distance(mid) + 10.0 * (1.0 - abs(ex * dx + ey * dy) / (le * n))
+    a, b = min(edges, key=fit)
+    if (b[0] - a[0]) * dx + (b[1] - a[1]) * dy < 0.0:
+        a, b = b, a
+    L = math.dist(a, b)
+    k = max(1, int(math.ceil(L / step)))
+    return tuple((a[0] + (b[0] - a[0]) * i / k, a[1] + (b[1] - a[1]) * i / k)
+                 for i in range(k + 1))

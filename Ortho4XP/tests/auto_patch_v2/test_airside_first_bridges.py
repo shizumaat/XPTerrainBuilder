@@ -388,3 +388,22 @@ def test_the_pavement_never_moves_or_narrows_the_deck(paved):
     piece = Polygon([(-60, -15), (60, -15), (60, 15), (-60, 15)])
     (r, _n), = rings(route_specs(piece, (1.0, 0.0), _krdu_route("E"), _law(), paved))
     assert r.bounds[0] == pytest.approx(-32.6) and r.bounds[2] == pytest.approx(32.6)
+
+
+def test_the_end_lines_run_the_decks_whole_end():
+    """Owner 2026-11-21T07:36Z ("grade the terrain to the full end width of
+    the bridges ... calculated from the bridge sides"): the pavement's crest
+    (a 20 m run of a 65 m end) is carried out to the ring's end edge, corner
+    to corner, in its own direction -- the bank, the cut cover and the
+    landings stand on the TSA deck's ends."""
+    from auto_patch_v2.planar.deck_width import full_ends
+    ring = Polygon([(0.0, 0.0), (65.0, 0.0), (65.0, 30.0), (0.0, 30.0)])
+    sa = ((40.0, 0.0), (30.0, 0.0), (20.0, 0.0))
+    sb = ((20.0, 30.0), (40.0, 30.0))
+    fa, fb = full_ends(ring, sa, sb, 5.0)
+    assert fa[0] == (65.0, 0.0) and fa[-1] == (0.0, 0.0) and len(fa) == 14
+    assert fb[0] == (0.0, 30.0) and fb[-1] == (65.0, 30.0)
+    assert all(y == 0.0 for _x, y in fa) and all(y == 30.0 for _x, y in fb)
+    # a ring of other than four corners keeps its crests
+    five = Polygon([(0, 0), (65, 0), (65, 30), (30, 35), (0, 30)])
+    assert full_ends(five, sa, sb, 5.0) == (sa, sb)

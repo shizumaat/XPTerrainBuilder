@@ -1727,6 +1727,14 @@ pavement_borrow_coverage_max = 0.25
 # captures: LIME 0.069 (Aerosoft: every apron and taxiway a SURFACE page),
 # KBOI 0.281; HECA 0.999, OTHH 0.996, KATL 0.996, CYXY 0.971.  0 = off.
 network_pages_share_max = 0.5
+# THE PAGE THAT ALONE HOLDS A TAXIWAY (owner RULINGS 2026-10-30e, #2215;
+# `airport/network_pages.py`): at or above the share, a §60 page carrying at
+# least this much of the non-runway 1202 network over ground no pavement
+# source and no runway slab holds is a pavement source too.  The length is
+# the centreline detector's own floor (`classify/centreline_gaps.MIN_GAP_M`:
+# shorter is a junction corner).  KRDU `Ground/L2.pol`: taxiway A, 566 m.
+# 0 = off.
+network_page_unheld_min_m = 10.0
 
 # ── THE BUILDING BASE PROFILE ────────────────────────────────────────────
 # base-profile spec §1 (owner RULINGS 2026-10-01f, answers 10-01k).  The

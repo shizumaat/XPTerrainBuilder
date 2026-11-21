@@ -223,6 +223,16 @@ floor_sunken_min_m = 2.0
 # walled pit) and OTHH TerminalRoads_02_000 (measured against the author's
 # plates round it, 9.92) still read.
 pit_sunken_min_share = 0.5
+# ...but a roofed portal standing on that ground is still its TUNNEL'S
+# MOUTH where the mapped bore (its tunnel ways joined end to end) runs at
+# least this many times the object's own size (its larger plan extent along
+# or across the bore) — a mouth object at grade on the uncut ground, never a
+# booth on a stub its own length nor a building over a bore (owner RULINGS
+# 2026-11-21d, #2221).  MEASURED (lane ltunnel2, replays of the lkrdue2 /
+# lkden captures): KBUF Road_Tunnel.obj x4, size 38.8-39.5 m, bores 231.6 /
+# 243.6 m -> 5.9-6.3 (mouths); KDEN booths and Train_Hider, bores 8.1-38.5 m
+# against sizes 20.1-83.5 m -> 0.1-1.9 (at grade).
+mouth_bore_min_ratio = 3.0
 # ...and only an OPEN TRENCH brings the ground down to its walls (the open-edge
 # rim and its bank, #1949 R2/R3; owner RULINGS 2026-11-17 (a): "an object
 # whose floor stands below the surrounding ground and which has NO ROOF over

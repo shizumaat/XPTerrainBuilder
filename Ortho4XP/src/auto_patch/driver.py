@@ -155,13 +155,10 @@ def _fail_build_tasks(failures: list, patch_dir: str) -> None:
 
 def _note_phases(r: dict) -> None:
     """A finished v2 build's stage clocks to the app's per-airport record
-    (#2206; ``o4_engine.airport_time_model.note_phases``, read by the
-    record the session writes when this airport's row turns done)."""
-    try:
-        from o4_engine import airport_time_model as _atm
-        _atm.note_phases(r.get("icao"), r.get("phase_seconds"))
-    except Exception:
-        pass
+    (#2206; ``UI.airport_phases``, read by the record the session writes
+    when this airport's row turns done)."""
+    if r.get("phase_seconds"):
+        UI.airport_phases(r.get("icao"), r.get("phase_seconds"))
 
 
 def _record_pack_ground(tile, results: list) -> None:

@@ -2437,6 +2437,12 @@ class EngineSession:
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
 
+    def airport_phases(self, airport, phases):
+        """A finished airport build's stage clocks (``UI.airport_phases``,
+        #2206) for the record :meth:`_clock_airport` writes for it."""
+        from . import airport_time_model as ATM
+        ATM.note_phases(airport, phases)
+
     def _clock_airport(self, airport, fraction, status):
         """Feed the vector step's clock one airport report; a solved
         airport's measured seconds go to the airport time model, so the

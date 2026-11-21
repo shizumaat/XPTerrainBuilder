@@ -181,7 +181,8 @@ def _road_chain(parent: LineString, lines, tree, reach: float) -> LineString:
                  and lines[j].difference(chain.buffer(0.05)).length > 0.5]
         if not grown:
             break
-        merged = linemerge(unary_union([chain, *grown]))
+        u = unary_union([chain, *grown])
+        merged = linemerge(u) if u.geom_type == "MultiLineString" else u  # #2220
         if merged.geom_type != "LineString":
             # a junction: keep the longest straight run through the parent
             merged = max((q for q in merged.geoms if q.distance(parent) < 0.05),

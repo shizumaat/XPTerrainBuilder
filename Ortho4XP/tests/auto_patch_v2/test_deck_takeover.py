@@ -437,3 +437,12 @@ def test_a_span_band_left_under_our_deck_is_counted():
     d = _span_piece(0.0, 10.0, cut_spans=((40.0, 50.0),))       # no span holds it
     out, _n = dt._span_bands((d, _gen(0.0)), [], None, law, _ll)
     assert [u[0] for u in out[1].pack_under] == ["o140"]
+
+
+def test_crossings_one_road_part_is_no_linemerge_error(monkeypatch):
+    """#2220 (CYYZ 1.0.571): a single road part under a deck unions to a bare
+    LineString, which shapely's linemerge refuses; it counts as one road."""
+    from shapely import LineString, Polygon
+    from auto_patch_v2.planar import deck_takeover as dt
+    monkeypatch.setattr(dt, "deck_polygon", lambda db: Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]))
+    assert dt._crossings(object(), [LineString([(-5, 5), (15, 5)])]) == 1

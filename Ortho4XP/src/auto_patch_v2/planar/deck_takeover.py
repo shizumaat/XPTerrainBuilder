@@ -123,7 +123,10 @@ def _crossings(db: DeckBridge, roads) -> int:
     parts = [x for ln in roads if (x := ln.intersection(p)).length > 1.0]
     if not parts:
         return 0
-    m = linemerge(unary_union(parts))
+    u = unary_union(parts)
+    # one road part unions to a bare LineString, which shapely's linemerge
+    # refuses ("Cannot linemerge LINESTRING"; CYYZ 1.0.571, #2220)
+    m = linemerge(u) if u.geom_type == "MultiLineString" else u
     return sum(1 for g in getattr(m, "geoms", [m]) if g.length > 1.0)
 
 

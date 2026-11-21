@@ -46,22 +46,22 @@ class DeckGenLaw:
     level_probe_m: float = 30.0
     #: a deck piece smaller than this is not generated (m2)
     min_area_m2: float = 50.0
-    #: owner RULINGS 2026-11-19s (4) (c): a deck's width across its route
-    #: by the route's apt.dat 1202 width class (m; ``planar/deck_width``):
-    #: C-F ICAO Annex 14 §3.10.1 taxiway plus shoulders, A/B §3.9.3 taxiway
-    #: plus ``shoulder_m`` each side
+    #: owner RULINGS 2026-11-19s (4) (c), 2026-11-21c: a deck's taxiway
+    #: PAVED BAND across its route by the route's apt.dat 1202 width class
+    #: (m; ``planar/deck_width``): C-F ICAO Annex 14 §3.10.1 taxiway plus
+    #: shoulders, A/B §3.9.3 taxiway plus ``shoulder_m`` each side -- the
+    #: floor ``parallel_gap_m`` never narrows a deck under (20f)
     width_by_class_m: _t.Mapping[str, float] = _dc.field(default_factory=lambda: {
         "A": 10.5, "B": 13.5, "C": 25.0, "D": 34.0, "E": 38.0, "F": 44.0})
+    #: owner RULINGS 2026-11-21c: a deck's WIDTH by its route's size letter,
+    #: the FAA taxiway safety area of its ADG (A -> I ... F -> VI; FAA AC
+    #: 150/5300-13B Chg 1 Table 4-1, §6.2.3), centred on the route; nothing
+    #: measured
+    tsa_by_letter_m: _t.Mapping[str, float] = _dc.field(default_factory=lambda: {
+        "A": 14.9, "B": 24.1, "C": 36.0, "D": 52.1, "E": 65.2, "F": 79.9})
     #: ... and its end runs on along the route until the airport's pavement
     #: meets it (a pack's hole spanned pavement to pavement), at most this (m)
     end_reach_m: float = 10.0
-    #: owner RULINGS 2026-11-20a (2): the deck is as wide as the narrower
-    #: pavement it meets past its two ends, read this far past each (m) ...
-    end_width_probe_m: float = 1.5
-    #: owner RULINGS 2026-11-19s (8) (a) / 20w: the class maximum is
-    #: ``width_by_class_m`` (the taxiway as drawn) plus this share of it as a
-    #: shoulder each side
-    shoulder_share: float = 0.5
     #: owner RULINGS 2026-11-19s (8) (d): past each end line, across the
     #: deck's width, the ground stands at the end's level this far (m),
     #: then falls at the deck bank's slope (``constraints/deck_carve``)

@@ -137,6 +137,10 @@ def main(argv=None) -> int:
                          "2026-11-19T23:07Z): per path its evidence, direction, clearance, "
                          "floor against the rule, ramps back to the terrain and the "
                          "abutment bank; exit 1 on a FAIL")
+    ap.add_argument("--widths", action="store_true",
+                    help="every GENERATED deck's width across its taxi route against its "
+                         "letter's TSA, and each side of the centreline "
+                         "(tools/deck_width_bars.width_rows, RULINGS 2026-11-21c)")
     ap.add_argument("--piers", action="store_true",
                     help="the piers of every GENERATED deck (tools/deck_carve_bars.pier_bars, "
                          "owner 2026-11-20T14:50Z): columns floating over the solved ground "
@@ -217,6 +221,14 @@ def main(argv=None) -> int:
                   f"{q.get('ramp_after')} cap {q['cap']}, bank {q.get('bank_slope_max')}, ends "
                   f"{[(e['end'], e['gap_m']) for e in q.get('end_gaps') or ()]}; "
                   f"{', '.join(q['evidence'])}; {q['direction']}")
+    if a.widths:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_width_bars import width_rows
+        res["widths"] = width_rows(pm, d.get("airport"), Law.for_airport(pm.icao))
+        for q in res["widths"]:
+            print(f"WIDTH {q['deck']} at {q['ll']}: taxiway {q['route']} "
+                  f"{q.get('letters')} TSA {q.get('tsa_m')} m: {q.get('width_m')} m, "
+                  f"{q.get('left_m')} / {q.get('right_m')} each side, riders {q['riders']}")
     if a.piers:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from deck_carve_bars import pier_bars

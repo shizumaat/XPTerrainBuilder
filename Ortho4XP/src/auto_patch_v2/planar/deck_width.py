@@ -1,29 +1,25 @@
-"""ONE GENERATED DECK PER TAXIWAY, AS WIDE AS ITS TAXIWAY AND SHOULDERS
-(owner RULINGS 2026-11-19s (3) (b), (4) (c); ``docs/specs/airside-first-
-bridges-spec.md`` section 1 row 1).
+"""ONE GENERATED DECK PER TAXIWAY, AS WIDE AS ITS TAXIWAY SAFETY AREA
+(owner RULINGS 2026-11-21c, replacing 20w's chord, 20t's measuring and
+19s (8) (a)'s 2x floor; 19s (3) (b) one deck per taxiway;
+``docs/specs/airside-first-bridges-spec.md`` section 1 row 1).
 
 ``planar/deck_generated`` reads where the airport's pavement covers a
-road's cut (the piece ``P ∩ C``).  Its WIDTH is never that pavement's
-(KBNA 1.0.565: "They seem wider than they need to be, I would expect them
-to generally match the width of the taxiway + a shoulder"): each apt.dat
-taxi route (row 1202) crossing the piece gets ITS OWN deck -- two parallel
-taxiways two decks, the gap between them open over one cut (19s (3) (b))
--- a parallelogram whose ENDS run along the road (the cut's crests, the
-piece's extent along the route) and whose SIDES run along the route at
-``[deck_gen] width_by_class_m`` of the route's width class (ICAO Annex 14
-§3.9.3 taxiway width plus §3.10.1 shoulders: the taxiway as drawn) and
-``shoulder_share`` of that each side (owner RULINGS 2026-11-19s (8) (a):
-1.0.566's decks at the class width read "exactly taxiway width"), centred
-on its centreline.
-A route of no class takes the airport's most common class.
+road's cut (the piece ``P ∩ C``).  Each apt.dat taxi route (row 1202)
+crossing the piece gets ITS OWN deck -- two parallel taxiways two decks,
+the gap between them open over one cut -- a parallelogram whose ENDS run
+along the road (the cut's crests, the piece's extent along the route) and
+whose SIDES run along the route, centred on its centreline, as wide as the
+FAA taxiway safety area of the route's size letter (``[deck_gen]
+tsa_by_letter_m``: FAA AC 150/5300-13B Chg 1 §6.2.3, a taxiway bridge at
+least as wide as its safety area; Table 4-1 TSA = the ADG's wingspan,
+A→I … F→VI).  NOTHING IS MEASURED: the owner trusts the letter ("if it's
+wrong that should be fixed in the airport pack").  A route of no letter
+takes the airport's most common one.  The taxiway's paved band
+(``width_by_class_m``, the taxiway as drawn) is the floor the parallel gap
+(20f, :func:`parted`) never narrows a deck under.
 
-THE PAVEMENT CHORD, CAPPED BY THE CLASS (owner RULINGS 2026-11-20w,
-replacing 20t (1)'s measuring rule and 19s (8) (a)'s floor): where pavement
-is drawn past an end, the deck is the narrower end's straight chord across
-ALL the pavement there, edge to edge (:func:`_chord_width`), at most the
-class width above (the class maximum) even where the pavement runs on; the
-class maximum alone where none is drawn.  Nothing later widens it but a
-rider (19s (8) (c), noted): ``deck_generated`` squares the deck on its own
+Nothing later widens it but a rider (19s (8) (c), 20d: ``deck_gen_pairs.
+riders``, on its own side); ``deck_generated`` squares the deck on its own
 axes and ``_spans_cover`` only lengthens it.
 
 Nothing here names an airport.  Build-time impact: a few shapely
@@ -45,20 +41,14 @@ _SAME_ROUTE_M = 3.0
 _SAME_ROUTE_DEG = 20.0
 
 
-def _class_width_m(law, letter: "str | None", fallback: "str | None" = None) -> float:
-    """The taxiway as drawn (m) of a width class letter (``width_by_class_m``)."""
-    table = dict(law.tables.structures.deck_gen.width_by_class_m)
+def _by_letter(table, letter: "str | None", fallback: "str | None" = None) -> float:
+    """``table``'s metres for a size letter, else the airport's common one,
+    else C, else the table's widest."""
+    table = dict(table)
     for k in (letter, fallback, "C"):
         if k and str(k).upper() in table:
             return float(table[str(k).upper()])
     return max(float(v) for v in table.values())
-
-
-def _grow(law) -> float:
-    """The deck's width over its taxiway's: a ``shoulder_share`` shoulder
-    each side (owner RULINGS 2026-11-19s (8) (a): "the total bridge width
-    is closer to twice the width of the taxiway")."""
-    return 1.0 + 2.0 * float(law.tables.structures.deck_gen.shoulder_share)
 
 
 def _crossings(piece: Polygon, airport) -> list[tuple[LineString, _t.Any]]:
@@ -133,23 +123,24 @@ def _reach(b: float, sign: float, a0: float, a1: float, u: XY, w: XY, pave_at, r
 
 
 def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=None,
-                cover=None, avoid=None, taxi_at=None) -> list[tuple[XY, list]]:
+                cover=None, avoid=None) -> list[tuple[XY, list]]:
     """``(road direction, deck spec)`` per taxi route across ``piece``
-    (module doc; the spec ``[w, det, a0, a1, b0, b1, note, a_c, hc]``: the
-    ring ``a u + b w``, its centreline ``a_c`` and its taxiway's half
-    width ``hc``); ``[]`` where no route crosses it at an angle to the road
-    (the caller keeps the piece).  ``pave_at(xy)``: whether the airport's pavement
-    stands there -- each end then reaches it (:func:`_reach`); ``taxi_at(xy)``:
-    whether its TAXIWAY or runway pavement does (the width it meets at each
-    end, :func:`_end_runs`: never an apron's).  ``cover``:
-    the cover each covered road needs past the piece, ``avoid`` where the
-    pack stands (:func:`_spans_cover`)."""
+    (module doc; the spec ``[w, det, a0, a1, b0, b1, note, a_c, hc, band]``:
+    the ring ``a u + b w``, its centreline ``a_c``, its taxiway's half
+    width ``hc`` and paved band); ``[]`` where no route crosses it at an
+    angle to the road (the caller keeps the piece).  The width is the
+    letter's TSA (RULINGS 2026-11-21c), never read off the pavement;
+    ``pave_at(xy)``: whether the airport's pavement stands there -- each END
+    then reaches it along the route (:func:`_reach`).  ``cover``: the cover
+    each covered road needs past the piece, ``avoid`` where the pack stands
+    (:func:`_spans_cover`)."""
     if road_dir is None or piece.is_empty:
         return []
     ux, uy = road_dir
+    g = law.tables.structures.deck_gen
     cos_t = math.cos(math.radians(_SAME_ROUTE_DEG))
     common = _common_class(airport)
-    got: list[list] = []          # [w, det, a0, a1, b0, b1, note]
+    got: list[list] = []
     for main, edges in _routes(piece, airport):
         wx, wy = _unit(main)
         if abs(wx * ux + wy * uy) >= cos_t:
@@ -160,167 +151,26 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         a_c = (mx * wy - my * wx) / det
         letters = sorted({str(e.width_class).upper() for e in edges if e.width_class})
         letter = letters[-1] if letters else None
-        core = _class_width_m(law, letter, common)
-        width = core * _grow(law)
+        core = _by_letter(g.width_by_class_m, letter, common)
+        width = _by_letter(g.tsa_by_letter_m, letter, common)
         ha, hc = 0.5 * width / abs(det), 0.5 * core / abs(det)
         if pave_at is not None:
             # the taxiway's own pavement meets each end (its shoulders may
             # stand over the ground)
-            reach = float(law.tables.structures.deck_gen.end_reach_m)
+            reach = float(g.end_reach_m)
             b0 = _reach(b0, -1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
             b1 = _reach(b1, 1.0, a_c - hc, a_c + hc, (ux, uy), (wx, wy), pave_at, reach)
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
-        lo_a, hi_a, why = a_c - ha, a_c + ha, (
-            f"{width:g} m wide: the class maximum (taxiway + its shoulders), no pavement "
-            f"drawn past its ends (RULINGS 2026-11-20w)")
-        band = (a_c - hc, a_c + hc)
-        if pave_at is not None:
-            # owner RULINGS 2026-11-20w: the straight chord across ALL the
-            # pavement past each end, edge to edge; the narrower, capped at
-            # the class maximum even where the pavement runs on
-            # ... never over a neighbouring taxiway's (half way to it: one
-            # deck per taxiway, 19s (3) (b))
-            lim = _between(airport, edges, (ux, uy), (wx, wy), det, a_c, b0, b1)
-            chords = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law, width,
-                               lim)
-            lo_a, hi_a, why = _chord_width(chords, a_c, det, width)
-            if taxi_at is not None:
-                # the taxiway's own paved band inside the deck (20f's gap
-                # never narrows the deck inside it, ``parted``)
-                taxi = _narrowest(_end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at,
-                                            law, width, lim))
-                band = (max(lo_a, taxi[0]), min(hi_a, taxi[1])) if taxi is not None \
-                    else (max(lo_a, a_c - hc), min(hi_a, a_c + hc))
-            else:
-                band = (max(lo_a, a_c - hc), min(hi_a, a_c + hc))
-            if band[1] <= band[0]:
-                band = (lo_a, hi_a)
-            hc = max(a_c - band[0], band[1] - a_c, 0.0)
-            width = (hi_a - lo_a) * abs(det)
-        d = [(wx, wy), det, lo_a, hi_a, b0, b1,
+        d = [(wx, wy), det, a_c - ha, a_c + ha, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
-             f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc,
-             band]
+             f"{letter or (common or '?') + ' (the airport common)'}: deck {width:g} m wide, "
+             f"the FAA taxiway safety area of its letter (RULINGS 2026-11-21c)", a_c, hc,
+             (a_c - hc, a_c + hc)]
         grown = _spans_cover((ux, uy), d, cover, avoid)
         if grown:
             d[6] += f"; spans its roads' whole cover ({grown:.1f} m more)"
         got.append(d)
     return [((ux, uy), d) for d in _merged((ux, uy), got)]
-
-
-def _between(airport, own, u: XY, w: XY, det: float, a_c: float, b0: float, b1: float
-             ) -> tuple[float, float]:
-    """``(lo, hi)``: half way (in ``a``) to the nearest other taxi route
-    running beside this one either side over the deck's stretch -- a deck's
-    pavement width never reaches over its neighbour's taxiway (owner RULINGS
-    2026-11-19s (3) (b): one deck per taxiway; MEASURED KPHX taxiways S / T
-    78 m apart: one paved run 98-137 m wide past their ends)."""
-    nodes = getattr(airport, "taxi_nodes", {}) or {}
-    mine = {id(e) for e in own}
-    cos_t = math.cos(math.radians(_SAME_ROUTE_DEG))
-    (ux, uy), (wx, wy) = u, w
-    lo, hi = -math.inf, math.inf
-    for e in getattr(airport, "taxi_edges", ()) or ():
-        if id(e) in mine or e.a not in nodes or e.b not in nodes:
-            continue
-        (xa, ya), (xb, yb) = nodes[e.a].xy, nodes[e.b].xy
-        L = math.hypot(xb - xa, yb - ya)
-        if L < 1e-6 or abs(((xb - xa) * wx + (yb - ya) * wy) / L) < cos_t:
-            continue
-        ab = [((x * wy - y * wx) / det, (ux * y - uy * x) / det) for x, y in
-              ((xa, ya), (xb, yb))]
-        if max(q[1] for q in ab) < b0 or min(q[1] for q in ab) > b1:
-            continue
-        a = 0.5 * (ab[0][0] + ab[1][0])
-        if a < a_c - 1e-6:
-            lo = max(lo, 0.5 * (a + a_c))
-        elif a > a_c + 1e-6:
-            hi = min(hi, 0.5 * (a + a_c))
-    return lo, hi
-
-
-def _run_at(b: float, a_c: float, hc: float, u: XY, w: XY, det: float, pave_at,
-            step: float, most: float, lim: tuple[float, float] = (-math.inf, math.inf)
-            ) -> "tuple[float, float] | None":
-    """The run of the airport's pavement across the route at ``b`` holding
-    the taxiway (``a_c`` +- ``hc``), as ``(a0, a1)``; ``None`` with none;
-    ``(-inf, inf)`` where it runs on past ``most`` metres either way (broad
-    pavement: an apron)."""
-    (ux, uy), (wx, wy) = u, w
-
-    def paved(a: float) -> bool:
-        return bool(pave_at((a * ux + b * wx, a * uy + b * wy)))
-    da = step / max(abs(det), 1e-9)
-    start = next((a for a in (a_c + k * da for k in range(int(hc / da) + 1)
-                              for k in (k, -k)) if paved(a)), None) if hc > 0.0 else None
-    if start is None:
-        return None
-    far = most / max(abs(det), 1e-9)
-    lo = hi = start
-    while lo - da >= lim[0] and paved(lo - da):
-        lo -= da
-        if start - lo > far:
-            return -math.inf, math.inf
-    while hi + da <= lim[1] and paved(hi + da):
-        hi += da
-        if hi - start > far:
-            return -math.inf, math.inf
-    return lo, hi
-
-
-def _end_runs(b0: float, b1: float, a_c: float, hc: float, u: XY, w: XY, det: float,
-              pave_at, law, width: float,
-              lim: tuple[float, float] = (-math.inf, math.inf)) -> list:
-    """The pavement run just past each end of a route deck (:func:`_run_at`
-    ``[deck_gen] end_width_probe_m`` past ``b0`` and ``b1``), read out to
-    ``width`` (the class maximum) either way of the taxiway: a run going on
-    past it is broad (``(-inf, inf)``, RULINGS 2026-11-20w's cap)."""
-    g = law.tables.structures.deck_gen
-    probe, most = float(g.end_width_probe_m), width
-    lw = math.hypot(*w)
-    return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most, lim)
-            for b in (b0 - probe / lw, b1 + probe / lw)]
-
-
-def _narrowest(runs) -> "tuple[float, float] | None":
-    """The narrower FINITE end run of ``runs`` (:func:`_end_runs`: an end
-    meeting no pavement or broad pavement -- an apron -- measures nothing),
-    or ``None`` where neither end measures the taxiway."""
-    got = [r for r in runs if r is not None and not math.isinf(r[0]) and r[1] > r[0]]
-    return min(got, key=lambda r: r[1] - r[0]) if got else None
-
-
-def _chord_width(chords, a_c: float, det: float, cap: float) -> tuple[float, float, str]:
-    """``(a0, a1, note)``: THE DECK IS THE NARROWER END'S PAVEMENT CHORD,
-    CAPPED BY THE TAXIWAY CLASS (owner RULINGS 2026-11-20w, 2026-11-21T01:23Z:
-    "The taxiway width we care about for the deck is the total width of all
-    pavement perpendicular to the bridge at either end. A straight chord from
-    pavement edge to pavement edge, with taxiway letter class determining the
-    maximum deck width even when there's continuous pavement").  ``chords``:
-    the run of ALL the airport's pavement across the route just past each end
-    (:func:`_end_runs`; ``None`` meets none, ``(-inf, inf)`` runs on past
-    ``cap``).  The deck is the narrower end's chord, at most ``cap`` (m: the
-    route's class taxiway + its shoulders) -- a wider one gives its ``cap``
-    window nearest the taxiway centreline ``a_c``; no floor.  No end meeting
-    pavement: ``cap`` about ``a_c``."""
-    m = abs(det)
-    half = 0.5 * cap / m
-    widths = [None if r is None else (math.inf if math.isinf(r[0]) else (r[1] - r[0]) * m)
-              for r in chords]
-    names = " / ".join("none" if x is None else ("over the cap" if math.isinf(x)
-                                                  else f"{x:.1f} m") for x in widths)
-    got = [(x, r) for x, r in zip(widths, chords, strict=True) if x is not None]
-    if not got:
-        return (a_c - half, a_c + half,
-                f"{cap:g} m wide: the class maximum, no pavement drawn past its ends "
-                f"(RULINGS 2026-11-20w)")
-    x, r = min(got, key=lambda q: q[0])
-    if x >= cap - 1e-6:
-        lo = a_c - half if math.isinf(r[0]) else min(max(a_c - half, r[0]), r[1] - 2 * half)
-        return (lo, lo + 2 * half, f"{cap:g} m wide: the class maximum (the pavement chords "
-                f"at its ends A / B: {names}; RULINGS 2026-11-20w)")
-    return (r[0], r[1], f"{x:.1f} m wide: the narrower pavement chord at its ends A / B "
-            f"{names}, under the class maximum {cap:g} m (RULINGS 2026-11-20w)")
 
 
 def rings(specs: _t.Sequence[tuple[XY, list]]) -> list[tuple[Polygon, str]]:
@@ -370,7 +220,7 @@ def parted(specs: list[tuple[XY, list]], law, avoid=None) -> list[tuple[XY, list
 
 def _facing(spec: tuple[XY, list], other: Polygon) -> bool:
     """``spec``'s deck a metre narrower on the side facing ``other``, never
-    inside its paved band (``d[9]``, :func:`_band`); whether it moved."""
+    inside its paved band (``d[9]``); whether it moved."""
     (ux, uy), d = spec
     wx, wy = d[0]
     c = other.centroid

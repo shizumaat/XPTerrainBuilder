@@ -202,7 +202,7 @@ def _frames_fixture(monkeypatch, gen_rings):
     monkeypatch.setattr(dt, "_pieces", lambda decks: 2)
     monkeypatch.setattr(dt, "deck_bridges", lambda *a, **k: ((_deck(0.0), _deck(60.0)), []))
     monkeypatch.setattr(dt, "_trenches", lambda *a: [])
-    monkeypatch.setattr(dt, "_paved_over", lambda cl, hidden, law: (cl, []))
+    monkeypatch.setattr(dt, "_paved_over", lambda cl, hidden, law, airport=None: (cl, []))
 
     monkeypatch.setattr(dt, "roads_under", lambda spans, ap, law: [])
 

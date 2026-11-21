@@ -289,4 +289,10 @@ def at_grade_cells(classification: _t.Any, airport: _t.Any, law: _t.Any,
     cells, _n = knife_cells(classification.cells, polys, knife, law, (), cut_pads=False,
                             mark=MARK, new_cells=new,
                             cuts=lambda c: not (fam(c) in ("runway", "taxi") or c.role == "apron"))
-    return dc.replace(classification, cells=tuple(cells)), notes
+    # the taxi route runs on across it (``planar/route_lines``)
+    from .route_lines import with_route_lines
+    out, n_lines = with_route_lines(dc.replace(classification, cells=tuple(cells)), airport,
+                                    [knife])
+    if n_lines:
+        notes.append(f"{n_lines} taxi centreline piece(s) across the at-grade plan(s)")
+    return out, notes

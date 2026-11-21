@@ -312,7 +312,8 @@ def _takeovers(objects, cache, classification, airport, law, ground=None, trench
     if not frames:
         return (), []
     gone = {m for fr in frames for m in fr[0].members}
-    paved, _pn = _paved_over(classification, [o for o in objects if str(o.id) in gone], law)
+    paved, _pn = _paved_over(classification, [o for o in objects if str(o.id) in gone], law,
+                             airport)
     gen, _gn = generated_decks(paved, airport, law, (), (),
                                [o for o in everything if str(o.id) not in gone], cache,
                                covered=roads_under([p for fr in frames for p in fr],
@@ -353,7 +354,8 @@ def _takeovers(objects, cache, classification, airport, law, ground=None, trench
     return tuple(out), notes
 
 
-def full_hidden(objects, classification, cache, law) -> tuple[list, _t.Any, list[str]]:
+def full_hidden(objects, classification, cache, law, airport=None
+                ) -> tuple[list, _t.Any, list[str]]:
     """``(objects, classification, notes)`` on stage 1's map: the pack less
     every placement the full map's one decision hid (:func:`hidden_ids`,
     never a second reading: the walled frames, the combined frames, the
@@ -369,7 +371,7 @@ def full_hidden(objects, classification, cache, law) -> tuple[list, _t.Any, list
     if not hid:
         return objects, classification, []
     classification, notes = _paved_over(classification,
-                                       [o for o in objects if str(o.id) in hid], law)
+                                       [o for o in objects if str(o.id) in hid], law, airport)
     return _without(objects, hid, cache), classification, notes
 
 
@@ -389,7 +391,7 @@ def take_frames(objects, cache, classification, airport, law,
     if not hid:
         return objects, classification, takes, notes
     classification, more = _paved_over(classification, [o for o in objects if str(o.id) in hid],
-                                      law)
+                                      law, airport)
     return _without(objects, hid, cache), classification, takes, notes + more
 
 
@@ -399,7 +401,8 @@ _CARRIED = frozenset(TAXI_FAMILY) | {"runway", "runway_crossing"}
 _PAVED = _CARRIED | {"apron", "groundside_pavement"}
 
 
-def _paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[str]]:
+def _paved_over(classification, hidden: _t.Sequence, law, airport=None
+                ) -> tuple[_t.Any, list[str]]:
     """``classification`` with the DECK PLATES of the ``hidden`` placements
     paved where no cell owns them: the author drew the airport's pavement
     across the crossing as the deck itself (the apt.dat leaves it out:
@@ -410,7 +413,8 @@ def _paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[
     (``carried_off``).  Each plate part takes the role, ref and code of the
     paved cell with the most area within ``[bridge] abutment_sample_step_m``
     of it, a taxiway or runway cell before any other; a plate with no paved
-    cell beside it is left alone."""
+    cell beside it is left alone.  With ``airport`` the taxi route runs on
+    across what is paved (``planar/route_lines``)."""
     from shapely.strtree import STRtree
     if classification is None or not classification.cells:
         return classification, []
@@ -440,10 +444,16 @@ def _paved_over(classification, hidden: _t.Sequence, law) -> tuple[_t.Any, list[
                                    evidence={"deck_takeover": 1.0, "area_m2": part.area}))
     if not new:
         return classification, []
-    return (_dc.replace(classification, cells=tuple(classification.cells) + tuple(new)),
-            [f"hidden deck plates paved: {len(new)} cell(s), "
+    out = _dc.replace(classification, cells=tuple(classification.cells) + tuple(new))
+    notes = [f"hidden deck plates paved: {len(new)} cell(s), "
              f"{sum(shapely.Polygon(c.ring).area for c in new):,.0f} m2 "
-             f"({', '.join(sorted({c.role for c in new}))})"])
+             f"({', '.join(sorted({c.role for c in new}))})"]
+    from .route_lines import with_route_lines
+    out, n_lines = with_route_lines(out, airport, [shapely.Polygon(c.ring, c.holes)
+                                                   for c in new])
+    if n_lines:
+        notes.append(f"{n_lines} taxi centreline piece(s) across the paved plates")
+    return out, notes
 
 
 def _without(objects, hidden: _t.AbstractSet[str], cache=None) -> list:

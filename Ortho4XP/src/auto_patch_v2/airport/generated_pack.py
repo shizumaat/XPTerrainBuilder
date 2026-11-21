@@ -114,8 +114,14 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
         code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or ""),
                                     d.get("route")) if apt is not None else None
         runway = _pav.carried_runway(apt, ring_polygon(d["ring"])) if apt is not None else None
-        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code,
-                                      runway=runway, authored=author.of(d))
+        authored = author.of(d)
+        # a taxiway deck nobody paints takes its route's centreline
+        # (``deck_route_paint``, owner 2026-11-21T16:00Z)
+        from .deck_route_paint import route_centreline
+        drop = list(dropped_by_deck.get(k, ()))
+        drop += route_centreline(d, drop, authored)
+        objs, st = _objs.deck_objects(d, drop, art, g, surface_code=code,
+                                      runway=runway, authored=authored)
         rel = str(d["resource"])
         frame = st["frame"]
         # RULINGS 2026-11-19c: the pack's placements on the deck ride its top

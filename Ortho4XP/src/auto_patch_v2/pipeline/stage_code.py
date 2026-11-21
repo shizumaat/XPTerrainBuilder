@@ -834,6 +834,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_runout",
         "auto_patch_v2.planar.deck_skirt",
         "auto_patch_v2.planar.deck_span_cut",
+        "auto_patch_v2.planar.route_lines",
         "auto_patch_v2.planar.deck_takeover",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.deck_width",
@@ -2677,7 +2678,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    geom.deck_spans planar.deck_span_cut
+    geom.deck_spans planar.deck_span_cut planar.route_lines
     planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
@@ -2879,7 +2880,8 @@ CODE_MODULES["solve"] = _mods("""
     model.road_clearance
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    geom.deck_spans planar.deck_span_cut
+    geom.deck_spans planar.deck_span_cut planar.route_lines
+    pipeline.late_view
     geom.channel_declared planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
@@ -3104,7 +3106,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.road_bridge_ceiling model.road_clearance
 """)
 CODE_MODULES["emit"] = _mods("""
-    geom.deck_spans planar.deck_span_cut
+    geom.deck_spans planar.deck_span_cut planar.route_lines
     airport.band_run
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
     planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim
@@ -3524,7 +3526,7 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -3552,7 +3554,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -3647,7 +3649,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -3742,7 +3744,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -3837,7 +3839,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -4391,7 +4393,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -4486,7 +4488,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -4583,7 +4585,7 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -4678,7 +4680,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -4773,7 +4775,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -5532,7 +5534,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -5627,7 +5629,7 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -5926,7 +5928,7 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6022,7 +6024,7 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6118,7 +6120,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -6214,7 +6216,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -6310,7 +6312,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -6408,7 +6410,7 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6504,7 +6506,7 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6600,7 +6602,7 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6628,7 +6630,7 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
@@ -6678,7 +6680,7 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent

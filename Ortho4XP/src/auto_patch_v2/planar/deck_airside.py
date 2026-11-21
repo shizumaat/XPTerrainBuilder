@@ -80,10 +80,12 @@ def _carried(cells, polys, ring: Polygon, air: _t.AbstractSet[str]):
     return best
 
 
-def fill_rings(classification, decks: _t.Sequence, law) -> tuple[_t.Any, list[str]]:
+def fill_rings(classification, decks: _t.Sequence, law, airport=None
+               ) -> tuple[_t.Any, list[str]]:
     """``classification`` with each deck's ring cut out of every cell and
     filled by ONE cell of the pavement role it carries (module doc), and a
-    note per deck.  Unchanged with no deck."""
+    note per deck; ``airport`` runs its taxi routes on across the fill
+    (``planar/route_lines``).  Unchanged with no deck."""
     if not decks or classification is None:
         return classification, []
     from ..law.tables import rolled_on_roles
@@ -117,7 +119,13 @@ def fill_rings(classification, decks: _t.Sequence, law) -> tuple[_t.Any, list[st
     cells, n = knife_cells(classification.cells, polys, unary_union(rings), law, (),
                            cut_pads=True, mark=FILL_MARK, new_cells=fills)
     notes.append(f"{n} cell(s) cut under {len(fills)} withheld generated deck ring(s)")
-    return _dc.replace(classification, cells=tuple(cells)), notes
+    # the taxi route runs on across the fill (``planar/route_lines``)
+    from .route_lines import with_route_lines
+    out, n_lines = with_route_lines(_dc.replace(classification, cells=tuple(cells)), airport,
+                                    rings)
+    if n_lines:
+        notes.append(f"{n_lines} taxi centreline piece(s) across the filled ring(s)")
+    return out, notes
 
 
 def drop_bores(ways: _t.Sequence, decks: _t.Sequence) -> tuple[list, int]:

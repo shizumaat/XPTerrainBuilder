@@ -293,7 +293,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     # stage 1's map hides what the full map hid; the full map reads the pack
     # once, finds the frames (never an object floor's, W1), and reads it
     # again without them
-    objects, classification, _tk_notes = full_hidden(objects, classification, cache, law)
+    objects, classification, _tk_notes = full_hidden(objects, classification, cache, law,
+                                                     airport)
     takes: tuple = ()
     from .deck_span_cut import at_grade_cells
     for _tk_pass in (0, 1):
@@ -419,7 +420,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     if held_back:
         _held = {d.object_id for d in held_back}
         decks = tuple(d for d in decks if d.object_id not in _held)
-        classification, fill_notes = fill_rings(classification, held_back, law)
+        classification, fill_notes = fill_rings(classification, held_back, law, airport)
         deck_notes = [*deck_notes, *fill_notes]
     # a generated deck carries its airside pavement on the full map (A3)
     classification, cut_notes = carried_off(classification, decks, law)

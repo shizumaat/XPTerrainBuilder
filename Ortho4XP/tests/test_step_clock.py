@@ -146,6 +146,25 @@ def test_a_record_carries_the_builds_own_stage_clocks(stores):
     assert kept[1]["phase_seconds"] == {}
 
 
+def test_the_driver_hands_the_clocks_to_the_session(stores, monkeypatch):
+    """``auto_patch.driver`` -> ``UI.airport_phases`` -> the session's
+    ``airport_phases`` -> :func:`ATM.note_phases` (no ``o4_engine`` import
+    in the vector step's closure)."""
+    import O4_UI_Utils as UI
+    from auto_patch import driver
+    from o4_engine.session import EngineSession
+    seen = []
+    monkeypatch.setattr(UI, "engine_session", type("S", (), {
+        "airport_phases": lambda self, icao, phases: seen.append((icao, phases))})())
+    driver._note_phases({"icao": "KDEN", "phase_seconds": {"solve": 5.0}})
+    driver._note_phases({"icao": "KBKF", "phase_seconds": {}})
+    assert seen == [("KDEN", {"solve": 5.0})]
+    EngineSession.airport_phases(None, "KDEN", {"solve": 5.0, "total": 9.0})
+    ATM.record("KDEN", 9.0, now=1.0)
+    kept = json.loads((stores / "airports" / "KDEN.json").read_text(encoding="utf-8"))
+    assert kept[-1]["phase_seconds"] == {"solve": 5.0}
+
+
 def test_airports_solve_in_parallel(stores):
     ATM.record("KDEN", 1340.0)
     ATM.record("KBKF", 71.0)

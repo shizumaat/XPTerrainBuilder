@@ -53,12 +53,55 @@ def test_the_shoulder_stops_where_the_taxiway_ends():
 
 
 def test_a_crossing_road_and_mapped_roads_are_not_shoulders():
+    """A crossing road runs nowhere along the taxiway; a road STRIP source
+    carrying its mapped road down its length is the road beside it."""
     cross = ["service_road", "pav3", box(290.0, 20.0, 310.0, 400.0), None, {}, "apron"]
     mapped = ["service_road", "pav4", box(0.0, -8.0, 600.0, 0.0), None,
-              {"kind": "strip"}, "strip"]
-    rows, stats = _run([_taxi(), cross, mapped])
+              {"kind": "strip", "source_width_m": 8.0}, "strip"]
+    route = ["service_road", "route0", box(0.0, -16.0, 600.0, -8.0), None, {},
+             "service_road"]
+    rows = [_taxi(), cross, mapped, route]
+    stats = join_taxi_shoulders(rows, TAXI_FAMILY, [AXIS], load_rules(), lambda f: False,
+                                [LineString([(-50.0, -4.0), (650.0, -4.0)])])
     assert stats["taxi_shoulders"] == 0
-    assert [r[0] for r in rows] == ["cross_connector", "service_road", "service_road"]
+    assert [r[0] for r in rows] == ["cross_connector"] + ["service_road"] * 3
+
+
+def test_a_strip_with_no_mapped_road_is_the_shoulder():
+    """RULINGS 2026-11-21e (#2223 KBIL dsf:pol81): a pack strip bordering
+    the taxiway that carries no mapped road route is the taxiway's
+    shoulder, never a service road."""
+    strip = ["service_road", "pav4", box(0.0, -8.0, 600.0, 0.0), None,
+             {"kind": "strip", "source_width_m": 8.0}, "strip"]
+    rows, stats = _run([_taxi(), strip])
+    assert stats["taxi_shoulders"] == 1
+    assert not [r for r in rows if r[0] == "service_road"]
+
+
+def test_a_ring_round_an_infield_is_the_shoulder_but_beside_its_road():
+    """#2223 KBIL dsf:pol81: an 8 m strip ringing an infield, the taxi
+    cell wrapping round three of its sides (each with its own centreline)
+    and a mapped road along part of the fourth.  A road strip source joins
+    along its whole shared edge (21e), centreline parallel or not; only the
+    ground beside the road stays the road."""
+    outer = box(0.0, 0.0, 300.0, 300.0)
+    ring = outer.difference(box(8.0, 8.0, 292.0, 292.0))
+    taxi = box(-20.0, -20.0, 320.0, 320.0).difference(outer).difference(
+        box(-20.0, 300.0, 320.0, 320.0))           # west, south, east sides
+    axes = [LineString([(-10.0, -10.0), (-10.0, 300.0)]),
+            LineString([(-10.0, -10.0), (310.0, -10.0)]),
+            LineString([(310.0, -10.0), (310.0, 300.0)])]
+    rows = [["cross_connector", "pav1", taxi, "C", {"kind": "corridor"}, "corridor"],
+            ["service_road", "pol81", ring, None,
+             {"kind": "strip", "source_width_m": 8.0}, "strip"]]
+    road = LineString([(100.0, 296.0), (200.0, 296.0)])     # on the north side
+    stats = join_taxi_shoulders(rows, TAXI_FAMILY, axes, load_rules(), lambda f: False,
+                                [road])
+    assert stats["taxi_shoulders"] >= 1
+    joined = sum(r[2].area for r in rows if r[4].get("taxi_shoulder"))
+    assert joined > 3 * 280.0 * 8.0                  # all three bordered sides
+    left = [r for r in rows if r[0] == "service_road"]
+    assert left and all(r[2].bounds[1] >= 8.0 for r in left)   # none beside the taxiway
 
 
 def test_a_10l_road_neck_is_the_shoulder_only_away_from_its_road():

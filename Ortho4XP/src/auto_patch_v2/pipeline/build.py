@@ -813,7 +813,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # against constants.  Everything below reads the full map.
         t = time.perf_counter()
         _pulse.tick("the last stage: the gap pieces")
-        from .late_speculate import speculate as speculate_roads
         from .late_stage import run_last_stages
         _base_rep = design_rep
         # the last stage re-mints the held registry (its own prefix run): the
@@ -832,8 +831,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict, "cs": cs},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
-            speculate=speculate_roads)
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(

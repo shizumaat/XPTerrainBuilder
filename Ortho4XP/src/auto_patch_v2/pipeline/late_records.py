@@ -6,7 +6,8 @@ derive between them going through the prefix's own records (§4b.3).
 classification, its report, the part stations, the pad roads' exits) and
 the lines it said.  Keyed on the classification it was handed, the BASE
 (the solved map the cut reads: the base solve's :func:`~pipeline.
-solve_record.identity`, or the previous pass's late solve), the airport,
+solve_record.identity` — on the one late map every cut reads it, #2206),
+the airport,
 the classify rules and the pass's kind.
 
 ``late.solve.<n>``: what ``late_stage.late_solve`` returns, stored against
@@ -99,6 +100,9 @@ class LateRecords:
         self.law, self.options = law, options
         self.passes = 0
         self._cut: str | None = None
+        #: per stage, its cut's pass number and digest: on the one late map
+        #: (#2206) every cut runs before the first solve
+        self._cuts: dict[str, tuple[int, str | None]] = {}
         #: the last late solve record's identity (its KEY and output digest;
         #: ``None``: not cached) — how the emit record names the final map
         self.final: str | None = None
@@ -118,6 +122,7 @@ class LateRecords:
                           "stage": stage}, fn, code="late_cut",
                          as_served=True)     # the next pass digests its cl
         self._cut = got.digest
+        self._cuts[stage] = (self.passes, got.digest)
         cut, lines = got.value
         if not tee.ran:
             for m in lines:
@@ -143,8 +148,9 @@ class LateRecords:
 
         def check(o) -> str | None:
             return _sr.refuses(o[3], o[2]["cs_full"], o[1].z, len(o[0].vertices), self.law)
-        got = _bc.record(self.fc, f"late.solve.{self.passes}",
-                         {**self.inputs, "base": self.base, "cut": self._cut,
+        n, cut_digest = self._cuts.get(stage, (self.passes, self._cut))
+        got = _bc.record(self.fc, f"late.solve.{n}",
+                         {**self.inputs, "base": self.base, "cut": cut_digest,
                           "derive": ident, "stage": stage},
                          fn, code="late_solve", codec=_late_codec(pm_d, cs_d, cut, strips_d),
                          check=check, bypass=_sr.bypass_of(self.options))

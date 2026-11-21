@@ -1,16 +1,16 @@
 """THE BUILD'S PREFIX RUN AHEAD IN ONE POOL WORKER — the plumbing the
 speculative derives share (issue #2044; cold-patch-300s spec §3.1 C4b).
 
-A build runs its prefix (``pipeline/prefix.Deriver``) four times: the main
-pass, stage 1's ribbon-free map, the gap stage and the pad roads.  Where a
-derive's inputs are known before the build reaches it, ONE pool worker runs
-it ahead, beside the work the build is doing here:
+A build runs its prefix (``pipeline/prefix.Deriver``) at most three times:
+the main pass, stage 1's ribbon-free map and the one late map (#2206,
+``late_stage.run_last_stages``).  Where a derive's inputs are known before
+the build reaches it, ONE pool worker runs it ahead, beside the work the
+build is doing here: stage 1's ribbon-free derive beside the main pass's
+shapes, constraints and strips (``pipeline/stage_one_ahead``).  (The pad
+roads' speculative derive beside the gap stage, C4b, is gone with the
+second late derive it ran ahead.)
 
-* the pad roads' derive beside the gap stage (``pipeline/late_speculate``);
-* stage 1's ribbon-free derive beside the main pass's shapes, constraints
-  and strips (``pipeline/stage_one_ahead``).
-
-This module is what both do the same way: whether a worker may be started
+This module is what it does: whether a worker may be started
 at all (:func:`may_start` — the pool's budget, and room on the machine for
 one more process this build's size, ``pool_memory.room_for_copy``), the
 payload a worker rebuilds the build's own :class:`Deriver` from

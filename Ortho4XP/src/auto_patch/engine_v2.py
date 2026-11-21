@@ -512,6 +512,15 @@ def format_provenance_line(icao: str, *, sha: str, law_sha256: str | None,
             f"ruleset={ruleset} solve={status}{flat} dem={_dem_label(dem_prov)}")
 
 
+def _phase_seconds(report: dict) -> dict:
+    """The v2 report's stage clocks (``wall_s``) and the last stage's own
+    split (``late_cut`` / ``late_derive`` / ``late_solve``) — #2206."""
+    clocks = dict(report.get("wall_s") or {})
+    late = dict((report.get("late_stage") or {}).get("wall_s") or {})
+    clocks.update({f"late_{k}": v for k, v in late.items()})
+    return clocks
+
+
 def _iis_text(report: dict, log_lines: list[str]) -> str:
     solve = (report or {}).get("solve") or {}
     rows = solve.get("iis") or []
@@ -780,6 +789,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                f"verify rows {sum(by_family.values()) if by_family else 'n/a'}]")
     return {"icao": icao, "ok": True, "engine": ENGINE_V2, "summary": summary,
             "build_s": build_s, "worker_pid": os.getpid(),
+            # #2206: the build's own stage clocks, for the app's per-airport
+            # record (``o4_engine.airport_time_model.note_phases``)
+            "phase_seconds": _phase_seconds(res.report),
             "verify_s": time.time() - t_v, "verify_err": verify_err,
             "verify_log_path": task["verify_log_path"],
             "object_pad_records": [], "provenance_log": line,

@@ -14,6 +14,10 @@ base level is a constant of this stage.
 THE CAR LOTS come last of all (#2114 round 2, ``pipeline/car_lot_stage``):
 a gap piece and a pad road are standing ground to a car lot.
 
+ONE MAP FOR EVERY LAST STAGE (#2206, :func:`run_last_stages`): the three
+cuts read the base, the prefix runs once on the full classification, and
+the stages solve in order on that map, a later stage's faces withheld.
+
 ONE function, :func:`run_late_stage`, for the build and for the replay tool
 (``tools/v2_solve_replay.py --late-from``).  This module derives nothing of
 its own: the sets are ``pipeline/stage_one_map``'s, the rows
@@ -43,6 +47,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import face_edge_ids, is_car_lot_ref, is_gap_ref, is_osm_ribbon_ref
 from ..planar.basins import WALL_ROLE
 from ..planar.chords import stations as _chord_stations
+from .late_view import VIEW_FIELDS, dissolved_levels, withheld_vertices, withheld_view
 from .stage_one_map import (late_constraints, late_fixed, late_followers,
                             late_rim_levels, row_vertices)
 
@@ -273,12 +278,13 @@ class LateCut:
 
 def late_cut(cl, airport, law: Law, base_solution: _t.Mapping[str, _t.Any], *,
              rules=None, out: _t.Callable[[str], None] = print,
-             roads_only: bool = False, lots_only: bool = False) -> LateCut:
+             roads_only: bool = False, lots_only: bool = False,
+             held: _t.Sequence = ()) -> LateCut:
     """STEPS (i)-(ii) of the module docstring: the stations and the cut —
     ``cl`` with every gap piece replaced by its parts (or, ``roads_only``,
     the pad roads run on to their exits and their ramp-foot run-outs; or,
-    ``lots_only``, the car lots cut against the solved map,
-    ``pipeline/car_lot_stage``)."""
+    ``lots_only``, the car lots cut against the solved map and ``held``,
+    the polygons of the late cells cut before them, ``pipeline/car_lot_stage``)."""
     if rules is None:
         from ..classify.rules import load_rules
         rules = load_rules()
@@ -318,7 +324,7 @@ def late_cut(cl, airport, law: Law, base_solution: _t.Mapping[str, _t.Any], *,
                "part_stations": {}}
     elif lots_only:
         from .car_lot_stage import car_lot_cut
-        cl_cut, cut = car_lot_cut(cl, pm_base, law, rules)
+        cl_cut, cut = car_lot_cut(cl, pm_base, law, rules, held)
     else:
         cl_cut, cut = cut_classification(cl, pm_base, z_base, law, rules)
     # the stations stay the stage's own (the cut report is a published record)
@@ -341,51 +347,98 @@ def late_derive(derive: _t.Callable[[_t.Any], tuple], cut: LateCut) -> tuple[tup
 def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
                base_solution: _t.Mapping[str, _t.Any], *, options=None,
                out: _t.Callable[[str], None] = print, roads_only: bool = False,
-               lots_only: bool = False, **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
+               lots_only: bool = False, withheld: _t.AbstractSet[int] = frozenset(),
+               rim_base: _t.Mapping[str, _t.Any] | None = None,
+               **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """STEP (iii)'s second half: the followers, the constants, the follow
     rows and ``solve.design.solve_late_stage`` on the derived map —
     ``(full map, solution, report)`` (:func:`run_late_stage`).
-    ``lots_only``: the car lots' stage (``pipeline/car_lot_stage``)."""
+    ``lots_only``: the car lots' stage (``pipeline/car_lot_stage``).
+
+    THE LAST STAGES ON ONE MAP (#2206, :func:`run_last_stages`):
+    ``withheld`` are the face ids a LATER stage owns on ``derived``'s map
+    (:func:`_junior_faces`) — this stage solves on the map without them
+    (``stage_one_map.withheld_view``): the vertices only they carry are
+    constants at the survey that no face of the view and no row of the
+    stage's set names, and the pad roads' own passes run only in the stage
+    the pad roads follow in.  ``rim_base`` (the pad
+    roads' stage on the one map): the MAIN base, the map the pad roads' rim
+    nodes stand off (``pipeline/neck_release`` reads their edges there)."""
     if lots_only:
         from .car_lot_stage import car_lot_solve
         return car_lot_solve(cut, derived, t_derive, airport, law, base_solution,
                              options=options, out=out, **solve_kw)
     from ..law.tables import design as _design_law
+    from ..model.planar import pad_road_faces
     from ..solve.design import solve_late_stage
     pm_base, z_base = base_solution["pm"], base_solution["z"]
     cl_cut, part_stations, exits, t_cut = cut.cl, cut.part_stations, cut.exits, cut.wall_s
     pm, cs, strips, _hold = derived
+    pm_full = pm
+    absent = frozenset(base_solution.get("withheld") or ())
+    junior = withheld_vertices(pm, withheld)
+    pad_ids = {f.id for f in pad_road_faces(pm)}
+    # the map as this stage sees it (``pipeline/late_view``): the later
+    # stages' faces are not on it, nor the nodes they minted on its rings
+    # (their vertices stay, isolated, so the ids index the full map)
+    pm, dissolved = withheld_view(pm, withheld, frozenset(
+        tuple(v.xy) for i, v in pm_base.vertices.items() if i not in absent)
+        if withheld else frozenset())
+    junior = junior | frozenset(dissolved)
+    if junior:
+        # a later stage's rows are its own (a pin, a law row on its faces)
+        cs = ConstraintSet.from_rows([r for r in cs.rows()
+                                      if not any(v in junior for v in row_vertices(r))])
+    # the pad roads' passes (13a (1)) are THEIR stage's; a map carrying pad
+    # roads notches the standing rims they meet, in every stage that sees it
+    pad_stage = roads_only or not (pad_ids & set(withheld))
+    notch = roads_only or bool(pad_ids)
     free, frep = late_followers(pm, roads_only=roads_only)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
-    fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
+    fixed, jrep = late_fixed(pm_base, z_base, pm, free | junior, ident, absent)
+    for v in junior:
+        fixed.pop(v, None)
     # the pad roads' arrangement notches a standing cell's node off its
     # edge (pass C, three identity cells): that node is still the cell's
     from ..constraints.pad_ramp import stand_off_m
+    rigid = frozenset(f.role for f in pm.faces.values()
+                      if is_rigid_role(law, f.role)) if notch else frozenset()
     joined, rim_edges = frozenset(fixed), {}
     jrep["rim"] = late_rim_levels(
-        pm_base, z_base, pm, fixed, free, ident * 0.02,
-        notch_m=stand_off_m(law) if roads_only else 0.0,
-        rigid=frozenset(f.role for f in pm.faces.values()
-                         if is_rigid_role(law, f.role)) if roads_only else frozenset(),
-        edge_of=rim_edges)
+        pm_base, z_base, pm, fixed, free | junior | absent, ident * 0.02,
+        notch_m=stand_off_m(law) if notch else 0.0, rigid=rigid, edge_of=rim_edges)
+    if junior:
+        jrep["withheld"] = {"faces": len(withheld), "vertices": len(junior) - len(dissolved),
+                            "nodes_dissolved": len(dissolved)}
     # #1918 R4-2: a standing road kerb's station abeam a pad road's
     # standing vertex across a step over the bar is RELEASED where its own
     # law lets it (``pipeline/neck_release``) — the pad roads' stage only
     necks: list = []
     if roads_only:
         from .neck_release import late_neck_release
+        neck_base, neck_edges, neck_joined = pm_base, rim_edges, joined
+        if rim_base is not None and rim_base["pm"] is not pm_base:
+            # on the one map the rim nodes were levelled in the gap stage:
+            # their edges are read off the main base again
+            seen, _j = late_fixed(rim_base["pm"], rim_base["z"], pm, free, ident)
+            neck_base, neck_edges, neck_joined = rim_base["pm"], {}, frozenset(seen)
+            late_rim_levels(rim_base["pm"], rim_base["z"], pm, seen, free, ident * 0.02,
+                            notch_m=stand_off_m(law), rigid=rigid, edge_of=neck_edges)
         jrep["rim"]["necks"], necks = late_neck_release(
-            pm_base, pm, fixed, cs, law, rim_edges, joined,
+            neck_base, pm, fixed, cs, law, neck_edges, neck_joined,
             to_ll=airport.frame.transformers()[1])
     # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
     # absolute road rows leave and it carries the ramp from the rim it is
     # welded to — the rim a constant of this stage
-    from ..constraints.pad_ramp import pad_ramp_rewrite
-    cs, pad_ramp = pad_ramp_rewrite(pm, law, cs, fixed)
     from ..constraints.foot_road import foot_road_rows
+    from ..constraints.pad_ramp import pad_ramp_rewrite
     from ..constraints.ramp_runout import runout_rows
-    cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed,
-                                              dem=getattr(airport, "dem", None))
+    if pad_stage:
+        cs, pad_ramp = pad_ramp_rewrite(pm, law, cs, fixed)
+        cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed,
+                                                  dem=getattr(airport, "dem", None))
+    else:
+        pad_ramp = {"joins": [], "withheld": "the pad roads' own stage"}
     # a mapped road continuing from a ramp foot carries its run-out (14i;
     # #669 / #1093) — from the foot's level, a constant of this stage
     from ..airport.ramp_feet import FOOT_SPAN_M, ramp_feet
@@ -412,7 +465,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     from ..constraints.pad_road_reach import (free_standing_pads, pad_grade_release,
                                               pad_road_reach, pad_shifts, shift_pads)
     from ..constraints.pad_ramp import PAD_RAMP_RULING
-    reach_rep = pad_road_reach(pm, law, fixed)
+    reach_rep = pad_road_reach(pm, law, fixed) if pad_stage else []
     first = [r for r in reach_rep if r["remainder_m"]]
     free_pads = free_standing_pads(pm, law) if first else frozenset()
     shifts = pad_shifts(reach_rep, free_pads)
@@ -485,7 +538,20 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     # publishes its own conflict records over the registry; the earlier
     # stages' (the caller's own solve, or the pickled base's) come first
     base_conf = [dict(r) for r in (base_solution.get("hard_conflict") or ())]
-    sol, design = solve_late_stage(pm, cs, law, fixed, options, **solve_kw)
+    # a later stage's own vertices are constants here, at the survey: no
+    # face of the view carries them and no row of ``cs`` names one
+    held_at = {v: float(pm.vertices[v].dem_z) if pm.vertices[v].dem_z is not None else 0.0
+               for v in junior}
+    sol, design = solve_late_stage(pm, cs, law, {**fixed, **held_at}, options, **solve_kw)
+    if dissolved and sol.z:
+        # a lifted node on a standing rim takes that rim's base edge, as the
+        # next stage's rim node did; one on this stage's own ring the edge
+        # it was lifted onto
+        on_rim: dict[int, float] = {}
+        late_rim_levels(pm_base, z_base, pm_full, on_rim,
+                        frozenset(pm_full.vertices) - frozenset(dissolved), ident * 0.02,
+                        notch_m=stand_off_m(law), rigid=rigid)
+        sol = _dc.replace(sol, z=tuple(dissolved_levels(sol.z, dissolved, on_rim)))
     hard_conflict = [*base_conf, *(dict(r) for r in design.hard_conflict)]
     t_solve = time.perf_counter() - t0
     feas = getattr(design, "hard_feasibility", None)
@@ -517,8 +583,13 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
               "fixed": fixed, "strips": strips, "pin_yield": [*_carry_pin_yield(base_solution, pm_base, pm), *pad_joins],
               "design": design, "hard_conflict": hard_conflict,
+              "withheld": sorted(junior - frozenset(dissolved)),
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}
+    if pm is not pm_full:
+        # what this stage published, on the full map (the view's faces go)
+        pm = _dc.replace(pm_full, **{f.name: getattr(pm, f.name) for f in _dc.fields(pm)
+                                     if f.name not in VIEW_FIELDS})
     return pm, sol, report
 
 
@@ -527,7 +598,6 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    options=None, out: _t.Callable[[str], None] = print,
                    roads_only: bool = False, lots_only: bool = False,
                    records: _t.Any = None,
-                   before_derive: _t.Callable[[LateCut], None] | None = None,
                    **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
     its solved levels (``{"pm", "z"}``, and the base's ``hard_conflict``
@@ -547,22 +617,18 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
 
     ``records`` (``pipeline/late_records.LateRecords``): the cut and the
     solve through their stage-cache records, the derive through the
-    prefix's; ``None`` runs them plainly.  ``before_derive(cut)`` is called
-    between the cut and the derive (``run_last_stages``' speculation)."""
+    prefix's; ``None`` runs them plainly.  One stage alone; the build runs
+    every stage on one map through :func:`run_last_stages`."""
     mode = {"roads_only": roads_only, "lots_only": lots_only}
     stage = "car_lots" if lots_only else "pad_roads" if roads_only else "gap"
     if records is None:
         cut = late_cut(cl, airport, law, base_solution, rules=rules, out=out, **mode)
-        if before_derive is not None:
-            before_derive(cut)
         derived, t_derive = late_derive(derive, cut)
         return late_solve(cut, derived, t_derive, airport, law, base_solution,
                           options=options, out=out, **mode, **solve_kw)
     # the stage-cache records (``pipeline/late_records``; spec §4b.5)
     cut = records.cut(cl, stage, lambda o: late_cut(
         cl, airport, law, base_solution, rules=rules, out=o, **mode), out)
-    if before_derive is not None:
-        before_derive(cut)
     derived, t_derive = late_derive(derive, cut)
     return records.solve(cut, derive, derived, t_derive, stage, lambda o: late_solve(
         cut, derived, t_derive, airport, law, base_solution, options=options, out=o,
@@ -578,117 +644,144 @@ def with_cells(cl_cut, extra: _t.Sequence[_t.Any]):
         _dc.replace(c, id=nid + k) for k, c in enumerate(extra)))
 
 
+def _junior_faces(pm, stage: str) -> frozenset[int]:
+    """THE LATER STAGES' FACES ON THE ONE LATE MAP (#2206): what ``stage``
+    solves as if absent — every car lot (the gap pieces' and the pad roads'
+    stages: the lots come last of all, #2114), and every pad road, run-out
+    strip and run-out bank (the gap pieces' stage: a pad road is junior to
+    a gap piece, 13a (1))."""
+    from ..model.planar import is_collar_ref, pad_road_faces, platform_ref_of
+    if stage == "car_lots":
+        return frozenset()
+    out = {f.id for f in pm.faces.values() if is_car_lot_ref(f.ref)}
+    if stage == "gap":
+        runs = getattr(pm, "ramp_runouts", None) or {}
+        out |= {f.id for f in pad_road_faces(pm)}
+        out |= {f.id for f in pm.faces.values()
+                if str(f.ref).split("#")[0] in runs
+                or (is_collar_ref(f.ref) and platform_ref_of(f.ref) in runs)}
+    return frozenset(out)
+
+
 def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                     base_solution: _t.Mapping[str, _t.Any], *,
-                    out: _t.Callable[[str], None] = print,
-                    speculate: _t.Callable[..., _t.Any] | None = None, **kw
-                    ) -> tuple[_t.Any, _t.Any, dict]:
-    """THE LAST STAGES: the gap pieces, then the pad roads
-    (:func:`_gap_and_road_stages`), then THE CAR LOTS (#2114 round 2 P1,
-    ``pipeline/car_lot_stage``) against every level those gave — a gap
-    piece and a pad road are standing ground to a car lot.  The car lots'
-    stage reads the rows standing under its constants (``base_solution
-    ["cs"]`` — the base solve's set, or the stage before it's ``cs_full``).
-    Without a car lot this IS :func:`_gap_and_road_stages`."""
+                    out: _t.Callable[[str], None] = print, rules=None, options=None,
+                    records: _t.Any = None, **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
+    """THE LAST STAGES, ON ONE MAP (#2206; owner 2026-11-21: "we shouldn't be
+    rerunning that long complex calculation more than once per airport"):
+    the gap pieces, then the pad roads (issue #609; 13a (1): junior to every
+    pavement they meet, the gap pieces too), then THE CAR LOTS (#2114 round 2,
+    ``pipeline/car_lot_stage``: a gap piece and a pad road are standing
+    ground to a car lot) — in that order, each solved against every level
+    the stages before it gave.
+
+    ALL THREE CUTS READ THE BASE.  The gap pieces are cut by the base's
+    levels (§55); the pad roads by their pads' levels and the ramp feet's
+    (``pad_road_exit``, ``ramp_runout``) — constants of the gap stage, so
+    the cut off the base IS the gap stage's wherever no level it reads
+    moved (cold-patch 300 s §3.1 C4b measured it so); the car lots against
+    the base map's faces and the cells the two cuts before them minted
+    (``car_lot_cut``'s ``held``).  So the full classification is known
+    before any late solve, and the caller's prefix runs ONCE on it
+    (``derive``).  Each stage then solves on that one map with the later
+    stages' faces withheld (:func:`_junior_faces`, ``late_solve``'s
+    ``withheld``): they neither follow nor hold, the vertices only they
+    carry leave its solve with their rows.  MEASURED before (#2206, the
+    app's ledger 2026-11-20): KATL ran this prefix four times in its solve
+    (1,955 s of 3,874), HECA 1,754 s, LFPG 2,312 s.
+
+    ``records`` (``pipeline/late_records.LateRecords``): the cuts and the
+    solves through their stage-cache records, the derive through the
+    prefix's.  The car lots' stage reads the rows standing under its
+    constants (the stage before it's ``cs_full``, or ``base_solution
+    ["cs"]`` with no stage before it)."""
     from .car_lot_stage import lot_cells
     lots = lot_cells(cl)
-    if not lots:
-        return _gap_and_road_stages(cl, airport, law, derive, base_solution, out=out,
-                                    speculate=speculate, **kw)
-    rest = _dc.replace(cl, cells=tuple(c for c in cl.cells if not is_car_lot_ref(c.ref)))
-    prev = None
-    base = dict(base_solution)
-    if any(is_gap_ref(c.ref) or is_pad_road_cell(c) for c in rest.cells):
-        pm_p, sol_p, prev = _gap_and_road_stages(rest, airport, law, derive, base_solution,
-                                                 out=out, speculate=speculate, **kw)
-        base = {"pm": pm_p, "z": sol_p.z, "pin_yield": prev["pin_yield"],
-                "hard_conflict": prev["hard_conflict"], "cs": prev["cs_full"]}
-        rest = prev["cl"]
-    if base.get("cs") is None:
+    roads = [c for c in cl.cells if is_pad_road_cell(c)]
+    plain = _dc.replace(cl, cells=tuple(c for c in cl.cells
+                                        if not (is_pad_road_cell(c) or is_car_lot_ref(c.ref))))
+    standing = {id(c) for c in plain.cells if not is_gap_ref(c.ref)}
+
+    def _cut(cl_x, stage: str, **mode) -> LateCut:
+        def run(o):
+            return late_cut(cl_x, airport, law, base_solution, rules=rules, out=o, **mode)
+        return run(out) if records is None else records.cut(cl_x, stage, run, out)
+    cuts: list[tuple[str, LateCut, dict]] = []
+    cl_x = plain
+    if any(is_gap_ref(c.ref) for c in plain.cells):
+        cuts.append(("gap", _cut(plain, "gap"), {}))
+        cl_x = cuts[-1][1].cl
+    if roads:
+        out(f"LAST STAGE, then the pad roads ({len(roads)} cells), cut off the base (13a (1))")
+        mode = {"roads_only": True}
+        cuts.append(("pad_roads", _cut(with_cells(cl_x, roads), "pad_roads", **mode), mode))
+        cl_x = cuts[-1][1].cl
+    if lots:
+        out(f"LAST STAGE, then the car lots ({len(lots)} cells) against it (#2114 round 2)")
+        held = [_poly(c.ring, c.holes) for c in cl_x.cells if id(c) not in standing]
+        cuts.append(("car_lots", _cut(with_cells(cl_x, lots), "car_lots", lots_only=True,
+                                      held=held), {"lots_only": True}))
+    if not cuts:
+        raise ValueError("run_last_stages: no gap piece, pad road or car lot to solve")
+    if lots and base_solution.get("cs") is None and len(cuts) == 1:
         raise ValueError("run_last_stages: the car lots' stage needs the standing rows "
                          "(base_solution['cs'])")
-    out(f"LAST STAGE, then the car lots ({len(lots)} cells) against it (#2114 round 2)")
-    pm, sol, rep = run_late_stage(with_cells(rest, lots), airport, law, derive, base,
-                                  out=out, lots_only=True, **kw)
-    if prev is None:
-        return pm, sol, rep
-    lot_rep = rep
-    rep = {**prev, **{k: lot_rep[k] for k in ("cl", "cs", "cs_full", "fixed", "strips",
-                                              "pin_yield", "design", "hard_conflict",
-                                              "car_lots")}}
-    rep["wall_s"] = {k: round(prev["wall_s"][k] + lot_rep["wall_s"][k], 2)
-                     for k in prev["wall_s"]}
-    rep["design"].stages["gap_and_road_stages"] = dict(prev["design"].stages)
-    return pm, sol, rep
+    out(f"LAST STAGES ON ONE MAP (#2206): {' -> '.join(s for s, _c, _m in cuts)}, "
+        f"one derive")
+    derived, t_derive = late_derive(derive, cuts[-1][1])
+    base, prev = dict(base_solution), None
+    for stage, cut, mode in cuts:
+        kw = {**mode, "withheld": _junior_faces(derived[0], stage),
+              "rim_base": base_solution if stage == "pad_roads" else None}
+
+        def run(o, cut=cut, base=base, kw=kw):
+            return late_solve(cut, derived, t_derive, airport, law, base, options=options,
+                              out=o, **kw, **solve_kw)
+        pm, sol, rep = (run(out) if records is None else
+                        records.solve(cut, derive, derived, t_derive, stage, run, out))
+        if prev is not None:
+            rep = (_gap_then_roads if stage == "pad_roads" else _then_lots)(prev, rep)
+        prev = rep
+        base = {"pm": pm, "z": sol.z, "pin_yield": rep["pin_yield"],
+                "hard_conflict": rep["hard_conflict"], "cs": rep["cs_full"],
+                "withheld": rep.get("withheld") or ()}
+    # the one derive, counted once
+    prev["wall_s"] = {**prev["wall_s"], "derive": round(t_derive, 2)}
+    prev["one_map"] = {"stages": [s for s, _c, _m in cuts], "derives": 1}
+    return pm, sol, prev
 
 
-def _gap_and_road_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
-                         base_solution: _t.Mapping[str, _t.Any], *,
-                         out: _t.Callable[[str], None] = print,
-                         speculate: _t.Callable[..., _t.Any] | None = None, **kw
-                         ) -> tuple[_t.Any, _t.Any, dict]:
-    """THE LAST STAGE, AND THE PAD ROADS AFTER IT (issue #609; owner RULINGS
-    2026-10-13a (1): a pad road is junior to every pavement it meets — the
-    gap pieces too).  With only gap pieces, or only pad roads, on the map
-    this IS :func:`run_late_stage`.  With both, the gap pieces are solved
-    first on the classification WITHOUT the pad roads (the stage an airport
-    with no pad road gets, row for row), then the pad roads alone against
-    its levels (``roads_only``): a second derive, paid only there.
-    MEASURED before the order (HECA, one stage for both): 24 gap parts moved,
-    worst 7.36 m; and with the order inside ONE derive (gap pieces' pass
-    with the pad roads' vertices and rows dropped, OTHH): 12 gap nodes
-    still moved up to 0.20 m — the rings the pad roads re-node.
+def _summed(a: dict, b: dict) -> dict:
+    """Two stages' ``wall_s`` (cut and solve summed; the derive is one)."""
+    return {k: round(a[k] + b[k], 2) if k != "derive" else a[k] for k in a}
 
-    ``speculate`` (the build's ``pipeline/late_speculate.speculate``; spec
-    cold-patch-300s §3.1 C4b): the pad roads' cut and derive started BESIDE
-    the gap stage off the main base the moment the gap pieces are cut, its
-    answer used only when the real cut digests the same.  ``None``: in
-    sequence, as the replay runs it."""
-    from .stage_one_map import remap_row
-    roads = [c for c in cl.cells if is_pad_road_cell(c)]
-    gaps = any(is_gap_ref(c.ref) for c in cl.cells)
-    if not (roads and gaps):
-        return run_late_stage(cl, airport, law, derive, base_solution, out=out,
-                              roads_only=not gaps, **kw)
-    plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not is_pad_road_cell(c)))
-    ahead: list = []
 
-    def _speculate(cut: LateCut) -> None:
-        ahead.append(speculate(derive, with_cells(cut.cl, roads), airport, law,
-                               base_solution, rules=kw.get("rules"), out=out))
-    try:
-        pm_g, sol_g, rep_g = run_late_stage(
-            plain, airport, law, derive, base_solution, out=out,
-            before_derive=None if speculate is None else _speculate, **kw)
-        cl_all = with_cells(rep_g["cl"], roads)
-        out(f"LAST STAGE, then the pad roads ({len(roads)} cells) against it (13a (1))")
-        pm, sol, rep = run_late_stage(
-            cl_all, airport, law, (ahead[0] if ahead and ahead[0] is not None else derive),
-            {"pm": pm_g, "z": sol_g.z, "pin_yield": rep_g["pin_yield"],
-             "hard_conflict": rep_g["hard_conflict"]},
-            out=out, roads_only=True, **kw)
-    finally:
-        for spec in ahead:
-            if spec is not None:
-                spec.close()
-    # the gap stage's records stand; its follow rows cross to the final map
-    # by the canonical join (vertex coordinate)
-    at = {tuple(v.xy): i for i, v in pm.vertices.items()}
-    vmap = {i: at[tuple(v.xy)] for i, v in pm_g.vertices.items() if tuple(v.xy) in at}
+def _gap_then_roads(rep_g: dict, rep: dict) -> dict:
+    """The pad roads' report over the gap stage's: the gap stage's records
+    stand, its follow rows join the final set (the same map), its followers
+    and the roads' are the stage's."""
+    rep = dict(rep)
     g_rows = [r for r in rep_g["cs_full"].rows() if r.source.generator == _GAP_GEN]
-    carried = [remap_row(r, vmap) for r in g_rows
-               if all(v in vmap for v in row_vertices(r))]
-    rep["cs_full"] = ConstraintSet.from_rows([*rep["cs_full"].rows(), *carried])
+    rep["cs_full"] = ConstraintSet.from_rows([*rep["cs_full"].rows(), *g_rows])
     rep["cut"], rep["follow"] = rep_g["cut"], rep_g["follow"]
     rep["gap_stage"] = {"followers": rep_g["followers"], "join": rep_g["join"],
                         "dropped": rep_g["dropped"], "wall_s": rep_g["wall_s"],
-                        "follow_rows_carried": len(carried), "follow_rows": len(g_rows)}
+                        "follow_rows_carried": len(g_rows), "follow_rows": len(g_rows)}
     refs = sorted({*rep_g["stage"]["followers"], *rep["stage"]["followers"]})
     rep["stage"] = {**rep_g["stage"], "followers": refs}
     rep["followers"] = {**rep["followers"], "gap_faces": rep_g["followers"]["gap_faces"],
-                        "follower_ribbon_refs": refs,
-                        "follower_ribbons": len(refs)}
-    rep["wall_s"] = {k: round(rep_g["wall_s"][k] + rep["wall_s"][k], 2)
-                     for k in rep["wall_s"]}
+                        "follower_ribbon_refs": refs, "follower_ribbons": len(refs)}
+    rep["wall_s"] = _summed(rep_g["wall_s"], rep["wall_s"])
     rep["design"].stages["gap_stage"] = dict(rep_g["design"].stages)
-    return pm, sol, rep
+    return rep
+
+
+def _then_lots(prev: dict, lot: dict) -> dict:
+    """The car lots' report over the stages before it (their records stand;
+    the final map's sets and the solve's records are the lots')."""
+    rep = {**prev, **{k: lot[k] for k in ("cl", "cs", "cs_full", "fixed", "strips",
+                                          "pin_yield", "design", "hard_conflict",
+                                          "car_lots")}}
+    rep["wall_s"] = _summed(prev["wall_s"], lot["wall_s"])
+    rep["design"].stages["gap_and_road_stages"] = dict(prev["design"].stages)
+    return rep

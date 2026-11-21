@@ -24,9 +24,25 @@ from auto_patch_v2.pipeline import stage_one_ahead as SA
 from auto_patch_v2.pipeline.prefix import Deriver, run_prefix
 from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
 from tests.auto_patch_v2.test_backhalf_records import ICAO, _states
-from tests.auto_patch_v2.test_late_speculate import _fields
 from tests.auto_patch_v2.test_roadmint100 import RWY_END, _way, _with
 from tests.auto_patch_v2.test_solve_late_records import INPUTS, PACK
+
+#: the clock fields a digest leaves out
+_CLOCKS = ("wall_s", "wall")
+
+
+def _fields(obj) -> str:
+    """A digest of a dataclass's FIELDS (an unpickled ``PlanarMap`` also
+    carries its ``_unpickled_defaults`` note, ``model/planar``), clocks
+    left out (the channel reports' ``fit_s``)."""
+    from auto_patch_v2.airport import stage_cache as STORE
+    if dc.is_dataclass(obj):
+        return STORE.content_digest(tuple(_fields(getattr(obj, f.name)) for f in dc.fields(obj)
+                                          if f.name not in _CLOCKS))
+    if isinstance(obj, dict):                 # a report: its clocks are ``*_s``
+        return STORE.content_digest({k: _fields(v) for k, v in obj.items()
+                                     if not (isinstance(k, str) and k.endswith("_s"))})
+    return STORE.content_digest(obj)
 
 from test_classify import _FlatDem
 

@@ -110,6 +110,17 @@ def auto_patch_begin(icaos):
 
 
 ################################################################################
+def airport_phases(icao, phases):
+    """A finished airport build's own stage clocks (the v2 report's
+    ``wall_s``) for the session's per-airport time record (#2206).  No-op
+    without an engine session; never raises."""
+    if engine_session is not None:
+        try:
+            engine_session.airport_phases(icao, phases)
+        except Exception:
+            pass
+
+
 def auto_patch_progress(icao, done, total, label, status="run",
                         eta_total_s=None):
     """Update one airport's row in the auto-patch progress window.

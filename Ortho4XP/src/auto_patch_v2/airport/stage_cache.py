@@ -109,7 +109,7 @@ def content_digest(obj: _t.Any) -> str:
     """:func:`canonical_digest` with no pickle memo: every reference is
     written out in full, so two EQUAL products digest alike whatever objects
     they happen to share — one built here and one built from an unpickled
-    copy in another process (``pipeline/late_speculate``; a pickle
+    copy in another process (``pipeline/stage_one_ahead``; a pickle
     round-trip alone changes :func:`canonical_digest`).  Not for an object
     that contains itself."""
     buf = io.BytesIO()

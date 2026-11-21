@@ -2745,6 +2745,8 @@ class MainWindow(QMainWindow):
         tick the menu to match and keep the choice per user."""
         self.map.set_map_filter(hidden)
         hidden = self.map.map_filter()
+        self.patch_editor.controller.set_layer_hidden(
+            not MAPFILTER.shows_patch(hidden))
         self.map_filter_menu.set_hidden(hidden)
         self.map_filter_button.setText(
             "Filter ●" if MAPFILTER.is_filtering(hidden) else "Filter")

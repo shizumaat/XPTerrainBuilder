@@ -2,7 +2,7 @@ import SwiftUI
 import SceneryKit
 
 /// The map's Filter menu (#2097; Qt: `O4_Map_Filter` + `O4_Qt_Map_Filter`,
-/// same keys, words and order): two sections of independent toggles, each
+/// same keys, words and order): three sections of independent toggles, each
 /// item on or off with a check mark, kept per user.
 ///
 /// Airports — ICAO / Small is the airport's KIND (the engine index's
@@ -17,10 +17,16 @@ import SceneryKit
 /// tile marked Favorite, #2033), Turned off (a tile the user turned
 /// XPTerrainBuilder off on, #2100). A tile draws when ANY of its items is on.
 ///
+/// Patch — Airport patch (#2214): the zoomed-in airport's patch layer
+/// (its shapes, the pack outlines and terrain under them, the patch
+/// toolbar). Off, the map shows the photo alone; the patch still loads,
+/// so turning it on again shows it at once.
+///
 /// Only the items turned OFF are stored, so a later item starts on.
 enum MapFilterItem: String, CaseIterable {
     case icao, small, custom, global
     case favorites, full, drape, off
+    case patch
 
     var label: String {
         switch self {
@@ -32,6 +38,7 @@ enum MapFilterItem: String, CaseIterable {
         case .full: return "Full"
         case .drape: return "Drape"
         case .off: return "Turned off"
+        case .patch: return "Airport patch"
         }
     }
 
@@ -39,6 +46,7 @@ enum MapFilterItem: String, CaseIterable {
     static let sections: [(header: String, items: [MapFilterItem])] = [
         ("Airports", [.icao, .small, .custom, .global]),
         ("Ortho Tiles", [.favorites, .full, .drape, .off]),
+        ("Patch", [.patch]),
     ]
 }
 
@@ -81,6 +89,9 @@ struct MapFilter: Equatable {
     /// Other installed ortho / mesh packages' outlines are Full ortho.
     var showsOtherOrtho: Bool { !hidden.contains(.full) }
 
+    /// The zoomed-in airport's patch layer draws (#2214).
+    var showsPatch: Bool { !hidden.contains(.patch) }
+
     /// Any Ortho item on (the map key's build kinds).
     var showsAnyTile: Bool {
         !hidden.isSuperset(of: [.favorites, .full, .drape, .off])
@@ -90,6 +101,9 @@ struct MapFilter: Equatable {
 /// The toolbar's Filter menu: a section per header, a check-marked toggle
 /// per item (Qt: `O4_Qt_Map_Filter.FilterMenu`).
 struct MapFilterMenu: View {
+    /// The menu's tooltip (Qt: `FilterMenu`'s).
+    static let help = "Choose which airports, ortho tiles and airport patch the map shows"
+
     @Binding var stored: String
 
     private var filter: MapFilter { MapFilter(stored: stored) }
@@ -108,7 +122,7 @@ struct MapFilterMenu: View {
                   ? "line.3.horizontal.decrease.circle.fill"
                   : "line.3.horizontal.decrease.circle")
         }
-        .help("Choose which airports and ortho tiles the map shows")
+        .help(Self.help)
     }
 
     private func binding(_ item: MapFilterItem) -> Binding<Bool> {

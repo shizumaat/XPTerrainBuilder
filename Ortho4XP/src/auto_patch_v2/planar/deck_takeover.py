@@ -683,13 +683,15 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
     of its split standing there).  MEASURED KDFW 1.0.570: 224.obj / 223.obj,
     96 / 40 triangles over 0.9 x 2.8 km (hull 2.35 km2), 567 / 229 m2 of
     their solid under the four taxiway A / B decks, floating 9.4 / 13.0 m
-    over the valley the decks span."""
+    over the valley the decks span.  Each piece draws a top at the deck's
+    level there (``hi``: the deck's floor and a clearance)."""
     from shapely.geometry import Polygon
 
     from .deck_bridge import co_placed
     a_min = float(law.tables.structures.deck_gen.min_area_m2)
     share = float(law.tables.structures.deck_gen.hide_inside_share)
     clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    lo = -float(law.tables.structures.deck_gen.pack_structure_depth_m)
     own = _plan(o, cache, law)
     body = Polygon(own).buffer(0.0) if own else None
     out = []
@@ -705,6 +707,13 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
                 continue
             on = sol.intersection(footprint)
             if on.area < a_min or on.area >= share * sol.area:
+                continue
+            # its pieces there draw the deck: a top at the deck's level
+            # (:func:`_body_top`), never a terminal's wall reaching the
+            # footprint (MEASURED KDFW: seven terminal objects on the shared
+            # anchor had solid there and no deck-level top)
+            top = _body_top(q, cache, law, lo, hi)
+            if top is None or top.intersection(footprint).area < a_min:
                 continue
         except shapely.errors.GEOSException:         # an invalid pack outline
             continue

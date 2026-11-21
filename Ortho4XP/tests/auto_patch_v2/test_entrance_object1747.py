@@ -488,3 +488,13 @@ def test_walls_standing_on_the_surveyed_road_keep_their_bottom(tmp_path, law):
     zero, pins = _surveyed_pins(tmp_path, law, 5.0, bottom=-6.0)
     assert len(pins) == 1, pins
     assert pins[0].floor_z == pytest.approx(zero - 6.0, abs=0.01)
+
+
+def test_a_survey_without_a_roads_clearance_under_the_face_is_no_cutting(tmp_path, law):
+    """lane lfix570 (KLAX 1.0.569 ``Underpass_1.obj``): the coarse survey
+    2.4 m under the face's top carries no road under the portal (``[tunnel]
+    clearance_m``); the 6.6 m walls are the cutting and their bottom the
+    floor, as in 1.0.562 -- never the mouth lifted 4 m onto the survey."""
+    zero, pins = _surveyed_pins(tmp_path, law, 2.4, bottom=-6.6)
+    assert len(pins) == 1, pins
+    assert pins[0].floor_z == pytest.approx(zero - 6.6, abs=0.01)

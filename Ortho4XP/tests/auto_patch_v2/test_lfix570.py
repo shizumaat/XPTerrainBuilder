@@ -219,17 +219,24 @@ def test_a_mate_drawing_pieces_at_other_sites_is_hidden_only_on_our_decks(monkey
     plans = {"b": _rect(-40.0, -20.0, 38.0, 20.0), "r": _rect(-40.0, -900.0, 38.0, 900.0)}
     solid = box(-30.0, -2.0, 30.0, 2.0).union(box(-30.0, 800.0, 30.0, 880.0))
 
+    term = _placement("t", "130.obj")                   # a terminal's wall reaches the deck
+    plans["t"] = _rect(-40.0, -900.0, 38.0, 900.0)
+
     def top(o, cache, law, lo, hi):
         if hi == float("inf"):
             return None
-        return box(-40.0, -20.0, 38.0, 20.0) if str(o.id) == "b" else None
+        return {"b": box(-40.0, -20.0, 38.0, 20.0),
+                "r": box(-30.0, -2.0, 30.0, 2.0)}.get(str(o.id))
     monkeypatch.setattr(dt, "_body_top", top)
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
-    monkeypatch.setattr(dt, "_solid_plan", lambda o, *_a: solid if str(o.id) == "r" else None)
+    monkeypatch.setattr(dt, "_solid_plan",
+                        lambda o, *_a: solid if str(o.id) in ("r", "t") else None)
     monkeypatch.setattr("auto_patch_v2.planar.deck_bridge.co_placed", lambda a, b, tol: True)
-    out, notes = dt._one_decision(gens, (), [body, rail], object(), _airport(), load_default())
+    out, notes = dt._one_decision(gens, (), [body, rail, term], object(), _airport(),
+                                  load_default())
     rows = {h[0]: h for h in out[0].hides}
     assert len(rows["b"]) == 3 and len(rows["r"]) == 4          # the piece-wise row
+    assert "t" not in rows                    # no deck-level top there: never a piece
     assert any("pieces at other sites" in n for n in notes)
 
 

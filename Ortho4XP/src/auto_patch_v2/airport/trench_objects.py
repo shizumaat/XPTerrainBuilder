@@ -428,6 +428,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     flush, floor_min = float(ob.cover_flush_m), float(ob.shell_floor_min_m)
     split_tol = float(law.tables.structures.placement.split_tol_m)
     lane = float(law.tables.structures.tunnel.lane_width_m)
+    clear = float(law.tables.structures.tunnel.clearance_m)
     bores = {int(w.id) for w in tunnel_ways}
     by_id = {o.id: o for o in objects}
     out = []
@@ -469,8 +470,15 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # hanging below it are the author's skirt, never the road: the
             # floor is the surveyed road there and the face keeps its seat
             # (its bottom read from that floor, so ``portal_seat`` is unmoved)
+            # ... a road's clearance under the face's top at least
+            # (``[tunnel] clearance_m``): a survey a wall's height under it
+            # carries no road under the portal, the walls are its cutting
+            # (MEASURED KLAX 1.0.569 ``Underpass_1.obj``: the coarse survey
+            # 2.4 m under the face, the 6.4 m walls read as a skirt, the
+            # mouth 4 m too high and the storey pad beside it with it)
             seat = floor - bottom
-            if walled and seat + top - ground >= floor_min and floor < ground - floor_min:
+            if walled and seat + top - ground >= max(floor_min, clear) \
+                    and floor < ground - floor_min:
                 floor, bottom = ground, ground - seat
             # RULINGS 2026-11-16a: an opening under one road lane is a misread;
             # the face is re-read off its walls (:func:`_misread_face`)

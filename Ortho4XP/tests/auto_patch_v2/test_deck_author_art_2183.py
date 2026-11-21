@@ -111,9 +111,29 @@ def test_end_pages_need_both_ends():
     assert [p.path for p in pages] == ["pols/dirt.pol", "pols/base.pol", "pols/edge.lin"]
     assert deck_author_art.end_pages(pages, REGION, ROUTE) == ["pols/dirt.pol"]
     assert deck_author_art.end_pages(pages, REGION, None) == []
-    (line,) = deck_author_art.deck_lines(pages, REGION)
+    (line,) = deck_author_art.deck_lines(pages, REGION, ROUTE)
     assert line[0] == "pols/edge.lin"
     assert min(p[1] for p in line[1]) == pytest.approx(59.003)
+    # no route: no end line is known, and a piece reaching the ring is not carried
+    assert deck_author_art.deck_lines(pages, REGION) == []
+
+
+def test_a_line_crossing_under_the_deck_is_not_carried():
+    # owner 2026-11-21T06:47Z (KMCO 1.0.570): a ditch's water-edge line
+    # passing under the bridge, side to side, drew ON the deck top
+    dump = "\n".join([*HEAD,
+                      "BEGIN_POLYGON 2 0 2", "BEGIN_WINDING",
+                      "POLYGON_POINT 17.0 59.005", "POLYGON_POINT 17.01 59.005",
+                      "END_WINDING", "END_POLYGON",
+                      # a short scuff wholly on the deck stays
+                      "BEGIN_POLYGON 2 0 2", "BEGIN_WINDING",
+                      "POLYGON_POINT 17.0045 59.004", "POLYGON_POINT 17.0045 59.005",
+                      "END_WINDING", "END_POLYGON", ""])
+    pages = deck_author_art.pack_pages(dump)
+    assert [p.anchor for p in pages] == [(17.0, 59.005), (17.0045, 59.004)]
+    (line,) = deck_author_art.deck_lines(pages, REGION, ROUTE)
+    assert line[1][0] == pytest.approx((17.0045, 59.004))
+    assert deck_author_art.deck_lines(pages, REGION, ROUTE, skip={1}) == []
 
 
 def _recipe(tmp_path, dump: str):

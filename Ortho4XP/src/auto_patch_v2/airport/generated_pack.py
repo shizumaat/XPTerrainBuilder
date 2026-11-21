@@ -108,6 +108,8 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     art = _objs.install_art(g, root, resolve_library) if decks else None
     apt = _apt_block(apt_path, icao) if decks else None
     author = _Author(apt_path, root, resolve_library, read_dump)
+    # owner 2026-11-21T06:47Z (KMCO): a hidden bridge takes its own drapes
+    out["hides"] += author.companions(decks, out["hides"], g.hide_inside_share)
     for k, d in enumerate(decks):
         code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or ""),
                                     d.get("route")) if apt is not None else None
@@ -175,22 +177,58 @@ class _Author:
         self.root, self.read_dump = root, read_dump
         self.look = _aa.pack_first(self.pack, _skin.laminar_first(resolve) if root else resolve)
         self.pages: dict = {}
+        self.rows: dict = {}
+        #: per tile, the page indices never carried (``deck_companions``)
+        self.skip: dict = {}
 
     def _pages(self, lon: float, lat: float) -> list:
         import math
 
         from . import deck_author_art as _aa
+        from . import deck_companions as _dc
         from .backup_state import pristine_dsf_path
         from .dsf import dsf_path_in_pack
         key = (math.floor(lat), math.floor(lon))
         if key not in self.pages:
-            self.pages[key] = []
+            self.pages[key], self.rows[key] = [], {}
             dsf = pristine_dsf_path(dsf_path_in_pack(self.pack, *key))
             dump = self.read_dump(dsf) if os.path.isfile(dsf) else None
             if dump:
                 with open(dump, encoding="utf-8", errors="replace") as fh:
-                    self.pages[key] = _aa.pack_pages(fh.read())
+                    text = fh.read()
+                self.pages[key], self.rows[key] = _aa.pack_pages(text), _dc.placements(text)
         return self.pages[key]
+
+    def companions(self, decks: _t.Sequence[_t.Mapping], hides: _t.Sequence[_t.Mapping],
+                   share: float) -> list[dict]:
+        """The ``hides`` rows of the hidden bridges' own drapes
+        (``deck_companions``), remembered so no deck carries them."""
+        import math
+
+        from . import deck_companions as _dc
+        from .obj8 import resolve_resource
+        if not (self.pack and self.read_dump and decks):
+            return []
+        spans = [(ring_polygon(d["ring"]), d.get("route")) for d in decks]
+        by_tile: dict = {}
+        for h in hides:
+            lon, lat = float(h["lon"]), float(h["lat"])
+            self._pages(lon, lat)
+            key = (math.floor(lat), math.floor(lon))
+            hdg = next((r[2] for r in self.rows[key].get(str(h["resource"]), ())
+                        if abs(r[0] - lon) <= _hide.TOL_DEG and abs(r[1] - lat) <= _hide.TOL_DEG),
+                       None)
+            phys = resolve_resource(str(h["resource"]), self.pack, None) or (
+                self.look(str(h["resource"]), self.root) if self.root else None)
+            plan = _dc.plan_box(phys, lon, lat, hdg) if hdg is not None and phys else None
+            if plan is not None:
+                by_tile.setdefault(key, []).append((plan, str(h["object_id"])))
+        out: list[dict] = []
+        for key, plans in by_tile.items():
+            found = _dc.companions(self.pages[key], [p for p, _o in plans], spans, share)
+            self.skip[key] = {k for k, _i in found}
+            out += _dc.rows(self.pages[key], found, [o for _p, o in plans])
+        return out
 
     def of(self, d: _t.Mapping) -> "_objs.Authored | None":
         """The :class:`deck_objects.Authored` of deck record ``d``."""
@@ -199,8 +237,10 @@ class _Author:
         from . import deck_skin as _skin
         if not (self.pack and self.root and self.read_dump):
             return None
+        import math
         R = ring_polygon(d["ring"])
         pages = self._pages(R.centroid.x, R.centroid.y)
+        skip = self.skip.get((math.floor(R.centroid.y), math.floor(R.centroid.x)), set())
         arts = []
         for p in _aa.end_pages(pages, R, d.get("route")):
             art = _skin.page_art(p, self.root, self.look)
@@ -209,7 +249,7 @@ class _Author:
         # X-Plane's draw order: layer group, then the DSF's own order
         films = tuple(a for _o, a in sorted(arts, key=lambda t: t[0]))
         lines = []
-        for path, pts in _aa.deck_lines(pages, R):
+        for path, pts in _aa.deck_lines(pages, R, d.get("route"), skip):
             try:
                 phys = self.look(path, self.root)
             except (OSError, ValueError):
@@ -257,6 +297,12 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
         return text, counts
     rec, tile_counts = _gt.for_tile(rec, tile_box(text))
     counts.update(tile_counts)
+    # a hidden bridge's own drapes leave first: the clip moves the first
+    # point that names them (``deck_companions``)
+    drapes = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()
+              if h.get("companion")]
+    if drapes:
+        text, counts["drapes_hidden"] = _hide.hide_rows(text, drapes)
     for r in regions_of(rec):
         try:
             text, rep = _clip.clip_text(text, r)
@@ -268,10 +314,10 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "",
         counts["lines_cut"] += rep.lines_cut
         counts["area_removed_m2"] += rep.area_removed_m2
     hides = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()
-             if not h.get("within")]
+             if not h.get("within") and not h.get("companion")]
     # a piece-wise hide: only the bodies of its split standing within
     pieces = [(h["resource"], h["lon"], h["lat"], h["within"])
-              for h in rec.get("hides") or () if h.get("within")]
+              for h in rec.get("hides") or () if h.get("within") and not h.get("companion")]
     rows = _hide.through_splits(hides, splits, pack_root=pack_root) if hides else []
     if pieces:
         rows += _hide.pieces_within(pieces, splits, pack_root=pack_root)

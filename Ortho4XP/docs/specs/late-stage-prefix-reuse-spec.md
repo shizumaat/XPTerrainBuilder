@@ -191,6 +191,11 @@ Owner 2026-11-21T01:31Z: "we did a lot of work to try and have a single solve, w
 
 **Bars (replay, base `bf6a666f7` against the lane head).**
 - KASE (gap, pad roads and car lots): airside and structure movers 0; gap:0 and every pad road identical; car lots ≤ 0.08 m; v2 verify families identical; late derives 3 → 1 (25.9 → 10.1 s).
-- KRDU: late derives 3 → 1 (421 → 128 s under load).
+- KRDU: late derives 3 → 1 (360 → 128 s, the arms concurrent under load).
+  - Solve-owned airside: 9 movers, worst 0.10 m. They sit on gap pieces classed apron (`gapapron:5#2`, `:2`, `:5#1`), which the late map re-mints.
+  - The deck-carve and tunnel-ramp vertices the late derive re-mints off the base move up to 3.18 m. Both arms carry them (base vertices unmapped 154 / 158; off-edge unknowns 120 / 77). They are solved in the gap stage either way.
+  - Deck-carve bars (`deck_probe --carve`): the same PASS/FAIL set in both arms. Clearance `o4gen_9dda60f2` 4.16 → 4.55 m, `o4gen_cdc740dc` 4.18 → 4.20 m.
+  - Verify DEFECT families zero in both. `road_cross_section` 262 → 238, `within_shape` 2,323 → 1,893, `mid_edge_step` 16 → 14, `strip_seam_tear` 9,666 → 9,717.
+- KEGE (certified; one late stage, car lots): patch byte-identical.
 
 **Not done.** The remaining derives are the main pass, stage 1's ribbon-free map (#100 (c), in a worker beside the main pass) and this one late map. A late map that reuses the main pass's products outside the late cells (§5 phases 2c/3) is the next step. So is a stage 1 that reads the full map through a view instead of its own derive.

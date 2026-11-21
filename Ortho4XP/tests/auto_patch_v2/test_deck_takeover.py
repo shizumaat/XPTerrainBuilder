@@ -299,3 +299,124 @@ def test_a_shared_anchor_is_no_frame(monkeypatch):
     out, _n = dt.one_decision([g], (), [body, plate, lights, terminal], object(), _airport(),
                               load_default())
     assert sorted(h[0] for h in out[0].hides) == ["b", "p"]
+
+
+def test_a_giant_shared_anchor_plate_never_hides_the_terminal(monkeypatch):
+    """MEASURED KDFW 1.0.569 (lane lcross22; owner 2026-11-20T22:39Z "make
+    sure we're not hiding half the airport pack"): the bridge plate (a
+    313 x 176 m plan) shares one anchor with 100 terminal objects whose
+    plans it overlaps -- the hide takes the plate and its piece riding the
+    deck, never a terminal object beside the crossing nor a building."""
+    from shapely.geometry import box
+    g = dataclasses.replace(_gen(0.0), covered=(("-1", (("highway", "service"),),
+                                                 ((5.0, -30.0), (5.0, 30.0))),))
+    plate = _placement("p220", "220.obj")
+    piece = _placement("p221", "221.obj")
+    terms = [_placement(f"t{k}", f"{110 + k}.obj") for k in range(100)]
+    tower = _placement("tw", "tower.obj")
+    tops = {"p220": box(-150.0, -88.0, 163.0, 88.0)}
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"p220": rect(-150.0, -88.0, 163.0, 88.0), "p221": rect(0.0, -10.0, 10.0, 10.0),
+             "tw": rect(1.0, -2.0, 9.0, 2.0)}
+    plans.update({f"t{k}": rect(20.0 + 10 * (k % 10), -80.0 + 10 * (k // 10),
+                                28.0 + 10 * (k % 10), -72.0 + 10 * (k // 10))
+                  for k in range(100)})
+
+    def top(o, cache, law, lo, hi):
+        if str(o.id) == "tw" and hi == float("inf"):
+            return box(1.0, -2.0, 9.0, 2.0)          # a roof high over the deck
+        return tops.get(str(o.id)) if hi != float("inf") else None
+    monkeypatch.setattr(dt, "_body_top", top)
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    objs = [plate, piece, tower, *terms]
+    out, notes = dt.one_decision([g], (), objs, object(), _airport(), load_default())
+    assert sorted(h[0] for h in out[0].hides) == ["p220", "p221"]
+    assert any("pack placements hidden: 2 of 103" in n for n in notes)
+
+
+def test_the_hide_guard_keeps_only_the_bodies_past_its_share():
+    """The backstop: hides past ``[deck_gen] hide_max_share`` of the pack
+    keep only the bridge bodies (their mates stay drawn)."""
+    law = load_default()
+    hides = tuple((f"m{k}", "m.obj", (0.0, 0.0)) for k in range(30))
+    d = dataclasses.replace(_gen(0.0), hides=(("b", "b.obj", (0.0, 0.0)),) + hides)
+    notes: list = []
+    (kept,) = dt._capped([d], list(range(100)), {"b"}, notes, law)
+    assert [h[0] for h in kept.hides] == ["b"] and "DEFECT" in notes[0]
+    notes = []
+    (same,) = dt._capped([d], list(range(2000)), {"b"}, notes, law)
+    assert same is d and notes == ["pack placements hidden: 31 of 2000"]
+
+
+def test_a_frame_takeover_hides_only_what_rides_its_bridges(monkeypatch):
+    """A frame's co-placed members far from its bridges (a shared anchor's
+    buildings) stay drawn; its deck placement, a bed under its bridges and
+    its lights on an anchor no stranger shares go (``_frame_members``)."""
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"o": rect(0.0, -20.0, 70.0, 20.0), "bed": rect(2.0, -15.0, 68.0, 15.0),
+             "far": rect(300.0, 300.0, 400.0, 400.0)}
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    monkeypatch.setattr(dt, "_body_top", lambda *a: None)
+    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(0.0, 0.0))
+    fr = (_deck(0.0), _deck(60.0))
+    law = load_default()
+    got = dt._frame_members(fr, [P("o"), P("bed"), P("luz")], [], None, law)
+    assert [q.id for q in got] == ["o", "bed", "luz"]
+    got = dt._frame_members(fr, [P("o"), P("bed"), P("luz"), P("far")], [], None, law)
+    assert [q.id for q in got] == ["o", "bed"]
+
+
+# ── A SPAN BAND OUR DECK TAKES (#2202 KRDU STH_TML, lane lcross22) ─────────
+
+def _span_piece(s0: float, s1: float, oid: str = "o140", cut_spans=((0.0, 10.0), (60.0, 70.0))):
+    """A piece of a pack frame cut to its spans (18i): its axis along x
+    from (0, 0) to (100, 0), this piece over span [s0, s1]."""
+    ring = ((s0, -20.0), (s1, -20.0), (s1, 20.0), (s0, 20.0))
+    return DeckBridge(oid, "STH_TML.obj", (oid, "o141"), ring, ((s0, -20.0),), ((s1, -20.0),),
+                      0.0, 0.0, -5.0, 199.0,
+                      span_cut=((0.0, 0.0), (100.0, 0.0), cut_spans, 0.015))
+
+
+def _ll(x, y):
+    return (35.0 + y * 1e-5, -78.0 + x * 1e-5)
+
+
+def test_a_combined_frame_one_span_of_which_our_deck_takes_is_dropped_whole(monkeypatch):
+    """Owner 2026-11-20T23:53Z (KRDU south STH_TML, #2202 items 2-3): our
+    deck takes one span of the pack's combined deck -- the WHOLE object
+    goes (no piece kept, not the raised middle), its riders with it, a
+    terminal on the anchor stays; the span no deck of ours takes is named."""
+    law = load_default()
+    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    plans = {"o140": rect(0.0, -20.0, 70.0, 20.0), "o141": rect(2.0, -18.0, 68.0, 18.0),
+             "t": rect(300.0, 300.0, 400.0, 400.0)}
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
+    monkeypatch.setattr(dt, "_body_top", lambda *a: None)
+    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(50.0, 0.0))
+    a = dataclasses.replace(_span_piece(0.0, 10.0), members=("o140", "o141", "t"))
+    b = dataclasses.replace(_span_piece(60.0, 70.0), members=("o140", "o141", "t"))
+    out, notes = dt.span_bands((a, b, _gen(0.0)), [P("o140"), P("o141"), P("t")], None, law,
+                               _ll)
+    (g,) = out
+    assert sorted(h[0] for h in g.hides) == ["o140", "o141"]
+    assert any("whole object is HIDDEN" in n and "no generated deck takes span(s) 60-70 m"
+               in n for n in notes)
+
+
+def test_a_frame_cut_to_two_spans_is_a_combined_frame():
+    """The full map's takeover reads it as a multi-bridge frame (hidden
+    whole where our decks take every span)."""
+    assert dt._combined([_span_piece(0.0, 10.0), _span_piece(60.0, 70.0)])
+    assert not dt._combined([_span_piece(0.0, 10.0, cut_spans=((0.0, 10.0),))])
+    assert len(dt._multibridge_frames([_span_piece(0.0, 10.0), _span_piece(60.0, 70.0)],
+                                      GAP)) == 1
+
+
+def test_a_span_band_left_under_our_deck_is_counted():
+    """The census family counts a hard-deck span band (the bar previously
+    passed by construction): a band under our deck that is not the span
+    it stands over (a cut whose span reading misses it) is ``pack_under``."""
+    law = load_default()
+    d = _span_piece(0.0, 10.0, cut_spans=((40.0, 50.0),))       # no span holds it
+    out, _n = dt.span_bands((d, _gen(0.0)), [], None, law, _ll)
+    assert [u[0] for u in out[1].pack_under] == ["o140"]

@@ -64,6 +64,10 @@ class DeckGenLaw:
     #: owner RULINGS 2026-11-19s (8) (a): the deck is ``width_by_class_m``
     #: (the taxiway as drawn) plus this share of it as a shoulder each side
     shoulder_share: float = 0.5
+    #: owner RULINGS 2026-11-20t (1): ICAO Annex 14 §3.9.3's widest taxiway
+    #: (code F, m): a measured taxiway run wider than this holds its paved
+    #: shoulders (``planar/deck_width._measured_width``)
+    taxiway_max_m: float = 25.0
     #: owner RULINGS 2026-11-19s (8) (d): past each end line, across the
     #: deck's width, the ground stands at the end's level this far (m),
     #: then falls at the deck bank's slope (``constraints/deck_carve``)
@@ -78,6 +82,17 @@ class DeckGenLaw:
     #: ... a top runs over the road at this share of the covered roads'
     #: axis inside the piece
     pack_cover_share: float = 0.5
+    #: owner 2026-11-20T22:39Z (KDFW: "make sure we're not hiding half the
+    #: airport pack"; ``planar/deck_takeover._rides``): a pack bridge's mate
+    #: is hidden with it only when this share of its plan lies within the
+    #: deck's footprint over the crossing (never a building)
+    hide_inside_share: float = 0.5
+    #: ... and one build's hides take at most this share of the pack's
+    #: placements; past it only the bridge bodies are hidden
+    #: (``planar/deck_takeover._capped``)
+    hide_max_share: float = 0.03
+    #: ... never below this many placements (a small pack's frame)
+    hide_floor_count: int = 12
     #: A2: the generated object's draw distance (m)
     lod_m: float = 6000.0
     #: A2: a centreline light every this many metres on the deck (m), Q4

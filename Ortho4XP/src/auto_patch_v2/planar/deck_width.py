@@ -17,6 +17,11 @@ piece's extent along the route) and whose SIDES run along the route at
 on its centreline.
 A route of no class takes the airport's most common class.
 
+THE MEASURED PAVEMENT FIRST (owner RULINGS 2026-11-20t (1)): where the
+taxiway's pavement is drawn past an end, the deck is that measured taxiway
+with its measured paved shoulders (:func:`_measured_width`); the class
+letter, which authors sometimes get wrong, holds only where none is drawn.
+
 Nothing here names an airport.  Build-time impact: a few shapely
 intersections per generated deck piece.
 """
@@ -163,14 +168,25 @@ def route_specs(piece: Polygon, road_dir: "XY | None", airport, law, pave_at=Non
         names = sorted({str(e.name) for e in edges if getattr(e, "name", "")})
         lo_a, hi_a, why = a_c - ha, a_c + ha, (f"{width:g} m wide (taxiway + a half-width "
                                                "shoulder each side, RULINGS 2026-11-19s (8) (a))")
-        if (taxi_at or pave_at) is not None:
-            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at or pave_at, law,
-                             width, _between(airport, edges, (ux, uy), (wx, wy), det, a_c,
-                                             b0, b1))
-            lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
         band = (a_c - hc, a_c + hc)
         if (taxi_at or pave_at) is not None:
-            band = _band(runs, a_c, hc)
+            lim = _between(airport, edges, (ux, uy), (wx, wy), det, a_c, b0, b1)
+            runs = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, taxi_at or pave_at, law,
+                             width, lim)
+            meas = _narrowest(runs)
+            if meas is not None:
+                # owner RULINGS 2026-11-20t (1): the MEASURED pavement, the
+                # class letter only where none is drawn
+                paved = _end_runs(b0, b1, a_c, hc, (ux, uy), (wx, wy), det, pave_at, law,
+                                  width, lim) if taxi_at is not None and pave_at is not None \
+                    else runs
+                lo_a, hi_a, why = _measured_width(meas, paved, det, law)
+                band = (min(meas[0], a_c), max(meas[1], a_c))
+                hc = max(a_c - band[0], band[1] - a_c)
+                width = (hi_a - lo_a) * abs(det)
+            else:
+                lo_a, hi_a, why = _pavement_width(runs, a_c, hc, ha, det, width)
+                band = _band(runs, a_c, hc)
         d = [(wx, wy), det, lo_a, hi_a, b0, b1,
              f"taxiway {'/'.join(names) or '?'} class "
              f"{letter or (common or '?') + ' (the airport common)'}: deck {why}", a_c, hc,
@@ -253,6 +269,45 @@ def _end_runs(b0: float, b1: float, a_c: float, hc: float, u: XY, w: XY, det: fl
     lw = math.hypot(*w)
     return [_run_at(b, a_c, hc, u, w, det, pave_at, 0.5, most, lim)
             for b in (b0 - probe / lw, b1 + probe / lw)]
+
+
+def _narrowest(runs) -> "tuple[float, float] | None":
+    """The narrower FINITE end run of ``runs`` (:func:`_end_runs`: an end
+    meeting no pavement or broad pavement -- an apron -- measures nothing),
+    or ``None`` where neither end measures the taxiway."""
+    got = [r for r in runs if r is not None and not math.isinf(r[0]) and r[1] > r[0]]
+    return min(got, key=lambda r: r[1] - r[0]) if got else None
+
+
+def _measured_width(taxi: tuple[float, float], paved, det: float, law
+                    ) -> tuple[float, float, str]:
+    """``(a0, a1, note)``: THE DECK FROM THE MEASURED PAVEMENT (owner
+    RULINGS 2026-11-20t (1), KRDU 35.880425,-78.788861: "I see the taxiway
+    as about 20m wide, with about an 8m shoulder on either side ... How are
+    you getting 76m? We need to check the pavement width, not just what the
+    author put in the taxiroute size letter"): ``taxi`` is the narrower
+    end's taxiway run (:func:`_narrowest`).  A run wider than ``[deck_gen]
+    taxiway_max_m`` (ICAO Annex 14 §3.9.3's widest taxiway) already holds
+    its paved shoulders: the deck is that run.  Otherwise the deck is the
+    taxiway with its MEASURED paved shoulders -- the narrower finite end run
+    of the airport's pavement ``paved`` holding it -- where they are drawn,
+    and twice the measured taxiway (19s (8) (a)) where none are."""
+    m = abs(det)
+    t = (taxi[1] - taxi[0]) * m
+    most = float(law.tables.structures.deck_gen.taxiway_max_m)
+    if t > most + 1e-6:
+        return (taxi[0], taxi[1], f"{t:.1f} m wide: the measured taxiway pavement with its "
+                f"shoulders (over {most:g} m; RULINGS 2026-11-20t (1))")
+    held = [r for r in paved or () if r is not None and not math.isinf(r[0])
+            and r[0] <= taxi[0] + 1e-6 and r[1] >= taxi[1] - 1e-6]
+    p = min(held, key=lambda r: r[1] - r[0]) if held else None
+    if p is not None and (p[1] - p[0]) * m > t + 1.0:
+        return (p[0], p[1], f"{(p[1] - p[0]) * m:.1f} m wide: the measured {t:.1f} m taxiway "
+                f"and its paved shoulders (RULINGS 2026-11-20t (1))")
+    c = 0.5 * (taxi[0] + taxi[1])
+    return (c - (taxi[1] - taxi[0]), c + (taxi[1] - taxi[0]),
+            f"{2.0 * t:.1f} m wide: twice the measured {t:.1f} m taxiway, no paved shoulder "
+            f"drawn (RULINGS 2026-11-19s (8) (a), 2026-11-20t (1))")
 
 
 def _pavement_width(runs, a_c: float, hc: float, ha: float, det: float, width: float

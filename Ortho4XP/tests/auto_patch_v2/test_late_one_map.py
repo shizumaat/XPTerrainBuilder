@@ -16,7 +16,8 @@ import dataclasses as dc
 
 from auto_patch_v2.pipeline.late_stage import _junior_faces, run_last_stages
 from auto_patch_v2.pipeline.prefix import Deriver
-from auto_patch_v2.pipeline.stage_one_map import gap_free, withheld_vertices, withheld_view
+from auto_patch_v2.pipeline.late_view import withheld_vertices, withheld_view
+from auto_patch_v2.pipeline.stage_one_map import gap_free
 from auto_patch_v2.solve import Options, solve_design
 from tests.auto_patch_v2.test_backhalf_end_to_end import _two_pass_world
 from tests.auto_patch_v2.test_solve_late_records import INPUTS, PACK
@@ -87,12 +88,15 @@ def test_a_withheld_view_keeps_the_ids_and_drops_the_faces():
     pm, _cs, _s, _h = derive(cl)
     juniors = _junior_faces(pm, "gap")
     assert juniors                                # the pad road is on the map
-    view = withheld_view(pm, juniors)
+    view, lifted = withheld_view(pm, juniors)
     assert not juniors & set(view.faces)
     assert set(view.vertices) == set(pm.vertices)
-    for v in withheld_vertices(pm, juniors):
+    for v in withheld_vertices(pm, juniors) | set(lifted):
         assert view.vertices[v].incident_faces == ()
+    for f in view.faces.values():                 # no lifted node on a kept ring
+        for cyc in (f.ring, *f.holes):
+            assert not set(view.ring_vertices(cyc)) & set(lifted)
     for e in view.edges.values():
         assert e.left_face not in juniors and e.right_face not in juniors
-    assert withheld_view(pm, frozenset()) is pm
+    assert withheld_view(pm, frozenset()) == (pm, {})
     assert _junior_faces(pm, "car_lots") == frozenset()

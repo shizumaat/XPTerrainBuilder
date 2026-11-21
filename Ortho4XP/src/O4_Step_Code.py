@@ -866,6 +866,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.pipeline.generated_publication",
     "auto_patch_v2.pipeline.late_records",
     "auto_patch_v2.pipeline.late_stage",
+    "auto_patch_v2.pipeline.late_view",
     "auto_patch_v2.pipeline.lot_follow",
     "auto_patch_v2.pipeline.neck_release",
     "auto_patch_v2.pipeline.planar_report",

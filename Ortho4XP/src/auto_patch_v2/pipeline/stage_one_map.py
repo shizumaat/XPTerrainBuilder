@@ -47,7 +47,6 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
 __all__ = ["StageOne", "base_pad_map", "ribbon_free", "stage_one_classification",
            "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
-           "withheld_vertices", "withheld_view", "VIEW_FIELDS",
            "row_vertices", "late_rim_levels", "last_stage_head"]
 
 
@@ -152,49 +151,6 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
            "follower_ribbon_refs": sorted({str(f.ref) for f in ribbons}),
            "vertices": len(free - held), "held_on_a_leader": len(free & held)}
     return free - held, rep
-
-
-def withheld_vertices(pm, faces: _t.AbstractSet[int]) -> frozenset[int]:
-    """The vertices ONLY ``faces`` carry (a later stage's faces on this one
-    map, #2206): every vertex of one of them that no other face carries.
-    The earlier stage holds them at the survey with no row and no face of
-    its own on them (``late_stage.late_solve``)."""
-    if not faces:
-        return frozenset()
-    own: set[int] = set()
-    other: set[int] = set()
-    for f in pm.faces.values():
-        (own if f.id in faces else other).update(_face_vertices(pm, f))
-    return frozenset(own - other)
-
-
-#: the PlanarMap fields a withheld view replaces (:func:`withheld_view`)
-VIEW_FIELDS = ("faces", "edges", "vertices")
-
-
-def withheld_view(pm, faces: _t.AbstractSet[int]):
-    """``pm`` WITHOUT ``faces`` (a later stage's, #2206): the face table
-    less them, each vertex's ``incident_faces`` and each edge's side faces
-    read past them (an edge they alone flank is outside the map, as it was
-    in the map an earlier stage was once derived on without them).  Ids are
-    kept, so a solution of the view indexes the full map; every other field
-    is ``pm``'s own.  ``pm`` itself when ``faces`` is empty."""
-    if not faces:
-        return pm
-    gone = frozenset(faces)
-    kept = {i: f for i, f in pm.faces.items() if i not in gone}
-
-    def side(f):
-        return None if f in gone else f
-    edges = {i: (e if e.left_face not in gone and e.right_face not in gone
-                 else _dc.replace(e, left_face=side(e.left_face),
-                                  right_face=side(e.right_face)))
-             for i, e in pm.edges.items()}
-    verts = {i: (v if not gone.intersection(v.incident_faces)
-                 else _dc.replace(v, incident_faces=tuple(
-                     f for f in v.incident_faces if f not in gone)))
-             for i, v in _items(pm.vertices)}
-    return _dc.replace(pm, faces=kept, edges=edges, vertices=verts)
 
 
 #: metres of slack on the identity spacing: the emitter measures a pair in

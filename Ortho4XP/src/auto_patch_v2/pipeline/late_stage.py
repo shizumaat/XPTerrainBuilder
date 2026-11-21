@@ -47,9 +47,9 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import face_edge_ids, is_car_lot_ref, is_gap_ref, is_osm_ribbon_ref
 from ..planar.basins import WALL_ROLE
 from ..planar.chords import stations as _chord_stations
+from .late_view import VIEW_FIELDS, dissolved_levels, withheld_vertices, withheld_view
 from .stage_one_map import (late_constraints, late_fixed, late_followers,
-                            late_rim_levels, row_vertices, withheld_vertices,
-                            withheld_view, VIEW_FIELDS)
+                            late_rim_levels, row_vertices)
 
 __all__ = ["late_stations", "cut_classification", "run_late_stage", "run_last_stages",
            "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP", "with_cells"]
@@ -375,12 +375,16 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     cl_cut, part_stations, exits, t_cut = cut.cl, cut.part_stations, cut.exits, cut.wall_s
     pm, cs, strips, _hold = derived
     pm_full = pm
+    absent = frozenset(base_solution.get("withheld") or ())
     junior = withheld_vertices(pm, withheld)
     pad_ids = {f.id for f in pad_road_faces(pm)}
-    if withheld:
-        # the map as this stage sees it: the later stages' faces are not on
-        # it (their vertices stay, isolated, so the ids index the full map)
-        pm = withheld_view(pm, withheld)
+    # the map as this stage sees it (``pipeline/late_view``): the later
+    # stages' faces are not on it, nor the nodes they minted on its rings
+    # (their vertices stay, isolated, so the ids index the full map)
+    pm, dissolved = withheld_view(pm, withheld, frozenset(
+        tuple(v.xy) for i, v in pm_base.vertices.items() if i not in absent)
+        if withheld else frozenset())
+    junior = junior | frozenset(dissolved)
     if junior:
         # a later stage's rows are its own (a pin, a law row on its faces)
         cs = ConstraintSet.from_rows([r for r in cs.rows()
@@ -391,7 +395,6 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     notch = roads_only or bool(pad_ids)
     free, frep = late_followers(pm, roads_only=roads_only)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
-    absent = frozenset(base_solution.get("withheld") or ())
     fixed, jrep = late_fixed(pm_base, z_base, pm, free | junior, ident, absent)
     for v in junior:
         fixed.pop(v, None)
@@ -405,7 +408,8 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
         pm_base, z_base, pm, fixed, free | junior | absent, ident * 0.02,
         notch_m=stand_off_m(law) if notch else 0.0, rigid=rigid, edge_of=rim_edges)
     if junior:
-        jrep["withheld"] = {"faces": len(withheld), "vertices": len(junior)}
+        jrep["withheld"] = {"faces": len(withheld), "vertices": len(junior) - len(dissolved),
+                            "nodes_dissolved": len(dissolved)}
     # #1918 R4-2: a standing road kerb's station abeam a pad road's
     # standing vertex across a step over the bar is RELEASED where its own
     # law lets it (``pipeline/neck_release``) — the pad roads' stage only
@@ -539,6 +543,9 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     held_at = {v: float(pm.vertices[v].dem_z) if pm.vertices[v].dem_z is not None else 0.0
                for v in junior}
     sol, design = solve_late_stage(pm, cs, law, {**fixed, **held_at}, options, **solve_kw)
+    if dissolved and sol.z:
+        # a lifted node stands on the edge it was lifted onto
+        sol = _dc.replace(sol, z=tuple(dissolved_levels(sol.z, dissolved)))
     hard_conflict = [*base_conf, *(dict(r) for r in design.hard_conflict)]
     t_solve = time.perf_counter() - t0
     feas = getattr(design, "hard_feasibility", None)
@@ -570,7 +577,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
               "fixed": fixed, "strips": strips, "pin_yield": [*_carry_pin_yield(base_solution, pm_base, pm), *pad_joins],
               "design": design, "hard_conflict": hard_conflict,
-              "withheld": sorted(junior),
+              "withheld": sorted(junior - frozenset(dissolved)),
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}
     if pm is not pm_full:

@@ -556,7 +556,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     roles = CellRoles(classification, airport)
     surface = types.SimpleNamespace(roles=roles)
     from ..law.tables import rolled_on_roles
-    from .deck_width import route_ends
+    from .deck_width import full_ends, route_ends
     _rolled = rolled_on_roles(law)
 
     def pave(r) -> bool:
@@ -682,9 +682,13 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         road = tuple(x.coords) if x.geom_type == "LineString" else ()
         from .deck_pack_cover import faked_cuts
         fakes = faked_cuts(piece, packs, law)
+        # the end lines run the deck's whole end, its sides' corner to corner
+        # (``deck_width.full_ends``): its ground and tilt above read the
+        # pavement's crest, its bank, cut and landings the deck's
+        fa, fb = full_ends(piece, sa, sb, step)
         out.append(DeckBridge(
             f"o4gen_{hid}", f"{GENERATED_DIR}/deck_{hid}.obj", (),
-            tuple(piece.exterior.coords[:-1]), sa, sb, top_a, top_b,
+            tuple(piece.exterior.coords[:-1]), fa, fb, top_a, top_b,
             min(top_a, top_b) - depth,
             0.5 * (ends[0] + ends[1]) if ends else float(_deck_z(airport, sa + sb, 0.0) or 0.0),
             walls=(), floor_min_m=depth, witness=GENERATED_WITNESS, family=family,

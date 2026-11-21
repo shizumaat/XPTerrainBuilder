@@ -38,7 +38,7 @@ import statistics
 
 import shapely
 from shapely.geometry import Polygon
-from shapely.ops import triangulate
+from shapely.ops import triangulate, unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
@@ -157,7 +157,12 @@ def dem_step_m(cell: Polygon, pad: Polygon, knife: Polygon, airside,
         return None
     r = float(law.tables.emit.design.pad_frontage_m)
     near = pad.buffer(r)
-    fd = _median_dem(cell.difference(knife).boundary.intersection(near), dem, r)
+    rest = cell.difference(knife)
+    if rest.geom_type == "GeometryCollection":
+        # a knife leaving line/point scraps: a collection has no boundary
+        # (shapely returns None; BIKF 1.0.572, #2236) -- its areas only
+        rest = unary_union([g for g in rest.geoms if g.area > 0.0])
+    fd = None if rest.is_empty else _median_dem(rest.boundary.intersection(near), dem, r)
     if fd is None:
         return None
     pd = None

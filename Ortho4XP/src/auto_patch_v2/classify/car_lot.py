@@ -230,20 +230,23 @@ def _face_polygons(pm) -> list[Polygon]:
     return out
 
 
-def cut_car_lots(lots: _t.Sequence, pm, law: Law, rules: Rules) -> tuple[list, dict]:
+def cut_car_lots(lots: _t.Sequence, pm, law: Law, rules: Rules,
+                 extra: _t.Sequence = ()) -> tuple[list, dict]:
     """#2114 round 2 P4/P5: each car-lot cell of ``lots`` CUT against every
     face of the solved map ``pm`` grown by the §52 stand-off — the
     adjacent-ground bands are faces of the map and no cell, so the mint's
     own stand-off could not see them (round 1: a band 0.5 m from
     ``carlot:225`` moved 0.40 m) — and the parts that keep a counted car
     and ``cells.min_area_m2`` after this LAST cut (round 1 emitted a lot way
-    of area 0).  A lot cut in two is ``<ref>/<n>``.  ``(cells, report)``."""
+    of area 0).  A lot cut in two is ``<ref>/<n>``.  ``extra``: polygons
+    standing beside ``pm``'s faces (#2206: the gap parts and pad roads the
+    one late map carries, cut before it is built).  ``(cells, report)``."""
     from shapely.strtree import STRtree
     rep = {"lots_in": len(lots), "lots_out": 0, "dropped": 0, "split": 0,
            "m2_in": 0.0, "m2_out": 0.0}
     if not lots:
         return [], rep
-    faces = _face_polygons(pm)
+    faces = [*_face_polygons(pm), *(p for p in extra if p is not None and not p.is_empty)]
     tree = STRtree(faces)
     grow = gap_standoff_m(law)
     out = []

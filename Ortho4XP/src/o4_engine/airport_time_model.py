@@ -41,7 +41,7 @@ import os
 import statistics
 import time
 
-__all__ = ["STORE_DIRECTORY", "record", "predict_each",
+__all__ = ["STORE_DIRECTORY", "record", "note_phases", "predict_each",
            "wall_seconds", "size_km"]
 
 STORE_DIRECTORY = os.path.join(
@@ -109,14 +109,36 @@ def _load(icao, store=None):
         return []
 
 
+#: the stage clocks a finished build handed over for its airport's next
+#: :func:`record` (``{ICAO: {stage: seconds}}``, :func:`note_phases`)
+_PENDING_PHASES: dict = {}
+
+
+def note_phases(icao, wall_s):
+    """Hand ``icao``'s v2 stage clocks (the build report's ``wall_s``,
+    ``auto_patch.engine_v2``) to its next :func:`record` as
+    ``phase_seconds`` (#2206: every app record since the v2 switch carried
+    ``{}``).  The report's ``total`` is the total, never a phase (the
+    ``check_build_time`` store rule).  Never raises."""
+    try:
+        clocks = {str(k): round(float(v), 2) for k, v in dict(wall_s or {}).items()
+                  if k != "total" and _finite(v)}
+        if icao and clocks:
+            _PENDING_PHASES[str(icao).upper()] = clocks
+    except Exception:
+        pass
+
+
 def record(icao, seconds, size=None, store=None, now=None):
     """Append one solved airport's wall seconds (atomic write, newest
-    :data:`RECORDS_KEPT` kept).  Never raises."""
+    :data:`RECORDS_KEPT` kept) with the stage clocks :func:`note_phases`
+    handed over for it.  Never raises."""
     try:
         if not icao or not _finite(seconds):
             return
         entry = {"finished_at": float(now if now is not None else time.time()),
-                 "engine": "v2", "source": "app", "phase_seconds": {},
+                 "engine": "v2", "source": "app",
+                 "phase_seconds": _PENDING_PHASES.pop(str(icao).upper(), {}),
                  "total_seconds": round(float(seconds), 2)}
         if _finite(size):
             entry["features"] = {"size_km": round(float(size), 3)}

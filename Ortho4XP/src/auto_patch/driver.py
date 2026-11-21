@@ -153,6 +153,17 @@ def _fail_build_tasks(failures: list, patch_dir: str) -> None:
     raise AutoPatchBuildFailure(failures, stale_left=stale_left)
 
 
+def _note_phases(r: dict) -> None:
+    """A finished v2 build's stage clocks to the app's per-airport record
+    (#2206; ``o4_engine.airport_time_model.note_phases``, read by the
+    record the session writes when this airport's row turns done)."""
+    try:
+        from o4_engine import airport_time_model as _atm
+        _atm.note_phases(r.get("icao"), r.get("phase_seconds"))
+    except Exception:
+        pass
+
+
 def _record_pack_ground(tile, results: list) -> None:
     """Issue #1362 (owner RULINGS 2026-11-04, option A): every airport whose
     pack supplies its own ground with no companion terrain mesh installed
@@ -1467,6 +1478,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             return
         _progress_reported.add(_ricao)
         if r.get("ok"):
+            _note_phases(r)
             UI.auto_patch_progress(
                 _ricao, 1, 1,
                 "Done ({:.1f}s)".format(r.get("build_s", 0.0)),
@@ -1562,6 +1574,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             except OSError:
                 pass
         if icao not in _progress_reported:
+            _note_phases(r)
             UI.auto_patch_progress(icao, 1, 1,
                                    "Done ({:.1f}s)".format(r["build_s"]),
                                    status="done")

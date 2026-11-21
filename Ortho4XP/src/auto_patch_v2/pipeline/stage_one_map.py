@@ -47,6 +47,7 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
 __all__ = ["StageOne", "base_pad_map", "ribbon_free", "stage_one_classification",
            "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
+           "withheld_vertices", "withheld_view", "VIEW_FIELDS",
            "row_vertices", "late_rim_levels", "last_stage_head"]
 
 
@@ -153,13 +154,57 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
     return free - held, rep
 
 
+def withheld_vertices(pm, faces: _t.AbstractSet[int]) -> frozenset[int]:
+    """The vertices ONLY ``faces`` carry (a later stage's faces on this one
+    map, #2206): every vertex of one of them that no other face carries.
+    The earlier stage holds them at the survey with no row and no face of
+    its own on them (``late_stage.late_solve``)."""
+    if not faces:
+        return frozenset()
+    own: set[int] = set()
+    other: set[int] = set()
+    for f in pm.faces.values():
+        (own if f.id in faces else other).update(_face_vertices(pm, f))
+    return frozenset(own - other)
+
+
+#: the PlanarMap fields a withheld view replaces (:func:`withheld_view`)
+VIEW_FIELDS = ("faces", "edges", "vertices")
+
+
+def withheld_view(pm, faces: _t.AbstractSet[int]):
+    """``pm`` WITHOUT ``faces`` (a later stage's, #2206): the face table
+    less them, each vertex's ``incident_faces`` and each edge's side faces
+    read past them (an edge they alone flank is outside the map, as it was
+    in the map an earlier stage was once derived on without them).  Ids are
+    kept, so a solution of the view indexes the full map; every other field
+    is ``pm``'s own.  ``pm`` itself when ``faces`` is empty."""
+    if not faces:
+        return pm
+    gone = frozenset(faces)
+    kept = {i: f for i, f in pm.faces.items() if i not in gone}
+
+    def side(f):
+        return None if f in gone else f
+    edges = {i: (e if e.left_face not in gone and e.right_face not in gone
+                 else _dc.replace(e, left_face=side(e.left_face),
+                                  right_face=side(e.right_face)))
+             for i, e in pm.edges.items()}
+    verts = {i: (v if not gone.intersection(v.incident_faces)
+                 else _dc.replace(v, incident_faces=tuple(
+                     f for f in v.incident_faces if f not in gone)))
+             for i, v in _items(pm.vertices)}
+    return _dc.replace(pm, faces=kept, edges=edges, vertices=verts)
+
+
 #: metres of slack on the identity spacing: the emitter measures a pair in
 #: its own local metres, the map in the airport frame
 _IDENTITY_SLACK_M = 1e-3
 
 
 def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
-               identity_m: float = 0.0) -> tuple[dict[int, float], dict]:
+               identity_m: float = 0.0, absent: _t.AbstractSet[int] = frozenset()
+               ) -> tuple[dict[int, float], dict]:
     """THE LAST STAGE'S CONSTANTS: the base map's solved level of every
     vertex the full map carries (the CANONICAL join, by coordinate — the
     one ``StageOne.bind`` makes) that is not ``free``.  A full-map vertex
@@ -173,12 +218,18 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
     the follower — its level is then the standing ring's emitted level.  It
     keeps the base's level (``held_at_identity``).  MEASURED at HECA: lot
     ``dsf:pol10``'s emitted ring carries ribbon ``big_roads:-1227``'s vertex
-    0.5 m from its own, which moved 0.03 m as a follower."""
+    0.5 m from its own, which moved 0.03 m as a follower.
+
+    ``absent`` (the last stages on one map, #2206): base vertices the stage
+    before WITHHELD — a later stage's own, carrying no level of the base
+    (``late_stage._junior_faces``); they join nothing."""
     at = {tuple(v.xy): i for i, v in _items(pm_full.vertices)}
     fixed: dict[int, float] = {}
     cand: dict[int, float] = {}
     miss = 0
     for i, v in _items(pm_base.vertices):
+        if i in absent:
+            continue
         j = at.get(tuple(v.xy))
         if j is None:
             miss += 1
@@ -198,7 +249,8 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
                 fixed[j] = z
                 held += 1
     n_full = len(pm_full.vertices)
-    return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
+    return fixed, {"base_vertices": len(pm_base.vertices) - len(absent),
+                   "full_vertices": n_full,
                    "base_unmapped": miss, "fixed": len(fixed),
                    "held_at_identity": held,
                    "unjoined": n_full - len(fixed) - len(free) + held}

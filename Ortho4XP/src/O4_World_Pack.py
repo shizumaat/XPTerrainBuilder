@@ -54,6 +54,7 @@ import subprocess
 from typing import Callable, Iterator
 
 import O4_DSF_Binary as DSFB
+import O4_Imagery_Ter_Alias as TER_ALIAS
 import O4_World_Imagery_Record as IREC
 
 __all__ = [
@@ -320,12 +321,23 @@ _TER_TEX = re.compile(r"(?<![\w/.])\.\./textures/(?!%s/)" % SHARED_DIR)
 _TER_SHARED = re.compile(r"(?<![\w/.])\.\./textures/%s/" % SHARED_DIR)
 
 
+#: A reload alias (``O4_Imagery_Ter_Alias``): ``textures/[<tile>/]
+#: .xp_reload/<stem>~<token>.dds``, the folder part and ``<stem>.dds`` kept.
+_TER_ALIAS = re.compile(r"(textures/(?:[^/\s]+/)?)%s/([^/\s]+?)%s[0-9a-z]+(\.dds)"
+                        % (re.escape(TER_ALIAS.ALIAS_DIR),
+                           re.escape(TER_ALIAS.SEP)))
+
+
 def rewrite_ter(text: str, tile: str) -> tuple[str, int]:
     """A ``.ter`` moved from ``terrain/`` to ``terrain/<tile>/``: every
     ``../textures/X`` becomes ``../../textures/<tile>/X``, and a shared
     ``../textures/_shared/X`` becomes ``../../textures/_shared/X`` (the
-    pack's one copy).  Returns the text and the number of references
-    rewritten."""
+    pack's one copy).  A reload alias the imagery follow gave a texture
+    of the build folder (``.xp_reload/<stem>~<token>.dds``, #2106) names
+    its own texture again: the alias folder is never staged, and the
+    published name is one X-Plane has not held (#2224).  Returns the text
+    and the number of references rewritten."""
+    text = _TER_ALIAS.sub(r"\1\2\3", text)
     text, n = _TER_TEX.subn(f"../../textures/{tile}/", text)
     text, m = _TER_SHARED.subn(f"../../textures/{SHARED_DIR}/", text)
     return text, n + m

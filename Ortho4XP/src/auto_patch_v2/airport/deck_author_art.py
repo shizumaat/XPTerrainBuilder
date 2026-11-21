@@ -16,7 +16,13 @@ AUTHOR'S look, never one of ours:
   one end only, or none, draws nothing (no default tire marks);
 * (3) the author's painted ``.lin`` lines inside the ring (a taxiway edge
   line drawn in the DSF, not in apt.dat): their pieces
-  (:func:`deck_lines`), redrawn on the deck in the line page's own art.
+  (:func:`deck_lines`), redrawn on the deck in the line page's own art --
+  only a piece that runs along the TAXIWAY: one reaching an END line (the
+  ring's edges the carried route crosses) or lying wholly inside; a piece
+  that comes in and goes out across the deck's SIDES is the ground the
+  structure spans (a ditch's water edge under the bridge, owner
+  2026-11-21T06:47Z KMCO 1.0.570: "draping on top of the bridge"), and a
+  hidden bridge's own drapes (``deck_companions``) are never carried.
 
 A UV-mapped page (parameter 65535) is never read: the clip never cuts
 one either.  Pages resolve in the pack first (a ``.pol`` / ``.lin`` the
@@ -43,16 +49,22 @@ __all__ = ["PackPage", "pack_pages", "end_pages", "deck_lines", "pack_first",
 #: where the taxiway on either side of a deck is read: these metres along
 #: the carried route beyond each end line
 END_REACH_M = (2.0, 5.0, 10.0)
+#: a clipped piece's tip on the ring (degrees, ~1 cm: the clip's own
+#: vertices sit on it to rounding)
+_ON_EDGE_DEG = 1e-7
 _M_PER_DEG = 111320.0
 
 
 class PackPage(_t.NamedTuple):
     """One draped page or painted line of the pack DSF: its definition
-    ``path``, ``geom`` (lon/lat polygon or line) and ``is_line``."""
+    ``path``, ``geom`` (lon/lat polygon or line), ``is_line`` and
+    ``anchor``, its FIRST point as written (the row ``dsf_row_hide``
+    names it by)."""
 
     path: str
     geom: _t.Any
     is_line: bool
+    anchor: tuple = ()
 
 
 def pack_pages(text: str) -> list[PackPage]:
@@ -79,7 +91,7 @@ def pack_pages(text: str) -> list[PackPage]:
             if g is not None and not g.is_valid:
                 g = g.buffer(0)
         if g is not None and not g.is_empty:
-            out.append(PackPage(path, g, is_line))
+            out.append(PackPage(path, g, is_line, (float(wind[0][0][1]), float(wind[0][0][2]))))
     return out
 
 
@@ -131,17 +143,45 @@ def end_pages(pages: _t.Sequence[PackPage], ring_ll: Polygon, route) -> list[str
     return out
 
 
-def deck_lines(pages: _t.Sequence[PackPage], ring_ll: Polygon
+def _end_edges(ring_ll: Polygon, route) -> list[LineString]:
+    """The ring's END lines: its edges the carried ``route`` crosses."""
+    pts = list(ring_ll.exterior.coords)
+    edges = [LineString([a, b]) for a, b in zip(pts, pts[1:], strict=False)]
+    if route is None or len(route) < 2:
+        return []
+    r = LineString(route)
+    return [e for e in edges if e.intersects(r)]
+
+
+def _along_taxiway(piece: LineString, ring_ll: Polygon, ends: _t.Sequence[LineString]) -> bool:
+    """A carried piece (module doc (3)): one of its ends on an END line, or
+    neither on the ring's boundary (it lies wholly inside)."""
+    edge = ring_ll.exterior
+    tips = [Point(piece.coords[0]), Point(piece.coords[-1])]
+    on_edge = [edge.distance(p) <= _ON_EDGE_DEG for p in tips]
+    if not any(on_edge):
+        return True
+    return any(e.distance(p) <= _ON_EDGE_DEG for p, on in zip(tips, on_edge, strict=True) if on
+               for e in ends)
+
+
+def deck_lines(pages: _t.Sequence[PackPage], ring_ll: Polygon, route=None,
+               skip: _t.AbstractSet[int] = frozenset()
                ) -> list[tuple[str, list[tuple[float, float]]]]:
     """``[(line path, lon/lat points)]``: the pieces of the pack's painted
-    lines inside the deck's ring (module doc (3)), file order."""
+    lines inside the deck's ring that run along the taxiway the deck
+    carries (module doc (3); ``route`` its lon/lat axis, ``None`` keeps
+    only the pieces wholly inside), file order; ``skip`` the indices in
+    ``pages`` never carried (a hidden bridge's own drapes)."""
+    ends = _end_edges(ring_ll, route)
     out = []
-    for pg in pages:
-        if not pg.is_line or not pg.geom.intersects(ring_ll):
+    for k, pg in enumerate(pages):
+        if k in skip or not pg.is_line or not pg.geom.intersects(ring_ll):
             continue
         cut = pg.geom.intersection(ring_ll)
         out += [(pg.path, list(g.coords)) for g in getattr(cut, "geoms", [cut])
-                if g.geom_type == "LineString" and len(g.coords) >= 2]
+                if g.geom_type == "LineString" and len(g.coords) >= 2
+                and _along_taxiway(g, ring_ll, ends)]
     return out
 
 

@@ -132,3 +132,55 @@ def test_remembered_404_region_is_not_requeued(store, monkeypatch):
     assert EXTRACTS._url_not_found(OLD)
     wanted = EXTRACTS._read_json(os.path.join(store, "wanted.json"))
     assert not wanted
+
+
+DATED = "https://example.invalid/asia/japan/kansai-261120.osm.pbf"
+
+
+def test_redirect_to_dated_404_is_transient(store, monkeypatch):
+    """-latest answers 307 to a dated file that is 404 mid-regeneration:
+    remembered NOT_FOUND_TRANSIENT_HOURS, region stays wanted, retried."""
+    calls = _network(monkeypatch, set(), OLD)
+    plain_get = EXTRACTS.requests.get
+
+    def get(url, **kwargs):
+        response = plain_get(url, **kwargs)
+        response.history = [_Response(307)]
+        return response
+
+    monkeypatch.setattr(EXTRACTS, "requests", types.SimpleNamespace(get=get))
+    assert not EXTRACTS._acquire_extract("kansai", OLD)
+    assert EXTRACTS._url_not_found(OLD, transient=True)
+    assert not EXTRACTS._url_not_found(OLD, transient=False)
+    assert EXTRACTS._read_json(os.path.join(store, "wanted.json")) == ["kansai"]
+    # Within the window: no request.
+    assert not EXTRACTS._acquire_extract("kansai", OLD)
+    assert calls["get"] == [OLD]
+    # After the window the file is back: downloaded.
+    path = os.path.join(store, "not_found.json")
+    gone = EXTRACTS._read_json(path)
+    gone[OLD]["at"] -= EXTRACTS.NOT_FOUND_TRANSIENT_HOURS * 3600 + 1
+    EXTRACTS._write_json_atomic(path, gone)
+    monkeypatch.setattr(EXTRACTS, "requests", types.SimpleNamespace(
+        get=lambda url, **k: (calls["get"].append(url), _Response(200))[1]))
+    assert EXTRACTS._acquire_extract("kansai", OLD)
+    assert calls["get"] == [OLD, OLD]
+
+
+def test_plain_404_after_refresh_is_remembered_seven_days(store, monkeypatch):
+    _network(monkeypatch, set(), OLD)
+    assert not EXTRACTS._acquire_extract("kansai", OLD)
+    assert EXTRACTS._url_not_found(OLD, transient=False)
+    path = os.path.join(store, "not_found.json")
+    gone = EXTRACTS._read_json(path)
+    gone[OLD]["at"] -= 6 * 86400
+    EXTRACTS._write_json_atomic(path, gone)
+    assert EXTRACTS._url_not_found(OLD)
+
+
+def test_unconfirmed_plain_404_is_transient(store, monkeypatch):
+    calls = _network(monkeypatch, set(), OLD)
+    monkeypatch.setattr(EXTRACTS, "_refresh_index", lambda: False)
+    assert not EXTRACTS._acquire_extract("kansai", OLD)
+    assert EXTRACTS._url_not_found(OLD, transient=True)
+    assert calls["index"] == 0

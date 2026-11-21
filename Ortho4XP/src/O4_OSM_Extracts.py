@@ -62,6 +62,10 @@ CONCURRENT_TMP_FRESH_SECONDS = 30.0
 # older than NOT_FOUND_INDEX_FRESH_SECONDS (a fresh index that still
 # 404s means Geofabrik publishes nothing there).
 NOT_FOUND_RETRY_DAYS = 7.0
+# A 404 reached through a redirect (Geofabrik -latest answers 307 to a
+# dated file that is briefly 404 while the region regenerates), or one no
+# fresh index confirmed, is transient: asked again after this.
+NOT_FOUND_TRANSIENT_HOURS = 6.0
 NOT_FOUND_INDEX_FRESH_SECONDS = 3600.0
 
 # Module-level and mutable so tests monkeypatch it at a tmp_path.
@@ -648,7 +652,8 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             # A region whose address answered 404 is not queued again
             # (#2201): its 404 was logged once when it happened.
             gone = {region_id for (region_id, url) in regions
-                    if region_id in missing and _url_not_found(url)}
+                    if region_id in missing
+                    and _url_not_found(url, transient=False)}
             queued = [region_id for region_id in missing
                       if region_id not in gone]
             if queued:
@@ -812,7 +817,8 @@ def _download_extract(region_id: str, pbf_url: str,
         return True
     except Exception as error:
         if _is_not_found(error):
-            _remember_not_found(region_id, pbf_url)
+            _remember_not_found(region_id, pbf_url, transient=True,
+                                redirected=_redirected(error))
         UI.vprint(
             1, "   Extract download for", region_id, "failed:", str(error),
         )
@@ -835,20 +841,48 @@ def _is_not_found(error) -> bool:
     return getattr(response, "status_code", None) == 404
 
 
-def _remember_not_found(region_id: str, url: str) -> None:
+def _redirected(error) -> bool:
+    """True when the 404 came after a redirect (a dated file mid-rebuild)."""
+    response = getattr(error, "response", None)
+    return bool(getattr(response, "history", None))
+
+
+def _remember_not_found(region_id: str, url: str, transient: bool,
+                        redirected: bool = False) -> None:
     with _store_lock:
         gone = _read_json(_store_path("not_found.json")) or {}
-        gone[url] = {"region": region_id, "at": time.time()}
+        gone[url] = {"region": region_id, "at": time.time(),
+                     "transient": bool(transient),
+                     "redirected": bool(redirected)}
         _write_json_atomic(_store_path("not_found.json"), gone)
 
 
-def _url_not_found(url) -> bool:
-    """True when ``url`` answered 404 within NOT_FOUND_RETRY_DAYS."""
-    if not url:
+def _not_found_entry(url):
+    return (_read_json(_store_path("not_found.json")) or {}).get(url)
+
+
+def _url_not_found(url, transient=None) -> bool:
+    """True when ``url`` answered 404 within its memory window.
+
+    A transient 404 is remembered NOT_FOUND_TRANSIENT_HOURS, a confirmed
+    one NOT_FOUND_RETRY_DAYS (an entry without the flag is confirmed);
+    ``transient`` True/False asks for one kind only.
+    """
+    entry = _not_found_entry(url) if url else None
+    if not entry:
         return False
-    entry = (_read_json(_store_path("not_found.json")) or {}).get(url)
-    return bool(entry) and (time.time() - float(entry.get("at", 0))
-                            < NOT_FOUND_RETRY_DAYS * 86400)
+    is_transient = bool(entry.get("transient", False))
+    if transient is not None and transient != is_transient:
+        return False
+    window = (NOT_FOUND_TRANSIENT_HOURS * 3600 if is_transient
+              else NOT_FOUND_RETRY_DAYS * 86400)
+    return time.time() - float(entry.get("at", 0)) < window
+
+
+def _keep_wanted_if_transient(region_id: str, url) -> None:
+    """A transient 404 leaves the region wanted: the background retries."""
+    if _url_not_found(url, transient=True):
+        record_wanted_regions([region_id])
 
 
 def _index_recent() -> bool:
@@ -866,20 +900,37 @@ def _acquire_extract(region_id: str, url, foreground: bool = False) -> bool:
     and the old address's redirect 404s), while the stored index waits
     for the user's expiry (RULINGS 2026-11-13o).  A 404 proves the
     stored address wrong, so the index is asked again — unless it was
-    just fetched — and the download retried at its new address.  An
-    address that still 404s is remembered (``not_found.json``): it is
-    logged once and not asked again for NOT_FOUND_RETRY_DAYS.
+    just fetched — and the download retried at its new address.
+
+    Every 404 is first remembered as transient (``not_found.json``,
+    NOT_FOUND_TRANSIENT_HOURS): this build uses Overpass and the region
+    stays wanted, so the background download retries after the window
+    (Geofabrik's -latest redirects to a dated file that is briefly 404
+    while the region regenerates).  Only a 404 with no redirect on the
+    address a fresh index still lists is remembered NOT_FOUND_RETRY_DAYS.
     """
-    if not url or _url_not_found(url):
+    if not url:
+        return False
+    if _url_not_found(url):
+        _keep_wanted_if_transient(region_id, url)
         return False
     if _download_extract(region_id, url, foreground=foreground):
         return True
-    if not _url_not_found(url) or _index_recent() or not _refresh_index():
+    entry = _not_found_entry(url)
+    if not _url_not_found(url):
+        return False      # not a 404: nothing remembered
+    if not _index_recent() and not _refresh_index():
+        _keep_wanted_if_transient(region_id, url)
         return False
     fresh_url = _url_for_region(region_id)
-    if not fresh_url or fresh_url == url or _url_not_found(fresh_url):
-        return False
-    return _download_extract(region_id, fresh_url, foreground=foreground)
+    if fresh_url and fresh_url != url and not _url_not_found(fresh_url):
+        if _download_extract(region_id, fresh_url, foreground=foreground):
+            return True
+        url = fresh_url
+    elif fresh_url == url and not entry.get("redirected"):
+        _remember_not_found(region_id, url, transient=False)
+    _keep_wanted_if_transient(region_id, url)
+    return False
 
 
 def _regions_to_refresh() -> list:

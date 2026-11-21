@@ -31,4 +31,14 @@ final class MapFilterTests: XCTestCase {
         XCTAssertFalse(MapFilter(stored: "off").showsTile(state: .off, pinned: false))
         XCTAssertTrue(MapFilter(stored: "full").showsTile(state: .off, pinned: false))
     }
+
+    /// #2214 (Qt twin: test_the_filter_menu_hides_the_patch_layer_and_its_gestures).
+    @MainActor
+    func testAirportPatchHidesTheLayer() {
+        XCTAssertTrue(MapFilter(stored: "").showsPatch)
+        XCTAssertFalse(MapFilter(stored: "patch").showsPatch)
+        XCTAssertEqual(MapFilter(stored: "patch,icao").stored, "icao,patch")
+        XCTAssertTrue(MapFilter(stored: "patch").showsAnyTile)
+        XCTAssertEqual(MapFilterItem.sections.last?.header, "Patch")
+    }
 }

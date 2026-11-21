@@ -37,7 +37,8 @@ struct MapCanvasView: View {
     /// The photo provider of the World tile under the cursor (#2018).
     @State private var cursorPhoto: String?
     @State private var elevationQuery: Task<Void, Never>?
-    @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
+    /// The live pan's anchor, keyed by its start (#2214, `MapPanAnchor`).
+    @StateObject private var dragAnchor = ViewState<MapPanAnchor?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
     /// the viewport or the airport lists change.
     @StateObject private var airportPlans = AirportPlanCache()
@@ -162,9 +163,13 @@ struct MapCanvasView: View {
                     camera.value = MapCamera.fitted(to: proxy.size)
                 }
                 canvasSize.value = proxy.size
+                buildModel.patchEdit.layerHidden = !mapFilter.showsPatch
                 controller.scheduleViewportUpdate()
                 buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
                                                      overlays: overlays)
+            }
+            .onChange(of: mapFilterStored) {
+                buildModel.patchEdit.layerHidden = !mapFilter.showsPatch // #2214
             }
             .onChange(of: proxy.size) {
                 canvasSize.value = proxy.size
@@ -654,11 +659,13 @@ struct MapCanvasView: View {
     private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                if dragAnchor.value == nil {
-                    dragAnchor.value = camera.value
+                let held = MapPanAnchor.current(dragAnchor.value, start: value.startLocation,
+                                                camera: camera.value)
+                if held != dragAnchor.value {
+                    dragAnchor.value = held
                     PatchShapePick.pointer(over: nil, panning: true).cursor.set()
                 }
-                guard let anchor = dragAnchor.value else { return }
+                let anchor = held.camera
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
                 cam.centerLat = MapCamera.latitude(

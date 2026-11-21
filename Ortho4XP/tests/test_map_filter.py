@@ -36,3 +36,14 @@ def test_a_tile_needs_any_of_its_items():
     assert MAPFILTER.shows_tile(frozenset(), "off")          # #2100
     assert not MAPFILTER.shows_tile({"off"}, "off")
     assert MAPFILTER.shows_tile({"full"}, "off")
+
+
+def test_the_airport_patch_is_its_own_section():
+    """#2214: "Airport patch" hides the zoomed-in airport's patch layer and
+    touches no airport mark or tile."""
+    assert MAPFILTER.SECTIONS[-1] == ("Patch", (("patch", "Airport patch"),))
+    assert MAPFILTER.shows_patch(frozenset())
+    assert not MAPFILTER.shows_patch({"patch"})
+    assert MAPFILTER.dump_hidden({"patch", "icao"}) == ["icao", "patch"]
+    assert MAPFILTER.shows_any_tile({"patch"})
+    assert MAPFILTER.shows_airport({"patch"}, True, True)

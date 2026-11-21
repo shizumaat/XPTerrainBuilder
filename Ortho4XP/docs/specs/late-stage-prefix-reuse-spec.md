@@ -198,4 +198,19 @@ Owner 2026-11-21T01:31Z: "we did a lot of work to try and have a single solve, w
   - Verify DEFECT families zero in both. `road_cross_section` 262 → 238, `within_shape` 2,323 → 1,893, `mid_edge_step` 16 → 14, `strip_seam_tear` 9,666 → 9,717.
 - KEGE (certified; one late stage, car lots): patch byte-identical.
 
+**Round 2 (2026-11-21; owner RULINGS 2026-11-21a bar: every point within ±1 m, no grade violation, shortest time).**
+- `pipeline/late_view`: the view also LIFTS the nodes a later stage's faces minted on the rings that stay. A lifted node takes its standing rim's base edge (`late_rim_levels`) where it has one, else the edge it was lifted onto.
+- Car lots are no road-end contact of the road-ramp channel (`airport/road_ramp.reach_contacts`).
+- Stage 2 is solved ONCE: its yielding pins are released up front (`solve/pin_yield.released_once`), replacing the #778 pinned, trial and narrowed solves.
+
+| airport | worst point | census |
+|---|---|---|
+| KASE | 0.08 m | total 12,033 → 12,032 |
+| BIKF | 0.36 m | families only fall |
+| LGAV | 0.59 m (gap:2), 0.44 m, 0.32 m | +19 groundside rows: hard_conflict +6, road_cross_section +10, pavement_over_road_cap +2, within_shape +1. Not attributed further. |
+| OMDB | 0.12 m | census not re-run |
+
+- One-solve stage 2 against the pinned flow (KASE, BIKF, LGAV): no census family rose, and none changed at BIKF or LGAV. `solve_design` LGAV 231 → 108 s, BIKF 133 → 89 s.
+- Refused by the bar: skipping the low-hold re-solve (#517; LGAV airside 1.45 m) and the trend-retarget re-solve (15i (3); KASE families rise). The shadow solve outside deck neighbourhoods was not measured.
+
 **Not done.** The remaining derives are the main pass, stage 1's ribbon-free map (#100 (c), in a worker beside the main pass) and this one late map. A late map that reuses the main pass's products outside the late cells (§5 phases 2c/3) is the next step. So is a stage 1 that reads the full map through a view instead of its own derive.

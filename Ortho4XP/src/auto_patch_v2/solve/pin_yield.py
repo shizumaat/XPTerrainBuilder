@@ -221,10 +221,11 @@ def released_once(planar: PlanarMap, cs: ConstraintSet, law: Law,
                   among: _t.AbstractSet[int],
                   solve: _t.Callable[[ConstraintSet], tuple[Solution, DesignReport]]
                   ) -> tuple[Solution, DesignReport, list[dict], ConstraintSet]:
-    """#2206 ARM of :func:`yield_pins`: the stage solved ONCE with every
-    yielding pin among ``among`` released as a design target at its own
-    value; a pin it moves past ``hard_tol_m`` is recorded as yielded, the
-    rest hold within the tolerance as targets."""
+    """STAGE 2's pin yield in ONE solve (#2206; :func:`yield_pins` is stage
+    1's): the stage solved once with every yielding pin among ``among``
+    released as a design target at its own value; a pin it moves past
+    ``hard_tol_m`` is recorded as yielded, the rest hold within that
+    tolerance as targets.  No pin among ``among``: the stage as stated."""
     d = design_law(law)
     yield_heads = frozenset(getattr(d, "yielding_pin_rulings", ()) or ())
     cands = sorted({p.v for p in cs.pins if ruling_head(p) in yield_heads and p.v in among})

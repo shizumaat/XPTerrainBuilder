@@ -87,7 +87,7 @@ def _dissolve(pm, gone, edges: dict, rings: dict,
     cand = sorted(v for f in gone if f in pm.faces for v in face_vertex_set(pm, pm.faces[f])
                   if tuple(pm.vertices[v].xy) not in standing_xy)
     at: dict[int, set[int]] = {}                 # vertex -> kept ring edges at it
-    for fid, cycs in rings.items():
+    for cycs in rings.values():
         for cyc in cycs:
             for e in cyc:
                 at.setdefault(edges[e].a, set()).add(e)

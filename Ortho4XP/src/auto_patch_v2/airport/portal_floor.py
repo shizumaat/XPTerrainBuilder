@@ -73,7 +73,10 @@ def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, g
     seen: set[str] = set(taken)
     for p in portals:
         if (p.hanging or p.bottom_y is not None or p.floor_z is not None or p.opening_m <= 0.0
-                or p.zero_z is None or p.object_id in seen):
+                or p.zero_z is None or p.object_id in seen or p.at_grade):
+            # (an at-grade mouth, 2026-11-21d, states no floor: its row reads
+            # the uncut ground, and its faces under its roof are its arch's
+            # soffit -- KBUF ``Road_Tunnel.obj``, #2221)
             continue
         o = by_id.get(p.object_id)
         g = cache.geometry(o.resolved) if o is not None and o.resolved else None

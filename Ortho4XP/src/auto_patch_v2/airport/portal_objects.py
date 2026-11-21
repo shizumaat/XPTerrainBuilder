@@ -170,6 +170,12 @@ class Portal:
     #: (a parapet, a headwall): the ground in front of them is never its
     #: skirt (``planar/entrance_skirt``); ``None`` with none or no cover
     parapet_plan: object = None
+    #: owner RULINGS 2026-11-21d (#2221): a roofed portal standing ON the
+    #: author's ground that is still its tunnel's mouth (:func:`_tunnel_mouth`):
+    #: its row reads the uncut ground, never its road -- it states no floor of
+    #: its own (``airport/portal_floor`` reads none) and is seated on its
+    #: mouth's floor (``planar/portal_level``)
+    at_grade: bool = False
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -872,7 +878,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                               cover_plan=None if cov is None else cov[1],
                               cover_top_z=None if cov is None else float(floor + cov[0]),
                               parapet_plan=None if cov is None else _parapet(
-                                  o, framed[0], cov[0], law)))
+                                  o, framed[0], cov[0], law),
+                              at_grade=bool(grade)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

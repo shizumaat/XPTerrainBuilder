@@ -78,6 +78,31 @@ def _digest(pm) -> str:
     return h.hexdigest()[:16]
 
 
+def _portal_reach(pm, to) -> list[str]:
+    """Per portal-pinned tunnel: how far the portal object's footprint runs
+    out along the ramp past where the climb starts, and the floor's rise
+    under it there (the ramp's mean grade): what a seat at the mouth's
+    floor leaves buried."""
+    feet = {p.object_id: getattr(p, "footprint", None) for p in getattr(to, "portals", ())}
+    out = []
+    for t in pm.structures:
+        foot = feet.get(getattr(t, "portal", ""))
+        if foot is None or len(t.axis) < 2:
+            continue
+        (x0, y0), (x1, y1) = t.axis[0], t.axis[1]
+        L = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 or 1.0
+        ux, uy = (x1 - x0) / L, (y1 - y0) / L
+        pts = [c for g in getattr(foot, "geoms", [foot]) for c in g.exterior.coords]
+        s = [(x - x0) * ux + (y - y0) * uy for x, y in pts]
+        run = max(float(t.top_s) - float(t.climb_from_s), 1e-9)
+        grade = (float(t.mouth_dem_z) - float(t.mouth_z)) / run
+        over = max(0.0, max(s) - float(t.climb_from_s))
+        out.append(f"{t.id} {t.portal}: footprint s {min(s):.1f}..{max(s):.1f} m, climb from "
+                   f"{float(t.climb_from_s):.1f} to {float(t.top_s):.1f} (grade {grade:.3f}): "
+                   f"floor rises {over * grade:.2f} m under its outer end")
+    return out
+
+
 def main(pkl: str) -> dict:
     _instrument()
     import v2_solve_replay as R
@@ -88,7 +113,10 @@ def main(pkl: str) -> dict:
         res = R.replay_problem(pathlib.Path(pkl), "planar", [], None, (), **kw)
     pm, to = res["pm"], getattr(_SEEN.get("ps"), "tunnel_objects", None)
     return {
-        "tunnels": [f"{t.id} ways={getattr(t, 'ways', '')}" for t in pm.structures],
+        "tunnels": [f"{t.id} ways={getattr(t, 'ways', '')} mouth_z={t.mouth_z:.2f} "
+                    f"dem={t.mouth_dem_z:.2f} depth={getattr(t, 'depth_m', 0.0):.2f} "
+                    f"portal={getattr(t, 'portal', '')} seat={getattr(t, 'portal_seat', ())}"
+                    for t in pm.structures],
         "object_floors": ["%s obj=%s zero=%.2f floor=%.2f" % (f.id, f.object_id, f.zero_z,
                                                              f.floor_z)
                           for f in getattr(pm, "object_floors", ())],
@@ -100,6 +128,7 @@ def main(pkl: str) -> dict:
                             if "bore" in r or "portal" in r],
         "witness": _SEEN["witness"],
         "mouths": _SEEN["mouths"],
+        "portal_reach": _portal_reach(pm, to),
         "map_digest": _digest(pm),
         "counts": [len(pm.vertices), len(pm.edges), len(pm.faces)],
     }

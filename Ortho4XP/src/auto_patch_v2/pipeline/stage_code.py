@@ -6761,3 +6761,8 @@ STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)
 for _stage, _mods_of in list(CODE_MODULES.items()):
     if "auto_patch_v2.airport.msl_feet" in _mods_of:
         CODE_MODULES[_stage] = tuple(sorted({*_mods_of, *_mods("geom.point_triangle")}))
+
+# ltunnel2 (2026-11-21, RULINGS 21d / #2221): the at-grade mouth's seat and
+# level floor (planar/portal_level), read by planar/structures
+for _stage in ("planar", "solve", "late_cut", "late_solve"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("planar.portal_level")}))

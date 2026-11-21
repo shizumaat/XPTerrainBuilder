@@ -154,6 +154,7 @@ from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_
                              host_blade,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
+from .portal_level import level_to_s, off_road
 from .survey_cut import cutting_of
 from .survey_deck_cut import deck_survey_mouth
 from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_stations,
@@ -1052,6 +1053,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
                 deck, axis_ln, partner, gap)
             climb_from = max(climb_from, flat_to)
+        if off_road(pin, mouth_z, law):
+            # #2221: the floor stays level under a seated floorless portal,
+            # then climbs (``planar/portal_level``)
+            climb_from = max(climb_from, level_to_s(pin, axis_ln))
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the
             # whole edge object, then climbs (``bridge_span.edge_flat_s``) —
@@ -1689,6 +1694,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if len(skirt) > 3:
                             # #1689 R5 S2: its wings' piece at the portal's top
                             extra["entrance_wing"] = (skirt[4], skirt_refs(tid)[2])
+            elif off_road(pin, mouth_z, law):
+                # #2221: a floorless roofed portal off its road stands on its
+                # mouth's floor (``planar/portal_level``)
+                extra["portal_seat"] = (pin.resource, float(mouth_z))
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats

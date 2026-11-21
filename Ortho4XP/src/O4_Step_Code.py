@@ -966,6 +966,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.low_level",
     "auto_patch_v2.planar.mouth_behind",
     "auto_patch_v2.planar.mouth_opening",
+    "auto_patch_v2.planar.portal_level",
     "auto_patch_v2.planar.object_corridor",
     "auto_patch_v2.planar.object_floor_cells",
     "auto_patch_v2.planar.overlay",

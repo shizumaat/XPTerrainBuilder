@@ -211,6 +211,7 @@ def test_a_roofed_object_at_grade_on_a_long_bore_is_its_tunnel_mouth(tmp_path):
     far = types.SimpleNamespace(id=-757, points=[(0.0, 60.0), (0.0, 240.0)])
     got, refused, grade = _mouth_portals(tmp_path, [BORE, far])
     assert [p.way_id for p in got] == [-756] and grade == []
+    assert got[0].at_grade
     assert "a tunnel mouth (RULINGS 2026-11-21d)" in refused[0]
 
 

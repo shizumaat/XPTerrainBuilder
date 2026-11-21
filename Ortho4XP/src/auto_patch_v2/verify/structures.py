@@ -29,6 +29,7 @@ from .runway_witness import published_status
 #: published corridor is lon/lat and the tolerance travels with it.
 _RING_TOL_DEG = 1.0 / 111320.0
 from .frame import Patch, Row, Shape, row
+from .nearest import FirstNearest
 from ..geom.union_find import find_root
 
 __all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_mouth_canonical",
@@ -211,6 +212,8 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
                 rims.setdefault(key, []).append((sh.xy[k], float(sh.z[k])))
                 rims_ll.setdefault(key, []).append((p.ll[i], float(sh.z[k])))
     out: list[Row] = []
+    #: #2206 item 1: each rim's nearest-vertex reader, built once
+    near: dict[str, FirstNearest] = {}
     for f in _basin_floors(p):
         rec = declared.get(f.ref.split("#")[0])
         if rec is None:
@@ -236,7 +239,9 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
                 want, what = open_z - rec["depth"], f"open rim {open_z:.2f} - {rec['depth']:.2f}"
             elif rec["depth"] is not None and rim:
                 x, y = f.xy[k]
-                rz = min(rim, key=lambda q: (q[0][0] - x) ** 2 + (q[0][1] - y) ** 2)[1]
+                if rec["wall_ref"] not in near:
+                    near[rec["wall_ref"]] = FirstNearest(rim, lambda q: q[0])
+                rz = rim[near[rec["wall_ref"]].index(x, y)][1]
                 want, what = rz - rec["depth"], f"rim {rz:.2f} - {rec['depth']:.2f}"
             else:
                 want, what = rec["floor_m"], f"declared {rec['floor_m']:.2f}"

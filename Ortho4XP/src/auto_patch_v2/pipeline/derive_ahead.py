@@ -32,7 +32,7 @@ from ..airport import pool as _pool
 from ..airport import pool_memory as _mem
 
 __all__ = ["may_start", "raw_airport", "payload", "start", "worker_deriver", "answer",
-           "install", "worker_clock"]
+           "install", "worker_clock", "shipped_reads", "adopt_reads"]
 
 
 def may_start(what: str) -> str:
@@ -84,6 +84,25 @@ def _pack(derive):
         return pack
     return pack._replace(resources=shipped(derive.airport, pack.objects, pack.resources,
                                            _law_of(derive)))
+
+
+def shipped_reads(derive) -> dict:
+    """The build's pack readings as they stand NOW (``planar/pack_reads.
+    shipped``'s ``placed``), for a worker that started before they were read
+    (``stage_one_ahead.start_early``, #2206 item 5): :func:`adopt_reads`."""
+    return _pack(derive).resources.placed if getattr(derive.pack, "resources", None) \
+        is not None else {}
+
+
+def adopt_reads(deriver, placed: _t.Mapping) -> None:
+    """IN THE WORKER: the build's readings :func:`shipped_reads` handed, as
+    this worker's own (before its planar stage reads any)."""
+    res = getattr(deriver.pack, "resources", None)
+    if res is None or not placed:
+        return
+    res.placed.update(placed)
+    from ..planar.pack_reads import adopt
+    adopt(deriver.airport, deriver.pack.objects, res, _law_of(deriver))
 
 
 def start(task: _t.Callable, payload_: dict, extra: tuple = (), *, what: str,

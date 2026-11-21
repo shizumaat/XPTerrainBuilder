@@ -7,6 +7,7 @@ CLI).  The objective's weights are LAW (``emit.toml [design]``, RULINGS
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses as _dc
 import json
 import time
@@ -20,6 +21,7 @@ from ..constraints.runway_profile import RUNWAY_FAMILY  # noqa: F401
 from ..constraints.taxi_trend import TaxiTrendReport
 from ..emit.osm_adapter import PatchPaths
 from ..law import Law
+from ..model import clocks as _clocks
 from ..model import pulse as _pulse
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
@@ -663,16 +665,35 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ``pipeline/stage_one_ahead``).  The heartbeat names THIS work, not the
     # inner planar build's last step; the re-runs go through the same
     # records, keyed by their own classification (stage-cache spec §4b.3).
+    from ..model.stage_one import on_full_decks
     from . import stage_one_ahead as _s1_ahead
-    _s1_box: dict = {}
+    _s1_hb = "stage 1 on the ribbon-free map: shapes and constraints"
+    # #2206 item 5: a stage-1 classification known now starts its derive
+    # HERE, handed the full map's decks at its structures step and its
+    # anchors after its channels (``stage_one_ahead.start_early``)
+    _s1_d0 = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in, heartbeat=_s1_hb)
+    _s1_early = _s1_ahead.start_early(cl, _s1_d0, out=lambda m: _say(f"[{icao}] {m}", out))
+    _s1_box: dict = {} if _s1_early is None else {"derive": _s1_d0, "ahead": _s1_early}
 
     def _stage_one_ahead(ap, pm_ch) -> None:
-        d = Deriver(ap, law, inputs, pack, cache=fc, common=_fc_in,
-                    heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
+        if _s1_early is not None:
+            _s1_early.hand_anchors(pm_ch)
+            return
+        d = Deriver(ap, law, inputs, pack, cache=fc, common=_fc_in, heartbeat=_s1_hb)
         _s1_box.update(derive=d, ahead=_s1_ahead.start(
             cl, d, pm_ch, out=lambda m: _say(f"[{icao}] {m}", out)))
-    pre = run_prefix(airport, cl, law, inputs, pack, fc, common=_fc_in, cl_digest=_cl_digest,
-                     icao=icao, lrep=lrep, out=out, after_channels=_stage_one_ahead)
+    try:
+        with (contextlib.nullcontext() if _s1_early is None
+              else on_full_decks(_s1_early.hand_decks)):
+            pre = run_prefix(airport, cl, law, inputs, pack, fc, common=_fc_in,
+                             cl_digest=_cl_digest, icao=icao, lrep=lrep, out=out,
+                             after_channels=_stage_one_ahead)
+    except BaseException:
+        if _s1_early is not None:
+            _s1_early.close()
+        raise
+    if _s1_early is not None:
+        _s1_early.rebind(pre.airport)
     wall.update(pre.wall)
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
@@ -765,11 +786,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
     # keyed on the prefix's records and the ribbon-free prefix's, never
     # served without its certificate
-    _solved = solve_stage(
-        fc, {**pre.keys, "stage_one": "none" if _s1 is None else prefix_identity(
-            derive.last.keys), "options": fc.digest(cfg.options)},
-        _solve, cs=cs, n=len(pm.vertices), law=law, options=cfg.options,
-        held=pm.registries.held)
+    # #2206 6a: every stage solve's clock record (``model/clocks``)
+    with _clocks.collecting() as _solve_clk:
+        _solved = solve_stage(
+            fc, {**pre.keys, "stage_one": "none" if _s1 is None else prefix_identity(
+                derive.last.keys), "options": fc.digest(cfg.options)},
+            _solve, cs=cs, n=len(pm.vertices), law=law, options=cfg.options,
+            held=pm.registries.held)
     sol, design_rep = _solved.value.sol, _solved.value.design
     size, tt2_rep = dict(_solved.value.size), _solved.value.second_pass
     wall["solve"] = time.perf_counter() - t
@@ -827,13 +850,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # the late derives' heartbeat names THEIR work (the owner read
         # "stage 1 on the ribbon-free map" through the gap stage, #2044)
         derive.kw["heartbeat"] = "the last stage: the gap pieces' map, shapes and constraints"
-        pm, sol, _late = run_last_stages(
-            cl_gaps, airport, law, derive,
-            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
-             "hard_conflict": hard_conflict, "cs": cs},
-            rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
-            speculate=speculate_roads)
+        with _clocks.collecting() as _late_clk:
+            pm, sol, _late = run_last_stages(
+                cl_gaps, airport, law, derive,
+                {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
+                 "hard_conflict": hard_conflict, "cs": cs},
+                rules=load_rules(), options=cfg.options,
+                out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
+                speculate=speculate_roads)
+        _solve_clk.extend(_late_clk)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
@@ -939,6 +964,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                  "count": len(off_ground)}},
     }
     report["centreline_gaps"] = _cgaps.record()
+    # #2206 6a: the stage solves' clocks (none on a served solve record)
+    report["solve_clocks"] = {"by_label": _clocks.summary(_solve_clk), "records": _solve_clk}
     if _late_report is not None:
         report["late_stage"] = _late_report
     paths = None

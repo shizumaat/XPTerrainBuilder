@@ -767,6 +767,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.clocks",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_bank",
         "auto_patch_v2.model.deck_ends",
@@ -2877,6 +2878,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
     geom.plate_bands model.floor_ground planar.road_wall_witness
     model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.deck_spans planar.deck_span_cut
@@ -3102,6 +3104,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
     constraints.road_bridge_ceiling model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["emit"] = _mods("""
     geom.deck_spans planar.deck_span_cut
@@ -3285,6 +3288,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_plates airport.obj8_band airport.split_level_forecourt classify.apron_gate
     constraints.public_road_release geom.plate_bands model.floor_ground
     model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.channel_declared
@@ -3431,6 +3435,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
     geom.plate_bands model.floor_ground
     model.road_clearance
+    verify.nearest
 """)
 
 #: #2188: the held terrace's level reads the pads' own derivations

@@ -61,6 +61,7 @@ from ..law.design_schema import BEND_CLASSES
 from ..law.tables import (design as design_law, is_value_role,
                           pavement_roles as _pavement_roles,
                           role_side, zone2_half_width_m, zone_class)
+from ..model import clocks as _clocks
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset,
                                  Pin, Row)
 from ..model.planar import PlanarMap
@@ -206,7 +207,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return _with_hold_report(caller_map, *_with_facade_strips(
             planar, law, *published(*_solve_stage(
                 planar, cs, law, options, size_out=size_out, method=method,
-                low_rank=low_rank))))
+                low_rank=low_rank, label="single"))))
     t_all = time.perf_counter()
     # PASS 1a / THE INTERVAL / PASS 1b (flat-pad spec v2 §1-§2, owner
     # RULINGS 2026-09-30as; ``solve/flex.stage_one``): ``hold`` is the
@@ -234,19 +235,21 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             if tz is None:
                 return got
             retarget["tz"] = dict(tz)
-            return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
+            with _clocks.tag("hold retarget"):
+                return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
         got = _s1_once(pm_x, cs_x)
         retarget["tz"] = tz = trend_rewrite(pm_x, got[4])
         if tz is None:
             return got
-        return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
+        with _clocks.tag("retarget"):
+            return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
 
     # STAGE 0, THE RUNWAY FIRST (owner RULINGS 2026-11-02a (4); ``solve/
     # runway_first``): solved once, then held within its slack in stage 1
     from .runway_first import RunwayFirst
     first = RunwayFirst(law, lambda pm0, cs0, d0, f0, lv0: _solve_stage(
         pm0, cs0, law, options, method=method, low_rank=low_rank, drop=d0,
-        fixed=f0, levelled_out=lv0, stage_roles=runway_stage_roles(law)))
+        fixed=f0, levelled_out=lv0, stage_roles=runway_stage_roles(law), label="stage0"))
 
     def _s1_once(pm_x: PlanarMap, cs_x: ConstraintSet):
         cs_x = first.held(pm_x, cs_x)
@@ -257,7 +260,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               method=method, low_rank=low_rank, drop=d_x,
                               fixed=f_x, levelled_out=lv,
                               stage_roles=airside_stage_roles(law),
-                              projection_memo=budget_memo, seed=seed1)
+                              projection_memo=budget_memo, seed=seed1, label="stage1")
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
     from .pin_yield import stage1_read_pins
@@ -334,17 +337,17 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         fixed2 = held_levels(
             shadow, cs_rw, levels, fixed2, _stage2_set, lambda cs_x, fx: _solve_stage(
                 planar2, cs_x, law, options, method=method, low_rank=low_rank, fixed=fx,
-                seed=seed2), seed_rep)
+                seed=seed2, label="stage2/shadow"), seed_rep)
     sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=fixed2,
-                              seed=seed2)
+                              seed=seed2, label="stage2")
     yielded: list[dict] = []
     cs2_used = cs
     if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
                                 method=method, low_rank=low_rank, fixed=fixed2,
-                                seed=seed2)
+                                seed=seed2, label="stage2")
         among2 = {p.v for p in cs.pins} - set(s1_read)
         sol2, rep2, yielded, _cs2 = _yield_pins(planar2, cs, law, sol2, rep2,
                                                 _stage2, among=among2)
@@ -356,7 +359,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         sol2, rep2.follow_stage = solve_follow(
             cs2_used, sol2, follow_rewrite, lambda cs_f, fx: _solve_stage(
                 planar2, cs_f, law, options, method=method, low_rank=low_rank,
-                fixed=fx))
+                fixed=fx, label="follow"))
     rep2.reach_seed = seed_rep
     # issue #143: the §37 (9) joins the rewrite released because their road
     # row is welded to a stage-1 constant (``road_ramp.welded_join_release``)
@@ -505,7 +508,8 @@ def solve_late_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     followers are unknowns and every row between a follower and a leader has
     a constant on the leader's side: one-way by construction."""
     return published(*_solve_stage(planar, cs, law, options, size_out=size_out,
-                                   method=method, low_rank=low_rank, fixed=fixed))
+                                   method=method, low_rank=low_rank, fixed=fixed,
+                                   label="late"))
 
 
 def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -518,7 +522,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  levelled_out: dict[int, float] | None = None,
                  stage_roles: _t.AbstractSet[str] | None = None,
                  projection_memo: dict | None = None,
-                 seed: WarmSeed | None = None
+                 seed: WarmSeed | None = None,
+                 label: str = "single"
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -531,6 +536,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     ``seed`` is the stage's :class:`~.warm_seed.WarmSeed`: the first QP
     starts from the previous pass's first QP and leaves its own answer for
     the next (RULINGS 2026-10-19am (a)); ``None`` starts it cold.
+    ``label`` names the stage on its clock record (``model/clocks``: the
+    assemble / §5a LP / QP / projection / report seconds, #2206 6a).
     """
     opt = options or Options()
     d = design_law(law)
@@ -549,8 +556,11 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         unlevelled = set(_level_free_columns(rows, base_p.body, red, one))
         rep.stage1_unlevelled = len(unlevelled)
     chord_v, road_v = base_p.chord_vertices, base_p.road_fit_vertices
+    clk = {"label": _clocks.label(label), "columns": int(red.n_cols), "vertices": n,
+           "assemble_s": round(time.perf_counter() - t0, 3)}
     if red.n_cols == 0:
         z = np.array([float(red.value[v]) for v in range(n)])
+        _clocks.note({**clk, "total_s": round(time.perf_counter() - t0, 3)})
         return (Solution(z=tuple(z), status=Status.OPTIMAL,
                          residual=residual(cs, z, 0.0),
                          wall_s=time.perf_counter() - t0,
@@ -578,8 +588,11 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
               and base_p.body.n else (None, None))
     A1, b1 = _one_matrix(one, red)
     # §5a FEASIBILITY BEFORE THE SOLVE (RULINGS 2026-09-30be/30bf), conflicts named
+    t_lp = time.perf_counter()
     demote_conflicts(planar, law, base_p, A1, b1, rep, verbose=opt.verbose,
                      stage="2" if fixed and drop is None else "1" if drop else "")
+    t_qp = time.perf_counter()
+    clk["lp_s"] = round(t_qp - t_lp, 3)
     # THE ONE-WAY SPLIT (RULINGS 2026-09-09b (2)/(3)).  A corridor row
     # ``z_ground − z_foot ≤ bound`` priced two-way pulls the PAVEMENT down
     # toward the ground it is meant to shape.  For a one-way row only the
@@ -888,6 +901,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # non-runway vertex is FIXED and the runway family re-solved as a small
     # QP holding its hard rows exactly (``solve/project.py``, which carries
     # the rationale and §32 (4)'s purity test).
+    t_proj = time.perf_counter()
+    clk["qp_s"] = round(t_proj - t_qp, 3)
     if x is not None:
         # ... then PHASE E, the ZONE projection (12ag, §32): one entry,
         x, rep.runway_projection, rep.zone_projection = project_after_solve(
@@ -919,6 +934,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
         runway_after(rep, one, z, law)     # RULINGS 2026-09-30bj (1)
+    t_rep = time.perf_counter()
+    clk["projection_s"] = round(t_rep - t_proj, 3)
     if levelled_out is not None and x is not None:
         for vid in range(n):
             col = int(red.col[vid])
@@ -1013,6 +1030,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     _refuse_nonfinite(cs, z)
     cert = residual(cs, z, obj)
     wall = time.perf_counter() - t0
+    _clocks.note({**clk, "rows": rep.rows, "report_s": round(time.perf_counter() - t_rep, 3),
+                  "total_s": round(wall, 3)})
     return (Solution(z=tuple(float(v) for v in z),
                      status=Status.OPTIMAL if rep.converged else Status.FEASIBLE,
                      residual=cert, iterations=rep.rounds, wall_s=wall,

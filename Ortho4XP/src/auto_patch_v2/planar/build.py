@@ -32,6 +32,7 @@ from ..law.reference_code import status_by_ref
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY, Key
+from ..model import clocks as _clocks
 from ..model import pulse as _pulse
 from ..model.road_yield import is_band_zone_ref
 from ..model.platform import stage_air_of
@@ -150,6 +151,9 @@ class BuildStats:
     #: (``planar/low_level``: ``low_level*`` / ``upper_levels``), read off
     #: the arrangement's own counts
     levels: dict = _dc.field(default_factory=dict)
+    #: #2206 6a: the build's sub-step seconds (``model/clocks.Laps``) — a
+    #: clock, never read by geometry
+    step_s: dict = _dc.field(default_factory=dict)
 
 
 def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
@@ -275,6 +279,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     make; ``tools/v2_solve_replay.py --rim-diagnostics`` asks for them."""
     import time as _time
     t0 = _time.perf_counter()
+    laps = _clocks.Laps()
     from ..airport import frame_entry as _fe
     from ..airport.obj8 import ResourceCache
     cache = cache or ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
@@ -286,6 +291,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
+    laps.lap("objects")
     # owner 2026-11-19T13:51Z (RULINGS 2026-11-19m (2)): a pack's walled
     # multi-bridge frame our generated decks take is HIDDEN -- this build
     # reads the pack as if the user had hidden it (``planar/deck_takeover``):
@@ -349,6 +355,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # the reads are done: what follows is the channel / structure / basin
     # decision, and the heartbeat says so (not the last read's label)
     _pulse.tick("channels, structures and basins")
+    laps.lap("pack_reads")
     # ── THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i) ──────
     # The structure pass reads them to keep a crossing inside a channel
     # from ever becoming a bore with mouths (§45 (1)/(6)), and the basin
@@ -368,6 +375,7 @@ def build(airport: Airport, classification: Classification, law: Law,
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts,
         skip_split=shell_ids)
+    laps.lap("channels")
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is
     # covered ground — the structure pass and the covered ground read one
@@ -438,6 +446,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes, *group_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
+    laps.lap("decks")
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
                                                        portals=tstats.portals,
@@ -512,6 +521,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     bstats.object_read_s = read_s
     # the structure reads are DONE (issue #136: the progress window's
     # structures step ends here and the arrangement's begins)
+    laps.lap("structures")
+    # #2206 item 5: the full map's decks are final -- stage 1's derive, run
+    # ahead, reads them from here (``model/stage_one.full_decks``)
+    from ..model.stage_one import full_decks
+    full_decks(tuple(decks))
     _pulse.mark("structures")
     # #2065 A3 C2 N2: a free bridge the planar stage refused, or one whose
     # deck carries a split-level / walled plate (A1 ``plated_deck``, listed:
@@ -578,10 +592,12 @@ def build(airport: Airport, classification: Classification, law: Law,
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))
+    laps.lap("stacks")
     _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
                             level_seeds=seeds, shells=storeys, floors=floors,
                             decks=tuple(decks))
+    laps.lap("arrangement")
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
@@ -758,6 +774,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
                    storey_shells=tuple(storeys),
                    registries=arr.registries)
+    laps.lap("vertices")
     validate(pm)
     # #2128 round 4: the grade-separated road crossings and the surveyed cut
     # C, published for the road ramp (``planar/grade_separation``)
@@ -771,7 +788,9 @@ def build(airport: Airport, classification: Classification, law: Law,
         for q in polygon_parts_with_area(c_all)) if c_all is not None else ())
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps
+    laps.lap("map")
     pm, stats.shapes = build_shapes(pm, law, airport, classification)
+    laps.lap("shapes")
     stats.seam_bands = len(arr.seam_bands)
     stats.seam_vertices = len(seam)
     stats.dropped_seam_faces = arr.dropped_seam_faces
@@ -783,6 +802,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     note = _fe.rung_note()
     if note:
         print(f"  [frame-entry] {note}")
+    laps.lap("stats")
+    stats.step_s = laps.as_dict()
     return pm, stats
 
 

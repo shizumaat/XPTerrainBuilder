@@ -1,5 +1,20 @@
 [
  {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/deck_takeover.py",
+  "name": "hidden_ids",
+  "reason": "the one hidden set (RULINGS 20v, #2215): full_hidden and without_hidden read it in-module; public as the seam test_deck_takeover pins"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/step_inputs.py",
+  "name": "required_inputs",
+  "reason": "a step's input list (lscale): read in-module; public for its unit tests"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/step_inputs.py",
+  "name": "missing_inputs",
+  "reason": "a step's missing-input check (lscale): read in-module; public for its unit tests"
+ },
+ {
   "path": "Ortho4XP/src/O4_App_Modes.py",
   "name": "flight_loaded",
   "reason": "public type/helper of a flight-manager / World / lane module used inside it and named in its docstring contract; kept public for the next phase's caller (spec flight-manager-and-world-20261110 \u00a716)"
@@ -132,11 +147,6 @@
  {
   "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
   "name": "CutResult",
-  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
- },
- {
-  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
-  "name": "Dropped",
   "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
  },
  {

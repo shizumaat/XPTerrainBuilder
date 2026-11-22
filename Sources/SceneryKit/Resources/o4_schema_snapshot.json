@@ -111,6 +111,7 @@
   "vector": [
    "auto_patch",
    "modify_custom_airports",
+   "rebase_custom_patches",
    "elevation_level",
    "approach_rings",
    "elevation_coastline_band_km",
@@ -1141,6 +1142,12 @@
    "name": "global_ratio_water",
    "type": "float"
   },
+  "global_rebase_custom_patches": {
+   "default": true,
+   "hint": "A custom patch authored over another elevation source (the coarse base elevation, say) is re-based onto the elevation the build meshes with: its pad and ramp heights take a smooth offset so the patch meets the high-resolution ground while keeping its own shapes. The user's file is never edited (RULINGS 2026-11-19b).",
+   "name": "global_rebase_custom_patches",
+   "type": "bool"
+  },
   "global_reef_visibility_depth": {
    "default": 25.0,
    "hint": "Water shallower than this (in metres) keeps part of its imagery visible in the masks, fading smoothly from fully opaque at the waterline to the ratio_water transparency at this depth. Larger values keep deeper reef structure visible - Pacific atolls and lagoons read well around 30-40. Only effective where a bathymetry provider covers the tile.",
@@ -1655,6 +1662,12 @@
    "hint": "Inland water rendering is made of two layers : one bottom layer of \"X-Plane water\" and one overlay layer of orthophoto with constant level of transparency applied. The parameter ratio_water (values between 0 and 1) determines how much transparency is applied to the orthophoto. At zero, the orthophoto is fully opaque and X-Plane water cannot be seen ; at 1 the orthophoto is fully transparent and only the X-Plane water is seen.",
    "name": "ratio_water",
    "type": "float"
+  },
+  "rebase_custom_patches": {
+   "default": true,
+   "hint": "A custom patch authored over another elevation source (the coarse base elevation, say) is re-based onto the elevation the build meshes with: its pad and ramp heights take a smooth offset so the patch meets the high-resolution ground while keeping its own shapes. The user's file is never edited (RULINGS 2026-11-19b).",
+   "name": "rebase_custom_patches",
+   "type": "bool"
   },
   "reef_visibility_depth": {
    "default": 25.0,

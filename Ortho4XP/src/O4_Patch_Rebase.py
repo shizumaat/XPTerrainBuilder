@@ -431,8 +431,8 @@ def _prepared(tile, path, name):
                        "pad_spread_max_m": float(out["pad_spread"].max(
                            initial=0.0))})
         UI.vprint(0, "   %s: custom patch re-based from %s to the %s "
-                  "(median %+.1f m); the tile setting \"Move custom patches "
-                  "onto this build's elevation?\" turns it off."
+                  "(median %+.1f m); the tile setting \"Move custom airport ground "
+                  "shapes onto this build's elevation?\" turns it off."
                   % (icao, ref, BUILD_SOURCE, median))
     text = _with_band(tile, text, nodes, pads, ramps, sources, report, icao)
     target = _copy_path(tile, name)

@@ -245,9 +245,9 @@ _LAYOUT: list = [
         ("modify_custom_airports", "Fit custom airport buildings to the new ground", "tile", False,
          "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
         ("rebase_custom_patches",
-         "Move custom patches onto this build's elevation?", "tile", False,
-         "Moves a patch made for other elevation data onto this build's "
-         "ground, keeping its shapes."),
+         "Move custom airport ground shapes onto this build's elevation?", "tile", False,
+         "Moves an airport ground shape made for other elevation data onto this build's "
+         "ground, keeping its outline."),
         ("airport_elevation_insets", "High-resolution airport elevation", "tile", False,
          "Downloads meter-class elevation for the airports where it exists."),
         ("airport_elevation_level", "How detailed should airport elevation be?", "tile", False,

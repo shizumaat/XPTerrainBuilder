@@ -119,6 +119,10 @@ OSM_CACHE_SUFFIXES = (
     "water",
     "coastline",
     "water_basins",
+    # The lot rung's evidence feed (#1854, fetched by every auto-patch
+    # build since 2026-11-13): unseeded, it went to Overpass and timed
+    # the release out on busy servers (#2249).
+    "parking",
 )
 
 
@@ -158,6 +162,7 @@ def _cache_schemas(repo_root: str) -> list:
         ("src/O4_Vector_Map.py", "ROAD_CACHE_TAG_SCHEMA"),
         ("src/O4_Vector_Map.py", "WATER_CACHE_TAG_SCHEMA"),
         ("src/O4_Mask_Utils.py", "SHALLOW_WATER_CACHE_SCHEMA"),
+        ("src/O4_Vector_Map.py", "PARKING_CACHE_TAG_SCHEMA"),
     )
     schemas = []
     for relative, name in wanted:

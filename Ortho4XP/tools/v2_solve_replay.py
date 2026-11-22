@@ -1142,11 +1142,22 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
                          for k, r in fam.items()}, "trace": trace}
 
 
+def _generated(pm, law, airport, sol, tops) -> dict:
+    """The build's ``generated`` provenance (``pipeline/generated_publication``);
+    ``{}`` on a tree that predates it."""
+    try:
+        from auto_patch_v2.pipeline.generated_publication import generated_records
+    except ImportError:
+        return {}
+    return generated_records(pm, law, airport, sol.z, (), tops)
+
+
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
                hard_conflict=(), runway_flex=(), agp_report=None, objects=None,
-               rebake_plan: bool = False, car_lot_terraces=None) -> dict:
+               rebake_plan: bool = False, car_lot_terraces=None,
+               generated_tops=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1178,7 +1189,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                           {"law_ruleset": law.ruleset_key, "pack": airport.pack.name,
                            "agp_groups": published_groups(
-                               getattr(pm, "agp_groups", ()) or (), agp_report)})
+                               getattr(pm, "agp_groups", ()) or (), agp_report),
+                           # spec 2123 / RULINGS 2026-11-19s: the generated decks
+                           # as the build publishes them (``pipeline/emit_stage``)
+                           "generated": _generated(pm, law, airport, sol, generated_tops)})
     surf_out = with_terrain_edges(surf, pm, law)
     # §39 (1) THE SHORE WELD + §39 (iii) THE SUB-SPACING MERGE — the build's
     # last two passes before ``write_patch`` (``pipeline/build.py``).  They
@@ -2162,6 +2176,21 @@ def _hold_report_now(pm) -> dict:
     return hold_report(pm.registries.held)
 
 
+def _write_planar_only(res: dict, out: Path) -> None:
+    """``--pad-read --solved-out``: the planar map of a dry re-run, UNSOLVED
+    (``z`` the DEM at each vertex), for the readers that ask the map alone
+    -- which faces and lines stand where -- without paying the solve."""
+    pm, airport = res["pm"], res["airport"]
+    n = max(pm.vertices) + 1 if pm.vertices else 0
+    z = [0.0] * n
+    for v, vx in pm.vertices.items():
+        z[v] = float(airport.dem.z(*vx.xy))
+    with out.open("wb") as fh:
+        pickle.dump({"icao": res["icao"], "airport": airport, "law_icao": res["icao"],
+                     "pm": pm, "z": z, "unsolved": True}, fh)
+    print(f"[{res['icao']}] planar map (unsolved) -> {out}")
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -2782,9 +2811,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             cs2, rep2 = reach_seed_rewrite(pm, law, cs, lv1)
             try:
                 from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
-                cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
-                print(f"[{icao}] generated deck floor follows its end lines: "
-                      f"{rep2['deck_floor_follow']}")
+                cs2, _s2 = floor_follow_rewrite(pm, cs2, lv1, prob.get("stage1"), law,
+                                                getattr(airport, "road_bridges", ()) or ())
+                rep2.update(_s2.stage_two(rep2))
+                print(f"[{icao}] generated decks take the no-bridge airside (RULINGS "
+                      f"2026-11-19s): {_s2.report}")
             except ImportError:                   # a tree that predates it
                 pass
             if bands:
@@ -3090,6 +3121,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              # issue #1899: read by --rederive-from
                              "stage1_levels": _stage1_seen.get("levels"),
                              "stage1_taxi_trend_z": _stage1_seen.get("taxi_trend_z"),
+                             # the generated decks' tops as published
+                             # (RULINGS 2026-11-19s (1)): tools/deck_carve_bars
+                             # reads the clearance under them
+                             "generated_tops": (rep.reach_seed or {}).get("generated_tops"),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],
@@ -3127,6 +3162,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      cells=cl.cells, hard_conflict=hard_conflict,
                                      runway_flex=rep.runway_flex,
                                      agp_report=(rep.reach_seed or {}).get("agp_level"),
+                                     generated_tops=(rep.reach_seed or {}).get("generated_tops"),
                                      objects=prob.get("objects"), rebake_plan=rebake_plan,
                                      car_lot_terraces=(
                                          (prob["late"]["rep"].get("car_lots") or {})
@@ -3175,7 +3211,8 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
         def _s2(lv, cs_x=cs_x):
             from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
             cs2, rep2 = reach_seed_rewrite(pm, law, cs_x, lv)
-            cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv)
+            cs2, _s2 = floor_follow_rewrite(pm, cs2, lv, s1, law)
+            rep2.update(_s2.stage_two(rep2))
             return cs2, rep2
         kw["stage2_rewrite"] = _s2
         from auto_patch_v2.constraints.taxi_trend import (
@@ -3355,6 +3392,11 @@ def main() -> int:
                          "SAME airport without its gap pieces (the base solve); every "
                          "vertex it carries is fixed at its level and only the gap "
                          "pieces and the ribbons along them are solved")
+    ap.add_argument("--no-bridge", action="store_true",
+                    help="RULINGS 2026-11-19s MEASUREMENT ARM (planar/deck_airside."
+                         "no_bridge_arm): the full map withholds its generated decks "
+                         "too -- the whole replay is the no-bridge solve the 19s bar "
+                         "(airside movers <= 0.05 m) is read against.  Never a build")
     ap.add_argument("--gap-free", action="store_true",
                     help="spec \u00a755 (4) THE BASE MAP: drop the \u00a753 gap pieces from the "
                          "classification before the map is built, as the build does "
@@ -3367,7 +3409,9 @@ def main() -> int:
                          "(a #1697 choosable role) before the map is built; repeat. "
                          "Needs --from classify or --from planar")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
-                    help="pickle the solved set for --why-from")
+                    help="pickle the solved set for --why-from; with --pad-read, the "
+                         "UNSOLVED planar map (z = the DEM at each vertex) for the map-only "
+                         "readers (tools/deck_probe.py --span-clean)")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
                     help="run --why-hump on a --solved-out pickle (no re-solve of the arm)")
     ap.add_argument("--why-vertex", type=int, help="why on this vertex id instead of --why-hump")
@@ -3576,8 +3620,24 @@ def main() -> int:
                                  rim_diagnostics=a.rim_diagnostics)
             if a.json:
                 a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
+            if a.solved_out is not None:
+                _write_planar_only(res, a.solved_out)
             return 0
-        return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
+        if a.no_bridge:
+            from auto_patch_v2.planar.deck_airside import no_bridge_arm
+            arm = no_bridge_arm()
+        else:
+            import contextlib
+            arm = contextlib.nullcontext()
+        with arm:
+            return _replay_main(a, sites, wh, pl)
+    ap.error("one of --capture / --replay")
+    return 2
+
+
+def _replay_main(a, sites, wh, pl) -> int:
+    """``main``'s ``--replay`` run (split so ``--no-bridge`` wraps it)."""
+    return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
                       method=a.method,
                       design_weights={k.strip(): _design_value(v)
                                       for k, v in (it.split("=") for it in a.design_weight)},
@@ -3590,8 +3650,6 @@ def main() -> int:
                       null_change=a.null_change,
                       rule=dict(it.split("=", 1) for it in a.rule) or None,
                       hand_role=dict(it.split("=", 1) for it in a.hand_role) or None)
-    ap.error("one of --capture / --replay")
-    return 2
 
 
 if __name__ == "__main__":

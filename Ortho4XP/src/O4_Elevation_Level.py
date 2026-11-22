@@ -1890,12 +1890,19 @@ def resolve_approach_ring_plan(tile, dico_airports):
     providers_config = getattr(tile, "airport_elevation_providers", "auto")
     level_m = parse_elevation_level(getattr(tile, "elevation_level", "auto"))
 
+    import O4_Custom_Patch_Ground as CUSTOM_GROUND
+
     mode = MODES.resolved_inset_mode(tile)
     selected = MODES.inset_keys(dico_airports or {}, mode)
+    # An airport standing on the base raster its custom patch was made for
+    # holds no ring, and no other airport's ring reaches its patch hull
+    # (RULINGS 2026-11-19n (2)).
+    left_out = CUSTOM_GROUND.left_out(tile)
     holders = [
         airport
         for airport in selected
-        if INSETS.cached_inset_paths_for_icao(
+        if str(airport).upper() not in left_out
+        and INSETS.cached_inset_paths_for_icao(
             lat, lon, airport, providers_config
         )
     ]
@@ -1919,6 +1926,9 @@ def resolve_approach_ring_plan(tile, dico_airports):
             for geometry in boundaries.values()
         ]
         regions["R%d" % index] = unary_union(grown)
+        if left_out:
+            regions["R%d" % index] = regions["R%d" % index].difference(
+                unary_union(list(left_out.values())))
 
     cells = []
     layers = {}

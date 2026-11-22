@@ -73,6 +73,25 @@ public enum O4WorldStateText {
         "turning_on": "Tile {tile} turns on once X-Plane lets go of it.",
     ]
 
+    // The tile pane's note on a built tile not yet in the pack, or in over
+    // the version X-Plane loaded (#2175, RULINGS 2026-11-19e; the engine's
+    // `WorldTilesWaiting`).
+    public static let waitingNote = "{tile} is waiting for X-Plane to finish loading it"
+    public static let reloadNote = "{tile} is in the World pack; X-Plane shows it at its next load, or reload scenery now"
+
+    /// The tile pane's note for tile `tile` ("+41-088") from a
+    /// `WorldTilesWaiting`; "" for none. Qt: `waiting_note`.
+    public static func waitingNote(tile: String, _ waiting: O4WorldTilesWaiting?) -> String {
+        guard let waiting else { return "" }
+        if waiting.waiting.contains(tile) {
+            return waitingNote.replacingOccurrences(of: "{tile}", with: tile)
+        }
+        if waiting.reload.contains(tile) {
+            return reloadNote.replacingOccurrences(of: "{tile}", with: tile)
+        }
+        return ""
+    }
+
     /// Does the tile menu offer "Use XPTerrainBuilder here" (the World
     /// pack holds the tile: built, a placeholder or off)? Qt: `use_offered`.
     public static func useOffered(_ world: O4WorldTile?) -> Bool {

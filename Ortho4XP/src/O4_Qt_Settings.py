@@ -1380,7 +1380,8 @@ class SettingsWindow(SelectionEdits, QDialog):
             return
         row.mark_valid()
         if SEL.edits_tiles(setting.scope, len(self.tiles)):
-            if not self._confirm_selection_change():
+            if not self._confirm_selection_change() \
+                    or not self._confirm_custom_fit(setting.name, normalized):
                 self._show_tile_row(setting.name)
                 return
             self._write_tile_value(setting.name, normalized)
@@ -1389,6 +1390,18 @@ class SettingsWindow(SelectionEdits, QDialog):
             self._write_global_value(setting, normalized)
         if setting.name == "xplane_dir":
             self.application_section.set_xplane(normalized)
+
+    def _confirm_custom_fit(self, name, normalized):
+        """Turning "Fit custom airport buildings" on for tiles with custom
+        patches asks first (owner RULINGS 2026-11-18l, #2172)."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+        import O4_Qt_Build_Airports as CARD
+
+        if name != CUSTOM_PATCHES.FIT_KEY or str(normalized) != "True":
+            return True
+        icaos = sorted({icao for (lat, lon) in self.tiles for icao in
+                        CUSTOM_PATCHES.unmodified_airports(lat, lon)})
+        return CARD.confirm_fit(self, CUSTOM_PATCHES.fit_confirm_text(icaos))
 
     def _write_tile_value(self, name, normalized):
         """Apply one value to EVERY selected tile (sparse per tile)."""

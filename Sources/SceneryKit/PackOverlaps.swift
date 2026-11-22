@@ -10,6 +10,10 @@ import Foundation
 /// the picker offers to disable `lower` ("disable") or keep both enabled
 /// ("keep"); `lower` empty is a report (a pack the ini does not list): no
 /// picker, nothing sent.
+///
+/// `kind` "drapes" (RULINGS 2026-11-19h): `lower` drapes ground polygons
+/// inside the custom airport of `defaultWinner`; the picker offers to hide
+/// them (winner = the airport pack) or keep both.
 public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let key: String
     public let packs: [String]
@@ -21,11 +25,16 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
     public let summary: String
     public let kind: String
     public let lower: String
+    /// The `winner` "Prefer the airports" / "Keep everything" give the pair
+    /// (#2190); "" when that answer cannot decide it (two airport packs).
+    public let prefer: String
+    public let keep: String
     public var id: String { key }
 
     public init(key: String, packs: [String], airport: String, defaultWinner: String,
                 winner: String, count: Int, rows: [Int], summary: String,
-                kind: String = "", lower: String = "") {
+                kind: String = "", lower: String = "", prefer: String = "",
+                keep: String = "") {
         self.key = key
         self.packs = packs
         self.airport = airport
@@ -36,10 +45,26 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
         self.summary = summary
         self.kind = kind
         self.lower = lower
+        self.prefer = prefer
+        self.keep = keep
+    }
+
+    /// The `winner` the tile's condensed answer `mode` gives the pair; ""
+    /// when it cannot decide it (the pair is listed with its picker).
+    public func winner(for mode: String) -> String {
+        if choices.isEmpty { return "" }
+        switch mode {
+        case O4PackOverlapsCondensedCopy.prefer: return prefer
+        case O4PackOverlapsCondensedCopy.keepAll: return keep
+        default: return ""
+        }
     }
 
     /// Two packs defining the same airport (not a structure pair).
     public var sameAirport: Bool { kind == O4PackOverlapsCopy.duplicateKind }
+
+    /// A lower pack's draped polygons inside a custom airport.
+    public var drapes: Bool { kind == O4PackOverlapsCopy.drapesKind }
 
     /// The picker's `(label, winner)` entries: each pack, then both; for a
     /// same-airport pair, disable the lower pack or keep both enabled (none
@@ -49,6 +74,13 @@ public struct O4PackOverlap: Sendable, Equatable, Identifiable {
             return lower.isEmpty ? [] : [
                 (O4PackOverlapsCopy.disablePrefix + lower, O4PackOverlapsCopy.disable),
                 (O4PackOverlapsCopy.keepEnabled, O4PackOverlapsCopy.keep),
+            ]
+        }
+        if drapes {
+            return [
+                (O4PackOverlapsCopy.hidePrefix + lower + O4PackOverlapsCopy.hideSuffix,
+                 defaultWinner),
+                (O4PackOverlapsCopy.keepBoth, O4PackOverlapsCopy.both),
             ]
         }
         return packs.map { (O4PackOverlapsCopy.keepPrefix + $0, $0) }
@@ -72,6 +104,9 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     public let files: [String]
     public let state: String
     public let error: String
+    /// The condensed answer stored for all tiles (#2190): `prefer_airports`,
+    /// `keep_all`, or "" none.
+    public let defaultMode: String
 
     /// One question per tile and pair set.
     public var id: String {
@@ -79,23 +114,35 @@ public struct O4PackOverlaps: Sendable, Equatable, Identifiable {
     }
 
     public init(lat: Int, lon: Int, items: [O4PackOverlap],
-                files: [String], state: String, error: String) {
+                files: [String], state: String, error: String, defaultMode: String = "") {
         self.lat = lat
         self.lon = lon
         self.items = items
         self.files = files
         self.state = state
         self.error = error
+        self.defaultMode = defaultMode
+    }
+
+    /// The tile's condensed answer the question opens on: the stored
+    /// default, else Prefer the airports (owner 2026-11-17T19:15Z).
+    public var initialMode: String {
+        defaultMode == O4PackOverlapsCondensedCopy.keepAll
+            ? defaultMode : O4PackOverlapsCondensedCopy.prefer
     }
 
     /// The pairs to offer: two packs each.
     public var offers: [O4PackOverlap] { items.filter { $0.packs.count == 2 && !$0.key.isEmpty } }
     /// A question to ask: a build's or the report's, with a pair in it.
     public var asks: Bool { (state == "found" || state == "ask") && !offers.isEmpty }
+    /// The report of a tile with no pair: shown as "no pairs" (#2180).
+    public var reportsNone: Bool { state == "ask" && offers.isEmpty }
     /// The pairs Apply answers (a report row has no picker).
     public var answerable: [O4PackOverlap] { offers.filter { !$0.choices.isEmpty } }
     /// A same-airport pair is shown (its words and the restart note).
     public var hasSameAirport: Bool { offers.contains { $0.sameAirport } }
+    /// A drape pair is shown (its words).
+    public var hasDrapes: Bool { offers.contains { $0.drapes } }
 }
 
 /// The copy, VERBATIM and identical to the Qt question
@@ -131,4 +178,42 @@ public enum O4PackOverlapsCopy {
     public static let duplicateKind = "duplicate"
     public static let disable = "disable"
     public static let keep = "keep"
+
+    // A lower pack's draped polygons inside a custom airport (RULINGS 19h).
+    public static let drapesNote = "Some packs lower in scenery_packs.ini drape their own "
+        + "ground polygons inside a custom airport, under the airport's layout. "
+        + "Hiding them leaves them out of that pack's tile; no file is deleted."
+    public static let hidePrefix = "Hide "
+    public static let hideSuffix = "'s polygons inside the airport"
+    /// The row `kind` of a drape pair.
+    public static let drapesKind = "drapes"
+
+    // Reviewing a tile's answers later (#2180): the tile pane's button
+    // sends `pack_overlaps` "ask" and opens this question on every pair.
+    public static let reviewButton = "Pack choices…"
+    public static let reviewHelp = "Review and change this tile's answers about packs "
+        + "that draw the same structures."
+    public static let noPairs = "No two packs draw the same structures on this tile."
+    public static let okButton = "OK"
+}
+
+/// The condensed question (#2190, owner 2026-11-20T01:00Z), VERBATIM and
+/// identical to the Qt box (`O4_Qt_Pack_Overlaps.CONDENSED_BODY` …; the twin
+/// `tests/test_qt_pack_overlaps.py` pins it): one answer for the whole
+/// tile, "Use this for all tiles", and the per-pair list one click away.
+public enum O4PackOverlapsCondensedCopy {
+    public static let condensedBody = "Some packs draw scenery in the same places as an airport pack "
+        + "on this tile. Choose for the whole tile:"
+    public static let preferLabel = "Prefer the airports (hide conflicting overlays)"
+    public static let keepAllLabel = "Keep everything"
+    public static let allTiles = "Use this for all tiles"
+    public static let allTilesNote = "Later builds use this answer and ask only about pairs it "
+        + "cannot decide. Pack choices… still opens every pair."
+    public static let undecidedNote = "These pairs need your answer:"
+    public static let byAirport = "Choose by airport…"
+    /// The condensed answers (engine `pack_overlap_default.MODES`), sent
+    /// as `pack_overlaps` `default`.
+    public static let prefer = "prefer_airports"
+    public static let keepAll = "keep_all"
+    // End of the condensed copy.
 }

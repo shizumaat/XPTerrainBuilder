@@ -245,6 +245,16 @@ def _deck_warp_law(law):
         return None
 
 
+def _split_bar_law(law):
+    """RULINGS 2026-11-19j: the ground-bar split law, ``None`` under a src
+    that predates it."""
+    try:
+        from auto_patch_v2.airport import split_bar as _sb
+        return _sb.law_of(law.tables.structures.placement)
+    except (ImportError, AttributeError):
+        return None
+
+
 def _floor_deck_ends_law(law):
     """RULINGS 2026-11-18c: the floor-deck end-line seat's law, ``None``
     under a src that predates it."""
@@ -531,16 +541,28 @@ def cmd_plan(args: argparse.Namespace) -> int:
         construct = time.perf_counter() - started
         print("  graded interpolator: %d vertices, construct %.2fs"
               % (len(verts), construct))
+        # #2194 (lane lellx3): ``--mesh-also airport`` with the graded
+        # sampler reads the airport ground OFF the graded faces -- the
+        # app's tile mesh there is the DEM, and a body anchored beside the
+        # patch (a basin rim in a road cut) read ``None`` instead
+        also = (_airport_ground_sampler(plan_.icao, args.tile, plan_.bounds())
+                if getattr(args, "mesh_also", "") == AIRPORT_GROUND else None)
+
+        def _off(la, lo):
+            if also is None:
+                return None
+            z = float(also.sample_at(la, lo).elevation_metres)
+            return (z, False) if np.isfinite(z) else None
 
         def sample(la, lo):
             z = float(faces.mask([la], [lo], interp(la, lo))[0])
-            return None if not np.isfinite(z) else (z, False)
+            return _off(la, lo) if not np.isfinite(z) else (z, False)
 
         def sample_many(las, los):
             zs = faces.mask(las, los, interp(np.asarray(las, dtype=float),
                                              np.asarray(los, dtype=float)))
-            return [None if not np.isfinite(z) else (float(z), False)
-                    for z in zs]
+            return [_off(la, lo) if not np.isfinite(z) else (float(z), False)
+                    for la, lo, z in zip(las, los, zs, strict=True)]
         sample.many = sample_many
         return sample, construct, None
 
@@ -649,6 +671,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         ground_rider_law=_ground_rider_law(law),
         touch_seat=_touch_law(law),
         deck_warp=_deck_warp_law(law),
+        split_bar=_split_bar_law(law),
         floor_deck_ends=_floor_deck_ends_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
@@ -721,6 +744,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print("  plan counts: %s   files %d"
           % (dict(last_plan.counts()), len(last_files)))
 
+    if args.write_pack and args.plan_out:
+        # #2129 (lane leddh3): the plan BEFORE the routed write moves the
+        # bodies standing on a neighbour tile into its guest rows -- the
+        # plan below keeps only this tile's (EDDH's whole terminal is guest)
+        whole = os.path.splitext(args.plan_out)[0] + ".whole.json"
+        with open(whole, "w") as fh:
+            fh.write(last_plan.to_json())
+        print("  plan before routing ->", whole)
     if args.write_pack:
         from auto_patch.dsf_reader import _dsftool_path
         # #1884 round 2 B2: the app's one routed write — this tile's DSF
@@ -1026,7 +1057,9 @@ def _main(argv: list[str] | None = None) -> int:
                     help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
                          ".dsf), read where the plan's bodies stand off the first "
                          "(#1884 guest rows); 'airport' = the airport's own DEM "
-                         "there, what the app reads (#2110)")
+                         "there, what the app reads (#2110); with --sampler "
+                         "graded, 'airport' also answers OFF the graded faces "
+                         "(the tile mesh beside the patch is the DEM, #2194)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")

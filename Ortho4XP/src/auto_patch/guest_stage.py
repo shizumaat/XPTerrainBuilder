@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import traceback
 
-__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests"]
+__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests", "own_ground"]
 
 #: (path, size, mtime_ns) -> sha256 of a mesh: one read per process
 _DIGESTS: dict = {}
@@ -72,6 +72,29 @@ def _dsf_sampler(path: str, box):
     corners = np.asarray(corners, dtype=float).reshape(-1, 3, 3)
     corners = corners[(corners[:, :, 2] > -32000.0).all(axis=1)]
     return MeshElevationSampler.from_triangles(corners, box)
+
+
+def own_ground(tile, plans) -> str:
+    """The ground a tile's OWN placement reads when its ``.mesh`` is gone:
+    the DSF its build wrote, the very ground :func:`neighbour_meshes`
+    reads for a guest, when that DSF is NEWER than every rebake plan in
+    ``plans`` (written at this tile's mesh step, before its DSF step);
+    ``""`` otherwise.
+
+    #2129, EDDH 1.0.558 (lane leddh3): the storage offload moved
+    ``+53+009``'s ``.mesh`` to a tier; the re-seat ``+53+010``'s build
+    asked of ``+53+009``'s plan then skipped ("mesh not found"), and
+    1,193 terminal and garage bodies stood on a ground 1.6 m lower to
+    1.2 m higher than the one they were seated on.  A rebuild cache a
+    tier holds, or the disk budget cleared, keeps the DSF X-Plane draws.
+    A DSF OLDER than the plan is the previous build's (this build's mesh
+    vanished mid-build): no ground — the placement waits for a build."""
+    dsf = _tile_dsf_path(tile, (int(tile.lat), int(tile.lon)))
+    try:
+        built = os.path.getmtime(dsf)
+        return dsf if all(built > os.path.getmtime(p) for p in plans) else ""
+    except OSError:
+        return ""
 
 
 def neighbour_meshes(tile, bounds):

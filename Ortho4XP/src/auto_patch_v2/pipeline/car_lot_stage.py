@@ -55,13 +55,15 @@ def lot_cells(cl) -> list:
     return [c for c in cl.cells if is_car_lot_ref(c.ref)]
 
 
-def car_lot_cut(cl, pm_base, law: Law, rules) -> tuple[_t.Any, dict]:
+def car_lot_cut(cl, pm_base, law: Law, rules, extra: _t.Sequence = ()) -> tuple[_t.Any, dict]:
     """``cl`` with every car lot cut against the solved map ``pm_base``
-    (P4/P5) — the late cut's report shape, ``car_lots`` the lots' own."""
+    (P4/P5) and ``extra`` (#2206: the polygons of the late cells cut
+    before it, which the one late map will carry) — the late cut's report
+    shape, ``car_lots`` the lots' own."""
     lots = lot_cells(cl)
     rest = _dc.replace(cl, cells=tuple(c for c in cl.cells if not is_car_lot_ref(c.ref)))
     from .late_stage import with_cells
-    parts, rep = cut_car_lots(lots, pm_base, law, rules)
+    parts, rep = cut_car_lots(lots, pm_base, law, rules, extra)
     return with_cells(rest, parts), {"pieces": [], "parts": 0, "knives": 0, "merged": 0,
                                      "stations": 0, "part_stations": {}, "car_lots": rep}
 
@@ -121,8 +123,10 @@ def car_lot_solve(cut, derived: tuple, t_derive: float, airport, law: Law,
     pm = _carry_published(pm_base, pm)
     free, frep = late_followers(pm, lots_only=True)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
-    fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
-    jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
+    # the stages before withheld the lots (#2206): no level of theirs
+    absent = frozenset(base_solution.get("withheld") or ())
+    fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident, absent)
+    jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free | absent, ident * 0.02)
     yheads = frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ())
     own, dropped = late_constraints(cs, fixed, yheads, alone=True)
     anchors = {c.ref: car_anchors(c) for c in lot_cells(cut.cl)}

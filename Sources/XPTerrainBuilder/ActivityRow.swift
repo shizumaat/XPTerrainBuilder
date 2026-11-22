@@ -25,7 +25,7 @@ struct ActivityRow: View {
         let progress = activity.tiles[coord]
             ?? TileProgress(state: .queued, label: "queued", percent: 0)
         let text = ProgressRowText(
-            tileKey: coord.key, tag: activity.runTags[coord] ?? "",
+            tileKey: coord.key, tag: activity.runTags[coord] ?? buildModel.titleTag(coord),
             status: progress.state == .active
                 ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
             clock: activity.tileClocks[coord])
@@ -40,10 +40,9 @@ struct ActivityRow: View {
                 onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
                 strip: activity.stepStrips[coord]
             ) {
-                ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
-                    .controlSize(.small)
-                    .tint(SelectedRowStyle.tint(
-                        tone == .live ? Color.accentColor : Self.color(tone), prominence))
+                ActivityProgressBar(
+                    fraction: progress.state == .done ? 1 : progress.percent / 100,
+                    tint: tone == .live ? Color.accentColor : Self.color(tone))
             } trailing: {
                 // Stop sign / resume. Deliberately NOT gated on isBuilding:
                 // a stopped row keeps its resume button after the run ends,

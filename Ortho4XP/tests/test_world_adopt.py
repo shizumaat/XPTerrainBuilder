@@ -374,3 +374,39 @@ def test_a_tile_whose_terrain_names_mask_pngs_is_never_imprinted(tmp_path, monke
     tile = LAND.TierLander()._tile({"tile": "+45+007",
                                     "build_dir": str(build)})
     assert tile.imprint_masks_to_dds is True        # no mask named: its cfg
+
+
+def test_2224_a_rebuilt_tile_is_read_again(tmp_path, monkeypatch):
+    """#2224: the follow lander read an adopted tile (its own tool's cfg
+    imprints, no ``.ter`` names a mask) and kept that read after the tile
+    was rebuilt here with mask PNGs, imprinting and deleting them.  A
+    new DSF in the folder makes the lander read the tile again."""
+    import O4_Config_Utils as CFG
+    build = tmp_path / "rebuilt"
+    (build / "terrain").mkdir(parents=True)
+    (build / "Ortho4XP_+45+007.cfg").write_text(
+        "imprint_masks_to_dds=True\nzone_list=[]\n", encoding="utf-8", newline="\n")
+    dsf = build / WP.dsf_relpath(45, 7)
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"old")
+
+    class Tile:
+        def __init__(self, lat, lon, folder):
+            self.lat, self.lon = lat, lon
+            self.imprint_masks_to_dds, self.mask_zl = False, 16
+            self.default_website, self.zone_list = "BI", []
+            self.color_harmonization = False
+
+        def read_from_config(self):
+            return 1
+    monkeypatch.setattr(CFG, "Tile", Tile)
+    lander, row = LAND.TierLander(), {"tile": "+45+007",
+                                      "build_dir": str(build)}
+    assert lander._tile(row).imprint_masks_to_dds is True
+    assert lander._tile(row) is lander._tile(row)           # read once
+    (build / "terrain" / "a.ter").write_text(
+        "BASE_TEX_NOWRAP ../textures/23456_34112_BI16.dds\n"
+        "BORDER_TEX ../textures/23456_34112_ZL16.png\n", encoding="utf-8", newline="\n")
+    dsf.write_bytes(b"rebuilt")
+    os.utime(dsf, (dsf.stat().st_mtime + 5,) * 2)
+    assert lander._tile(row).imprint_masks_to_dds is False

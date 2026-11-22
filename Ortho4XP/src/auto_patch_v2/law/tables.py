@@ -182,6 +182,26 @@ def road_terrain_cap(law: Law) -> float:
     return max(float(c.road_max_grade), float(c.road_terrain_max_grade))
 
 
+def road_steep_law(law: Law) -> dict:
+    """THE ROAD ON WRONG GROUND (owner RULINGS 2026-11-18e) -- ONE
+    derivation site: the steepest a road follows its DEM (``terrain_cap``,
+    :func:`road_terrain_cap`), a railway's (``rail_cap``: ``[tunnel]
+    rail_ramp_grade``, the rail grade of RULINGS 2026-11-14g), and their vertical
+    curves as grade change per metre (``[road_profile]
+    vertical_curve_k_m`` / ``rail_vertical_curve_k_m``, metres per
+    ``vertical_curve_k_grade_unit``).  Read by the core clamp
+    (``O4_Cfg_Vars.road_neighbourhood_law``) and ``airport/road_profile``
+    through ``O4_Road_Grade.steep_limits``."""
+    rp = law.tables.emit.road_profile
+    unit = float(law.tables.common.vertical_curve_k_grade_unit)
+    return {
+        "terrain_cap": float(road_terrain_cap(law)),
+        "rail_cap": float(law.tables.structures.tunnel.rail_ramp_grade),
+        "grade_change_per_m": unit / float(rp.vertical_curve_k_m),
+        "rail_grade_change_per_m": unit / float(rp.rail_vertical_curve_k_m),
+    }
+
+
 def bend_class(law: Law, role: str) -> str:
     """The BENDING CLASS of ``role`` (``design_schema.BEND_CLASSES``, RULINGS
     2026-09-08v): ``runway`` / ``taxi`` for the two named families,
@@ -1222,6 +1242,16 @@ class PadAdmission:
     building_evidence: bool
     evidence_min_height_m: float
     evidence_min_coverage: float
+    #: K1 (kord-trench-frame-spec): a building rises above its own grade —
+    #: the walled height (``chain_min_height_m``) a component must stand
+    #: ABOVE grade for the cluster to mint a pad (0 disarms)
+    above_grade_min_m: float = 0.0
+    #: K1's below-grade half (lane ``lk1fix``): a component whose top
+    #: stands this far or more under the object's own grade is SUNK
+    #: (``[tunnel.object] floor_sunken_min_m``: less is a structure
+    #: standing ON the ground); K1 refuses only a cluster whose sunk
+    #: components carry most of its area (0 disarms the half)
+    sunk_min_m: float = 0.0
 
     @property
     def armed(self) -> bool:
@@ -1236,7 +1266,9 @@ def pad_admission(law: Law) -> PadAdmission:
         min_tall_base_fill=float(getattr(p, "min_tall_base_fill", 0.0)),
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
-        evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+        evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)),
+        above_grade_min_m=float(getattr(p, "chain_min_height_m", 0.0)),
+        sunk_min_m=float(law.tables.structures.tunnel.object.floor_sunken_min_m))
 
 
 class SlabLaw(_t.NamedTuple):

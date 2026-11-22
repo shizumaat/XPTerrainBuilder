@@ -69,6 +69,13 @@ outranks a taxiway's cap.  The 04t-2 edge portions read the cap of the
 apron each pair runs along (:func:`_portion_caps`).  A map with no
 yielded runway mints exactly the rows it always did.
 
+UNDER A PAD ON AN AUTHORED SLOPED PLANE (owner RULINGS 2026-11-19q (1),
+#2184): a pair with both ends on ONE such pad — its footprint and the rim
+it shares with the apron, its weld — is hard at the plane's grade along
+it (``pad_relief.pad_slope_pair_caps``, at most the pavement law's 5 %)
+through the same per-pair lift as the 11-05a route; every other pair
+keeps the apron cap.
+
 Lattice / membrane (``emit.chords.apron_interior_spacing_m``): the M1 map
 has no interior vertices (M0 open question 3); the membrane family is
 therefore vacuous on v2's own publication — recorded in the M2 report,
@@ -84,6 +91,7 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
+from .pad_relief import pad_slope_pair_caps
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
                        chains_within, principal_axis)
 from .precedence import View, view
@@ -202,7 +210,12 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     with the 1 % preference row beside each; body chords within the body
     gate likewise (the 5 % back-edge class is not modelled — owed)."""
     vw = view(planar, law)
-    lift = route_pair_caps(planar)     # 11-05a: a yielded route's own pairs
+    lift = dict(route_pair_caps(planar))     # 11-05a: a yielded route's own pairs
+    # 2026-11-19q (1): under a pad on an authored sloped plane, the pad's
+    # own pairs (its footprint and the rim it shares with the apron) take
+    # the plane's grade, up to the pavement law; nothing beyond the pad
+    for k, g in pad_slope_pair_caps(planar, law, airport).items():
+        lift[k] = max(g, lift.get(k, 0.0))
     cap = role_cap(law, "apron")
     if cap is None:
         return []

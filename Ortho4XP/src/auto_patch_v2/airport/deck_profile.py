@@ -19,6 +19,12 @@ and counted: a deck holding a class-A airside hard deck (22n: flush, banded
 by #2112), a deck-plate band or a basin.  A member whose seat tilt is baked
 or whose file holds an ``ANIM`` block is left out of the warp (counted).
 
+A CONNECTOR between two separately seated buildings (owner RULINGS
+2026-11-18h (3): a sky bridge, a walkway, a connecting deck the touch pass
+found touching two building seats at different zeros) is a group of its
+own (``connector_warp``): its nodes one per building SEAT, no landing ends,
+its cap ``[deck] shear_max_grade`` (``connector_grade_max``).
+
 A ROAD OVERPASS deck (lkden5, owner KDEN 2026-11-18T01:11Z "seat the rail
 bridge object a little lower so the end here didn't float"): a ``deck``
 body the overpass seat put on the road beneath (RULINGS 2026-10-30f (5)) is
@@ -28,7 +34,18 @@ node at ``D = 0`` over the road-beneath stations (``plate_stations``: the
 clearance the seat read stays), and whose LANDING ENDS grade as below.
 MEASURED at KDEN ``Train_Bridge_1`` b0 (a 500 m rail deck seated flush at
 1630.20 over its road): its NE end line read +1.89 m over the drawn ground
-(39.839766,-104.674007); warped it reads +0.09, grade 3.5 %.
+(39.839766,-104.674007); warped it reads +0.09, grade 3.5 %.  THE
+OVERPASS MOVES AS ONE (lkden7, owner KDEN 2026-11-18T19:29Z "moved to the
+right spot, but left some pieces floating, should move as a group"): its
+group is EVERY overpass deck body of the placement (the deck and its pier
+bodies, which the overpass seat put at the one zero), with what rides them
+(``merged_into``) and every other body of its frame the same seat placed
+that touches the deck -- the rails and pieces of a sibling placement at the
+same anchor, a ring-less one by its plan box.  Before, each deck body was
+a group of its own and the piers, the rails over them and the loose rail
+pieces kept the unwarped zero (KDEN ``Train_Bridge_1`` pier b4 stood 2.6 m
+over the ground, its rails up to 4.4 m over the warped deck near
+39.839152,-104.674323; one group: 0.00 and at most 0.12, as authored).
 
 NODES.  BUILDING CONTACT (owner RULINGS 2026-11-17t: "a deck touching two
 buildings at different zeros follows both", whichever frame or 22o group
@@ -149,6 +166,9 @@ class _WarpLaw:
     #: the track's vertical-curve radius (``[deck]
     #: track_vertical_radius_m``); 0 keeps the straight grade between nodes
     radius_m: float = 0.0
+    #: RULINGS 2026-11-18h (3): a CONNECTOR's cap (``[deck]
+    #: shear_max_grade``, §49 (5)); 0 disarms the connector warp
+    connector_grade_max: float = 0.0
 
 
 def law_of(structures: _t.Any) -> "_WarpLaw | None":
@@ -163,7 +183,8 @@ def law_of(structures: _t.Any) -> "_WarpLaw | None":
                        float(TOUCH_M), float(pl.chain_min_height_m),
                        float(pl.authored_keep_tol_m), float(pl.split_tol_m),
                        float(getattr(deck, "pier_foot_stretch_max_m", 0.0)),
-                       float(getattr(deck, "track_vertical_radius_m", 0.0)))
+                       float(getattr(deck, "track_vertical_radius_m", 0.0)),
+                       float(deck.shear_max_grade))
     except AttributeError:
         return None
 
@@ -253,25 +274,32 @@ def _elevated(pc: _Piece, walled_m: float) -> bool:
     return sum(1 for q in g if float(q[2]) >= walled_m) * 2 > len(g)   # authored y over zero
 
 
+def _overpass_seated(pc: _Piece) -> bool:
+    """A body the overpass seat placed (10-30f (5)), whatever its class."""
+    return _OVERPASS in str(pc.body.anchor.reason).split("; was:", 1)[0]
+
+
 def _is_overpass(pc: _Piece) -> bool:
     """A deck body the overpass seat put on the road beneath (10-30f (5))."""
-    return (pc.body.body_class == "deck"
-            and _OVERPASS in str(pc.body.anchor.reason).split("; was:", 1)[0]
+    return (pc.body.body_class == "deck" and _overpass_seated(pc)
             and bool(getattr(pc.member, "plate_stations", ())))
 
 
 def _groups(pieces: _t.Sequence[_Piece], walled_m: float) -> dict[str, list[int]]:
     """``{frame|22o root: piece indices}`` -- each group's ELEVATED members
     and, carried through ``merged_into`` (in its frame), what rides them; a
-    ROAD OVERPASS deck is a group of its own (``frame|overpass:<file>``:
-    held over the road it spans, its landing ends graded, lkden5)."""
+    ROAD OVERPASS is a group of its own -- every overpass deck body of
+    its placement (``frame|overpass:<placement>``), held over the road it
+    spans, its landing ends graded (lkden5); its piers and deck pieces
+    move as one (lkden7, owner KDEN 2026-11-18T19:29Z "should move as a
+    group")."""
     groups: dict[str, list[int]] = {}
     for k, pc in enumerate(pieces):
         r = _root(pc.body.anchor.reason)
         if r and _elevated(pc, walled_m):
             groups.setdefault(f"{pc.frame}|{r}", []).append(k)
         elif _is_overpass(pc):
-            groups.setdefault(f"{pc.frame}|overpass:{pc.name}", []).append(k)
+            groups.setdefault(f"{pc.frame}|overpass:{pc.key[0]}", []).append(k)
     by_file = {(pc.frame, pc.name): k for k, pc in enumerate(pieces)}
     owner = {k: g for g, ks in groups.items() for k in ks}
     grew = True
@@ -377,10 +405,12 @@ def _contact(pc: _Piece, polys: _t.Sequence[tuple], tree: _t.Any, deck: _t.Seque
 
 
 def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
-           law: _WarpLaw) -> tuple[list, list]:
+           law: _WarpLaw, per_seat: bool = False) -> tuple[list, list]:
     """``(nodes, riders)``: the group's BUILDING CONTACTS ``(D relative to
-    the group zero, shapely contact, piece index)``, one per building, and
-    the bodies of its own connected unit that touch it (module doc)."""
+    the group zero, shapely contact, piece index)``, one per building --
+    one per SEAT of a building (its bodies at one zero) with ``per_seat``
+    (``connector_warp``) -- and the bodies of its own connected unit that
+    touch it (module doc)."""
     from shapely.geometry import box as _box
     from shapely.ops import unary_union
     from shapely.strtree import STRtree
@@ -392,11 +422,12 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
     z0 = float(np.median([pieces[k].zero for k in ks]))
     frame, datum = pieces[ks[0]].frame, pieces[ks[0]].datum
     own = {_root(pieces[k].body.anchor.reason) for k in ks} - {""}
+    over = any(_is_overpass(pieces[k]) for k in ks)
     rides = {pieces[k].name for k in ks} | own
     bx = np.asarray([g.bounds for g, _p, _k in deck])
     dbox = _box(bx[:, 0].min() - law.reach_m, bx[:, 1].min() - law.reach_m,
                 bx[:, 2].max() + law.reach_m, bx[:, 3].max() + law.reach_m)
-    buildings: dict[int, list[int]] = {}
+    buildings: dict[_t.Any, list[int]] = {}
     riders = []
     for c, pc in enumerate(pieces):
         m = str(getattr(pc.body, "merged_into", "") or "")
@@ -404,14 +435,20 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
                 or (m and (m in rides or unit_root(m) in rides))):
             continue
         polys = _polys_of(pc, xy)
+        if (over and not polys and pc.frame == frame and _overpass_seated(pc)
+                and _box_near(pc, xy, tree, law.reach_m)):
+            riders.append(c)               # a ring-less piece the seat put on it
+            continue
         if not any(dbox.intersects(g) for g, _p in polys):
             continue
-        if pc.frame == frame and _root(pc.body.anchor.reason) in own:
+        if pc.frame == frame and (_root(pc.body.anchor.reason) in own
+                                  or (over and _overpass_seated(pc))):
             if _contact(pc, polys, tree, deck, pieces, law.reach_m):
                 riders.append(c)
             continue
         if pc.datum[:2] == datum[:2]:
-            buildings.setdefault(pc.key[0], []).append(c)
+            buildings.setdefault((pc.key[0], round(pc.zero, 3)) if per_seat else pc.key[0],
+                                 []).append(c)
     out = []
     for cs in buildings.values():
         if not (any(pieces[c].footed for c in cs) and any(pieces[c].walled for c in cs)):
@@ -542,16 +579,29 @@ def _walk(dist: np.ndarray, pred: np.ndarray, heap: list, rc: dict, h: float) ->
                         heapq.heappush(heap, (w, j))
 
 
+def _box_near(pc: _Piece, xy: _t.Callable, tree: _t.Any, reach_m: float) -> bool:
+    """Whether a ring-less piece's plan box (``geom_box``) lies within
+    ``reach_m`` of a deck part in plan."""
+    from shapely.geometry import box as _box
+    g = getattr(pc.body, "geom_box", None)
+    if not g or len(g) < 4:
+        return False
+    (x0, y0), (x1, y1) = xy(float(g[0]), float(g[1])), xy(float(g[2]), float(g[3]))
+    q = _box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    return bool(len(tree.query(q, predicate="dwithin", distance=reach_m)))
+
+
 def _crossing_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],
                     xy: _t.Callable) -> list:
     """An overpass deck's CROSSING: ``(0, the road-beneath stations, -1)`` --
     the deck holds the zero the overpass seat read there (10-30f (5): its
     clearance over the road), so its landing ends grade away from it."""
     from shapely.geometry import MultiPoint
-    out = []
+    out, seen = [], set()
     for k in ks:
-        if not _is_overpass(pieces[k]):
+        if not _is_overpass(pieces[k]) or id(pieces[k].member) in seen:
             continue
+        seen.add(id(pieces[k].member))
         st = [xy(float(la), float(lo)) for la, lo, *_z in pieces[k].member.plate_stations]
         if st:
             out.append((pieces[k].zero - float(np.median([pieces[j].zero for j in ks])),
@@ -673,9 +723,12 @@ def _frame_track(rec: _t.Any, track: np.ndarray, d_off: float,
 def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
                law: _WarpLaw, surface: "_t.Callable | None" = None,
                cut_log: "_t.Mapping[int, tuple] | None" = None,
-               write: bool = False) -> tuple[list, list]:
+               write: bool = False,
+               connectors: _t.Sequence[tuple[int, str]] = ()) -> tuple[list, list]:
     """``(splits, table)``: every connected group touching buildings at two
-    levels warped (module doc); one table row per group it read."""
+    levels warped (module doc), and every CONNECTOR the touch pass found
+    between two seats (``connectors``: ``(record, body id)``,
+    ``connector_warp``); one table row per group it read."""
     from .touch_graph import local_metres
     from .touch_seat import _recut, _renamed_riders
     splits = list(splits)
@@ -693,6 +746,8 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         return la0 + y / ml, lo0 + x / mo
     table: list = []
     changed: set[int] = set()
+    ctx = _Pass(splits, pieces, xy, xy_inv, surface, counts, table, changed)
+    grouped: set[int] = set()
     for gid, ks in sorted(_groups(pieces, law.walled_m).items()):
         if not _is_long(pieces, ks, xy):
             continue
@@ -704,85 +759,115 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         ds = [d for d, _g, _c in nodes + feet]
         if len(ds) < 2 or max(ds) - min(ds) <= law.float_tol_m:
             continue
-        nodes = nodes + feet
-        row = {"group": gid, "bodies": len(ks), "zero": round(z0, 3),
-               "nodes": [[round(d, 3), pieces[c].name] for d, _g, c in nodes if c >= 0],
-               "feet": len(feet),
-               "feet_d": [round(min(d for d, _g, _c in feet), 3),
-                          round(max(d for d, _g, _c in feet), 3)] if feet else []}
-        table.append(row)
-        why = _refusal(pieces, ks)
-        allk = list(ks) + riders
-        out_of = {k: _left_out(pieces[k]) for k in allk} if not why else {}
-        warped = [k for k in allk if not out_of.get(k)]
-        bent: dict = {}
-        track = (_track(nodes, pieces, ks, xy, law,
-                        _targets(pieces, warped, xy, surface, z0)
-                        if surface is not None else (), bent)
-                 if not why else None)
-        if not why and track is None:
-            why = "no_track"
-        if not why:
-            g = _grade(track)
-            row["grade"] = round(g, 4)
-            if g > law.grade_max:
-                why = "grade"
-        if why:
-            row["refused"] = why
-            counts[f"warp_refused_{why}"] = counts.get(f"warp_refused_{why}", 0) + 1
-            continue
-        if bent.get("bent"):
-            row["bend"] = bent
-            counts["warp_track_bent"] = counts.get("warp_track_bent", 0) + bent["bent"]
-        if bent.get("tight"):
-            counts["warp_bend_tight"] = counts.get("warp_bend_tight", 0) + bent["tight"]
-        if bent.get("infeasible"):
-            counts["warp_bend_infeasible"] = (counts.get("warp_bend_infeasible", 0)
-                                              + bent["infeasible"])
-        ks = allk
-        row["riders"] = len(riders)
-        stretch = (_stretches(pieces, warped, track, xy, surface, law, z0)
-                   if surface is not None else {})
-        for k in ks:
-            pc = pieces[k]
-            if out_of[k]:
-                why = out_of[k]
-                counts[f"warp_left_out_{why}"] = counts.get(f"warp_left_out_{why}", 0) + 1
-                row.setdefault("left_out", []).append([pc.name, why])
-                continue
-            i, j = pc.key
-            rec = splits[i]
-            warp = (_frame_track(rec, track, pc.zero - z0, xy_inv)
-                    + _frame_feet(rec, stretch.get(k, ())))
-            if stretch.get(k):
-                counts["warp_feet_stretched"] = (counts.get("warp_feet_stretched", 0)
-                                                 + len(stretch[k]))
-                row["feet_stretched"] = row.get("feet_stretched", 0) + len(stretch[k])
-            bs = list(rec.bodies)
-            bs[j] = named_body(pc.member, bs[j], warp=warp)
-            splits[i] = _dc.replace(rec, bodies=tuple(bs))
-            changed.add(i)
-        counts["deck_warped"] = counts.get("deck_warped", 0) + len(warped)
-        counts["deck_warp_groups"] = counts.get("deck_warp_groups", 0) + 1
-        if surface is not None:
-            row["feet_floating"] = _floating(pieces, warped, track, xy, surface, law, z0)
-            row["feet_floating_before"] = sum(
-                1 for *_r, fl in _foot_floats(pieces, warped, None, xy, surface, z0)
-                if fl > law.float_tol_m)
-            # a member left out of the warp keeps its seat: its feet as seated
-            row["feet_floating_left_out"] = sum(
-                1 for *_r, fl in _foot_floats(pieces, [k for k in ks if out_of[k]], None,
-                                              xy, surface, z0)
-                if fl > law.float_tol_m)
-            if row["feet_floating"]:
-                counts["warp_feet_floating"] = (counts.get("warp_feet_floating", 0)
-                                                + len(row["feet_floating"]))
+        grouped.update(ks)
+        _warp_group(ctx, gid, ks, nodes + feet, riders, feet, z0, law)
+    # RULINGS 2026-11-18h (3): a connector between two seats, under the shear cap
+    if law.connector_grade_max > 0.0 and connectors:
+        from .connector_warp import connector_groups
+        claw = _dc.replace(law, grade_max=law.connector_grade_max)
+        for gid, ks, nodes, riders, z0 in connector_groups(pieces, connectors, xy, law,
+                                                           grouped):
+            _warp_group(ctx, gid, ks, nodes, riders, [], z0, claw)
     if changed:
         frames = [str(members[r.placement_id][0].id) if r.placement_id in members else ""
                   for r in splits]
         names = _recut(splits, frames, before, changed, cut_log or {}, write, counts)
         _renamed_riders(splits, frames, names)
     return splits, table
+
+
+@_dc.dataclass
+class _Pass:
+    """What one :func:`warp_decks` pass shares between its groups."""
+
+    splits: list
+    pieces: list
+    xy: _t.Callable
+    xy_inv: _t.Callable
+    surface: _t.Any
+    counts: dict
+    table: list
+    changed: set
+
+
+def _warp_group(ctx: _Pass, gid: str, ks: list, nodes: list, riders: list, feet: list,
+                z0: float, law: _WarpLaw) -> None:
+    """One group read and, unless refused, warped (module doc): its table
+    row appended, its bodies written with their track in ``ctx.splits``."""
+    splits, pieces, xy, xy_inv = ctx.splits, ctx.pieces, ctx.xy, ctx.xy_inv
+    surface, counts, table, changed = ctx.surface, ctx.counts, ctx.table, ctx.changed
+    row = {"group": gid, "bodies": len(ks), "zero": round(z0, 3),
+           "nodes": [[round(d, 3), pieces[c].name] for d, _g, c in nodes if c >= 0],
+           "feet": len(feet),
+           "feet_d": [round(min(d for d, _g, _c in feet), 3),
+                      round(max(d for d, _g, _c in feet), 3)] if feet else []}
+    table.append(row)
+    why = _refusal(pieces, ks)
+    allk = list(ks) + riders
+    out_of = {k: _left_out(pieces[k]) for k in allk} if not why else {}
+    warped = [k for k in allk if not out_of.get(k)]
+    bent: dict = {}
+    track = (_track(nodes, pieces, ks, xy, law,
+                    _targets(pieces, warped, xy, surface, z0)
+                    if surface is not None else (), bent)
+             if not why else None)
+    if not why and track is None:
+        why = "no_track"
+    if not why:
+        g = _grade(track)
+        row["grade"] = round(g, 4)
+        if g > law.grade_max:
+            why = "grade"
+    if why:
+        row["refused"] = why
+        counts[f"warp_refused_{why}"] = counts.get(f"warp_refused_{why}", 0) + 1
+        return
+    if bent.get("bent"):
+        row["bend"] = bent
+        counts["warp_track_bent"] = counts.get("warp_track_bent", 0) + bent["bent"]
+    if bent.get("tight"):
+        counts["warp_bend_tight"] = counts.get("warp_bend_tight", 0) + bent["tight"]
+    if bent.get("infeasible"):
+        counts["warp_bend_infeasible"] = (counts.get("warp_bend_infeasible", 0)
+                                          + bent["infeasible"])
+    ks = allk
+    row["riders"] = len(riders)
+    stretch = (_stretches(pieces, warped, track, xy, surface, law, z0)
+               if surface is not None else {})
+    for k in ks:
+        pc = pieces[k]
+        if out_of[k]:
+            why = out_of[k]
+            counts[f"warp_left_out_{why}"] = counts.get(f"warp_left_out_{why}", 0) + 1
+            row.setdefault("left_out", []).append([pc.name, why])
+            continue
+        i, j = pc.key
+        rec = splits[i]
+        warp = (_frame_track(rec, track, pc.zero - z0, xy_inv)
+                + _frame_feet(rec, stretch.get(k, ())))
+        if stretch.get(k):
+            counts["warp_feet_stretched"] = (counts.get("warp_feet_stretched", 0)
+                                             + len(stretch[k]))
+            row["feet_stretched"] = row.get("feet_stretched", 0) + len(stretch[k])
+        bs = list(rec.bodies)
+        bs[j] = named_body(pc.member, bs[j], warp=warp)
+        splits[i] = _dc.replace(rec, bodies=tuple(bs))
+        changed.add(i)
+    counts["deck_warped"] = counts.get("deck_warped", 0) + len(warped)
+    counts["deck_warp_groups"] = counts.get("deck_warp_groups", 0) + 1
+    if surface is not None:
+        row["feet_floating"] = _floating(pieces, warped, track, xy, surface, law, z0)
+        row["feet_floating_before"] = sum(
+            1 for *_r, fl in _foot_floats(pieces, warped, None, xy, surface, z0)
+            if fl > law.float_tol_m)
+        # a member left out of the warp keeps its seat: its feet as seated
+        row["feet_floating_left_out"] = sum(
+            1 for *_r, fl in _foot_floats(pieces, [k for k in ks if out_of[k]], None,
+                                          xy, surface, z0)
+            if fl > law.float_tol_m)
+        if row["feet_floating"]:
+            counts["warp_feet_floating"] = (counts.get("warp_feet_floating", 0)
+                                            + len(row["feet_floating"]))
 
 
 def _foot_floats(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int],

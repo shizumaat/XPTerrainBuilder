@@ -52,7 +52,7 @@ scope for the first release cycle.)
 
 1. **DONE (via existing spec):** `scripts/make_engine.sh` freezes the
    engine with the stock `Ortho4XP.spec` (one-dir, console) into
-   `Ortho4XP/dist/Ortho4XP/` — own Python runtime, all packages, GDAL
+   `Ortho4XP/dist/XPTerrainBuilderEngine/` — own Python runtime, all packages, GDAL
    best-effort (optional at runtime), `VERSION.txt` stamped for the app.
    Still open: a dedicated `Ortho4XP_Engine.spec` that excludes
    Tkinter/Previews to shave the jsonl-only payload.

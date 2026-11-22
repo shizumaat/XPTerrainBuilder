@@ -353,6 +353,9 @@ public enum O4Event: Sendable, Equatable {
     /// airport (capability `pack_overlaps`, #2145): found by the build, the
     /// report, or a `pack_overlaps` command's outcome. See `O4PackOverlaps`.
     case packOverlaps(O4PackOverlaps)
+    /// A read-only airport pack the build cannot adjust, or an answer's
+    /// outcome (capability `pack_readonly`, #2174). See `O4PackReadOnly`.
+    case packReadOnly(O4PackReadOnly)
     /// A package an airport pack ships, applied as a tile built
     /// (capability `pack_packages`, RULINGS 2026-11-11m). See `O4PackPackage`.
     case packPackage(O4PackPackage)
@@ -365,6 +368,10 @@ public enum O4Event: Sendable, Equatable {
     /// The World pack's state (capability `world_pack`, flight manager /
     /// World spec §5.3). See `O4WorldStatus`.
     case worldStatus(O4WorldStatus)
+    /// Built tiles waiting for X-Plane to finish loading them, or in over
+    /// a loaded version (capability `world_tiles_waiting`, #2175). See
+    /// `O4WorldTilesWaiting`.
+    case worldTilesWaiting(O4WorldTilesWaiting)
     /// How far a running `world_migrate` is (`O4WorldMigrateProgress`).
     case worldMigrateProgress(O4WorldMigrateProgress)
     /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
@@ -566,6 +573,9 @@ public enum O4Event: Sendable, Equatable {
         // `class WorldStatus` in Ortho4XP/src/o4_engine/events.py.
         case "WorldStatus":
             return .worldStatus(O4WorldStatus.parse(object))
+        // `class WorldTilesWaiting` in Ortho4XP/src/o4_engine/events.py.
+        case "WorldTilesWaiting":
+            return .worldTilesWaiting(O4WorldTilesWaiting.parse(object))
         // `class WorldMigrateProgress` in Ortho4XP/src/o4_engine/events.py.
         case "WorldMigrateProgress":
             return .worldMigrateProgress(O4WorldMigrateProgress.parse(object))
@@ -691,11 +701,18 @@ public enum O4Event: Sendable, Equatable {
                         rows: (row["rows"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue } ?? [],
                         summary: row["summary"] as? String ?? "",
                         kind: row["kind"] as? String ?? "",
-                        lower: row["lower"] as? String ?? "")
+                        lower: row["lower"] as? String ?? "",
+                        prefer: row["prefer"] as? String ?? "",
+                        keep: row["keep"] as? String ?? "")
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
-                error: string("error")))
+                error: string("error"),
+                defaultMode: string("default")))
+        // Another STRING LITERAL match: `class PackReadOnly` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackReadOnly":
+            return .packReadOnly(O4PackReadOnly.parse(object))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -1236,9 +1253,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// with a `packOldForests` event. An engine older than 1.21 replies
     /// ok=false: nothing changes.
     public func packForests(packRoot: String, action: String,
-                            lat: Int? = nil, lon: Int? = nil) {
+                            lat: Int? = nil, lon: Int? = nil,
+                            completion: (@Sendable (O4Reply) -> Void)? = nil) {
         sendPackChoice("pack_forests", packRoot: packRoot, action: action,
-                       lat: lat, lon: lon)
+                       lat: lat, lon: lon, completion: completion)
     }
 
     // MARK: - Optimise pack (protocol 1.31)
@@ -1251,10 +1269,11 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// event. An engine older than 1.24 replies ok=false: nothing changes.
     public func packOptimise(packRoot: String, action: String,
                              lat: Int? = nil, lon: Int? = nil,
-                             steps: [String]? = nil) {
+                             steps: [String]? = nil,
+                             completion: (@Sendable (O4Reply) -> Void)? = nil) {
         sendPackChoice("pack_optimise", packRoot: packRoot, action: action,
                        lat: lat, lon: lon,
-                       extra: steps.map { ["steps": $0] } ?? [:])
+                       extra: steps.map { ["steps": $0] } ?? [:], completion: completion)
     }
 
     // MARK: - Package adjustments (capability pack_adjust)
@@ -1270,13 +1289,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
     public func packAdjust(packRoot: String, action: String,
                            lat: Int? = nil, lon: Int? = nil,
                            items: [String]? = nil, shown: [String]? = nil,
-                           steps: [String]? = nil) {
+                           steps: [String]? = nil,
+                           completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var extra: [String: Any] = [:]
         if let items { extra["items"] = items }
         if let shown { extra["shown"] = shown }
         if let steps { extra["steps"] = steps }
         sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
-                       lat: lat, lon: lon, extra: extra)
+                       lat: lat, lon: lon, extra: extra, completion: completion)
     }
 
     // MARK: - Gateway airports (capability gateway_airports)
@@ -1301,26 +1321,31 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// action "choose" with `winners` `[pair key: pack name or "both"]`,
     /// "undo" (the answers of `winners`' keys forgotten), or "ask" (the
     /// report). The engine replies `{"status": "started"}` and completes with
-    /// a `packOverlaps` event.
+    /// a `packOverlaps` event. `defaultMode` (capability
+    /// `pack_overlaps_default`, #2190) sets the condensed answer for all
+    /// tiles ("" clears it; nil leaves it).
     public func packOverlaps(action: String, lat: Int, lon: Int,
-                             winners: [String: String] = [:]) {
+                             winners: [String: String] = [:], defaultMode: String? = nil,
+                             completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var arguments: [String: Any] = ["action": action, "lat": lat, "lon": lon]
         arguments["items"] = winners.keys.sorted().map { ["key": $0, "winner": winners[$0] ?? ""] }
-        send(command: "pack_overlaps", arguments: arguments)
+        if let defaultMode { arguments["default"] = defaultMode }
+        send(command: "pack_overlaps", arguments: arguments, completion: completion)
     }
 
     /// A per-pack choice command (`pack_forests`, `pack_optimise`, `pack_adjust`): the
     /// tile's DSF with lat/lon, the whole pack without.
     private func sendPackChoice(_ command: String, packRoot: String,
                                 action: String, lat: Int?, lon: Int?,
-                                extra: [String: Any] = [:]) {
+                                extra: [String: Any] = [:],
+                                completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var arguments: [String: Any] = ["pack_root": packRoot, "action": action]
         arguments.merge(extra) { _, new in new }
         if let lat, let lon {
             arguments["lat"] = lat
             arguments["lon"] = lon
         }
-        send(command: command, arguments: arguments)
+        send(command: command, arguments: arguments, completion: completion)
     }
 
     // MARK: - Slow-step alert (protocol 1.26)

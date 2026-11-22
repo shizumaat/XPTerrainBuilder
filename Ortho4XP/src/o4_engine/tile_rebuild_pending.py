@@ -33,6 +33,8 @@ import os
 import time
 import typing as _t
 
+import O4_File_Names as _FN
+
 __all__ = ["FILE", "mark", "resolve", "note", "announcement"]
 
 #: the debts file
@@ -42,15 +44,6 @@ FILE = "tile_rebuild_pending.json"
 def _path() -> str:
     from auto_patch_v2.airport import pack_choice as _PC
     return _PC.store_path(FILE)
-
-
-def _read() -> dict:
-    try:
-        with open(_path(), encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
 
 
 def _write(doc: dict) -> None:
@@ -73,7 +66,7 @@ def mark(lat: int, lon: int, pack_root: str, pack: str,
     ``was`` to ``now`` (``adjust_edit.tile_state``).  The first ``was``
     is kept: an answer back to it drops the debt."""
     try:
-        doc = _read()
+        doc = _FN.read_json_dict(_path())
         key = _tile_key(lat, lon)
         packs = doc.setdefault(key, {})
         root = os.path.normcase(os.path.abspath(pack_root or ""))
@@ -94,7 +87,7 @@ def mark(lat: int, lon: int, pack_root: str, pack: str,
 def _pending() -> list[dict]:
     """Every open debt: ``{"lat", "lon", "tile", "pack", "change", "id"}``."""
     return [dict({k: v for k, v in row.items() if k != "was"}, tile=key)
-            for key, packs in sorted(_read().items())
+            for key, packs in sorted(_FN.read_json_dict(_path()).items())
             if isinstance(packs, dict)
             for _root, row in sorted(packs.items()) if isinstance(row, dict)]
 
@@ -115,7 +108,7 @@ def _mesh_matches(tile) -> bool:
 def resolve(tile) -> list[dict]:
     """The debts of ``tile`` its build has paid (removed from the file)."""
     try:
-        doc = _read()
+        doc = _FN.read_json_dict(_path())
         key = _tile_key(tile.lat, tile.lon)
         if not doc.get(key) or not _mesh_matches(tile):
             return []

@@ -131,6 +131,40 @@ def test_v1_records_and_old_windows_never_count(stores):
     assert all(r["source"] == "app" for r in kept)
 
 
+def test_a_record_carries_the_builds_own_stage_clocks(stores):
+    """#2206: the app's record carried ``phase_seconds: {}`` since the v2
+    switch.  The v2 worker's stage clocks (the report's ``wall_s``) are
+    handed over by the driver and land on that airport's NEXT record only;
+    the report's ``total`` is the total, never a phase."""
+    ATM.note_phases("kden", {"planar": 241.4, "late_stage": 2153.0, "total": 3874.0,
+                             "late_derive": 1954.8, "bad": "x"})
+    ATM.record("KDEN", 3874.0, now=1.0)
+    ATM.record("KDEN", 3000.0, now=2.0)
+    kept = json.loads((stores / "airports" / "KDEN.json").read_text(encoding="utf-8"))
+    assert kept[0]["phase_seconds"] == {"planar": 241.4, "late_stage": 2153.0,
+                                        "late_derive": 1954.8}
+    assert kept[1]["phase_seconds"] == {}
+
+
+def test_the_driver_hands_the_clocks_to_the_session(stores, monkeypatch):
+    """``auto_patch.driver`` -> ``UI.airport_phases`` -> the session's
+    ``airport_phases`` -> :func:`ATM.note_phases` (no ``o4_engine`` import
+    in the vector step's closure)."""
+    import O4_UI_Utils as UI
+    from auto_patch import driver
+    from o4_engine.session import EngineSession
+    seen = []
+    monkeypatch.setattr(UI, "engine_session", type("S", (), {
+        "airport_phases": lambda self, icao, phases: seen.append((icao, phases))})())
+    driver._note_phases({"icao": "KDEN", "phase_seconds": {"solve": 5.0}})
+    driver._note_phases({"icao": "KBKF", "phase_seconds": {}})
+    assert seen == [("KDEN", {"solve": 5.0})]
+    EngineSession.airport_phases(None, "KDEN", {"solve": 5.0, "total": 9.0})
+    ATM.record("KDEN", 9.0, now=1.0)
+    kept = json.loads((stores / "airports" / "KDEN.json").read_text(encoding="utf-8"))
+    assert kept[-1]["phase_seconds"] == {"solve": 5.0}
+
+
 def test_airports_solve_in_parallel(stores):
     ATM.record("KDEN", 1340.0)
     ATM.record("KBKF", 71.0)

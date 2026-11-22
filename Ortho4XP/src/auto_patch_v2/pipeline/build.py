@@ -677,6 +677,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
     airport, pm, pstats, stage = pre.airport, pre.pm, pre.pstats, pre.stage
+    # #2169 (RULINGS 2026-11-16y (2)): the decks and road bridges a Global
+    # Airports entry cannot carry are the Gateway offer's candidates
+    from ..planar.deck_generated import GLOBAL_OFFER
+    lrep.generated_offers = tuple(
+        n for n in (*_rb_notes, *getattr(getattr(pstats, "structures", None),
+                                         "hard_decks", ()))
+        if n.endswith(GLOBAL_OFFER))
+    for _n in lrep.generated_offers:
+        _say(f"[{icao}] OFFER: {_n.split(': REFUSED')[0].split(' -- REFUSED')[0]}", out)
     fv, road_rep, tt_rep = airport.flat_site, pre.road_rep, pre.reports["taxi_trend"]
     cs, counts, gwalls, strips = pre.cs, pre.counts, pre.gwalls, pre.strips
     _yield_records, seam_yielded = pre.yield_records, pre.seam_yielded
@@ -696,11 +705,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lv1 = dict(lv)
         door, bands, pref = blend_release(pm, law, airport, lv, cs)
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
-        # a generated deck's floor follows its end lines as stage 1 solved them
-        cs2, rep["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
-        if rep["deck_floor_follow"]["pins"]:
-            _say(f"[{icao}] generated deck floor follows its end lines: "
-                 f"{rep['deck_floor_follow']}", out)
+        # RULINGS 2026-11-19s: a generated deck takes the no-bridge airside
+        # as given -- its top, its fixed ring and its floor
+        cs2, s2 = floor_follow_rewrite(pm, cs2, lv1, _s1, law,
+                                       getattr(airport, "road_bridges", ()) or ())
+        rep.update(s2.stage_two(rep))
+        if s2.report["fixed"] or s2.report["pins"] or s2.tops:
+            _say(f"[{icao}] generated decks take the no-bridge airside (RULINGS "
+                 f"2026-11-19s): {s2.report}", out)
         if bands:
             cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
         rep["door_blend"] = door
@@ -801,7 +813,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # against constants.  Everything below reads the full map.
         t = time.perf_counter()
         _pulse.tick("the last stage: the gap pieces")
-        from .late_speculate import speculate as speculate_roads
         from .late_stage import run_last_stages
         _base_rep = design_rep
         # the last stage re-mints the held registry (its own prefix run): the
@@ -820,8 +831,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict, "cs": cs},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
-            speculate=speculate_roads)
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
@@ -830,10 +840,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         design_rep.stages["base"] = dict(_base_rep.stages)
         _fold_base_rows(design_rep, _base_rep)
         # #2090 A5: the AGP datum is read ONCE, by the base solve's stage-2
-        # rewrite; a late stage's local solve carries no rewrite of its own
-        _agp = (_base_rep.reach_seed or {}).get("agp_level")
-        if _agp and "agp_level" not in (design_rep.reach_seed or {}):
-            design_rep.reach_seed = {**(design_rep.reach_seed or {}), "agp_level": _agp}
+        # rewrite; a late stage's local solve carries no rewrite of its own.
+        # So are the generated decks' tops (RULINGS 2026-11-19s (1), (8) (b):
+        # lost here, KBNA 1.0.566 published o4gen_c944399b with no surface,
+        # its frame off a dropped centreline 90 deg across its taxiway)
+        for _key in ("agp_level", "generated_tops"):
+            _got = (_base_rep.reach_seed or {}).get(_key)
+            if _got and _key not in (design_rep.reach_seed or {}):
+                design_rep.reach_seed = {**(design_rep.reach_seed or {}), _key: _got}
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],

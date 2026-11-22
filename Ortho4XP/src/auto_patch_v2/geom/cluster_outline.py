@@ -21,6 +21,7 @@ import typing as _t
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
+from .sunk_cluster import closed_outline, is_sunk, sunk_ground
 from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
@@ -382,6 +383,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      osm_evidence=None,
                      refused=None,
                      slope=None,
+                     routes=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -504,6 +506,35 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        caller has no OSM in hand, which is NOT evidence of absence — the
        gate then rests on the vertical test alone (v1's own clause).
 
+    9a. A BUILDING RISES ABOVE ITS OWN GRADE (K1, kord-trench-frame-spec):
+       a cluster whose tallest ABOVE-GRADE extent
+       (``evidence.tallest_extent_m``) is under
+       ``admission.above_grade_min_m`` (the walled height) AND which lies
+       UNDER its grade (``pad_evidence.mostly_under_grade``: its components
+       whose top stands ``admission.sunk_min_m`` or more under the grade
+       carry most of its area) is a road bed, a trench floor or a pit and
+       mints nothing, counted ``below_grade`` and listed with rules 9 / 10.
+       An AT-GRADE slab under the walled height (its top at the grade, a
+       skirt under it) keeps its pad, counted ``at_grade_slab`` (lane
+       ``lk1fix``: K1 had refused landside slabs the owner wants graded to
+       their edges).  Asked before rule 10, so no vouch (OSM, cache or
+       name) admits a sunk cluster.  A cluster measured before the tops
+       field (``mostly_under_grade`` None) is read as before: refused.
+       A cluster whose closed outline stands MOSTLY over a SUNK cluster's
+       ground (``geom/sunk_cluster.sunk_ground``) is a slab of the sunk
+       frame (a lid, a car-park slab over a road-bed trench) and mints
+       nothing, counted ``over_sunk`` and listed.  A pad only touching that
+       ground is NOT trimmed: measured, an 11 m2 trim of a 57,096 m2
+       terminal pad moved its apron plateau 0.19 m (airside is king).
+
+        9b. A TAXI ROUTE NEVER CROSSES A BUILDING (owner RULINGS 2026-11-19k
+       (2)): ``routes`` (a :class:`geom.route_over_pad.RouteWitness`) reading
+       ``"over"`` on the closed outline — a 1202 edge enters and leaves it,
+       or a through node stands inside it — refuses the pad, counted
+       ``taxi_route_over`` and listed; ``"touch"`` (the route ends at or in
+       it) keeps it, counted ``taxi_route_touch``.  ``routes=None``
+       disarms.
+
     THE REFUSAL IS RECORDED, NEVER SILENT (owner RULINGS 2026-10-02v
     (3)).  ``refused``, when a list, collects one row per rule-9/10
     refusal — ``{"id", "gate", "value", "area_m2", "length_m",
@@ -533,6 +564,10 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "post_bridged": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
+              # K1 (kord-trench-frame-spec): nothing above its own grade
+              "below_grade": 0, "at_grade_slab": 0,
+              # 2026-11-19k (2): a taxi route passes over / meets it
+              "taxi_route_over": 0, "taxi_route_touch": 0,
               "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0,
               # owner RULINGS 2026-10-19w: under the bar but floating
               "slope_padded": 0}
@@ -545,6 +580,13 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                        str(getattr(clusters[i], "id", i))))
     out: list[tuple[str, _t.Any, Polygon]] = []
     taken: list[Polygon] = []
+    # rule 9a (lane ``lk1fix``): a SUNK cluster's ground — a cluster standing
+    # mostly over it is a slab of the sunk frame and mints no pad
+    sunk = sunk_ground(clusters, to_xy, admission, touch_m, simplify_m,
+                       walled_only)
+    counts["sunk_ground_m2"] = round(sum(g.area for g in sunk), 1)
+    counts["over_sunk"] = 0
+    sunk_u = unary_union(sunk) if sunk else None
     for i in order:
         c = clusters[i]
         # owner RULINGS 2026-10-19ak: a piece of a FLOATING multi-file
@@ -580,24 +622,32 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             _refuse(refused, counts, "no_tall_base", c,
                     "min_tall_base_fill", ev.tall_base_fill, None, ev)
             continue
-        ps: list[Polygon] = []
-        for r in (getattr(c, "rings", ()) or ()):
-            if len(r) < 3:
+        # K1 (kord-trench-frame-spec) — A BUILDING RISES ABOVE ITS OWN
+        # GRADE.  Asked before rule 10's vouch: a vouch says a building is
+        # NEAR, never that a slab wholly under the ground is one (a road
+        # bed, a trench floor, a pit, a retaining wall)
+        if (admission is not None and ev is not None
+                and float(getattr(admission, "above_grade_min_m", 0.0)) > 0.0
+                and float(getattr(ev, "tallest_extent_m", 0.0))
+                < float(admission.above_grade_min_m)):
+            if is_sunk(c, admission) is False:
+                counts["at_grade_slab"] += 1     # a slab at its grade
+            else:
+                _refuse(refused, counts, "below_grade", c, "above_grade_min_m",
+                        float(getattr(ev, "tallest_extent_m", 0.0)), None, ev)
                 continue
-            g = Polygon([to_xy(lo, la) for la, lo in r])
-            if not g.is_valid:
-                g = g.buffer(0.0)
-            ps.extend(_parts(g))
-        if not ps:
+        u = closed_outline(c, to_xy, touch_m, simplify_m)
+        if u is None:
             counts["no_rings"] += 1
             continue
-        u = unary_union(ps)
-        if touch_m > 0.0:
-            u = u.buffer(touch_m, join_style=2).buffer(-touch_m, join_style=2)
-            if simplify_m > 0.0:
-                u = u.simplify(simplify_m)
-            if not u.is_valid:
-                u = u.buffer(0.0)
+        if (sunk_u is not None and u.area > 0.0
+                and 2.0 * u.intersection(sunk_u).area > u.area):
+            # rule 9a (lane ``lk1fix``): MOST of it stands over a sunk
+            # cluster's ground — a slab of the road bed's frame (a lid, a
+            # car-park slab over the trench), never a building on the grade
+            _refuse(refused, counts, "over_sunk", c, "sunk_ground",
+                    round(u.intersection(sunk_u).area / u.area, 3), u, ev)
+            continue
         if bridge_m > 0.0 and getattr(c, "bridges", ()):
             # rule 2a: the posts that still chain close the outline
             u, nj = _bridge(u, c.bridges, to_xy, bridge_m)
@@ -623,6 +673,18 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                 counts["under_min_m2"] += 1
                 continue
             counts["slope_padded"] += 1
+        # rule 9b (owner RULINGS 2026-11-19k (2)) — A TAXI ROUTE NEVER
+        # CROSSES A BUILDING: a 1202 route passing over the closed outline
+        # says the ground is a deck's or a trench frame's; no vouch admits
+        # it.  A route ending at or inside it (a hangar door) keeps it.
+        if routes is not None:
+            _rk, _rin = routes.read(u)
+            if _rk == "over":
+                _refuse(refused, counts, "taxi_route_over", c, "taxi_route",
+                        _rin, u, ev)
+                continue
+            if _rk:
+                counts["taxi_route_touch"] += 1
         # rule 10 — NO BUILDING, NO PAD.  Asked on the CLOSED outline so
         # the OSM half reads the same polygon the pad would have been.
         if (admission is not None and ev is not None

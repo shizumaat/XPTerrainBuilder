@@ -67,21 +67,26 @@ class Road(_t.NamedTuple):
 
 def end_edges(ring: Polygon, ends: _t.Sequence[_t.Sequence[XY]], tol_m: float,
               angle_deg: float = 25.0) -> list[tuple[XY, XY]]:
-    """The ring's exterior edges at an END (``ends``: the end lines'
-    stations): its midpoint within ``tol_m`` of an end line, and turned
-    more than ``angle_deg`` off the route (``z``) -- a side edge runs
-    along the route, an end edge across it (ESSA 2026-11-17: the end
-    lines stand ~2.4 m inside the ring's ends, which run oblique to them)."""
+    """The ring's exterior edges at an END: every edge turned more than
+    ``angle_deg`` off the route (``z``) -- a side edge runs along the
+    route, an end edge across it.  The lip (the kerb) runs on the sides
+    only, never across an end (owner RULINGS 2026-11-19s (4) (b): KBNA
+    1.0.565 "puts the edge lip all the way around so aircraft can't drive
+    on to it" -- the end lines' ``ends`` within ``tol_m`` of an edge had
+    named none of its ends); ``ends`` and ``tol_m`` name the end lines an
+    edge with no length along either axis is read against."""
     lines = [LineString(e) if len(e) >= 2 else Point(e[0]) for e in ends if len(e)]
     cos_max = math.cos(math.radians(angle_deg))
     pts = list(ring.exterior.coords)
     out = []
     for a, b in zip(pts[:-1], pts[1:], strict=True):
         d = math.dist(a, b)
-        if d < 1e-6 or abs(b[1] - a[1]) / d > cos_max:
+        if d < 1e-6:
+            continue
+        if abs(b[1] - a[1]) / d > cos_max:
             continue
         mid = Point((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-        if any(ln.distance(mid) <= tol_m for ln in lines):
+        if d > tol_m or not lines or any(ln.distance(mid) <= tol_m for ln in lines):
             out.append((a, b))
     return out
 
@@ -145,8 +150,9 @@ def _piers(ring: Polygon, roads: _t.Sequence[Road], floor_y: float, g
     col, gap = float(g.pier_col_m), float(g.pier_gap_m)
     depth, cap_w, cap_h = float(g.thickness_m), float(g.pier_cap_w_m), float(g.pier_cap_h_m)
     inner = ring.buffer(-float(g.edge_beam_m) - col / 2.0, join_style="mitre")
-    floors = unary_union([LineString(r.line).buffer(r.half_m + float(g.shoulder_m),
-                                                    cap_style="flat")
+    # round caps: a way ends or bends under the deck where the next one of
+    # its chain runs on (a flat cap left a wedge a column stood in, KPHX)
+    floors = unary_union([LineString(r.line).buffer(r.half_m + float(g.shoulder_m))
                           for r in roads if len(r.line) >= 2])
     cols: list[Point] = []
     caps = []
@@ -163,7 +169,8 @@ def _piers(ring: Polygon, roads: _t.Sequence[Road], floor_y: float, g
                     continue
                 n = max(1, math.ceil(seg.length / gap))
                 here = [p for p in (seg.interpolate(k / n, normalized=True) for k in range(n + 1))
-                        if not floors.contains(p) and all(p.distance(q) >= 2 * col for q in cols)]
+                        if floors.distance(p) >= col / 2.0 - 1e-6
+                        and all(p.distance(q) >= 2 * col for q in cols)]
                 if here:
                     cols += here
                     caps.append(seg.buffer(cap_w / 2.0, cap_style="flat"))

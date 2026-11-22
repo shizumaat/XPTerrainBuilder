@@ -223,6 +223,16 @@ floor_sunken_min_m = 2.0
 # walled pit) and OTHH TerminalRoads_02_000 (measured against the author's
 # plates round it, 9.92) still read.
 pit_sunken_min_share = 0.5
+# ...but a roofed portal standing on that ground is still its TUNNEL'S
+# MOUTH where the mapped bore (its tunnel ways joined end to end) runs at
+# least this many times the object's own size (its larger plan extent along
+# or across the bore) — a mouth object at grade on the uncut ground, never a
+# booth on a stub its own length nor a building over a bore (owner RULINGS
+# 2026-11-21d, #2221).  MEASURED (lane ltunnel2, replays of the lkrdue2 /
+# lkden captures): KBUF Road_Tunnel.obj x4, size 38.8-39.5 m, bores 231.6 /
+# 243.6 m -> 5.9-6.3 (mouths); KDEN booths and Train_Hider, bores 8.1-38.5 m
+# against sizes 20.1-83.5 m -> 0.1-1.9 (at grade).
+mouth_bore_min_ratio = 3.0
 # ...and only an OPEN TRENCH brings the ground down to its walls (the open-edge
 # rim and its bank, #1949 R2/R3; owner RULINGS 2026-11-17 (a): "an object
 # whose floor stands below the surrounding ground and which has NO ROOF over
@@ -1583,6 +1593,15 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
 touch_gap_m         = 0.1
 touch_seat_min_share = 0.10
 
+# A PLACEMENT SPLITS ONLY PAST THE GROUND BAR (owner RULINGS 2026-11-19j;
+# airport/split_bar.py).  Once every pass has seated its bodies, a placement
+# whose bodies' zeros spread at most this is written WHOLE, as authored, at one
+# zero (its anchor body's: a body seated with another placement -- a touching
+# group, a shared unit, a carrier or rider -- names it); the terrain under it
+# absorbs the rest.  0.5 m: the 12y ground visibility bar ("within 0.5m the
+# terrain should be able to adapt to any discrepancies").  0 disarms.
+split_bar_m         = 0.5
+
 # A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
 # airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
 # stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building
@@ -1718,6 +1737,14 @@ pavement_borrow_coverage_max = 0.25
 # captures: LIME 0.069 (Aerosoft: every apron and taxiway a SURFACE page),
 # KBOI 0.281; HECA 0.999, OTHH 0.996, KATL 0.996, CYXY 0.971.  0 = off.
 network_pages_share_max = 0.5
+# THE PAGE THAT ALONE HOLDS A TAXIWAY (owner RULINGS 2026-10-30e, #2215;
+# `airport/network_pages.py`): at or above the share, a §60 page carrying at
+# least this much of the non-runway 1202 network over ground no pavement
+# source and no runway slab holds is a pavement source too.  The length is
+# the centreline detector's own floor (`classify/centreline_gaps.MIN_GAP_M`:
+# shorter is a junction corner).  KRDU `Ground/L2.pol`: taxiway A, 566 m.
+# 0 = off.
+network_page_unheld_min_m = 10.0
 
 # ── THE BUILDING BASE PROFILE ────────────────────────────────────────────
 # base-profile spec §1 (owner RULINGS 2026-10-01f, answers 10-01k).  The
@@ -1737,6 +1764,7 @@ horizontal_ny         = 0.95   # §1 (1): |n_y| >= this is a HORIZONTAL FACE (an
 roof_support_fraction = 0.25   # §1 (1) THE ROOF TEST: a plane whose unit vertices >= [basin] contact_band_m below it have a convex hull covering this fraction of its polygon is a ROOF/DECK/MEZZANINE, never a base (KASE: the shelter roof reads 156 %, FireStation_7's +3.9 lot 0.2 %)
 sloped_min_extent_m   = 20.0   # §1 (2): a member with no base plane over the area floor reads SLOPED only where its contact set spans this far; below it the verdict is FEET (a column-only shelter is not a ramp)
 sloped_max            = 0.08   # §1 (2) + 10-01k Q5: the HARD CEILING on a sloped base's own gradient (m/m).  Steeper geometry is RISER geometry, not a plane (KASE's cut-slope staircase reads 17 %)
+sloped_pad_rms_m      = 0.05   # owner RULINGS 2026-11-19o (1): a SLOPED base is a plane the pad TAKES (planar/pad_base_slope) only where the contact fit's rms is within this — the 12y pavement visibility bar.  KASE test.obj (#2184) fits 1.90 % at 0.001 m; the pack's other SLOPED members 0.10-0.28 m.  0 disarms
 
 # A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (owner RULINGS 2026-10-27t / 2026-10-27u,
 # #1201; spec docs/specs/walled-plate-rsa-spec.md §3).  A pack object whose flat
@@ -1790,17 +1818,22 @@ tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of
 tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line
 level_probe_m     = 30.0    # A2: ... out to this far: the ground beside the road's cut is the highest DEM there (a bare-earth DEM reads the cut under the bridge)
 min_area_m2       = 50.0    # a smaller deck piece is not generated
+width_by_class_m  = { A = 10.5, B = 13.5, C = 25.0, D = 34.0, E = 38.0, F = 44.0 }  # owner RULINGS 2026-11-19s (4) (c), 2026-11-21c (planar/deck_width): a generated deck's taxiway PAVED BAND across its route by the route's apt.dat 1202 width class -- C-F the ICAO Annex 14 §3.10.1 taxiway-plus-shoulders width (config ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M), A/B the §3.9.3 taxiway width (7.5 / 10.5 m) plus shoulder_m each side; the floor parallel_gap_m never narrows a deck under (20f), never its width
+tsa_by_letter_m   = { A = 14.9, B = 24.1, C = 36.0, D = 52.1, E = 65.2, F = 79.9 }  # owner RULINGS 2026-11-21c ("Let's follow the FAA guidelines worldwide, and just trust the taxiway size code"; planar/deck_width): a generated taxiway deck's WIDTH, centred on its route, by the route's apt.dat size letter A->ADG I ... F->ADG VI = the FAA taxiway safety area (AC 150/5300-13B Chg 1 Table 4-1, TSA = the ADG's maximum wingspan; §6.2.3: a taxiway bridge at least as wide as its safety area, measured perpendicular to the centreline), at every airport; nothing measured -- a wrong letter is the pack's to fix
+end_landing_m     = 3.0     # owner RULINGS 2026-11-19s (8) (d) ("The terrain on either end of each cut should be graded up to match the taxiway height"; constraints/deck_carve._landing): past each end line, across the deck's whole width, the ground stands at the end's level this far, then falls at the deck bank's slope (1V:1.5H) -- no deck end floats
+parallel_gap_m    = 3.0     # owner RULINGS 2026-11-19s (3) (b) ("two parallel taxiways have to have a minimum gap between them which always leave a gap between two bridges"; planar/deck_width.parted): two generated decks stand at least this far apart -- each gives up its shoulders (never its taxiway) to keep it
+end_reach_m       = 10.0    # owner RULINGS 2026-11-19s (planar/deck_width._reach): a generated deck's end runs on along its route until the airport's pavement meets it across most of its width (a deck over a pack's hole spans it, pavement to pavement, #2183 item 4), at most this far (m)
 pack_structure_depth_m = 2.0  # A1 (2) "the pack always wins" (owner 2026-11-17, planar/deck_pack_cover): a pack placement reaching deeper than this under its own ground is a STRUCTURE; an up-facing face within it is a TOP. A structure AND a top over the covered road refuse the generated deck (the pack models the crossing); a cut with no top, or a top with no structure, does not
 pack_cover_share  = 0.5     # ... a top runs over the road when it covers at least this share of the covered roads' axis inside the deck piece
+hide_inside_share = 0.5     # owner 2026-11-20T22:39Z (KDFW 1.0.569 hid 103 placements on one Aerosoft anchor: "make sure we're not hiding half the airport pack"; planar/deck_takeover._rides): a hidden pack bridge's co-placed mate is hidden with it only when this share of its solid plan lies within the deck's footprint over the crossing, and never a building (an up-facing top a clearance over the deck level)
+hide_max_share    = 0.03    # ... and one build's hides take at most this share of the pack's placements; past it only the bridge bodies are hidden and the note says DEFECT (planar/deck_takeover._capped)
+hide_floor_count  = 12      # ... never below this many placements (a small pack's frames and their lights)
 lod_m             = 6000.0  # A2: draw distance
 light_spacing_m   = 15.0    # Q4: OBJ8 taxi_g / taxi_g_rev every this many metres on the deck
 concrete_pol      = "lib/airport/pavement/concrete_4D.pol"      # #2132 (owner 2026-11-17 "realistic concrete, with dirt and tire marks ... reference some laminar texture resources the user will already have installed"): the slab is drawn in this X-Plane pavement page's own art (its TEXTURE, TEXTURE_NORMAL and SCALE), linked from the user's install like the cliff overlay (airport/deck_skin); unresolved -> the generated atlas
-rubber_pol        = "lib/airport/default_runways/rubber.pol"    # #2132: the tire marks: this page's alpha art as a strip along the carried route
-rubber_u0         = 0.25    # #2141 (2) (owner 2026-11-17 "centreline tire textures look good; the ones on either side do not"): ONE column of the rubber atlas (u0..u1, the dense centre band), mirrored every repeat
-rubber_u1         = 0.5
 line_lib          = "lib/airport/lines/1_single_taxi.lin"        # #2141 (3) ("use X-Plane line types if possible"): the dropped apt.dat lines drawn on the deck in the install's own line pages (this page's folder, <type>_*.lin; airport/deck_line_art); unresolved -> the generated atlas
-rubber_lift_m     = 0.02    # the tire-mark film over the top (owner sim read 2026-11-17, 1.0.555: an OBJ film coplanar with the slab shimmered / did not draw; solid geometry, no poly_os, airport/deck_objects _FILM_STEP_M)
-paint_lift_m      = 0.03    # the paint over the tire marks (its layers 0.01 m apart)
+film_lift_m       = 0.001   # owner 2026-11-20T15:17Z (lane lcross20): "Markings like wear, tire tracks, and painted lines need to be as close as possible to the pavement so they don't float, but still draw on top ... try only 1mm if we can't get them to actually paint on the object" -- the pack author's films (airport/deck_author_art) 1 mm over the top; they draw on top by DRAW ORDER (each overlay a separate OBJ in ATTR_layer_group objects 1 / 2 after the slab, airport/deck_objects _FILM_LAYER), not by height (was 0.02, #2183 (2))
+paint_lift_m      = 0.001   # owner 2026-11-20T15:17Z (lane lcross20): the paint, lines and marks 1 mm over the top, over the films by draw order (ATTR_layer_group objects 2), their layers in batch order at one height (was 0.03, layers 0.01 m apart)
 slab_m            = 0.25    # #2132 structure (spec 2132-design section 4; owner 2026-11-17 "kerb only (0.30 x 0.40 m, side edges), no blast screen"; airport/deck_structure): the slab under the top
 beam_spacing_m    = 2.4     # beams along the route, one every this across it
 beam_width_m      = 0.9

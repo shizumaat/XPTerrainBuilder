@@ -90,9 +90,10 @@ def _flatten_row() -> dict:
             "checked": True, "first_paths": []}
 
 
-def _writable(pack_root: str) -> bool:
+def writes_pack(pack_root: str) -> bool:
     """A pack the object stage may write: present, enabled, not X-Plane's
-    own (``object_stage.pack_dump``'s guards)."""
+    own (``object_stage.pack_dump``'s guards) — whether or not its folders
+    are writable (``pack_readonly.gate`` asks about that)."""
     import O4_Scenery_Packs as _SP
 
     from .post_mesh import _is_protected_scenery_root
@@ -106,7 +107,7 @@ def _flatten(pack_root: str, *, writes: bool) -> str:
     written when ``writes``; ``""`` on any failure (one log line)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import apt_flatten as _af
-    if not _writable(pack_root):
+    if not writes_pack(pack_root):
         return ""
     name = os.path.basename(os.path.normpath(pack_root))
     try:
@@ -251,12 +252,20 @@ def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
         if _dev.objects_frozen(root) or not _first_ask(root, asked):
             continue                        # RULINGS 11m (3): the author's
         plan_ = types.SimpleNamespace(pack_root=root)
+        # #2174: a read-only pack the build did not place is only read
+        # (its question belongs to a build that places it)
+        w = writes and not _readonly_folders(root)
         items = [_drapes_row(pd, key) for key, (state, pd)
-                 in _drape_stages(plan_, tile, writes).items()
+                 in _drape_stages(plan_, tile, w).items()
                  if state == "found" and pd is not None]
         if items:
             _announce(os.path.basename(os.path.normpath(root)), root,
                       tile.lat, tile.lon, "found", items)
+
+
+def _readonly_folders(pack_root: str) -> list[str]:
+    from auto_patch_v2.airport import pack_access as _pa
+    return _pa.readonly_folders(pack_root)
 
 
 def rows(pack_root: str, lat: int, lon: int) -> list[dict]:

@@ -567,6 +567,10 @@ class Placement:
     #: footprint, alone at the group's lowest level, keeps its seat and
     #: does not vote (a shed beside a terminal)
     touch_seat_min_share: float = 0.0
+    #: owner RULINGS 2026-11-19j (``airport/split_bar``): a placement whose
+    #: final bodies' zeros spread at most this is written whole at one
+    #: zero (the 12y ground bar, 0.5 m).  0 disarms the pass
+    split_bar_m: float = 0.0
     #: #1884 round 2 (A, ``airport/terrain_base``): a walled body nothing
     #: carries whose RIGID base would clear our ground by more than
     #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS

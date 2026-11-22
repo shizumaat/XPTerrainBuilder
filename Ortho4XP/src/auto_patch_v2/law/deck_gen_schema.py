@@ -11,6 +11,7 @@ still loads -- the ``[walled_plate]`` precedent.
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 
 __all__ = ["DeckGenLaw", "RoadGenLaw"]
 
@@ -45,6 +46,29 @@ class DeckGenLaw:
     level_probe_m: float = 30.0
     #: a deck piece smaller than this is not generated (m2)
     min_area_m2: float = 50.0
+    #: owner RULINGS 2026-11-19s (4) (c), 2026-11-21c: a deck's taxiway
+    #: PAVED BAND across its route by the route's apt.dat 1202 width class
+    #: (m; ``planar/deck_width``): C-F ICAO Annex 14 §3.10.1 taxiway plus
+    #: shoulders, A/B §3.9.3 taxiway plus ``shoulder_m`` each side -- the
+    #: floor ``parallel_gap_m`` never narrows a deck under (20f)
+    width_by_class_m: _t.Mapping[str, float] = _dc.field(default_factory=lambda: {
+        "A": 10.5, "B": 13.5, "C": 25.0, "D": 34.0, "E": 38.0, "F": 44.0})
+    #: owner RULINGS 2026-11-21c: a deck's WIDTH by its route's size letter,
+    #: the FAA taxiway safety area of its ADG (A -> I ... F -> VI; FAA AC
+    #: 150/5300-13B Chg 1 Table 4-1, §6.2.3), centred on the route; nothing
+    #: measured
+    tsa_by_letter_m: _t.Mapping[str, float] = _dc.field(default_factory=lambda: {
+        "A": 14.9, "B": 24.1, "C": 36.0, "D": 52.1, "E": 65.2, "F": 79.9})
+    #: ... and its end runs on along the route until the airport's pavement
+    #: meets it (a pack's hole spanned pavement to pavement), at most this (m)
+    end_reach_m: float = 10.0
+    #: owner RULINGS 2026-11-19s (8) (d): past each end line, across the
+    #: deck's width, the ground stands at the end's level this far (m),
+    #: then falls at the deck bank's slope (``constraints/deck_carve``)
+    end_landing_m: float = 3.0
+    #: owner RULINGS 2026-11-19s (3) (b): two generated decks stand at
+    #: least this far apart, each giving up shoulder (``planar/deck_width``)
+    parallel_gap_m: float = 3.0
     #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
     #: placement deeper than this under its own ground is a STRUCTURE; an
     #: up-facing face within it is a TOP; both over the road refuse (m)
@@ -52,6 +76,17 @@ class DeckGenLaw:
     #: ... a top runs over the road at this share of the covered roads'
     #: axis inside the piece
     pack_cover_share: float = 0.5
+    #: owner 2026-11-20T22:39Z (KDFW: "make sure we're not hiding half the
+    #: airport pack"; ``planar/deck_takeover._rides``): a pack bridge's mate
+    #: is hidden with it only when this share of its plan lies within the
+    #: deck's footprint over the crossing (never a building)
+    hide_inside_share: float = 0.5
+    #: ... and one build's hides take at most this share of the pack's
+    #: placements; past it only the bridge bodies are hidden
+    #: (``planar/deck_takeover._capped``)
+    hide_max_share: float = 0.03
+    #: ... never below this many placements (a small pack's frame)
+    hide_floor_count: int = 12
     #: A2: the generated object's draw distance (m)
     lod_m: float = 6000.0
     #: A2: a centreline light every this many metres on the deck (m), Q4
@@ -60,21 +95,14 @@ class DeckGenLaw:
     #: SCALE) draws the slab, linked from the user's install
     #: (``airport/deck_skin``); unresolved -> the generated atlas
     concrete_pol: str = "lib/airport/pavement/concrete_4D.pol"
-    #: #2132: the page whose alpha art is the tire marks along the route
-    rubber_pol: str = "lib/airport/default_runways/rubber.pol"
-    #: #2132 / #2141: the tire marks are ONE column of that page's atlas
-    #: (u from ``rubber_u0`` to ``rubber_u1``: the dense centre band; the
-    #: other three columns read as tiled blocks), a strip along the route
-    #: mirrored every repeat
-    rubber_u0: float = 0.25
-    rubber_u1: float = 0.5
     #: #2141 (3): the first X-Plane line page; its folder's
     #: ``<type>_*.lin`` pages draw the dropped apt.dat lines on the deck
     #: (``airport/deck_line_art``); unresolved -> the generated atlas
     line_lib: str = "lib/airport/lines/1_single_taxi.lin"
-    #: the films over the top (m): the tire marks, then the paint over them
-    rubber_lift_m: float = 0.02
-    paint_lift_m: float = 0.03
+    #: the films over the top (m): the pack author's pages (#2183 (2),
+    #: ``airport/deck_author_art``), then the paint over them
+    film_lift_m: float = 0.001
+    paint_lift_m: float = 0.001
     #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
     #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
     #: ``airport/deck_structure``: the slab's depth under the top (m) ...

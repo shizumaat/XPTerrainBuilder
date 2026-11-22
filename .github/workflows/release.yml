@@ -72,12 +72,12 @@ jobs:
         env:
           PROJ_LIB: /nonexistent/proj
           PROJ_DATA: /nonexistent/proj
-        run: Ortho4XP/dist/Ortho4XP/Ortho4XP --proj-selfcheck
+        run: Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine --proj-selfcheck
 
       # Lazily imported packages must be IN the bundle (#130: laspy for the
       # LAS-tile elevation provider; the highspy precedent of 2026-09-10).
       - name: Lazy-import self-check (frozen engine)
-        run: Ortho4XP/dist/Ortho4XP/Ortho4XP --import-selfcheck laspy,lazrs,ispc_texcomp
+        run: Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine --import-selfcheck laspy,lazrs,ispc_texcomp
 
       # LERC: no separate step on mac.  scripts/make_engine.sh ("Freeze
       # engine" above) already runs scripts/check_frozen_lerc.sh FATALLY with
@@ -102,7 +102,7 @@ jobs:
       - name: Frozen tile build (shipped JSONL protocol)
         run: |
           bash scripts/check_frozen_tile.sh \
-            Ortho4XP/dist/Ortho4XP/Ortho4XP python3 \
+            Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine python3 \
             --logs "$RUNNER_TEMP/frozen-tile-logs" \
             --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
@@ -116,7 +116,7 @@ jobs:
       - name: Frozen work pool (spawn, shared memory, nested)
         run: |
           python3 scripts/check_frozen_tile.py \
-            Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool \
+            Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine --pass pool \
             --logs "$RUNNER_TEMP/frozen-tile-logs/pool"
 
       # ALWAYS, not only on failure (lane ``xplatdeterminism``):

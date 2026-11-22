@@ -747,30 +747,6 @@ def dsf_file(build_dir, lat, lon):
     )
 
 
-def obj_file(til_x_left, til_y_top, zoomlevel, provider_code):
-    return os.path.join(
-        Geotiff_dir,
-        str(til_y_top)
-        + "_"
-        + str(til_x_left)
-        + "_"
-        + provider_code
-        + str(zoomlevel)
-        + ".obj",
-    )
-
-
-def mtl_file(til_x_left, til_y_top, zoomlevel, provider_code):
-    return os.path.join(
-        Geotiff_dir,
-        str(til_y_top)
-        + "_"
-        + str(til_x_left)
-        + "_"
-        + provider_code
-        + str(zoomlevel)
-        + ".mtl",
-    )
 
 
 ##############################################################################

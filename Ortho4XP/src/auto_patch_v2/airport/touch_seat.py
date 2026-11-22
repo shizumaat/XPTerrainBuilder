@@ -31,6 +31,18 @@ votes), S = max - min:
   need under each member for the rigid group (the planar pad grammar
   grades between; R3 changes none of it).
 
+THE RULES OF 2026-11-18h (owner, #2129: "only fix problem spots"):
+
+* (4) before anything else, a SEAT TILT that floats a foot as written is
+  undone and its frame seats level at its no-float zero
+  (``tilt_float.untilt_floating``); what rides it moves with it.  A tilted
+  body is no longer FIXED here: it is a node like any other;
+* (2) a DECK STACKED ON WALLS (``stacked_deck.stacked_on``) rides those
+  walls at its authored relative height, whatever the gap: it and its
+  unit take no vote, and move to the walls' final zero;
+* (3) a connector between two separately seated buildings is the deck
+  warp's (``deck_profile``), after this pass.
+
 A rider of a moved body that is in no group moves by the same amount.  The
 moved records are CUT AGAIN (``placement_file.recut``) and every rider's
 ``merged_into`` follows its carrier's new file name.  No moved body: no
@@ -41,6 +53,9 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+from . import connector_warp as _cw
+from . import stacked_deck as _sd
+from . import tilt_float as _tf
 from . import touch_graph as _tg
 from .open_frame_seat import at_zero, group_key, unit_root
 from .placement_file import recut
@@ -56,6 +71,10 @@ PADS_MIN_M = 2.0
 LOW_BAND_M = 0.3
 #: the moved body's reason (``drawn_site_plan`` reads its ``fu:N:M``)
 REASON = "one touching group {root} at {z:.2f} (RULINGS 2026-11-16u/v)"
+#: rule (2)'s reason: a deck stacked on walls rides them
+_STACK_REASON = "rides the walls {walls} it stands on at {z:.2f} (RULINGS 2026-11-18h (2))"
+#: rule (4)'s, for a body riding a levelled tilted frame
+_LEVEL_RIDER_REASON = "rides its carrier, levelled at {z:.2f} (RULINGS 2026-11-18h (4))"
 
 
 @_dc.dataclass(frozen=True)
@@ -68,6 +87,9 @@ class _TouchLaw:
     tol_m: float
     min_share: float
     walled_m: float
+    #: rule (2)'s bearing tolerance and the feet rule (4) reads:
+    #: ``[placement] split_tol_m`` (0 where the table predates it)
+    contact_tol_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -91,7 +113,8 @@ def law_of(placement: _t.Any) -> "_TouchLaw | None":
         return None
     return _TouchLaw(t, float(placement.authored_keep_tol_m),
                     float(placement.touch_seat_min_share),
-                    float(placement.chain_min_height_m))
+                    float(placement.chain_min_height_m),
+                    float(getattr(placement, "split_tol_m", 0.0) or 0.0))
 
 
 def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
@@ -107,7 +130,6 @@ def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
         gate = fixed.frames.get(n.frame, "")
         n.fixed = (
             f"plate_{m.plate_kind}" if getattr(m, "plate_kind", "") else
-            "seat_tilt" if getattr(b.seat, "applied", False) else
             "afloat" if n.name in fixed.afloat else
             "walled_plate_led" if (n.key[0] in led_recs or
                                    group_key(n.unit, n.frame) in fixed.led) else
@@ -143,10 +165,17 @@ def _root(nodes: list, blds: list[int], g: list[int]) -> str:
     return nodes[blds[0]].name
 
 
-def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
+def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw,
+          ride: _t.AbstractSet[int] = frozenset()) -> dict:
     """One group's decision (§2.2): its class, ``Z``, the members that
-    move to it and the listings."""
-    blds = [i for i in g if nodes[i].kind == _tg.BUILDING]
+    move to it and the listings.  ``ride``: the stacked decks and their
+    units (rule (2)), which take no vote and no group move."""
+    blds = [i for i in g if nodes[i].kind == _tg.BUILDING and i not in ride]
+    if not blds:
+        return {"frame": nodes[g[0]].frame, "root": _root(nodes, sorted(g), g), "S": 0.0,
+                "Z": round(min(nodes[i].zero for i in g), 3), "bodies": len(g),
+                "buildings": 0, "small_low": [], "step": 0.0, "moves": {},
+                "kept_low": 0, "kept_high": 0, "class": "flat"}
     low = min(nodes[i].zero for i in blds)
     near = [i for i in blds if nodes[i].zero <= low + LOW_BAND_M]
     total = sum(nodes[i].area for i in blds)
@@ -168,7 +197,7 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
     if out["class"] != "seat":
         return out
     by_name = {(nodes[i].frame, nodes[i].name): i for i in g}
-    keep = set(small)
+    keep = set(small) | (set(ride) & set(g))
     for i in g:
         n = nodes[i]
         rides = n.kind == _tg.CONNECTOR and (n.frame, n.carrier) in by_name
@@ -191,6 +220,13 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
     return out
 
 
+def _body_key(splits: _t.Sequence[_t.Any], key: tuple[int, int]) -> tuple[str, int]:
+    """``(placement id, body id)`` of the body at ``key`` -- stable over a
+    re-cut, which may drop a body and shift the positions."""
+    rec = splits[key[0]]
+    return (str(rec.placement_id), int(rec.bodies[key[1]].body_id))
+
+
 def _zero_of(b: _t.Any) -> float:
     return float(b.anchor.surface_z) - float(b.anchor.y_zero)
 
@@ -201,8 +237,9 @@ def _riders(splits: _t.Sequence[_t.Any], frames: _t.Sequence[str],
     """§2.3: every body riding a moved body (``merged_into``, evidence or
     not) — a body of no group, a node or not (a carried file of orphan
     geometry has no part) — moved by the same amount, riders of riders
-    too; never a body ``skip`` names (a group member, a FIXED one), a
-    seat-tilted or isolated one, nor a footed one upward."""
+    too; never a body ``skip`` names (a group member, a FIXED one), an
+    isolated one, nor a footed one upward (a seat-tilted rider moves with
+    its carrier, RULINGS 2026-11-18h (4))."""
     name_delta: dict[tuple[str, str], float] = {}
     for (ri, j), z in moved.items():
         b = splits[ri].bodies[j]
@@ -215,7 +252,7 @@ def _riders(splits: _t.Sequence[_t.Any], frames: _t.Sequence[str],
                 k = (ri, j)
                 d = name_delta.get((frames[ri], str(b.merged_into or "")))
                 if (d is None or k in moved or k in out or k in skip
-                        or b.anchor.surface_z is None or getattr(b.seat, "applied", False)
+                        or b.anchor.surface_z is None
                         or getattr(b.anchor, "isolated", "") or (b.feet and d > tol_m)):
                     continue
                 out[k], grew = _zero_of(b) + d, True
@@ -226,18 +263,21 @@ def _riders(splits: _t.Sequence[_t.Any], frames: _t.Sequence[str],
 
 
 def _apply(splits: list, members: _t.Mapping, targets: dict[tuple[int, int], float],
-           roots: dict[tuple[int, int], str]) -> set[int]:
+           roots: dict[tuple[int, int], str],
+           whys: "_t.Mapping[tuple[int, int], str] | None" = None) -> set[int]:
     """Every target zero applied (``open_frame_seat.at_zero``, the file
-    renamed); the records changed."""
-    per: dict[int, dict[float, list]] = {}
+    renamed) with its reason (``whys``, else :data:`REASON` of its group's
+    ``roots``); the records changed."""
+    whys = whys or {}
+    per: dict[int, dict[tuple[float, str], list]] = {}
     for (ri, j), z in targets.items():
-        per.setdefault(ri, {}).setdefault(z, []).append(j)
+        why = whys.get((ri, j)) or REASON.format(root=roots.get((ri, j), ""), z=z)
+        per.setdefault(ri, {}).setdefault((z, why), []).append(j)
     for ri, by_z in per.items():
         rec = splits[ri]
         m = members[rec.placement_id][1]
-        for z, js in by_z.items():
+        for (z, why), js in by_z.items():
             ids = {id(rec.bodies[j]) for j in js}
-            why = REASON.format(root=roots.get((ri, js[0]), ""), z=z)
             rec = at_zero(rec, m, z, lambda b, _ids=ids: id(b) in _ids, why)
         splits[ri] = rec
     return set(per)
@@ -295,24 +335,52 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
                   plan_wide: _t.Mapping[int, tuple], counts: dict, *,
                   law: _TouchLaw, fixed: "Fixed | None" = None,
                   cut_log: "_t.Mapping[int, tuple] | None" = None,
-                  write: bool = False, unit_seats: _t.Sequence[tuple] = ()
+                  write: bool = False, unit_seats: _t.Sequence[tuple] = (),
+                  surface: _t.Any = None, band_m: float = 0.0
                   ) -> tuple[list, dict]:
     """``(splits, table)``: the touching groups of the final bodies seated
     (module doc).  ``cut_log`` is ``placement_file._cut_and_file``'s (each
-    written record's cut args by its index); ``write`` the stage's."""
+    written record's cut args by its index); ``write`` the stage's;
+    ``surface`` / ``band_m`` the ground and foot band rule (4) reads a
+    tilted frame's feet on (``None``: no tilt is re-read)."""
     splits = list(splits)
+    before = list(splits)
     members = {m.id: (u, m) for u in plan.units for m in u.members}
+    frames = [str(members[r.placement_id][0].id) if r.placement_id in members else ""
+              for r in splits]
+    level, level_rows = _tf.untilt_floating(
+        splits, members, surface, band_m=band_m, contact_tol_m=law.contact_tol_m,
+        tol_m=law.tol_m, sink_max_m=SEAT_MAX_M, counts=counts)
+    level_changed = {ri for ri, _j in level}
+    if level:
+        lr = _riders(before, frames, level, set(level), law.tol_m)
+        level_changed |= _apply(splits, members, lr, {}, {
+            k: _LEVEL_RIDER_REASON.format(z=z) for k, z in lr.items()})
     nodes = _tg.read_nodes(splits, members, plan_wide, law.walled_m)
     _mark_fixed(nodes, splits, members, fixed or Fixed())
     _tg.footprint_areas(nodes)
     pairs, cross = _tg.touch_pairs(nodes, law.touch_m)
     by_name = {(n.frame, n.name): i for i, n in enumerate(nodes)}
     groups = _tg.groups_of(nodes, pairs, by_name)
-    frames = [str(members[r.placement_id][0].id) if r.placement_id in members else ""
-              for r in splits]
-    rows = [_seat(nodes, g, pairs, law) for g in groups]
+    # RULINGS 2026-11-19j: the bodies seated in a group with ANOTHER
+    # placement -- ``split_bar`` keeps their zero when it writes one whole
+    shared = sorted({_body_key(splits, nodes[i].key) for g in groups
+                     if len({nodes[i].key[0] for i in g}) > 1 for i in g})
+    stack = _sd.stacked_on(nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
+                           walled_m=law.walled_m, tol_m=law.contact_tol_m or law.tol_m,
+                           kind_building=_tg.BUILDING)
+    rehost = _sd.rehosted(nodes, pairs, walled_m=law.walled_m,
+                          tol_m=law.contact_tol_m or law.tol_m, kind_building=_tg.BUILDING)
+    units = {d: _sd.unit_of(nodes, d, set(stack.values()), law.tol_m) for d in stack}
+    # a rehosted piece moves alone: its unit mates are its carrier's
+    units.update({p: [p] for p in rehost if p not in stack})
+    stack.update({p: d for p, d in rehost.items() if p not in stack})
+    rows = [_seat(nodes, g, pairs, law, {i for u in units.values() for i in u})
+            for g in groups]
     moves = {nodes[i].key: z for r in rows for i, z in r["moves"].items()}
     roots = {nodes[i].key: r["root"] for r in rows for i in r["moves"]}
+    stacked, whys = _stack_moves(nodes, stack, units, moves)
+    moves.update(stacked)
     skip = {nodes[i].key for g in groups for i in g} | {n.key for n in nodes if n.fixed}
     riders = _riders(splits, frames, moves, skip, law.tol_m)
     by_file = {(frames[ri], str(splits[ri].bodies[j].new_resource)): (ri, j)
@@ -322,22 +390,58 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
         roots[k] = roots.get(c, splits[c[0]].bodies[c[1]].new_resource if c else "")
     targets = {**moves, **riders}
     node_t = {i: targets[n.key] for i, n in enumerate(nodes) if n.key in targets}
-    before = list(splits)
-    changed = _apply(splits, members, targets, roots)
+    pre = list(splits)
+    changed = _apply(splits, members, targets, roots, whys) | level_changed
     names = _recut(splits, frames, before, changed, cut_log or {}, write, counts)
     renamed = _renamed_riders(splits, frames, names)
     moved_units = {nodes[i].unit: z for i, z in node_t.items()
                    if nodes[i].unit and nodes[i].kind == _tg.BUILDING}
     left = _unit_rows_left(unit_seats, moved_units, law.tol_m)
     made = _steps_made(nodes, pairs, node_t, law.tol_m)
-    table = _table(rows, targets, cross, left, before)
+    table = _table(rows, targets, cross, left, pre)
     table["fixed"] = _fixed_counts(nodes)
     table["fixed_steps"] = made
     table["inside_steps"] = _inside_steps(nodes, pairs, groups, rows, node_t, law.tol_m)
+    table["tilt_levelled"] = level_rows
+    table["shared_bodies"] = shared
+    table["connectors"] = _cw.bridges(
+        nodes, pairs, lambda n: splits[n.key[0]].bodies[n.key[1]],
+        lambda k: node_t.get(k, nodes[k].zero), stacked=set(stack), tol_m=law.tol_m,
+        building=_tg.BUILDING, connector=_tg.CONNECTOR)
+    table["stacked"] = [(nodes[d].name, nodes[s].name, round(nodes[d].zero, 3),
+                         round(stacked.get(nodes[d].key, nodes[d].zero), 3))
+                        for d, s in sorted(stack.items())]
     _count(counts, nodes, rows, moves, riders, cross, renamed, left)
+    if stack:
+        counts["touch_stacked_decks"] = counts.get("touch_stacked_decks", 0) + len(stack)
     if made:
         counts["touch_fixed_steps_made"] = counts.get("touch_fixed_steps_made", 0) + len(made)
     return splits, table
+
+
+def _stack_moves(nodes: list, stack: _t.Mapping[int, int], units: _t.Mapping[int, list],
+                 moves: _t.Mapping[tuple, float]) -> tuple[dict, dict]:
+    """Rule (2): ``({body key: zero}, {body key: reason})`` -- each stacked
+    deck and its unit at its support's final zero (a support that is
+    itself a stacked deck resolved first), its authored offsets kept."""
+    out: dict = {}
+    whys: dict = {}
+
+    def final(i: int, depth: int = 0) -> float:
+        n = nodes[i]
+        if n.key in out:
+            return out[n.key]
+        if i in stack and depth < len(nodes):
+            return final(stack[i], depth + 1)
+        return moves.get(n.key, n.zero)
+    for d, s in sorted(stack.items()):
+        z = final(s)
+        for k in units[d]:
+            t = z + nodes[k].zero - nodes[d].zero
+            if abs(t - nodes[k].zero) > 1e-6:
+                out[nodes[k].key] = t
+                whys[nodes[k].key] = _STACK_REASON.format(walls=nodes[s].name, z=t)
+    return out, whys
 
 
 def _steps_made(nodes: list, pairs: _t.Mapping, targets: dict, tol_m: float) -> list:

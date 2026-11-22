@@ -298,7 +298,10 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     ends: list[tuple[int, int]] = []
     lot_seg: list[bool] = []
     for fid, f in pm.faces.items():
-        if f.role not in cset:
+        # a #2114 CAR LOT is no road's contact: it is solved last, alone,
+        # against the roads (``pipeline/car_lot_stage``) — read as one on
+        # the one late map (#2206) it re-aimed the pad roads' ramps
+        if f.role not in cset or is_car_lot_ref(getattr(f, "ref", "")):
             continue
         for cyc in (f.ring, *f.holes):
             vs = pm.ring_vertices(cyc)

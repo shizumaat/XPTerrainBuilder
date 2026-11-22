@@ -559,6 +559,10 @@ class PlanarMap:
     #: read by the anchors, the deck rows and the object stage's plate —
     #: whether or not a corridor runs under it.
     decks: tuple = ()
+    #: owner RULINGS 2026-11-19s (1): the rings of the GENERATED decks this
+    #: map WITHHOLDS (stage 1's, ``planar/deck_airside``) -- bridge windows
+    #: every trend over it reads blind (``constraints/deck_anchor.deck_holes``)
+    withheld_rings: tuple = ()
     #: #2099 R2 THE WING CUTS (``planar/wing_cut``; ``model/wing_cut.WingCut``):
     #: the ground beside a grouped mouth's wings, held on their feet by
     #: ``constraints/wing_cut``
@@ -855,6 +859,10 @@ class PlanarMap:
     #: the road's cross-section (``constraints/pad_ramp``); the ramp is
     #: along the road beyond the frontage
     frontage_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE HELD TERRACES BELOW THE AIRSIDE (issue #2188,
+    #: ``classify/pad_sunk``): pad ref -> its own ground (the median DEM
+    #: over its area), the level ``constraints/pad_sunk_level`` holds it at
+    sunk_pads: _t.Mapping[str, float] = _dc.field(default_factory=dict)
     #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
     #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
     #: where the strip leaves the graded ground at an object ramp's foot,

@@ -8,7 +8,10 @@ What the World pack holds for the tile — "Built (in the World pack): mesh
 real tile, Rebuild Tile (its rebuild inputs, even when the tiles folder
 holds only those), Export Package… and Remove from World Pack… (its
 package first, then the placeholder: ``o4_engine.world_tile_remove``;
-confirmed first).  Hidden when the World pack holds nothing of the tile.
+confirmed first).  A built tile waiting for X-Plane to finish loading it,
+or in over the version X-Plane loaded, says so, the latter with "Reload
+scenery" (#2175, ``WorldTilesWaiting``, ``TEXT.waiting_note``).  Hidden
+when the World pack holds nothing of the tile and nothing waits.
 """
 from __future__ import annotations
 
@@ -43,6 +46,8 @@ class TileWorldRow(QWidget):
     export_requested = Signal(object)
     #: (lat, lon) removed (the window rescans).
     removed = Signal(object)
+    #: The user's "Reload scenery" (the window sends ``scenery_reload``).
+    reload_requested = Signal()
     _note_ready = Signal(object, str)
 
     def __init__(self, parent=None):
@@ -54,6 +59,13 @@ class TileWorldRow(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(self.status_label)
+        self.waiting_label = QLabel("")
+        self.waiting_label.setWordWrap(True)
+        layout.addWidget(self.waiting_label)
+        import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+        self.reload_button = QPushButton(ONDEMAND_TEXT.RELOAD_SCENERY_TITLE)
+        self.reload_button.clicked.connect(self.reload_requested.emit)
+        layout.addWidget(self.reload_button)
         self.detail_label = QLabel("")
         self.detail_label.setWordWrap(True)
         self.detail_label.setStyleSheet("color: palette(placeholder-text);")
@@ -77,6 +89,8 @@ class TileWorldRow(QWidget):
         layout.addWidget(self.note_label)
         self._note_ready.connect(self._show_note)
         self._tile = None
+        self._shown = None
+        self._waiting = ((), ())
         self.scenery_dir = ""
         self.setVisible(False)
 
@@ -84,19 +98,45 @@ class TileWorldRow(QWidget):
         """The row for ``tile``'s World state (a ``WorldTile``, its
         ``fields()`` dict, or ``None``, which hides it)."""
         fields = world.fields() if hasattr(world, "fields") else world
+        self._shown = (tuple(tile) if tile else None, fields)
         status = TEXT.pane_status(fields)
+        waiting = self._waiting_text(tile)
         changed = self._tile != (tuple(tile) if tile else None)
-        self._tile = tuple(tile) if tile and status else None
+        self._tile = tuple(tile) if tile and (status or waiting) else None
         if changed:
             self.note_label.setText("")
         self.setVisible(bool(self._tile))
         if not self._tile:
             return
+        self.waiting_label.setText(waiting)
+        self.waiting_label.setVisible(bool(waiting))
+        self.reload_button.setVisible(
+            bool(waiting) and self._name(tile) in self._waiting[1])
         self.status_label.setText(status)
+        self.status_label.setVisible(bool(status))
         detail = TEXT.pane_detail(fields)
         self.detail_label.setText(detail)
         self.detail_label.setVisible(bool(detail))
         self.actions.setVisible(TEXT.built_in_world(fields))
+
+    def show_waiting(self, event) -> None:
+        """A ``WorldTilesWaiting``: its names, and the row again."""
+        self._waiting = (tuple(getattr(event, "waiting", ()) or ()),
+                         tuple(getattr(event, "reload", ()) or ()))
+        if self._shown is not None:
+            self.show_world(*self._shown)
+
+    def waiting_tiles(self) -> tuple:
+        """The tile names the last ``WorldTilesWaiting`` said wait."""
+        return self._waiting[0]
+
+    @staticmethod
+    def _name(tile) -> str:
+        import O4_World_Pack as WP
+        return WP.tile_name(*tile) if tile else ""
+
+    def _waiting_text(self, tile) -> str:
+        return TEXT.waiting_note(self._name(tile), *self._waiting) if tile else ""
 
     def ask(self, tile) -> bool:
         """The confirmation (Mac: the same title, message and button)."""

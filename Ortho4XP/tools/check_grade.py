@@ -7587,8 +7587,18 @@ except Exception:                                       # pragma: no cover
     _HARD_TOL_M = 0.02
 
 
+def _planar_relief(pts: List[Tuple[float, float]],
+                   offs: List[Optional[float]]) -> Optional[List[float]]:
+    """A SLOPED BASE's plane offsets, or ``None`` — THE engine reader
+    (``auto_patch_v2.verify.pads.planar_relief``; one reading, both
+    readers)."""
+    from auto_patch_v2.verify.pads import planar_relief
+    return planar_relief(pts, offs)
+
+
 def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
-                            tol_m: float) -> List[Violation]:
+                            tol_m: float,
+                            relief: Optional[Dict[str, float]] = None) -> List[Violation]:
     """§16g (10) (6)/(8) EVERY PAD SHARING AN EDGE WITH AIRSIDE WELDS
     SMOOTHLY TO IT (owner RULINGS 2026-09-14ai, verbatim: *"be sure all
     pads sharing an edge with airside must weld smoothly to the
@@ -7617,8 +7627,16 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
 
     The join is NODE IDENTITY, never proximity (memory
     `canonical-identity-join`) — the same join
-    ``tools/role_edge_census.py`` uses for the shared-edge population."""
+    ``tools/role_edge_census.py`` uses for the shared-edge population.
+
+    ``relief`` (sidecar ``pad_relief``) is read as the solve priced the
+    ceiling: a pad on a SLOPED base (owner RULINGS 2026-11-19o (1)) slopes
+    with its object and the 1 % is measured from that PLANE — the pad
+    whose every node carries a relief that is one plane
+    (:func:`_planar_relief`).  A per-FOOT relief is the plate's target
+    only (12u): the ceiling, and this reading, stay on the raw values."""
     out: List[Violation] = []
+    relief = relief or {}
     if not ways or cap <= 0.0:
         return out
     airside_nodes: Dict[str, "Way"] = {}
@@ -7656,6 +7674,9 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
                     shared.append(len(pts) - 1)
         if len(pts) < 2 or not shared:
             continue
+        plane = _planar_relief(pts, [relief.get(n) for n in nid_of])
+        if plane is not None:
+            zs = [z - o for z, o in zip(zs, plane)]
         # the pad's own pairs, decimated the way the plate itself is
         step = max(1, len(pts) // 64)
         others = list(range(0, len(pts), step))
@@ -7767,6 +7788,7 @@ from check_grade_lib.families.road_coverage_join import (  # noqa: E402,F401,I00
 )
 from check_grade_lib.families import road_coverage_join as _fam_road_coverage_join  # noqa: E402,I001
 from check_grade_lib.families import deck_end_flush as _fam_deck_end_flush  # noqa: E402,I001
+from check_grade_lib.families import pack_bridge_under_deck as _fam_pack_bridge  # noqa: E402,I001
 
 
 #: §37 (11) (5): the ``out_of_scope`` stamp of a ``sea_wall`` row.  The
@@ -11094,6 +11116,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     *_fam_road_coverage_join.LAW_FAMILY_ROWS,
     *_fam_deck_end_flush.LAW_FAMILY_ROWS,
+    *_fam_pack_bridge.LAW_FAMILY_ROWS,
     # §37 (11) (5) THE SEA WALL (owner RULINGS 2026-09-15f item 2): the
     # emitted edges standing ON the declared shore, named with their
     # drop, level and length.  Reported, NEVER adjudicated — a wall is
@@ -12726,6 +12749,7 @@ def run_checks(
     road_route_frame_ll: Optional[list] = None,
     road_coverage_join_ll: Optional[list] = None,
     deck_anchors: Optional[list] = None,
+    pack_bridge_under_deck: Optional[list] = None,
     ground_envelope: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
@@ -13200,7 +13224,8 @@ def run_checks(
 
     weld_rows = _fam("pad_airside_weld",
                      _check_pad_airside_weld(ways, nodes, ll_to_m,
-                                             _PAD_SLOPE_MAX, _HARD_TOL_M))
+                                             _PAD_SLOPE_MAX, _HARD_TOL_M,
+                                             pad_relief_by_nid))
     _pv("PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that "
         "edge (owner RULINGS 2026-09-14ai: \"all pads sharing an edge "
         "with airside must weld smoothly to the airside\" — the airside "
@@ -13248,6 +13273,12 @@ def run_checks(
         "2026-10-30a (1), 2026-11-03c; deck-end-anchors spec §6: every "
         "station flush within deck_flush_m)", deck_flush, top_n)
     within = within + deck_flush
+
+    pack_under = _fam("pack_bridge_under_deck",
+                      _fam_pack_bridge.check_pack_bridge_under_deck(pack_bridge_under_deck))
+    _pv("PACK BRIDGE left under a GENERATED deck (RULINGS 2026-11-20a (1): the "
+        "pack's bridge or ours, never both)", pack_under, top_n)
+    within = within + pack_under
 
     renode = _fam("pad_airside_renode",
                   _check_pad_airside_renode(pad_airside_renode_ll, nodes))

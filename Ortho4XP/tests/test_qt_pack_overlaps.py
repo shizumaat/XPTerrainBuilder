@@ -85,6 +85,21 @@ def test_each_pair_has_a_picker_on_its_answer_else_the_airport_pack(qapp):
     assert set(buttons) == {"choose"}
 
 
+def test_a_drape_row_offers_to_hide_the_lower_packs_polygons(qapp):
+    """RULINGS 2026-11-19h: the airport pack wins by default (Hide), or
+    Keep both; the note is shown once."""
+    row = {"key": "/CS/draped polygons +41-088/Airport | World", "kind": "drapes",
+           "packs": ["Airport", "World"], "airport": "Airport", "default": "Airport",
+           "winner": "", "lower": "World", "count": 9, "rows": [0, 9], "summary": "s"}
+    box, _buttons = QTOVER.pack_overlaps_box(_event(items=[row]))
+    (pick,) = box.pickers.values()
+    assert [pick.itemText(i) for i in range(pick.count())] == [
+        "Hide World's polygons inside the airport", "Keep both"]
+    assert pick.currentData() == "Airport"
+    assert box.answer_extra("choose") == {"items": [{"key": row["key"], "winner": "Airport"}],
+                                          "default": ""}
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackOverlaps.swift")
@@ -108,7 +123,24 @@ def test_the_copy_matches_the_mac_app():
     assert joined("static let restartNote", "/// The row") == QTOVER.RESTART_NOTE
     assert joined("static let duplicateKind", "static let disable ") == QTOVER.DUPLICATE_KIND
     assert joined("static let disable ", "static let keep ") == QTOVER.DISABLE
-    assert joined("static let keep ", "}") == QTOVER.KEEP
+    assert joined("static let keep ", "// A lower pack") == QTOVER.KEEP
+    assert joined("static let drapesNote", "static let hidePrefix") == QTOVER.DRAPES_NOTE
+    assert joined("static let hidePrefix", "static let hideSuffix") == QTOVER.HIDE_PREFIX
+    assert joined("static let hideSuffix", "/// The row `kind` of a drape") == QTOVER.HIDE_SUFFIX
+    assert joined("static let drapesKind", "// Reviewing") == QTOVER.DRAPES_KIND
+    assert joined("static let reviewButton", "static let reviewHelp") == QTOVER.REVIEW_BUTTON
+    assert joined("static let reviewHelp", "static let noPairs") == QTOVER.REVIEW_HELP
+    assert joined("static let noPairs", "static let okButton") == QTOVER.NO_PAIRS
+    assert joined("static let okButton", "}") == QTOVER.OK_BUTTON
+    assert joined("static let condensedBody", "static let preferLabel") == QTOVER.CONDENSED_BODY
+    assert joined("static let preferLabel", "static let keepAllLabel") == QTOVER.PREFER_LABEL
+    assert joined("static let keepAllLabel", "static let allTiles ") == QTOVER.KEEP_ALL_LABEL
+    assert joined("static let allTiles ", "static let allTilesNote") == QTOVER.ALL_TILES
+    assert joined("static let allTilesNote", "static let undecidedNote") == QTOVER.ALL_TILES_NOTE
+    assert joined("static let undecidedNote", "static let byAirport") == QTOVER.UNDECIDED_NOTE
+    assert joined("static let byAirport", "/// The condensed answers") == QTOVER.BY_AIRPORT
+    assert joined("static let prefer ", "static let keepAll ") == QTOVER.PREFER
+    assert joined("static let keepAll ", "// End of the condensed") == QTOVER.KEEP_ALL
     for s in (QTOVER.APPLY_BUTTON, QTOVER.NOT_NOW_BUTTON):
         assert '"%s"' % s in text
 
@@ -138,7 +170,7 @@ def test_apply_sends_every_pick_and_not_now_nothing(window, monkeypatch):
     _button(box, "Apply").click()
     assert sent == [{"action": "choose", "lat": 24, "lon": 55, "items": [
         {"key": ITEMS[0]["key"], "winner": "Autogen"},
-        {"key": ITEMS[1]["key"], "winner": "both"}]}]
+        {"key": ITEMS[1]["key"], "winner": "both"}], "default": ""}]
 
 
 DUPS = [{"key": "/CS/same airport/Alpha | Zeta", "kind": "duplicate",
@@ -169,3 +201,131 @@ def test_a_same_airport_pair_offers_to_disable_the_lower_pack(window, monkeypatc
     _button(box, "Apply").click()
     assert sent[0]["items"] == [{"key": DUPS[0]["key"], "winner": "disable"},
                                 {"key": ITEMS[0]["key"], "winner": "Airport"}]
+
+
+def test_the_standard_size_matches_the_mac_sheet():
+    """#2180: one width; more than a few pairs scroll inside one height."""
+    sheet = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "XPTerrainBuilder", "PackOverlapsSheet.swift")
+    if not os.path.exists(sheet):
+        pytest.skip("Swift sources not present in this tree")
+    text = open(sheet, encoding="utf-8").read()
+    assert "listMaxHeight: CGFloat = %d" % QTOVER.LIST_MAX_HEIGHT in text
+    assert "boxWidth: CGFloat = %d" % QTOVER.BOX_WIDTH in text
+    assert "unscrolledPairs = %d" % QTOVER.UNSCROLLED_PAIRS in text
+
+
+def _many(n):
+    return [{"key": "/CS/P%d | Airport" % i, "packs": ["P%d" % i, "Airport"],
+             "airport": "Airport", "default": "Airport", "winner": "",
+             "count": 3, "rows": [1, 2], "summary": "P%d and Airport both draw 3" % i}
+            for i in range(n)]
+
+
+def test_a_long_list_scrolls_and_the_box_keeps_its_size(qapp):
+    """#2180: forty pairs fit a 13-inch screen; the buttons stay outside
+    the scroll area."""
+    box, _buttons = QTOVER.pack_overlaps_box(_event(items=_many(40)))
+    assert box.scroll is not None
+    assert box.scroll.height() == QTOVER.LIST_MAX_HEIGHT
+    assert len(box.pickers) == 40
+    assert all(box.scroll.widget().isAncestorOf(p) for p in box.pickers.values())
+    assert not box.scroll.isAncestorOf(box.apply)
+    assert box.sizeHint().height() < 760
+    assert box.width() == QTOVER.BOX_WIDTH
+    short, _ = QTOVER.pack_overlaps_box(_event(items=_many(QTOVER.UNSCROLLED_PAIRS)))
+    assert short.scroll is None
+
+
+def test_a_report_with_no_pair_says_so(window, monkeypatch):
+    """#2180: the review of a tile with no pair: the words and OK, nothing
+    sent."""
+    from PySide6.QtWidgets import QLabel
+    sent = []
+    monkeypatch.setattr(window._session, "pack_overlaps",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    window._on_engine_event(_event(state="ask", items=[]))
+    [box] = window._pack_art_boxes
+    assert QTOVER.NO_PAIRS in [w.text() for w in box.findChildren(QLabel)]
+    assert [b.text() for b in box.buttons()] == [QTOVER.OK_BUTTON]
+    _button(box, QTOVER.OK_BUTTON).click()
+    assert sent == [] and window._pack_art_boxes == []
+
+
+def test_pack_choices_asks_for_the_active_tiles_report(window, monkeypatch):
+    """#2180: the tile pane's Pack choices... sends "ask"; the report opens
+    the question again, each picker on the stored answer."""
+    sent = []
+    monkeypatch.setattr(window._session, "pack_overlaps",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    monkeypatch.setattr(window.map, "active_tile", lambda: (25, 55))
+    assert window.pack_choices_btn.text() == QTOVER.REVIEW_BUTTON
+    window.pack_choices_btn.click()
+    assert sent == [{"action": "ask", "lat": 25, "lon": 55}]
+    window._on_engine_event(_event())
+    [box] = window._pack_art_boxes
+    _button(box, "Not now").click()
+    window._on_engine_event(_event(state="ask"))
+    [box] = window._pack_art_boxes
+    assert box.pickers[ITEMS[1]["key"]].currentData() == "both"
+
+
+# --- #2190: the condensed question -----------------------------------------
+
+CONDENSED = [{"key": "/CS/City | Field", "packs": ["City", "Field"], "airport": "Field",
+              "default": "Field", "winner": "", "prefer": "Field", "keep": "both",
+              "count": 4, "rows": [2, 2], "summary": "City and Field both draw 4"},
+             {"key": "/CS/World | Field", "packs": ["World", "Field"], "airport": "Field",
+              "default": "Field", "winner": "", "prefer": "Field", "keep": "both",
+              "count": 2, "rows": [1, 1], "summary": "World and Field both draw 2"},
+             {"key": "/CS/Field | Other Field", "packs": ["Field", "Other Field"],
+              "airport": "Field", "default": "Field", "winner": "", "prefer": "",
+              "keep": "both", "count": 1, "rows": [1, 1], "summary": "two airports"}]
+
+
+def _visible(box, key):
+    return not box.pickers[key].isHidden()
+
+
+def test_the_question_opens_condensed_on_prefer_the_airports(qapp):
+    """Owner 2026-11-20T01:00Z: two choices for the tile, the pairs the
+    choice decides folded under Choose by airport…, the rest listed."""
+    box, _ = QTOVER.pack_overlaps_box(_event(items=CONDENSED))
+    assert box.mode() == QTOVER.PREFER and not box.all_tiles.isChecked()
+    assert not box.by_airport.isChecked() and not box.by_airport.isHidden()
+    assert [_visible(box, r["key"]) for r in CONDENSED] == [False, False, True]
+    assert not box.undecided_note.isHidden()
+    assert box.answer_extra("choose") == {"items": [
+        {"key": CONDENSED[0]["key"], "winner": "Field"},
+        {"key": CONDENSED[1]["key"], "winner": "Field"},
+        {"key": CONDENSED[2]["key"], "winner": "Field"}], "default": ""}
+
+
+def test_keep_everything_for_all_tiles_and_a_pick_by_airport(qapp):
+    box, _ = QTOVER.pack_overlaps_box(_event(items=CONDENSED))
+    box.mode_buttons[QTOVER.KEEP_ALL].setChecked(True)
+    assert [_visible(box, r["key"]) for r in CONDENSED] == [False, False, False]
+    assert box.undecided_note.isHidden()
+    box.by_airport.setChecked(True)
+    assert all(_visible(box, r["key"]) for r in CONDENSED)
+    pick = box.pickers[CONDENSED[0]["key"]]
+    pick.setCurrentIndex(pick.findData("City"))
+    pick.activated.emit(pick.currentIndex())                 # the user's pick
+    box.mode_buttons[QTOVER.PREFER].setChecked(True)
+    box.mode_buttons[QTOVER.KEEP_ALL].setChecked(True)
+    box.all_tiles.setChecked(True)
+    assert box.answer_extra("choose") == {"items": [
+        {"key": CONDENSED[0]["key"], "winner": "City"},
+        {"key": CONDENSED[1]["key"], "winner": "both"},
+        {"key": CONDENSED[2]["key"], "winner": "both"}], "default": QTOVER.KEEP_ALL}
+
+
+def test_the_report_opens_on_the_stored_default_and_answers(qapp):
+    """Pack choices… still opens every pair: the stored default checked,
+    a stored answer it would change kept and shown expanded."""
+    rows = [dict(CONDENSED[0], winner="City"), dict(CONDENSED[1], winner="both")]
+    box, _ = QTOVER.pack_overlaps_box(_event(items=rows, state="ask",
+                                             default=QTOVER.KEEP_ALL))
+    assert box.mode() == QTOVER.KEEP_ALL and box.all_tiles.isChecked()
+    assert box.by_airport.isChecked()
+    assert [p.currentData() for p in box.pickers.values()] == ["City", "both"]

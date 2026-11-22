@@ -461,7 +461,7 @@ class _Shim:
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
                  "floors", "rings", "floor", "footed", "walled", "pids",
-                 "outline", "bridges", "rows", "span")
+                 "outline", "bridges", "rows", "span", "tops")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
@@ -472,7 +472,8 @@ class _Shim:
                  outline: "list | None" = None,
                  bridges: "list | None" = None,
                  rows: "list | None" = None,
-                 span: "tuple[float, float] | None" = None) -> None:
+                 span: "tuple[float, float] | None" = None,
+                 tops: "list | None" = None) -> None:
         self.member = member
         #: the body's part ids — the join to the §2 connector verdict
         self.pids = frozenset(pids)
@@ -502,6 +503,10 @@ class _Shim:
         #: ``geom.pad_evidence.resource_rows`` folds per member RESOURCE
         #: over the welded chain, v1's ``_res_min_y`` / ``_res_max_y``
         self.span = span
+        #: lane ``lk1fix``: each of ``rows``' component TOP (authored
+        #: ``base_y + height_m``) — K1's below-grade reading
+        #: (``geom.pad_evidence.mostly_under_grade``)
+        self.tops = list(tops or ())
         #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
         #: has a ground-contact component at all
         self.floor = float(floor)
@@ -679,6 +684,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 # every live component, posts and flat lines included
                 rows=[member_row(q, u.members[mi].resource, ml_u, mo_u)
                       for q in live] if evidence_law is not None else None,
+                tops=[float(q.base_y) + float(getattr(q, "height_m", 0.0) or 0.0)
+                      for q in live] if evidence_law is not None else None,
                 span=(min(float(q.base_y) for q in live),
                       max(float(q.base_y)
                           + float(getattr(q, "height_m", 0.0) or 0.0)
@@ -793,7 +800,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                         [w for i in grp for w in resource_rows(
                             shims[i].rows, spans.get(shims[i].member))],
                         [v for i in grp for r in shims[i].rings for v in r],
-                        ml_u, mo_u, *evidence_law)
+                        ml_u, mo_u, *evidence_law,
+                        tops=[t for i in grp for t in shims[i].tops])
                         if evidence_law is not None else None)))
                 # base-profile spec §1 (3)/(4) (C1): the group's own
                 # composed profile, derived HERE — the one site the

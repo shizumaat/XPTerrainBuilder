@@ -51,7 +51,7 @@ jobs:
       - name: Frozen work pool (spawn, shared memory, nested)
         run: |
           python3 scripts/check_frozen_tile.py \
-            Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool \
+            Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine --pass pool \
             ${{ inputs.workers && format('--pool-workers {0}', inputs.workers) || '' }} \
             --logs "$RUNNER_TEMP/frozen-pool-logs"
 
@@ -59,7 +59,7 @@ jobs:
         if: inputs.tile == 'true'
         run: |
           bash scripts/check_frozen_tile.sh \
-            Ortho4XP/dist/Ortho4XP/Ortho4XP python3 \
+            Ortho4XP/dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine python3 \
             --logs "$RUNNER_TEMP/frozen-pool-logs/tile"
 
       - name: Logs

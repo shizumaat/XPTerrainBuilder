@@ -36,7 +36,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY
 from ..law import Law
 from ..law.reference_code import ref_status, status_by_ref
-from ..law.tables import zone_edge_offset_m
+from ..law.tables import taxi_half_width_m, zone_edge_offset_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
@@ -50,7 +50,8 @@ from .structure_service import airside_cut_roles
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent", "is_aeroway_bridge",
+__all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent",
+           "is_aeroway_bridge", "is_road_bridge",
            "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE", "bore_roads"]
 
 #: §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): the RUNWAY family
@@ -140,6 +141,15 @@ def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:
 #: The tag a synthesised UNDERPASS bore carries, so the reports and the
 #: approach walk can tell it from a mapped ``tunnel=yes`` way.
 UNDERPASS_TAG = "o4_underpass"
+
+
+def is_road_bridge(tags: _t.Mapping[str, str]) -> bool:
+    """A mapped ROAD on a bridge (``highway`` + ``bridge`` not ``no``, no
+    aeroway): ``planar/road_bridge_gen``'s candidates, and the mapped
+    bridges that split an over-long cover (``deck_generated``)."""
+    b = str((tags or {}).get("bridge", "")).strip()
+    return bool(b) and b != "no" and bool((tags or {}).get("highway")) \
+        and not (tags or {}).get("aeroway")
 
 
 def aeroway_decks(airport: Airport, law: Law) -> list[OsmWay]:
@@ -275,8 +285,36 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # The cell states where the crossing is COVERED, which is the
         # footprint between its kerbs at each station of the way.
         ribbon, from_cell = _cell_ribbon(axis_fn, ss, offs, rim_off + grid, grid)
+        # #2183 item 4: where no airside cell stands under the bridge (the
+        # pack's hole under its own deck object) the ribbon is the TAXIWAY's
+        # -- the authority's default width (``taxi.width_m``), never a road's
+        # lanes fallback: its 7 m "carriageway" clipped every road to 1.4 m,
+        # under ``underpass_min_span_m`` (MEASURED KIAH ``-414`` over primary
+        # ``-5106``: 0 roads bored; ``-67``'s cells stood over ``-450`` only,
+        # ``-25635`` beside it in the hole unbored)
+        twy = taxi_half_width_m(law, None)
+        w_twy = max(half_clip, (twy or 0.0) - rim_off - grid)
         if ribbon is None:
-            ribbon = ln.buffer(half_clip, **_MITRE)
+            ribbon = ln.buffer(w_twy, **_MITRE)
+        else:
+            # only ALONG the bridge where no cell's stations reach, never
+            # beside a cell's kerbs (its graded strip, §34 (5) (b))
+            open_ = ln.difference(ribbon)
+            bits = [g.buffer(w_twy, cap_style="flat") for g in getattr(open_, "geoms", [open_])
+                    if g.geom_type == "LineString" and g.length > grid]
+            centre = unary_union(bits) if bits else None
+            if centre is not None and not centre.is_empty:
+                # lane lcross21 (owner 2026-11-20T15:30Z, KIAH JFK Blvd: "There
+                # should be two parallel taxiway bridges and the road bridge
+                # for each of the roads"): where the cell's stations were
+                # REFUSED (a junction blob wider than the cell's cap) the
+                # bridge still states the crossing -- its centreline ribbon
+                # bores a road under it whatever pavement the pack laid
+                # there.  MEASURED KIAH ``-414`` / ``-120`` over ``-5106`` /
+                # ``-7074``: 23 stations read north of the carriageways, 32 / 41
+                # refused over them, the hole-only ribbon empty (pav33 / pav39
+                # cover it): 0 roads bored, no deck at the RB crossings
+                ribbon = unary_union([ribbon, centre])
         pieces: list[tuple[OsmWay, LineString]] = []
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)

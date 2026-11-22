@@ -259,8 +259,21 @@ def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=()
         return (), notes
     rings = unary_union([deck_polygon(d) for d in decks])
     keep = _kept_parts(cells, airport, law)
+    from ..model.structures import is_generated
+    gen = {d.object_id for d in decks if is_generated(d)}
     recs = []
     for rec, reads in found:
+        if rec.object_id in gen:
+            # owner RULINGS 2026-11-19s (3)-(4): OUR bridge's cut is CARVED --
+            # its floor the deeper of the lidar road (read above) and the
+            # deck's underside less the clearance, steep embankments at the
+            # abutments, the roads ramped back at their grade cap -- never
+            # the raw survey drawn in a keep-out (KBNA 1.0.565: "neither
+            # smooth, nor deep enough", "no embankments")
+            recs.append(rec)
+            notes.append(f"{rec.object_id}: a generated deck's cut is carved, not drawn from "
+                         f"the survey (RULINGS 2026-11-19s (3)-(4)): no keep-out C")
+            continue
         c = _cut_region(rec.cover, reads, airport, law)
         if c is not None:
             c = c.difference(rings)

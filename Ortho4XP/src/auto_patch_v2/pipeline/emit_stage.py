@@ -449,7 +449,10 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            "agp_groups": _agp_records,
                            # spec 2123 (RULINGS 2026-11-16y): the generated
                            # decks and road bridges the object stage writes
-                           "generated": generated_records(pm, law, airport, sol.z)})
+                           "generated": generated_records(
+                               pm, law, airport, sol.z,
+                               getattr(lrep, "generated_offers", ()),
+                               (design_rep.reach_seed or {}).get("generated_tops"))})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,
@@ -483,6 +486,13 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     if _touch:
         pub["pad_touch"] = _touch
     pub["design_target"] = design_rep.targets
+    # owner RULINGS 2026-11-20a (1): a pack bridge body left under a
+    # generated deck (``planar/deck_takeover._one_decision``) -- the census's
+    # ``pack_bridge_under_deck`` rows; ``[]`` where the decision was clean
+    pub["pack_bridge_under_deck"] = [
+        {"deck": d.object_id, "object": u[0], "resource": u[1], "lon": u[2][0],
+         "lat": u[2][1], "area_m2": u[3]}
+        for d in getattr(pm, "decks", ()) or () for u in getattr(d, "pack_under", ()) or ()]
     # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
     # the edge segments published as open ways over the vertices they
     # already run through — the owner's KML read of where ground ends
@@ -630,7 +640,8 @@ def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFil
     # (``rebake_screen.patch_body_sha256`` of the files once written)
     bodies = [hashlib.sha256(f.body.encode("utf-8")).hexdigest()
               for f in [patch, *(f for _k, f in pieces or ())]]
-    rscreen = _rscreen.take(airport, objects_out[0], law, patch_bodies=bodies, **_plan_args)
+    rscreen = _rscreen.take(airport, objects_out[0], law, patch_bodies=bodies,
+                            cache=objects_out[1], **_plan_args)
     if rscreen is not None:
         name = f"{icao}.rebake.screen.json"
         s = wall["rebake_screen"] = time.perf_counter() - t

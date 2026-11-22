@@ -8,9 +8,13 @@ each that changes THIS build only — Settings keeps the defaults, and
 ``o4_engine.build_airports``, the reader the Mac app asks through the
 ``build_airports`` command, read here on a worker thread.
 ``tests/test_qt_layout_parity.py`` holds the two cards to one order and
-one wording.  "Library patches" under the airport list is the patch
-library's match list (#1699 phase 2, ``O4_Qt_Patch_Library.
-LibraryMatchList``; the Mac card's ``LibraryMatchList``).
+one wording.  Under the packs, one switch PER AIRPORT whose pack may be
+fitted (#2182, owner 2026-11-19T14:15Z): kept for that airport's later
+builds (``o4_engine.build_airports.set_airport_fit``), asking first
+when it turns on an airport with a custom patch (RULINGS 2026-11-18l).
+"Library patches" under the airport list is the patch library's match
+list (#1699 phase 2, ``O4_Qt_Patch_Library.LibraryMatchList``; the Mac
+card's ``LibraryMatchList``).
 """
 
 import threading
@@ -24,11 +28,13 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
+    QWidget,
 )
 
-__all__ = ["AirportsCard", "summary_suffix"]
+__all__ = ["AirportsCard", "confirm_fit", "summary_suffix"]
 
 GRADE_SENTENCE = (
     "Runways, taxiways and aprons are reshaped to meet FAA (USA) or ICAO "
@@ -43,6 +49,10 @@ BACKUP_NOTE = ("Originals are backed up. Restore a pack from Modified "
 NEEDS_GRADING = "Needs airport grading on."
 NO_PACKS = "No custom airport with its own 3-D objects in these tiles."
 PER_BUILD_TIP = "For this build only. The default is in Settings."
+#: The per-airport switches (#2182): the tooltip, and the tag after an
+#: airport whose custom patch is installed.
+FIT_AIRPORT_TIP = "Kept for this airport's later builds."
+CUSTOM_PATCH_TAG = "custom patch"
 
 #: The engine keys of the two switches (``Tile.apply_build_overrides``).
 GRADE_KEY = "auto_patch"
@@ -101,6 +111,20 @@ def fit_by_default() -> bool:
     return bool(getattr(CFG, "modify_custom_airports", True))
 
 
+def confirm_fit(parent, question: str) -> bool:
+    """The user's yes to turning "Fit custom airport buildings" on for
+    tiles with custom patches (owner RULINGS 2026-11-18l, #2172; the
+    engine's words, ``O4_Custom_Patches.fit_confirm_text``).  Cancel is
+    the default; no question (no custom patch) is a yes."""
+    if not question:
+        return True
+    box = QMessageBox(QMessageBox.Warning, GLOSSARY.TERMS["fit_buildings"],
+                      question, QMessageBox.Ok | QMessageBox.Cancel, parent)
+    box.button(QMessageBox.Ok).setText("Continue")
+    box.setDefaultButton(QMessageBox.Cancel)
+    return box.exec() == QMessageBox.Ok
+
+
 class _Bridge(QObject):
     ready = Signal(object)
 
@@ -143,6 +167,11 @@ class AirportsCard(QGroupBox):
             lambda checked: self._switched(FIT_KEY, checked))
         self.fit_text = self._caption(FIT_SENTENCE)
         self.packs_text = self._caption("")
+        self.fit_airports_box = QWidget()
+        self._fit_airports_layout = QVBoxLayout(self.fit_airports_box)
+        self._fit_airports_layout.setContentsMargins(18, 0, 0, 0)
+        self._fit_airports_layout.setSpacing(1)
+        self.fit_airport_checks = {}
         self.library_match_list = PATCHLIB.LibraryMatchList()
         # The explanations sit behind a small "i" (owner 2026-10-27; the
         # Mac card's infoButton): the card shows switches and lists.
@@ -153,7 +182,8 @@ class AirportsCard(QGroupBox):
                        self.airports_toggle, self.airports_text,
                        self.library_match_list,
                        self._row(self.chk_fit, self.fit_info),
-                       self.fit_text, self.packs_text):
+                       self.fit_text, self.packs_text,
+                       self.fit_airports_box):
             if isinstance(widget, QHBoxLayout):
                 layout.addLayout(widget)
             else:
@@ -191,12 +221,22 @@ class AirportsCard(QGroupBox):
 
     # ── the per-build switches ─────────────────────────────────────────
     def defaults(self) -> dict:
-        return {GRADE_KEY: grade_by_default(), FIT_KEY: fit_by_default()}
+        """Settings' values; fitting as the engine's card reads the tiles
+        (off on a tile a custom patch is new to, RULINGS 2026-11-18l)."""
+        fit = (self.card or {}).get("fit_buildings")
+        return {GRADE_KEY: grade_by_default(),
+                FIT_KEY: fit_by_default() if fit is None else bool(fit)}
 
     def grading(self) -> bool:
         return self.overrides.get(GRADE_KEY, self.defaults()[GRADE_KEY])
 
     def _switched(self, key, checked):
+        if key == FIT_KEY and checked and not confirm_fit(
+                self, (self.card or {}).get("fit_confirm", "")):
+            self.chk_fit.blockSignals(True)
+            self.chk_fit.setChecked(False)
+            self.chk_fit.blockSignals(False)
+            return
         if self.defaults()[key] == bool(checked):
             self.overrides.pop(key, None)
         else:
@@ -262,10 +302,52 @@ class AirportsCard(QGroupBox):
         if generation != self._generation:
             return                            # a newer selection asks
         (self.card, self._error, self._loading) = (card, error, False)
-        self._render()
+        self._fill_fit_airports()
+        self.refresh_switches()           # the card's fitting default
         changed = getattr(self, "on_card_changed", None)
         if changed is not None:
             changed()
+
+    # ── the per-airport switches (#2182) ───────────────────────────────
+    def _fill_fit_airports(self):
+        while self._fit_airports_layout.count():
+            item = self._fit_airports_layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self.fit_airport_checks = {}
+        for row in (self.card or {}).get("fit_airports") or ():
+            label = row["icao"] + (" · " + CUSTOM_PATCH_TAG
+                                   if row.get("custom_patch") else "")
+            box = QCheckBox(label)
+            box.setChecked(bool(row.get("fit")))
+            box.setToolTip(FIT_AIRPORT_TIP)
+            box.toggled.connect(
+                lambda checked, row=row: self._airport_switched(row, checked))
+            never_widen(box)
+            self._fit_airports_layout.addWidget(box)
+            self.fit_airport_checks[row["icao"]] = box
+
+    def _airport_switched(self, row, checked):
+        """One airport's own switch, kept for its later builds."""
+        box = self.fit_airport_checks.get(row["icao"])
+        if checked and not confirm_fit(self, row.get("confirm", "")):
+            if box is not None:
+                box.blockSignals(True)
+                box.setChecked(False)
+                box.blockSignals(False)
+            return
+        import O4_File_Names as FNAMES
+        from o4_engine import build_airports as CARD
+
+        (lat, lon) = row["tile"]
+        folder = self._pending[1] if self._pending else ""
+        CARD.set_airport_fit(FNAMES.short_latlon(lat, lon), row["icao"],
+                             bool(checked), folder)
+        row["fit"] = bool(checked)
+        rows = (self.card or {}).get("fit_airports") or ()
+        if self.card is not None and rows:
+            self.card["fit_buildings"] = any(r.get("fit") for r in rows)
+        self.refresh_switches()
 
     # ── the words ──────────────────────────────────────────────────────
     def fit_disabled_reason(self):
@@ -313,3 +395,5 @@ class AirportsCard(QGroupBox):
                                    "" if int(p["objects"]) == 1 else "s")
              for p in packs] + ([BACKUP_NOTE] if packs else [])))
         self.packs_text.setVisible(bool(packs))
+        self.fit_airports_box.setVisible(bool(self.fit_airport_checks))
+        self.fit_airports_box.setEnabled(reason is None)

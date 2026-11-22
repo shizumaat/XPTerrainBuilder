@@ -165,9 +165,11 @@ def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
     """THE apt.dat WRITE of a pack the app modifies (module doc): the live
     file becomes the shipped backup with its flatten rows stripped and
     ``regions`` (lon/lat polygons) cut out of ``icao``'s block.  Returns
-    ``(state, dropped 120 pieces)``: ``"written"``, or ``""`` when the
-    file is not ours to write (nothing changed).  Raises ``OSError`` on a
-    failed write, the live file as it was."""
+    ``(state, dropped 120 pieces)``: ``"written"``, ``"unchanged"`` when
+    the live file and its record already are this cut (#2178: an airport
+    on two tiles asks once per tile; the second writes nothing), or ``""``
+    when the file is not ours to write (nothing changed).  Raises
+    ``OSError`` on a failed write, the live file as it was."""
     v = classify(apt_path)
     if v.state in (_bs.State.REPLACED, _bs.State.UNPROVEN) and v.backup:
         _bs.adopt(v)            # the user's newer apt.dat: retire the backup
@@ -182,6 +184,8 @@ def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
     if shipped is None:
         return "", []
     data, records, dropped = _cut(stripped(shipped), icao, list(regions))
+    if _already(apt_path, data, [r.wkt for r in regions]):
+        return "unchanged", dropped
     with open(apt_path + ".o4tmp", "wb") as fh:
         fh.write(data)
     os.replace(apt_path + ".o4tmp", apt_path)
@@ -193,6 +197,19 @@ def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
     os.replace(apt_path + EDITS_SUFFIX + ".o4tmp", apt_path + EDITS_SUFFIX)
     _bs.invalidate_memo()
     return "written", dropped
+
+
+def _already(apt_path: str, data: bytes, regions: list) -> bool:
+    """Are the live file and its record already ``data`` cut by
+    ``regions`` (:func:`write_regions`)?"""
+    live = _read(apt_path)
+    if live is None or live != data:
+        return False
+    try:
+        with open(apt_path + EDITS_SUFFIX, encoding="utf-8") as fh:
+            return json.load(fh).get("regions") == regions
+    except (OSError, ValueError):
+        return False
 
 
 def read_path(apt_path: str) -> str:

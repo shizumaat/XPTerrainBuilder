@@ -1,7 +1,7 @@
 """Twins of the cut-cover round (owner 2026-11-17 18:30Z "Be sure the cut
 goes all the way under anywhere we add a bridge"; 19:08Z 4.2 m for small
-roads): a generated deck's floor follows its end lines as stage 1 solved
-them (``constraints/deck_floor_follow``), the lower road under a generated
+roads): a generated deck's floor follows the deck over the no-bridge airside
+(``constraints/deck_floor_follow``, RULINGS 2026-11-19s), the lower road under a generated
 road bridge's span holds its clearance as a hard ceiling
 (``constraints/road_bridge_ceiling``), the pads and walls read off a pack
 placement a generated deck hides leave the classification
@@ -18,7 +18,7 @@ from auto_patch_v2.constraints.edge_floor import DECK_FLOOR
 from auto_patch_v2.constraints.road_bridge_ceiling import road_bridge_ceiling_rows
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
-from auto_patch_v2.model.structures import DeckAnchor, DeckBridge
+from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.planar.deck_generated import GENERATED_WITNESS
 from auto_patch_v2.planar.deck_pack_cover import hidden_cells_off
 from auto_patch_v2.planar.structure_approach import design_clearance_m
@@ -33,35 +33,34 @@ def _deck(**kw):
                       -6.0, 29.4, floor_min_m=6.0, witness=GENERATED_WITNESS, **kw)
 
 
-def _anchor(end, stations):
-    return DeckAnchor("o4gen_t", end, stations[0], tuple(stations), 0.0, 0.0, 0.0, "taxi",
-                      "", 0.0)
-
-
 def test_clearance_by_road_class():
     assert design_clearance_m({"highway": "service"}, LAW) == 4.2
     assert design_clearance_m({"highway": "motorway"}, LAW) == 5.0
     assert design_clearance_m({"railway": "rail"}, LAW) == 5.0
 
 
-def test_the_floor_follows_the_solved_end_lines():
-    # pre-solve floor 23.4 (29.4 - 6); stage 1 put the ends at 28.7 / 29.0:
-    # the floor goes to min(28.7 - 6.0, 29.0 - 6.3) = 22.7
+def test_the_floor_follows_the_deck_over_the_no_bridge_airside():
+    # RULINGS 2026-11-19s (2): the floor is the deeper of the planar floor
+    # (the lidar road, 23.4) and the deck's underside less the clearance --
+    # the deck's top is stage 1's pavement on its ring (ends 28.7 / 29.0):
+    # min(28.7, 29.0) - 6.0 = 22.7
     db = _deck()
     tn = types.SimpleNamespace(id="tunnel:-1@0", deck_bridge="o4gen_t")
-    pm = types.SimpleNamespace(decks=(db,), structures=(tn,),
-                               deck_anchors=(_anchor("a", (1, 2)), _anchor("b", (3, 4))))
+    vx = {1: (0.0, 0.0), 2: (0.0, 20.0), 3: (40.0, 0.0), 4: (40.0, 20.0)}
+    pm = types.SimpleNamespace(decks=(db,), structures=(tn,), faces={},
+                               vertices={v: types.SimpleNamespace(xy=xy, incident_faces=())
+                                         for v, xy in vx.items()})
     src = Source("structures", DECK_FLOOR, ("tunnel:-1@0",))
     other = Pin(9, 50.0, Source("x", "y", ("tunnel:-1@0",)))
     cs = ConstraintSet(pins=(Pin(7, 23.4, src), Pin(8, 23.4, src), other))
     lv = {1: 28.7, 2: 28.7, 3: 29.0, 4: 29.0}
-    out, rep = floor_follow_rewrite(pm, cs, lv)
+    out, s2 = floor_follow_rewrite(pm, cs, lv)
     z = {p.v: p.z for p in out.pins}
     assert abs(z[7] - 22.7) < 1e-9 and abs(z[8] - 22.7) < 1e-9 and z[9] == 50.0
-    assert rep["pins"] == 2 and abs(rep["max_drop_m"] - 0.7) < 1e-9
-    # a deck solved higher than estimated keeps its deeper pin
-    same, rep = floor_follow_rewrite(pm, cs, {k: v + 2.0 for k, v in lv.items()})
-    assert same is cs and rep["pins"] == 0
+    assert s2.report["pins"] == 2 and abs(s2.report["max_drop_m"] - 0.7) < 1e-9
+    # a deck higher than the lidar floor needs keeps the deeper pin
+    same, s2 = floor_follow_rewrite(pm, cs, {k: v + 2.0 for k, v in lv.items()})
+    assert same is cs and s2.report["pins"] == 0
 
 
 def test_the_lower_road_under_a_span_takes_a_hard_ceiling():
@@ -151,7 +150,9 @@ def test_the_bank_blends_out_past_the_run_on():
     assert _blend_drop(ends, edge, run_on, slope) == \
         pytest.approx(_bank_drop(ends, edge, slope))          # no step at the edge line
     out = [_blend_drop(ends, Point(4.0, 11.0 + s), run_on, slope) for s in (0.0, 1.5, 3.0)]
-    assert out[0] > out[1] > out[2] and out[0] - out[1] == pytest.approx(slope * 1.5)
+    # rising away from the edge, never steeper than the bank (#2141: the
+    # bank's face carried out in every direction, ``test_deck_bank_corner2141``)
+    assert out[0] > out[1] > out[2] and out[0] - out[1] <= slope * 1.5 + 1e-9
     assert _blend_drop(ends, Point(10.0, 11.0 + 9.5), run_on, slope) == 0.0   # daylit
     # airside pavement beside the deck is never undercut: the bank rises to its edge
     from shapely.geometry import LineString

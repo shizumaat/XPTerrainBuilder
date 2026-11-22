@@ -131,8 +131,9 @@ def test_big_vector_step_does_not_starve_small_ones(machine):
     with run._lock:
         assert run._start_new_tile_locked(first) is True
         assert first.tile == big
+        # Booked at its own parse: its airports book on the ledger.
         assert run._memory_in_use == pytest.approx(
-            step_memory.VECTOR_AIRPORT_DEFAULT_GB)
+            step_memory.VECTOR_NO_AIRPORT_GB)
         machine["gb"] = 73.0
         assert run._start_new_tile_locked(second) is True
         assert run._start_new_tile_locked(third) is True
@@ -233,7 +234,7 @@ def test_held_heavy_step_reserves_its_memory_fifo(machine):
     with run._lock:
         assert run._start_new_tile_locked(first) is True    # (12,12) runs
         machine["gb"] = 50.0      # another application holds the rest
-        run._refresh_memory_budget_locked(8.0)   # the budget follows it
+        run._refresh_memory_budget_locked()   # the budget follows it
         # The scan reaches big first: refused and held; `later` (8 GB,
         # which fits the machine alone) may not take big's memory.
         assert run._start_new_tile_locked(second) is False
@@ -256,7 +257,7 @@ def test_held_step_starts_when_the_run_drains(machine):
     with run._lock:
         assert run._start_new_tile_locked(first) is True
         machine["gb"] = 50.0
-        run._refresh_memory_budget_locked(8.0)
+        run._refresh_memory_budget_locked()
         assert run._start_new_tile_locked(second) is False
         assert first.running_step == "vector"           # never paused
         # The running step ends and gives its memory back.
@@ -305,7 +306,7 @@ def test_reservation_does_not_block_while_the_waiter_has_no_child(machine):
         run._memory_waits.note((big, "mesh"), 57.5, 50.0, "machine")
         run._memory_holders[((9, 9), "mesh")] = 2.0     # someone running
         run._memory_in_use = 2.0
-        run._refresh_memory_budget_locked(2.0)
+        run._refresh_memory_budget_locked()
         assert run._try_start_step_locked(only) is True
         assert only.running_step == "mesh"
         # With an idle child the same waiter does reserve its memory.
@@ -387,51 +388,196 @@ def test_memory_wait_round_trips_the_wire():
             assert '"%s"' % field in model, field
 
 
-# ── lane lmemwait (2026-11-17): the budget follows the machine ───────────
+# ── owner 2026-11-18: free memory less what is booked and not yet used ──
 
-def test_budget_follows_the_machine_not_the_run_start(machine, monkeypatch):
-    """App 1.0.552: the run started while other programs held memory and
-    sized its budget once, min(0.8 x free, free - headroom) — 8.4 GB on
-    the owner's 128 GB machine — then held every second step for hours
-    with 35 GB free.  Scaled to this 64 GB machine (headroom 9.6 GB)."""
+def _quiet(monkeypatch):
     monkeypatch.setattr(parallel, "print", lambda *a, **k: None,
                         raising=False)
-    machine["gb"] = 18.0                     # other programs hold 46 GB
+
+
+def _run_gate_only(monkeypatch):
+    """The RUN's rule alone: these twins fake each worker's tree on the
+    child, which the machine ledger (its own twins in
+    ``test_machine_memory_ledger``) cannot see in a process table."""
+    import O4_Machine_Slots as SLOTS
+
+    monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
+
+
+def test_room_is_free_memory_above_the_headroom(machine, monkeypatch):
+    """The run's room follows the machine (app 1.0.552 sized it once and
+    held steps for hours with 35 GB free) and is free memory above the
+    headroom — no 80 % ceiling, no sum of whole projections (1.0.558).
+    Scaled to this 64 GB machine (headroom 9.6 GB)."""
+    _quiet(monkeypatch)
+    machine["gb"] = 14.0                     # other programs hold 50 GB
     run = parallel.ParallelBuildRun(
         SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
         TILES, "P", 16, "", (True, False, False), 3)
-    assert run._memory_budget == pytest.approx(18.0 - 9.6)
+    assert run._memory_budget == pytest.approx(14.0 - 9.6)
     first, second = _give_children(run, 2)
     with run._lock:
-        assert run._start_new_tile_locked(first) is True     # 8 GB vector
-        assert run._start_new_tile_locked(second) is False   # 16 > 8.4
-        # The other programs quit; the run's own step holds 9 GB.
-        machine["gb"] = 40.0
-        run._refresh_memory_budget_locked(9.0)
-        assert run._memory_budget == pytest.approx(0.8 * 49.0)
+        assert run._start_new_tile_locked(first) is True     # 3 GB parse
+        assert run._start_new_tile_locked(second) is False   # 6 > 4.4
+        machine["gb"] = 40.0                 # the other programs quit
+        run._refresh_memory_budget_locked()
+        assert run._memory_budget == pytest.approx(40.0 - 9.6)
         assert run._start_new_tile_locked(second) is True
 
 
-def test_budget_counts_the_run_own_memory_back(machine, monkeypatch):
-    """No feedback loop: memory the run's own steps take leaves the budget
-    where it was (free falls, resident rises by the same)."""
-    monkeypatch.setattr(parallel, "print", lambda *a, **k: None,
-                        raising=False)
-    machine["gb"] = 50.0
-    run = _run(0.0)
+def test_grown_memory_is_not_booked_twice(machine, monkeypatch):
+    """A step's booking shrinks as its tree grows into it: free memory
+    falls by what it grew, the booking by the same, and the room for the
+    next step is unchanged — the 1.0.558 run counted both."""
+    _quiet(monkeypatch)
+    _run_gate_only(monkeypatch)
+    tiles = [(10, 10), (11, 11), (12, 12)]
+    run, _ = _events_run(0.0, tiles)
+    for tile in tiles:
+        run._programs[tile] = ["mesh"]
+        run._recorded_peaks[tile] = {"mesh": 20.0}       # 23 GB each
+    children = _give_children(run, 3)
     with run._lock:
-        run._refresh_memory_budget_locked(0.0)
-        before = run._memory_budget
-        machine["gb"] = 30.0
-        run._refresh_memory_budget_locked(20.0)
-        assert run._memory_budget == pytest.approx(before)
-        # A jitter under the hysteresis is ignored.
-        machine["gb"] = 30.5
-        run._refresh_memory_budget_locked(20.0)
-        assert run._memory_budget == pytest.approx(before)
-        # Resident counted twice (shared pages) never exceeds the machine.
-        run._refresh_memory_budget_locked(500.0)
-        assert run._memory_budget <= 64.0 - 9.6 + 1e-9
+        run._refresh_memory_budget_locked()             # 64 - 9.6
+        assert run._start_new_tile_locked(children[0]) is True
+        assert run._run_booked_locked() == pytest.approx(23.0)
+        assert run._start_new_tile_locked(children[1]) is True   # 46 <= 54.4
+        assert run._start_new_tile_locked(children[2]) is False  # 69 > 54.4
+        # Both running steps grew 18 GB into their bookings.
+        for child in children[:2]:
+            child.tree_gb = 18.0
+        machine["gb"] = 64.0 - 36.0
+        run._refresh_memory_budget_locked()
+        assert run._run_booked_locked() == pytest.approx(10.0)
+        # 28 - 10 - 9.6 = 8.4 GB room: still short of 23 (honest wait).
+        assert run._start_new_tile_locked(children[2]) is False
+        assert (tiles[2], "mesh") in run._memory_waits
+        # They finish growing (and some): nothing is booked any more.
+        for child in children[:2]:
+            child.tree_gb = 24.0
+        machine["gb"] = 64.0 - 48.0 + 30.0   # and other programs left
+        run._refresh_memory_budget_locked()
+        assert run._run_booked_locked() == 0.0
+        assert run._start_new_tile_locked(children[2]) is True
+
+
+def test_a_tiles_next_step_needs_only_what_its_worker_lacks(machine):
+    """The projection is the worker tree's peak; the worker keeps what the
+    tile's earlier steps left, so the next step needs only the rest."""
+    tile = (10, 10)
+    run, _ = _events_run(1024.0, [tile])
+    run._programs[tile] = ["vector", "masks"]
+    run._recorded_peaks[tile] = {"masks": 7.8}            # 9.0 projected
+    (child,) = _give_children(run, 1)
+    child.tile = tile
+    run._queue.remove(tile)
+    run._next_step_index[tile] = 1
+    child.tree_gb = 7.5                                   # left by vector
+    with run._lock:
+        assert run._step_memory_need_locked(tile, "masks") == pytest.approx(
+            7.8 * step_memory.RECORDED_PEAK_MARGIN - 7.5)
+        # A tile's FIRST step gets no credit: its record was measured on
+        # a fresh worker, whatever another tile left in this one.
+        run._next_step_index[tile] = 0
+        assert run._step_memory_need_locked(tile, "masks") == pytest.approx(
+            7.8 * step_memory.RECORDED_PEAK_MARGIN)
+
+
+def test_seven_tiles_with_plenty_free_do_not_wait(machine, monkeypatch):
+    """The owner's 1.0.558 complaint, as a twin: seven tiles whose steps
+    project 98.5 GB in all on a 128 GB machine with 61 GB free while the
+    steps have grown into most of it — nothing may wait for memory."""
+    import O4_Parallel_Utils as PU
+
+    _quiet(monkeypatch)
+    _run_gate_only(monkeypatch)
+    monkeypatch.setattr(PU, "machine_memory_gigabytes", lambda: 128.0)
+    tiles = [(10 + k, 10) for k in range(8)]
+    run, events = _events_run(0.0, tiles)
+    charges = [14.0, 14.0, 14.0, 14.0, 14.0, 14.0, 14.5]   # 98.5 GB
+    for tile, gb in zip(tiles, charges, strict=False):
+        run._programs[tile] = ["mesh", "masks"]
+        run._recorded_peaks[tile] = {"mesh": gb / 1.15}
+    waiter = tiles[-1]
+    run._recorded_peaks[waiter] = {"masks": 9.0 / 1.15}
+    run._programs[waiter] = ["masks"]
+    children = _give_children(run, 8)
+    with run._lock:
+        machine["gb"] = 120.0
+        run._refresh_memory_budget_locked()
+        for child in children[:7]:
+            assert run._start_new_tile_locked(child) is True
+        # The steps grew to 12 GB of their 14 each (84 GB): free fell to
+        # 61.4 with the owner's other programs.
+        for child in children[:7]:
+            child.tree_gb = 12.0
+        machine["gb"] = 61.4
+        run._refresh_memory_budget_locked()
+        assert run._run_booked_locked() == pytest.approx(98.5 - 84.0)
+        # 61.4 - 14.5 booked - 19.2 kept = 27.7 >= 9: it starts.
+        assert run._start_new_tile_locked(children[7]) is True
+        assert not run._memory_waits
+
+
+def test_twelve_vector_steps_start_on_an_idle_machine(machine, monkeypatch):
+    """App 1.0.558 at run start: 119 GB free on 128 GB, eleven vector
+    steps booked at 8 GB each (94.7 GB) and the twelfth held "with 119 GB
+    free".  A vector step books its parse; its airports book their own
+    slots on the ledger against live memory."""
+    import O4_Parallel_Utils as PU
+
+    _quiet(monkeypatch)
+    _run_gate_only(monkeypatch)
+    monkeypatch.setattr(PU, "machine_memory_gigabytes", lambda: 128.0)
+    machine["gb"] = 119.0
+    tiles = [(10 + k, 10) for k in range(12)]
+    run = parallel.ParallelBuildRun(
+        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        tiles, "P", 16, "", (True, False, False), 12)
+    run._class_limits["osm"] = 12        # the network cap is not under test
+    children = _give_children(run, 12)
+    with run._lock:
+        run._refresh_memory_budget_locked()
+        started = sum(run._start_new_tile_locked(child) for child in children)
+        # Every one the step classes allow starts; memory holds none.
+        assert started == 12
+        assert run._run_booked_locked() == pytest.approx(3.0 * started)
+        assert not run._memory_waits
+
+
+def test_real_overcommit_still_waits(machine, monkeypatch):
+    """The same run with its steps NOT yet grown: 98.5 GB booked against
+    61.4 free is a real overcommit, and the masks step waits — the row
+    names the booking, the headroom and the free memory."""
+    import O4_Parallel_Utils as PU
+
+    _quiet(monkeypatch)
+    _run_gate_only(monkeypatch)
+    monkeypatch.setattr(PU, "machine_memory_gigabytes", lambda: 128.0)
+    tiles = [(10 + k, 10) for k in range(8)]
+    run, events = _events_run(0.0, tiles)
+    for tile in tiles[:7]:
+        run._programs[tile] = ["mesh"]
+        run._recorded_peaks[tile] = {"mesh": 14.0 / 1.15}
+    waiter = tiles[-1]
+    run._programs[waiter] = ["masks"]
+    run._recorded_peaks[waiter] = {"masks": 9.0 / 1.15}
+    children = _give_children(run, 8)
+    with run._lock:
+        machine["gb"] = 128.0
+        run._refresh_memory_budget_locked()
+        for child in children[:7]:
+            assert run._start_new_tile_locked(child) is True
+        machine["gb"] = 61.4
+        run._refresh_memory_budget_locked()
+        assert run._start_new_tile_locked(children[7]) is False
+        wait = run._memory_waits.snapshot()[(waiter, "masks")]
+        assert wait.reason == "run"
+        assert wait.booked_gb == pytest.approx(98.0)
+    run._announce_memory_waits()
+    rows = [e.message for e in events if type(e).__name__ == "MemoryWait"]
+    assert "have booked 98 GB they do not use yet" in rows[-1]
+    assert "19.2 GB is kept free" in rows[-1] or "19 GB is kept free" in rows[-1]
 
 
 def test_tiny_step_never_queues_behind_a_reservation(machine):
@@ -452,11 +598,12 @@ def test_tiny_step_never_queues_behind_a_reservation(machine):
 
 def test_wait_names_what_holds_it(machine):
     """The row says what the step waits for: the reserving step by name,
-    or the run's budget with its numbers — never "about 0 GB"."""
+    or what the run's steps booked and do not yet use — never "about 0
+    GB"."""
     from o4_engine import memory_waits
 
     big, later = (10, 10), (11, 11)
-    run, events = _events_run(40.0, [(12, 12), big, later])
+    run, events = _events_run(60.0, [(12, 12), big, later])
     _heavy(run, big)
     first, second, third = _give_children(run, 3)
     with run._lock:
@@ -467,7 +614,7 @@ def test_wait_names_what_holds_it(machine):
             if type(e).__name__ == "MemoryWait"}
     assert rows[(10, "mesh")].startswith(
         "Waiting for memory: needs about 57 GB")
-    assert "hold 8.0 of the 40 GB it may use" in rows[(10, "mesh")]
+    assert "have booked 3.0 GB they do not use yet" in rows[(10, "mesh")]
     assert rows[(11, "vector")].startswith(
         "Waiting behind +10+010 mesh step, which needs its memory first")
     assert "about 0.5 GB" in memory_waits.wait_message(

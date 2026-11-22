@@ -21,7 +21,7 @@ import typing as _t
 from ..model.frame import m_per_deg_exact as _mpd
 from .terrain_shaped import ENTRANCE_SEAT
 
-__all__ = ["entrance_zeros", "seat_faces", "face_zero", "SEAT_REASON"]
+__all__ = ["entrance_zeros", "seat_faces", "face_zero", "frame_seat", "SEAT_REASON"]
 
 #: the anchor reason a face this reading seated opens with
 SEAT_REASON = "entrance face on its portal's floor"
@@ -75,3 +75,19 @@ def face_zero(b: _t.Any, m: _t.Any, zeros: _t.Mapping[str, _t.Sequence[tuple]]
         if _near(b, la, lo, reach):
             got = float(zero)
     return got
+
+
+def frame_seat(members: _t.Iterable[_t.Any],
+               zeros: _t.Mapping[str, _t.Sequence[tuple]]) -> float | None:
+    """The zero a BRIDGE FRAME takes from its members' entrance faces
+    (#2188; owner RULINGS 2026-10-22c/d, 22m): the highest entrance zero
+    of any member, or ``None`` where no member has one.  A frame that
+    covers a bore (a cut-and-cover deck over a road in a cut) has its ends
+    AT the bore's portals, and the structure pass read each portal's top on
+    the ground over it -- the deck's end-line ground.  The frame's lowest
+    body zero (``open_frame_seat.open_zero``) is its deck's low-side foot
+    IN the cut instead: ELLX ``Bridge_2`` stood 12.4 m under both portals'
+    369.13 (1.0.565)."""
+    got = [float(z) for m in members
+           for _la, _lo, _r, z in zeros.get(str(getattr(m, "id", "")), ())]
+    return max(got) if got else None

@@ -395,12 +395,16 @@ def _source_holds_data_over_bbox(
 
 def _source_contribution_entry(source):
     """One source's line in the record (R13-3): who it was, when it was
-    published, and the id that finds it again at the provider."""
-    return {
+    published (and flown, where known), and the id that finds it again
+    at the provider."""
+    entry = {
         "title": source.get("title"),
         "publication_date": source.get("publication_date"),
         "source_id": source.get("source_id"),
     }
+    if source.get("acquisition_date"):
+        entry["acquisition_date"] = source["acquisition_date"]
+    return entry
 
 
 def _geotiff_has_valid_data(geotiff_path):

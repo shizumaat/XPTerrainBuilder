@@ -36,6 +36,7 @@ from shapely.strtree import STRtree
 
 from ..geom import exact
 from ..geom.slope_pad import slope_witness
+from ..geom.route_over_pad import RouteWitness
 from ..geom import cluster_building_evidence, cluster_outlines, pad_shade_extra
 from ..law import Law
 from ..geom.base_slab import pad_shades, registered_faces
@@ -180,7 +181,9 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             osm_evidence=cluster_building_evidence(
                 getattr(airport, "buildings", ()) or ()),
             # owner RULINGS 2026-10-19w: the SAME slope pads the mint gave
-            slope=slope)
+            slope=slope,
+            # owner RULINGS 2026-11-19k (2): the SAME route guard
+            routes=RouteWitness(airport))
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
@@ -476,16 +479,22 @@ def _split_blocks(planar: PlanarMap,
     of a held pad (``<pad>/p<k>``, ``planar/low_level``: a storey under or
     over it) is its own plane too, whether its pad is a block or a whole
     unit (#1101: LPHR's conforming ``building1`` and its upper level read
-    one plane and the level's rigid row was relaxed)."""
+    one plane and the level's rigid row was relaxed).  A HELD TERRACE
+    below the airside (``PlanarMap.sunk_pads``, issue #2188) is its own
+    plane too: the cluster's other faces front the apron, it does not
+    (MEASURED ELLX: the fuel farm's cluster joined ``building49`` to
+    ``building48``'s apron frontage and held it 15 m over its ground)."""
     by_fid = {fid: g for fid, _r, g in groups}
+    sunk = getattr(planar, "sunk_pads", None) or {}
 
     def _key(ref):
-        return block_of(ref), plane_of(ref)
+        return (block_of(ref), plane_of(ref),
+                str(ref).split("#s")[0] if str(ref) in sunk else None)
     res: list[tuple[int, str, list[int], tuple[int, ...]]] = []
     for ent in out:
         fids = ent[3]
         keys = {_key(planar.faces[q].ref) for q in fids}
-        if len(keys) <= 1 or all(k == (None, None) for k in keys):
+        if len(keys) <= 1 or all(k == (None, None, None) for k in keys):
             res.append(ent)
             continue
         per: dict = {}

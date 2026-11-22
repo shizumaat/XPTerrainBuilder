@@ -38,7 +38,7 @@ def _two_pass_world():
     """``_late_world`` with a gap piece beside the pad: the last stage runs
     TWO passes (the gap pieces, then the pad road against them —
     ``run_last_stages``), so ``late.cut.2`` digests a classification built
-    from ``late.cut.1``'s output."""
+    from ``late.cut.1``'s output; both solve on ONE derived map (#2206)."""
     from auto_patch_v2.classify.roles import Cell, Classification
     from tests.auto_patch_v2.test_pad_touch import _rect
     law, airport, cl = _late_world()
@@ -224,7 +224,10 @@ def test_a_second_build_in_another_process_hits_every_record_of_both_late_passes
     second = _arm_in_a_fresh_process(tmp_path, "b", "7", cache, out)
     for s in ("late.cut.1", "late.solve.1", "late.cut.2", "late.solve.2", "emit", "verify"):
         assert first["stages"].get(s) == "miss", (s, first["stages"])
-    assert any(k.endswith("@prefix3") for k in first["stages"]), first["stages"]
+    # #2206: the two late passes share ONE derive (the base's prefix is
+    # ``prefix1``, the one late map's ``prefix2``; no third)
+    assert any(k.endswith("@prefix2") for k in first["stages"]), first["stages"]
+    assert not any(k.endswith("@prefix3") for k in first["stages"]), first["stages"]
     assert set(second["stages"].values()) == {"hit"}, \
         {k: v for k, v in second["stages"].items() if v != "hit"}
     assert first["final"] is not None and first["final"] == second["final"]

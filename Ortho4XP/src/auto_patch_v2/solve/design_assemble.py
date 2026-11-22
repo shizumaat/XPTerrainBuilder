@@ -32,7 +32,8 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    apply_level_belt)
 from .design_edge import cross_section_rows, membrane_rows
 from .design_junction import second_difference, through_junction_rows
-from .design_ground import ground_datum_vertices, ground_rim_vertices
+from .design_ground import (ground_datum_vertices, ground_rim_vertices,
+                            riser_rim_vertices)
 from .design_stage import _groundside_minter, _welded_faces
 from .design_roles import (airside_stage_vertices, bend_class, bend_roles,
                            conforming_rulings,
@@ -728,6 +729,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # a pad hole takes the pad RIM's level — no DEM datum of its own
     from ..model.islands import courtyard_vertices
     court_v = courtyard_vertices(planar, law)
+    # A STOREY RISER'S FREE RIM IS GROUND OF ITS OWN (spec
+    # ``rjtt-riser-r6-spec.md`` §2 (b)): it carries the #302 weak datum and
+    # is in no body's datum fit.  MEASURED (RJTT replay, lrjtt5): a lower
+    # level held a storey under its DEM plane left the pad body's mean/tilt
+    # rows to its rim, the only free columns in them — v24300 16.93 m over a
+    # DEM of 8.15 m (8.15 m without them), seven siblings 6-7 m high.
+    rim_v = riser_rim_vertices(planar)
     for kind, roles_b in datum_roles(law):
         # THE BODY IS THIS STAGE'S OWN (issue #67; §20b (1c)'s rule for the
         # sheet, applied to the datum): stage 1's body is formed over the
@@ -743,7 +751,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             # 10l: a pad that fronts pavement takes its frontage's level, not
             # the ground's — its vertices leave every body's datum fit
             vs_b = [v for v in vs_b if v not in pad_follow and v not in hard_v
-                    and v not in court_v]
+                    and v not in court_v and v not in rim_v]
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue

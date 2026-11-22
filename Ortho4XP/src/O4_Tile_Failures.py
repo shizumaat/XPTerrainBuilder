@@ -457,6 +457,9 @@ EXCEPTION_CODES = {
     # (``dsf_poly_clip``): caught by ``generated_pack``, which keeps the
     # page; never raised out of a build step
     "UvMappedPage": "unexpected_error",
+    # a streamed square whose folders the disk budget gave back (#2193):
+    # the follow job skips it at once; never raised out of a build step
+    "SquareGone": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",
@@ -513,6 +516,9 @@ EXCEPTION_CODES = {
     # o4_engine.imagery_after_build: a core landing the user stopped is
     # counted "skipped" by the follow job, never a build failure
     "_Stopped": UNMAPPED,
+    # O4_World_Pack (#2247): a short tile swap_in refuses is logged by the
+    # publish / staged sweep and the pack keeps its tile — never a build failure
+    "IncompleteTile": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
     "ElevationLinkBroken": "elevation_link_broken",
@@ -529,6 +535,8 @@ EXCEPTION_CODES = {
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",
     "PermissionError": "no_permission",
+    # #2174: a read-only scenery pack (pack_access), asked about in the app
+    "PackReadOnlyError": "no_permission",
     "ProxyError": "proxy_refused",
     "ConnectionError": "network_unavailable",
     "TimeoutError": "network_unavailable",

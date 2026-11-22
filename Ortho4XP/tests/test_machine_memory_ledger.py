@@ -122,6 +122,81 @@ def test_a_nested_process_with_its_own_record_counts_once(machine,
     pool.release()
 
 
+def test_a_nested_root_is_its_parents_process(machine, monkeypatch):
+    """Owner 2026-11-18: an airport build A holds a slot its parent P
+    booked for it (3 GB) and books its pool's workers itself.  P's record
+    counts A's own memory, A's record only its workers — before, P's slot
+    lost sight of A once A's pool booked, and stayed 3 GB outstanding."""
+    parent, build, w1, w2 = os.getpid(), 999_101, 999_102, 999_103
+    rss = {parent: 1.0, build: 0.2, w1: 0.0, w2: 0.0}
+    monkeypatch.setattr(MEMORY, "_read_process_table", lambda: [
+        (parent, 1, int(rss[parent] * GIB), "python"),
+        (build, parent, int(rss[build] * GIB), "python")] + [
+        (w, build, int(rss[w] * GIB), "python") for w in (w1, w2)
+        if rss[w] > 0.0])
+    _as(monkeypatch, "A", "app")
+    slot = MEMORY.reserve(3.0, "an airport build")       # P, for A
+    pool = MEMORY.reserve(6.0, "2 workers", pid=build)   # A, for W1, W2
+    rss[build] += 2.5                                    # A grew into its slot
+    rss[w1] = rss[w2] = 1.5                              # workers at work
+    snap = MEMORY.snapshot()
+    assert snap.outstanding_gb == pytest.approx((3.0 - 2.5) + (6.0 - 3.0))
+    pool.release()
+    slot.release()
+
+
+def test_a_settled_pool_books_what_its_workers_measured(machine, monkeypatch,
+                                                         tmp_path):
+    """A pool's slots book the flat per-worker guess until its workers are
+    measured; then each keeps what the largest worker held (x margin)."""
+    (tmp_path / "slots").mkdir()
+    monkeypatch.setenv(SLOTS.ENV_DIR, str(tmp_path / "slots"))
+    monkeypatch.setenv(SLOTS.ENV_CAPACITY, "16")
+    _as(monkeypatch, "A", "app")
+    with SLOTS.try_take(16) as held:
+        assert held.count == 16
+        assert MEMORY.snapshot().outstanding_gb == pytest.approx(48.0)
+        held.settle(1.5 * 1.25)
+        assert MEMORY.snapshot().outstanding_gb == pytest.approx(30.0)
+        held.settle(2.9)                                 # never raised back
+        assert MEMORY.snapshot().outstanding_gb == pytest.approx(30.0)
+        body = [MEMORY._read_body(os.path.join(MEMORY.ledger_dir(), n))
+                for n in os.listdir(MEMORY.ledger_dir())
+                if n.startswith("r-")]
+        assert [b["gb"] for b in body] == [30.0]         # parses, padded
+    assert MEMORY.snapshot().outstanding_gb == 0.0
+
+
+def test_pressure_warn_stops_lanes_not_the_app_with_room(machine,
+                                                         monkeypatch):
+    """Owner 2026-11-18: at the kernel's ``warn`` the app's own run goes on
+    while free memory covers it (its wait named the pressure although
+    room, not the pressure, held it); a lane starts nothing new; at
+    ``critical`` nobody does."""
+    machine.free = 80.0
+    machine.pressure = "warn"
+    _as(monkeypatch, "APP", "app")
+    verdict = MEMORY.admits(9.0, HEADROOM)
+    assert verdict.ok and "pressure" not in verdict.text
+    _as(monkeypatch, "L", "lane")
+    verdict = MEMORY.admits(9.0, HEADROOM)
+    assert not verdict.ok and verdict.contended
+    assert "memory pressure warn" in verdict.text
+    machine.pressure = "critical"
+    _as(monkeypatch, "APP", "app")
+    assert not MEMORY.admits(1.0, HEADROOM).ok
+
+
+def test_a_wait_says_what_builds_booked_and_do_not_use(machine, monkeypatch):
+    machine.free = 60.0
+    _as(monkeypatch, "APP", "app")
+    held = MEMORY.reserve(45.0, "pool")
+    verdict = MEMORY.admits(3.0, HEADROOM)
+    assert not verdict.ok
+    assert "45 GB booked by builds and not yet in use" in verdict.text
+    held.release()
+
+
 def test_x_plane_shrinks_admission(machine, monkeypatch):
     """X-Plane holds 10 GB and is expected to reach 32 (+4 margin): 26 GB
     more are kept for it while it runs."""

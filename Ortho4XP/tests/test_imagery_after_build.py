@@ -286,7 +286,7 @@ def test_the_line_says_when_there_is_nothing_to_follow():
 def test_the_mac_app_starts_following_by_itself():
     app = REPO / "Sources" / "XPTerrainBuilder"
     model = (app / "BuildModel.swift").read_text(encoding="utf-8")
-    connect = model[model.index("private func connectIfNeeded()"):]
+    connect = model[model.index("func connectIfNeeded()"):]
     connect = connect[:connect.index("\n    }\n")]
     assert connect.index("client = newClient") < connect.index(
         "syncImageryFollow()"), "the follow start needs the client"

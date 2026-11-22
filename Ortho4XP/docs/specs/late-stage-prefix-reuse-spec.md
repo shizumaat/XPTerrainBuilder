@@ -161,3 +161,56 @@ Recommended instead: leave the generators re-derived. The one outsized cost the 
 - **Whether `groundside_pavement` (the gap parts' role) is in `road_family_roles`.** That decides whether the parts enter the `road_ramp` routes and so the bound of R for channels.
 - **Late-stage sub-pass timings in the build log.** Today the re-derives run silent (`prefix.py:296`). A `--late-from` replay gives them.
 - **A side finding.** The report's `constraints.by_generator` shows the base's counts while `cs` is the late one (`build.py:660`).
+
+## 8. One late map (#2206, lane lonesolve, 2026-11-20)
+
+Owner 2026-11-21T01:31Z: "we did a lot of work to try and have a single solve, we shouldn't be rerunning that long complex calculation more than once per airport"; 04:02Z: "This build time is not shippable".
+
+**Measured before (the app's own `report.json` `wall_s`, 2026-11-14..20).** The last stages ran the whole prefix (planar → shapes → constraints → strips) once per stage: gap pieces, pad roads, car lots (`planar@prefix2..4` in the stage-cache records). With the main pass and stage 1's ribbon-free map, that came to as many as five planar builds per airport. Late derive seconds: KATL 1,955 of 3,874 s total; HECA 1,754 of 4,190; LFPG 2,312–2,489 of ~5,600; OTHH 1,036; KDEN 1,068; KJFK 1,043; KORD 1,008. The late LP solves are small (KATL 35 s).
+
+**The change (`pipeline/late_stage.run_last_stages`).**
+
+| step | before | now |
+|---|---|---|
+| gap cut | base levels (§55) | unchanged |
+| pad-road cut (`pad_road_exit`, `ramp_runout`) | the gap stage's solved map | the BASE. The pads are gap-stage constants, so the cut is the same wherever no level it reads moved. The C4b speculation (`pipeline/late_speculate`, deleted) ran this same cut off the main base and used it only when it digested equal. |
+| car-lot cut (`car_lot_cut`) | the roads stage's solved map's faces | the base map's faces plus the polygons of the late cells cut before them (`held`). KASE lots move ≤ 0.08 m (8,165.4 → 8,167.3 m² kept). |
+| derive | one per stage (up to 3) | ONE, on the full late classification |
+| solves | gap → pad roads → car lots, each on its own map | the same order on the one map. Each stage solves on `stage_one_map.withheld_view` (the later stages' faces gone, their vertices kept isolated, so the ids index the full map). The vertices only those faces carry are constants at the survey. `cs` loses every row naming one. The pad roads' own passes (`pad_ramp_rewrite`, `runout_rows`, `pad_road_reach`) run only in the pad roads' stage. A map that carries pad roads notches the standing rims they meet in the gap stage too. The next stage's join skips the withheld vertices (`late_fixed(absent=…)`). The pad roads' neck release reads its rim edges off the main base (`late_solve(rim_base=…)`). |
+| records | `late.cut.N` keyed on the previous stage's solve | every cut keyed on the base solve. `late.solve.N` carries its own stage's cut digest. |
+
+**Consumer census of the one map.** Only the late stage's own passes read the junior faces; each was checked on replay:
+
+| consumer | gap stage on the one map |
+|---|---|
+| `late_followers` | sees the view (no pad road or lot is a follower or a holder) |
+| `late_fixed` / `late_rim_levels` | withheld vertices excluded; the pad roads' notches levelled here off the main base |
+| `pad_ramp_rewrite`, `runout_rows`, `pad_road_reach` / `shift_pads` / `pad_grade_release` | skipped (the pad roads' stage only) |
+| `follower_join_yields`, `late_constraints` | `cs` without the withheld rows |
+| `solve_late_stage` | the view, withheld vertices fixed at the survey (NOT `drop`: assemble reads a non-empty `drop` as stage 1 and drops the conforming and welded-road rows. Measured, KASE: the pad road moved 2.68 m and gap:0 0.34 m until this was found) |
+
+**Bars (replay, base `bf6a666f7` against the lane head).**
+- KASE (gap, pad roads and car lots): airside and structure movers 0; gap:0 and every pad road identical; car lots ≤ 0.08 m; v2 verify families identical; late derives 3 → 1 (25.9 → 10.1 s).
+- KRDU: late derives 3 → 1 (360 → 128 s, the arms concurrent under load).
+  - Solve-owned airside: 9 movers, worst 0.10 m. They sit on gap pieces classed apron (`gapapron:5#2`, `:2`, `:5#1`), which the late map re-mints.
+  - The deck-carve and tunnel-ramp vertices the late derive re-mints off the base move up to 3.18 m. Both arms carry them (base vertices unmapped 154 / 158; off-edge unknowns 120 / 77). They are solved in the gap stage either way.
+  - Deck-carve bars (`deck_probe --carve`): the same PASS/FAIL set in both arms. Clearance `o4gen_9dda60f2` 4.16 → 4.55 m, `o4gen_cdc740dc` 4.18 → 4.20 m.
+  - Verify DEFECT families zero in both. `road_cross_section` 262 → 238, `within_shape` 2,323 → 1,893, `mid_edge_step` 16 → 14, `strip_seam_tear` 9,666 → 9,717.
+- KEGE (certified; one late stage, car lots): patch byte-identical.
+
+**Round 2 (2026-11-21; owner RULINGS 2026-11-21a bar: every point within ±1 m, no grade violation, shortest time).**
+- `pipeline/late_view`: the view also LIFTS the nodes a later stage's faces minted on the rings that stay. A lifted node takes its standing rim's base edge (`late_rim_levels`) where it has one, else the edge it was lifted onto.
+- Car lots are no road-end contact of the road-ramp channel (`airport/road_ramp.reach_contacts`).
+- Stage 2 is solved ONCE: its yielding pins are released up front (`solve/pin_yield.released_once`), replacing the #778 pinned, trial and narrowed solves.
+
+| airport | worst point | census |
+|---|---|---|
+| KASE | 0.08 m | total 12,033 → 12,032 |
+| BIKF | 0.36 m | families only fall |
+| LGAV | 0.59 m (gap:2), 0.44 m, 0.32 m | +19 groundside rows: hard_conflict +6, road_cross_section +10, pavement_over_road_cap +2, within_shape +1. Not attributed further. |
+| OMDB | 0.12 m | census not re-run |
+
+- One-solve stage 2 against the pinned flow (KASE, BIKF, LGAV): no census family rose, and none changed at BIKF or LGAV. `solve_design` LGAV 231 → 108 s, BIKF 133 → 89 s.
+- Refused by the bar: skipping the low-hold re-solve (#517; LGAV airside 1.45 m) and the trend-retarget re-solve (15i (3); KASE families rise). The shadow solve outside deck neighbourhoods was not measured.
+
+**Not done.** The remaining derives are the main pass, stage 1's ribbon-free map (#100 (c), in a worker beside the main pass) and this one late map. A late map that reuses the main pass's products outside the late cells (§5 phases 2c/3) is the next step. So is a stage 1 that reads the full map through a view instead of its own derive.

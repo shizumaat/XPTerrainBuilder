@@ -38,6 +38,7 @@ class _StubTile:
         self.lat = lat
         self.lon = lon
         self.custom_build_dir = custom_build_dir
+        self.build_dir = custom_build_dir   # O4_Custom_Patches.stand_down_new reads it
         self.default_website = ""
         self.default_zl = 16
 

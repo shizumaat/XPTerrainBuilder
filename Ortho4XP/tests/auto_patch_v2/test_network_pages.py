@@ -57,3 +57,31 @@ def test_pages_stay_sheets_when_the_sources_carry_the_network():
 
 def test_the_law_key():
     assert load_default().tables.structures.load.network_pages_share_max == 0.5
+
+
+def test_a_page_that_alone_holds_a_taxiway_is_a_source():
+    """RULINGS 2026-10-30e (#2215, KRDU ``Ground/L2.pol`` taxiway A): at or
+    above the share, a page carrying the network where no source holds it is
+    taken; a page over held ground, a runway slab's ground or a stretch under
+    the key stays a sheet."""
+    from shapely.geometry import box
+    nodes, edges = _network()
+    pav = (_rect("pav0", 0, -10, 900, 10),)                        # 90 %
+    pages = (_rect("dsf:gapsheet3", 880, -20, 1000, 20, desc="Ground/L2.pol"),
+             _rect("dsf:gapsheet4", 0, -20, 500, 20, desc="Ground/ap.pol"),
+             _rect("dsf:gapsheet5", 0, 490, 200, 510, desc="Runway.pol"))
+    dec, taken = NP.decide(pav, pages, nodes, edges, 0.5, (), 10.0)
+    assert dec.promoted and dec.ids == ("dsf:gapsheet3",)
+    assert [p.id for p in taken] == ["dsf:netpage0"]
+    assert abs(dec.unheld_m - 100.0) < 1e-6
+    assert "alone hold 100 m" in dec.line("TEST")
+    # the runway slab holds its own ground; a stretch under the key, or the
+    # key at 0, takes nothing
+    slab = [box(950, -30, 1000, 30)]
+    assert NP.decide(pav, pages, nodes, edges, 0.5, slab, 10.0)[0].ids == ("dsf:gapsheet3",)
+    assert NP.decide(pav, pages, nodes, edges, 0.5, slab, 60.0)[1] == ()
+    assert NP.decide(pav, pages, nodes, edges, 0.5, (), 0.0)[1] == ()
+
+
+def test_the_unheld_key():
+    assert load_default().tables.structures.load.network_page_unheld_min_m == 10.0

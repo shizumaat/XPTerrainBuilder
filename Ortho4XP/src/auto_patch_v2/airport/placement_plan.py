@@ -306,7 +306,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  touch_seat: _t.Any = None,
                  # #2144 P2: ``deck_profile.law_of(structures)`` -- a deck
                  # touching buildings at two levels is warped; ``None`` disarms
-                 deck_warp: _t.Any = None
+                 deck_warp: _t.Any = None,
+                 # RULINGS 2026-11-19j: ``split_bar.law_of([placement])`` -- a
+                 # placement whose bodies' seats agree within the ground bar
+                 # is written whole; ``None`` disarms
+                 split_bar: _t.Any = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -1217,13 +1221,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                    walk_max_m=abutment_walk_max_m,
                                    level_tol_m=split_tol_m, counts=counts))
         _bz: list[float] = []
+        # #2188: a bridge frame over a bore is level with its portals' tops
+        _portal = (_ens.frame_seat([st.m for st in staged], _entr)
+                   if bridge is not None else None)
         # #1883: what stands on a deck seated over the pack's cut rides that
         # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)
         _seats = (_cds.cut_seats(bridge.m, getattr(bridge.m, "origin", None) or tuple(u.anchor),
                                  surface, _cuts, abutment_step_m, deck_on_fraction)
                   if bridge is not None and _cuts else [])
 
-        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats):
+        def _one_bridge(r, mm, _b=bridge, _z=_bz, _s=_seats, _p=_portal):
             if _b is None or getattr(mm, "id", "") in _floor_zero:
                 return r
             # owner 2026-11-05 §0.5: the cut a seated deck frames rides it
@@ -1243,14 +1250,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if not _z:
                 # a deck body seated over the pack's own cut (26d) keeps its
                 # seat and states no frame zero (``cut_deck_seat.seated``)
-                z = (_open_zero([b for b in r.bodies if not _cds.seated(b)])
-                     if mm is _b.m else None)
+                z = _p if _p is not None else (
+                    _open_zero([b for b in r.bodies if not _cds.seated(b)])
+                    if mm is _b.m else None)
                 if z is None:
                     return r
                 _z.append(z)
                 counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
+            at = "its portals' entrance seat" if _p is not None else "its deck's zero"
             return _frame_zero(r, mm, _z[0],
-                               f"one bridge frame at its deck's zero {_z[0]:.2f} "
+                               f"one bridge frame at {at} {_z[0]:.2f} "
                                "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)",
                                keep=_functools.partial(_keeps_seat, None if fz is None
                                                        else fz[2], deck_on_fraction, _s))
@@ -1602,13 +1611,20 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         splits, _touch = _ts.seat_touching(
             splits, plan, _pw or {}, counts, law=touch_seat,
             fixed=_ts.Fixed(_gated, frozenset(_afloat), frozenset(_gz_led)),
-            cut_log=_cut_log, write=write, unit_seats=_unit_seats)
+            cut_log=_cut_log, write=write, unit_seats=_unit_seats,
+            surface=surface, band_m=foot_band_m)
     if deck_warp is not None and splits:
         # #2144 P2: ONE pass over the final bodies, after the touch pass
         from . import deck_profile as _dpf
         splits, _touch["deck_warp"] = _dpf.warp_decks(
             splits, plan, counts, law=deck_warp, surface=surface,
-            cut_log=_cut_log, write=write)
+            cut_log=_cut_log, write=write, connectors=_touch.get("connectors", ()))
+    if split_bar is not None and splits:
+        # RULINGS 2026-11-19j: ONE pass over the final bodies, last
+        from . import split_bar as _sb
+        splits, _touch["split_bar"] = _sb.keep_whole(
+            splits, plan, counts, law=split_bar, surface=surface, cut_log=_cut_log,
+            write=write, shared=_touch.get("shared_bodies", ()), band_m=foot_band_m)
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
                     tuple(fams), tuple(_seats), tuple(tilted_whole),
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts,

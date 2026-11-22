@@ -56,7 +56,7 @@ def store_path(name: str) -> str:
     return os.path.join(os.path.dirname(FNAMES.data_root_pointer_file), name)
 
 
-def _pack_key(pack_root: str) -> str:
+def pack_key(pack_root: str) -> str:
     return os.path.normcase(os.path.abspath(pack_root or ""))
 
 
@@ -77,27 +77,23 @@ def step_list(value: object) -> bool:
 def read_all(path: str, allowed: _t.Callable[[object], bool] = _remembered
              ) -> dict[str, str]:
     """Every remembered answer of the file ``path``, by key."""
-    try:
-        with open(path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return {str(k): str(v) for k, v in doc.items()
-            if allowed(v)} if isinstance(doc, dict) else {}
+    import O4_File_Names as FNAMES
+    return {str(k): str(v) for k, v in FNAMES.read_json_dict(path).items()
+            if allowed(v)}
 
 
 def read(path: str, pack_root: str,
          allowed: _t.Callable[[object], bool] = _remembered) -> str:
     """``"update"`` | ``"never"`` | ``""`` (ask) for a pack (or what
     ``allowed`` admits)."""
-    return read_all(path, allowed).get(_pack_key(pack_root), "")
+    return read_all(path, allowed).get(pack_key(pack_root), "")
 
 
 def write(path: str, pack_root: str, choice: str,
           allowed: _t.Callable[[object], bool] = _remembered) -> None:
     """Remember (or, with ``""``, forget) the user's answer for a pack."""
     doc = read_all(path, allowed)
-    key = _pack_key(pack_root)
+    key = pack_key(pack_root)
     if doc.get(key, "") == (choice if allowed(choice) else ""):
         return                          # nothing to change: no write
     if allowed(choice):

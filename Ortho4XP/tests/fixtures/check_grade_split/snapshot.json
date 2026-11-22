@@ -146,6 +146,11 @@
    "within"
   ],
   [
+   "pack_bridge_under_deck",
+   "PACK BRIDGE left under a GENERATED deck (the pack's bridge or ours, never both)",
+   "within"
+  ],
+  [
    "sea_wall",
    "SEA WALL (a pavement or quay edge standing ON the shore)",
    "within"
@@ -881,6 +886,10 @@
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],
   "deck_end_flush": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "pack_bridge_under_deck": [
    0,
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],

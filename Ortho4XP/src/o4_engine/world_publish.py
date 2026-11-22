@@ -7,10 +7,12 @@ The build runs in its ordinary build folder; when it is done
 or not the tile was built with imagery on demand (RULINGS 2026-11-12g:
 every build goes into the World folder) -- :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
-and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
-waits staged and :func:`_swap_waiting` swaps it later -- but a tile the
-pack holds only as a placeholder with no file of it goes in at once
-(``O4_World_Pack.held_by_xplane``, #2032).  After the swap:
+and swaps it in at once, X-Plane running or not (RULINGS 2026-11-19e,
+#2175), unless X-Plane is loading that tile right now (one of its files
+open, ``xplane_open_files.loading``): then it waits staged and
+``world_staged_sweep`` swaps it within seconds (:func:`_swap_waiting`).
+A swap over a tile X-Plane loaded this session offers "Reload scenery"
+(``world_staged_sweep.note_swapped``).  After the swap:
 
 * the tile's imagery manifest names the pack's folders
   (:data:`LAYOUT_KEY`), so the on-demand index rows read and land
@@ -56,8 +58,8 @@ import O4_World_Pack as WP
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "add_core_point", "publishing", "watch",
-           "write_layout"]
+__all__ = ["LAYOUT_KEY", "SWAP_LOCK", "add_core_point", "log_refused",
+           "publishing", "watch", "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -101,6 +103,9 @@ def _on_demand(build_dir: str, lat: int, lon: int) -> bool:
 
 
 _STATE_LOCK = threading.Lock()
+#: Held while a staged tile is stamped and swapped by this module or the
+#: staged sweep (``world_staged_sweep``): one of them at a time on a tile.
+SWAP_LOCK = threading.RLock()
 #: Tiles handed to the publish worker and not yet done with.
 _IN_WORK: set = set()
 #: ``(lat, lon)`` -> ``(icao, lat, lon)`` airports its cores must cover.
@@ -190,17 +195,23 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
     or not (RULINGS 2026-11-12g: no Tiles-folder-then-link step)."""
     if not WORLD.managed(scenery_dir):
         return None
+    from . import world_staged_sweep as SWEEP
+    from . import xplane_open_files as XOPEN
     pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:
-        loaded = WORLD.tile_loaded(scenery_dir)
+        loaded = XOPEN.loading(pack)                # RULINGS 2026-11-19e
     loaded = WP.held_by_xplane(pack, loaded)       # #2032
     # S7: the follow job waits for THIS tile only while it is swapped.
-    with FOLLOW.paused("world publish", tiles=[WP.tile_name(lat, lon)]):
+    with SWAP_LOCK, FOLLOW.paused("world publish",
+                                  tiles=[WP.tile_name(lat, lon)]):
         result = WP.publish(pack, build_dir, lat, lon,
                             staging_root=WORLD.staging_root(), kind=kind,
                             loaded=loaded)
     if result["state"] == "swapped":
         _after_swap(scenery_dir, build_dir, lat, lon)
+        SWEEP.note_swapped(scenery_dir, [result["tile"]])
+    elif result["state"] == "staged":
+        SWEEP.add_waiting(lat, lon)
     WORLD.write_log({"publish": result["tile"], "kind": kind,
                      "state": result["state"], "build_dir": build_dir,
                      "problems": result["problems"][:5]})
@@ -208,23 +219,45 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
 
 
 def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
-                 loaded: Optional[Callable[[int, int], bool]] = None) -> list:
-    """Swap in every staged tile X-Plane can no longer hold, and complete
-    the tiles turning off or on (#2100, ``world_tile_use.settle``); the
-    tiles swapped."""
+                 loaded: Optional[Callable[[int, int], bool]] = None,
+                 only=None) -> list:
+    """Swap in every staged tile (``only``: those ``(lat, lon)`` alone)
+    X-Plane is not loading now (``xplane_open_files.loading``, RULINGS
+    2026-11-19e), and complete the tiles turning off or on (#2100,
+    ``world_tile_use.settle``, which keeps rule S3); the tiles swapped."""
+    from . import world_staged_sweep as SWEEP
     from . import world_tile_use as USE
+    from . import xplane_open_files as XOPEN
     if not WORLD.managed(scenery_dir):
         return []
     pack = WORLD.pack_dir(scenery_dir)
-    loaded = loaded or WORLD.tile_loaded(scenery_dir)
-    done = WP.swap_staged(pack, WORLD.staging_root(),
-                          WP.held_by_xplane(pack, loaded))
+    held = WP.held_by_xplane(pack, loaded or XOPEN.loading(pack))
+    refused: list = []
+    with SWAP_LOCK:
+        if only is None:
+            done = WP.swap_staged(pack, WORLD.staging_root(), held,
+                                  refused=refused)
+        else:
+            done = [name for tile in sorted(only) for name in
+                    WP.swap_staged(pack, WORLD.staging_root(), held,
+                                   only=tile, refused=refused)]
+    for error in refused:
+        log_refused(error)
     USE.settle(scenery_dir, loaded)
     for name in done:
         lat, lon = WP.parse_tile(name)
         _after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)
         WORLD.write_log({"swap_in": name, "from": "staged"})
+    SWEEP.note_swapped(scenery_dir, done)
     return done
+
+
+def log_refused(error: "WP.IncompleteTile") -> None:
+    """The World pack log line of a swap ``O4_World_Pack.swap_in``
+    refused: the pack kept its previous version of the tile (#2247)."""
+    WORLD.write_log({"swap_refused": error.tile, "where": error.where,
+                     "missing": len(error.missing),
+                     "first": error.missing[:3]})
 
 
 def watch(session: Any,
@@ -233,7 +266,10 @@ def watch(session: Any,
     """Subscribe to ``session``: each tile built ok is published on one
     worker thread, in build order, and the tiles still staged are retried;
     a ``WorldStatus`` follows each."""
+    from . import world_staged_sweep as SWEEP
     jobs: "queue.Queue[tuple]" = queue.Queue()
+    sweeper = SWEEP.attach(lambda event: session._emit(event), scenery_dir,
+                           lambda lat, lon: session.tile_build_dir(lat, lon))
 
     def work() -> None:
         while True:
@@ -245,10 +281,12 @@ def watch(session: Any,
                 if result is not None:
                     swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
-                    # Tiles staged earlier swap in now if they may (S3);
-                    # the build-ahead job (W2) retries them on its own.
+                    # Tiles staged earlier swap in now if they may
+                    # (RULINGS 2026-11-19e); the staged sweep retries the
+                    # ones still waiting, the build-ahead job (W2) its own.
                     _swap_waiting(where, session.tile_build_dir)
                     session._emit(WORLD.status_event(where, last_swap=swap))
+                    sweeper.poke()
                     if result["state"] in ("swapped", "staged"):
                         from . import world_spawn_window as SPAWN
                         SPAWN.start(lat, lon, where)    # #2142 part 1
@@ -285,6 +323,9 @@ def watch(session: Any,
             lat, lon = int(event.lat), int(event.lon)
             enqueue((lat, lon, scenery_dir()))
     session.subscribe(on_event)
+    # The tiles a run before left staged go in now (#2175: at the engine's
+    # start, then every few seconds while any waits).
+    sweeper.poke(leftovers=True)
     from . import world_yield as YIELD
     YIELD.watch(session)            # its builds pause the spawn pre-drape
 

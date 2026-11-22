@@ -36,6 +36,15 @@ stations less the deck top) that is exactly each plate's own end lines'
 mean less the deck top.  Each band's body is anchored on its band's
 station nearest that band's stations' middle.
 
+A WALLED MULTI-BRIDGE FRAME (walled-multibridge-frames spec W6): a frame
+whose deck pieces carry TWO OR MORE span cuts (``Member.deck_rings``, each
+piece's own ``span_cut``) is cut on every span's own axis into CELLS
+(``geom/plate_cells``): one span cell per span, graded on its own end
+lines; the REST (trench, walls, riders) cut between the pieces at the gap's
+middle and moved rigidly with the end line it lies beyond; only the
+at-grade cells between two spans of one cut are dropped (18i (3)).  A
+one-axis frame is cut exactly as before.
+
 Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
@@ -52,6 +61,8 @@ from ..geom.plate_bands import Plates as _Plates
 from ..geom.plate_bands import piece_plates
 from ..geom.plate_bands import plate_bands as _bands_of
 from ..geom.plate_bands import plate_clusters as _clusters
+from ..geom.plate_cells import SpanAxis as _SpanAxis
+from ..geom.plate_cells import span_cells as _span_cells
 
 __all__ = ["piece_plates", "frame_plates", "split_record", "census_file"]
 
@@ -132,6 +143,21 @@ class _FramePlates:
     origin: tuple[float, float]
     heading: float
     stations: tuple[tuple[float, float], ...]
+    #: per band, whether it is KEPT (owner RULINGS 2026-11-18i: a deck cut to
+    #: its spans keeps its span bands and drops the at-grade rest); ``()``
+    #: keeps every band (#2112)
+    keep: tuple[bool, ...] = ()
+    #: RULINGS 2026-11-18i (b): the grade a kept SPAN band may take between
+    #: its two end lines (the taxiway longitudinal cap, ``Member.
+    #: deck_spans``); ``None`` keeps every band flat
+    grade_cap: "float | None" = None
+    #: per seat station, its deck top off the stations' mean (``Member.
+    #: deck_spans``): a station's ground less it is the frame zero's reading
+    #: there (``()``: one top everywhere, #2112)
+    station_tops: tuple[float, ...] = ()
+
+    def kept(self, k: int) -> bool:
+        return not self.keep or bool(self.keep[k])
 
     def to_frame(self, lat: float, lon: float) -> tuple[float, float]:
         """``(x, z)`` of a world point in the deck's authored frame
@@ -170,14 +196,30 @@ def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
     with no seat station."""
     counts = {} if counts is None else counts
     decks = [m for m in members if str(getattr(m, "deck_kind", "") or "") in _DECK_KINDS]
-    if len(decks) != 1 or reach_m <= 0.0:
+    if not decks or reach_m <= 0.0:
         return None
     m = decks[0]
+    o = getattr(m, "origin", None)
+    st = _stations(m)
+    # RULINGS 2026-11-18i: a frame CUT TO ITS SPANS is cut whole, however
+    # many hard decks it holds -- every one carries the one cut (MEASURED
+    # frames/lkrdu: KRDU STH_TML obj140 and its bridge decks NewC2_RP obj142
+    # are two flag decks of one frame; read as "more than one deck", the
+    # frame was seated whole at one zero and no at-grade band dropped)
+    if getattr(m, "deck_spans", ()) and o is not None and st and all(
+            tuple(getattr(q, "deck_spans", ()) or ()) == tuple(m.deck_spans) for q in decks):
+        return _span_plates(m, (float(o[0]), float(o[1])), st, counts)
+    # walled-multibridge spec W6: pieces cut on two or more axes are cut
+    # into cells, one cell set from every piece's own span cut
+    cut = _cut_pieces(m)
+    if len({p.span_cut for p in cut}) >= 2 and o is not None and all(
+            _cut_pieces(q) == cut for q in decks):
+        return _cell_plates(m, (float(o[0]), float(o[1])), cut, counts)
+    if len(decks) != 1:
+        return None
     p = _plates_of(str(getattr(m, "authored_path", "") or ""), reach_m)
     if p is None:
         return None
-    o = getattr(m, "origin", None)
-    st = _stations(m)
     if o is None or not st:
         counts["deck_plates_no_stations"] = counts.get("deck_plates_no_stations", 0) + 1
         return None
@@ -189,30 +231,207 @@ def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
     return fp
 
 
-def _band_seats(fp: _FramePlates, surface: _t.Any
-                ) -> "list[tuple[float, tuple[float, float, float]]] | None":
-    """Per band ``(delta_k, seat (lat, lon, z))``: the band's end-line ground
-    less the frame's, and its station nearest its stations' middle; None
-    where a band's stations read no surface."""
-    read = [(la, lo, surface(la, lo)) for la, lo in fp.stations]
-    read = [(la, lo, float(z)) for la, lo, z in read if z is not None]
+#: how far a kept span band reaches past its abutment line, metres
+SPAN_SEAT_M = 0.5
+
+
+def _span_plates(m: _t.Any, origin: tuple[float, float],
+                 st: tuple[tuple[float, float], ...], counts: dict) -> "_FramePlates | None":
+    """The frame's bands of a deck CUT TO ITS SPANS (owner RULINGS
+    2026-11-18i, ``Member.deck_spans``): a band line across the axis at
+    each abutment, the span bands kept, the at-grade bands between and
+    beyond dropped; ``None`` where a span band holds no seat station."""
+    a, b, spans, *rest = m.deck_spans
+    cap = rest[:1]
+    tops = tuple(rest[1]) if len(rest) > 1 and len(rest[1]) == len(st) else ()
+    fp0 = _FramePlates(str(getattr(m, "id", "")), _Plates((1.0, 0.0), ((0.0, 0.0),), (), ()),
+                       origin, float(getattr(m, "heading_deg", 0.0) or 0.0), st)
+    ax, az = fp0.to_frame(*a)
+    bx, bz = fp0.to_frame(*b)
+    L = math.hypot(bx - ax, bz - az)
+    if L <= 0.0 or not spans:
+        return None
+    ux, uz = (bx - ax) / L, (bz - az) / L
+    s0 = ux * ax + uz * az
+    # each span band reaches SPAN_SEAT_M past its abutments, so the seat
+    # stations on its end lines stand inside it
+    cuts = tuple(s0 + float(q) for sa, sb in spans
+                 for q in (sa - SPAN_SEAT_M, sb + SPAN_SEAT_M))
+    edges = (-math.inf, *cuts, math.inf)
+    p = _Plates((ux, uz), tuple(zip(edges[:-1], edges[1:], strict=True)), cuts, ())
+    keep = tuple(k % 2 == 1 for k in range(len(cuts) + 1))
+    fp = _dc.replace(fp0, plates=p, keep=keep,
+                     grade_cap=float(cap[0]) if cap and cap[0] is not None else None,
+                     station_tops=tops)
+    if any(keep[k] and not any(fp.band_of_ll(*q) == k for q in st) for k in range(len(keep))):
+        counts["deck_spans_unseated"] = counts.get("deck_spans_unseated", 0) + 1
+        return None
+    counts["deck_span_frames"] = counts.get("deck_span_frames", 0) + 1
+    return fp
+
+
+def _cut_pieces(m: _t.Any) -> tuple:
+    """``m``'s published deck pieces carrying a span cut (``Member.
+    deck_rings``, walled-multibridge spec W9)."""
+    return tuple(p for p in getattr(m, "deck_rings", ()) or () if p.span_cut)
+
+
+def _cell_plates(m: _t.Any, origin: tuple[float, float], pieces: tuple,
+                 counts: dict) -> "_FramePlates | None":
+    """The frame's CELLS (walled-multibridge spec W6, ``geom/plate_cells``)
+    from every piece's own span cut, each span cell seated on its piece's
+    stations; ``None`` where the cells cannot be cut or a span cell holds
+    no seat station."""
+    fp0 = _FramePlates(str(getattr(m, "id", "")), _Plates((1.0, 0.0), ((0.0, 0.0),), (), ()),
+                       origin, float(getattr(m, "heading_deg", 0.0) or 0.0), ())
+    axes = [_SpanAxis(fp0.to_frame(*p.span_cut[0]), fp0.to_frame(*p.span_cut[1]),
+                      tuple(tuple(q) for q in p.span_cut[2]),
+                      tuple(fp0.to_frame(*q) for q in p.ring)) for p in pieces]
+    cells = _span_cells(axes, SPAN_SEAT_M)
+    if cells is None:
+        counts["deck_cells_refused"] = counts.get("deck_cells_refused", 0) + 1
+        return None
+    # each station once (two pieces' end lines may share a seat vertex),
+    # so the stations' mean is the frame zero's (``_plate_zero``)
+    by_st: dict = {}
+    for p in pieces:
+        tp = p.tops if len(p.tops) == len(p.stations) else (0.0,) * len(p.stations)
+        for q, t in zip(p.stations, tp, strict=True):
+            by_st.setdefault(tuple(q), float(t))
+    st, tops = tuple(by_st), tuple(by_st.values())
+    caps = [p.span_cut[3] for p in pieces if len(p.span_cut) > 3 and p.span_cut[3] is not None]
+    fp = _dc.replace(fp0, plates=cells, stations=st,
+                     keep=tuple(c.kind != "grade" for c in cells.cells),
+                     grade_cap=float(caps[0]) if caps else None, station_tops=tops)
+    if any(c.kind == "span" and not any(fp.band_of_ll(*q) == k for q in st)
+           for k, c in enumerate(cells.cells)):
+        counts["deck_cells_unseated"] = counts.get("deck_cells_unseated", 0) + 1
+        return None
+    counts["deck_cell_frames"] = counts.get("deck_cell_frames", 0) + 1
+    return fp
+
+
+def _end_side(fp: _FramePlates, k: int, rows: list, end: int) -> list:
+    """The stations ``rows`` of span cell ``k`` on its end line ``end``
+    (0 the ``a`` side): split at the cell's middle along its axis."""
+    ux, uz = fp.plates.axis_of(k)
+    lo, hi = fp.plates.extent_of(k)
+    mid = 0.5 * (lo + hi)
+    pts = [(r, fp.to_frame(r[0], r[1])) for r in rows]
+    return [r for r, (x, z) in pts if (ux * x + uz * z < mid) == (end == 0)]
+
+
+def _seat_of(mine: list) -> tuple[float, float, float]:
+    """The station of ``mine`` nearest their middle, at its ground."""
+    cla = sum(r[0] for r in mine) / len(mine)
+    clo = sum(r[1] for r in mine) / len(mine)
+    la, lo, _zr, z = min(mine, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
+    return (la, lo, z)
+
+
+def _cell_steps(fp: _FramePlates, out: list, counts: "dict | None") -> None:
+    """W6: a step between neighbouring REST cells of two pieces over the
+    weld is LISTED (counted), never chased."""
+    if counts is None or not hasattr(fp.plates, "neighbours"):
+        return
+    for i, j in fp.plates.neighbours():
+        if fp.plates.anchor_of(i) is None or fp.plates.anchor_of(j) is None:
+            continue
+        if out[i][1] is not None and out[j][1] is not None \
+                and abs(out[i][0] - out[j][0]) > _GRADE_MIN_M:
+            counts["deck_cell_steps"] = counts.get("deck_cell_steps", 0) + 1
+
+
+def _band_seats(fp: _FramePlates, surface: _t.Any, counts: "dict | None" = None
+                ) -> "list[tuple[float, tuple[float, float, float] | None, tuple]] | None":
+    """Per band ``(delta_k, seat (lat, lon, z), warp)``: the band's end-line
+    ground less the frame's, its station nearest its stations' middle and
+    its grade (:func:`_span_grade`); None where a band's stations read no
+    surface."""
+    # each station's ground less its deck top off the mean (18i (b)): the
+    # frame zero's reading there, so a band's zero and grade are its deck's
+    off = fp.station_tops or (0.0,) * len(fp.stations)
+    read = [(la, lo, surface(la, lo), t) for (la, lo), t in zip(fp.stations, off, strict=True)]
+    read = [(la, lo, float(z) - float(t), float(z)) for la, lo, z, t in read if z is not None]
     if not read:
         return None
     mean_all = sum(r[2] for r in read) / len(read)
+    # the frame zero (``airside_deck_seat._plate_zero``) is the mean over
+    # every station; a dropped band holds none (RULINGS 2026-11-18i)
     out = []
+    anchor = getattr(fp.plates, "anchor_of", None)
     for k in range(len(fp.plates)):
         mine = [r for r in read if fp.band_of_ll(r[0], r[1]) == k]
+        if not fp.kept(k):
+            out.append((0.0, None, ()))
+            continue
+        rest = anchor(k) if anchor is not None else None
+        if rest is not None:
+            # W6: a REST cell moves rigidly with the end line it lies beyond
+            mine = _end_side(fp, rest[0], [r for r in read
+                                           if fp.band_of_ll(r[0], r[1]) == rest[0]], rest[1])
         if not mine:
             return None
-        cla = sum(r[0] for r in mine) / len(mine)
-        clo = sum(r[1] for r in mine) / len(mine)
-        seat = min(mine, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
-        out.append((sum(r[2] for r in mine) / len(mine) - mean_all, seat))
+        mean_k = sum(r[2] for r in mine) / len(mine)
+        out.append((mean_k - mean_all, _seat_of(mine),
+                    () if rest is not None else _span_grade(fp, k, mine, mean_k, counts)))
+    _cell_steps(fp, out, counts)
     return out
+
+
+def _span_grade(fp: _FramePlates, k: int, mine: list, mean_k: float,
+                counts: "dict | None") -> tuple:
+    """A KEPT SPAN TAKES ITS OWN GRADE (owner RULINGS 2026-11-18i (b), #2157
+    KRDU): band ``k`` of a deck cut to its spans, its stations ``mine``
+    ``(lat, lon, z)`` split at the band's middle into its two end lines,
+    is WARPED (``obj8_warp.Track``, ``("track", ((x, z, D), ...))`` in the
+    authored frame, ``D`` off the band's zero ``mean_k``) straight between
+    the two lines' ground, so each end line seats on its own and the piers
+    stay vertical.  The cap ``fp.grade_cap`` holds the PAVEMENT's grade
+    (each end line's ground, ``r[3]``), never the bend off the authored
+    deck (owner 2026-11-18T23:04Z, RULINGS 2026-11-18i (7)): a pavement
+    grade over it is held to it about the middle and counted
+    (``deck_span_over_cap``), the bend is what that leaves; end lines whose
+    bend is under the weld (``_GRADE_MIN_M``) stay flat; ``()`` for a flat
+    band."""
+    if fp.grade_cap is None or not fp.keep:
+        return ()
+    ux, uz = fp.plates.axis_of(k)
+    lo, hi = fp.plates.extent_of(k)
+    mid = 0.5 * (lo + hi)
+    pts = [(*fp.to_frame(r[0], r[1]), r[2], r[3]) for r in mine]
+    ends = [[q for q in pts if (ux * q[0] + uz * q[1] < mid) == first] for first in (True, False)]
+    if not all(ends):
+        return ()
+    (xa, za, ga, pa), (xb, zb, gb, pb) = ([sum(q[i] for q in e) / len(e) for i in range(4)]
+                                          for e in ends)
+    run = abs(ux * (xb - xa) + uz * (zb - za))
+    if run <= 0.0 or abs(gb - ga) <= _GRADE_MIN_M:
+        return ()
+    if abs(pb - pa) > fp.grade_cap * run:
+        if counts is not None:
+            counts["deck_span_over_cap"] = counts.get("deck_span_over_cap", 0) + 1
+        m, rise = 0.5 * (pa + pb), math.copysign(fp.grade_cap * run, pb - pa)
+        ga, gb = ga + (m - 0.5 * rise) - pa, gb + (m + 0.5 * rise) - pb
+    if counts is not None:
+        counts["deck_span_graded"] = counts.get("deck_span_graded", 0) + 1
+    return (("track", ((round(xa, 4), round(za, 4), round(ga - mean_k, 4)),
+                       (round(xb, 4), round(zb, 4), round(gb - mean_k, 4)))),)
+
+
+#: end lines whose ground differs by no more than this stay flat (the
+#: weld, ``[structures.bridge] deck_flush_m``'s order), metres
+_GRADE_MIN_M = 0.04
 
 
 def _in_band(fp: _FramePlates, k: int, pts: _t.Sequence) -> tuple:
     return tuple(q for q in pts if fp.band_of_ll(q[0], q[1]) == k)
+
+
+def _what(fp: _FramePlates, k: int) -> str:
+    """``plate`` for a band (#2112), ``<kind> cell`` for a cell (W6)."""
+    cells = getattr(fp.plates, "cells", None)
+    return "plate" if cells is None else f"{cells[k].kind} cell"
 
 
 def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
@@ -227,7 +446,7 @@ def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
     if not fp.shares_frame(m):
         counts["deck_plates_member_off_frame"] = counts.get("deck_plates_member_off_frame", 0) + 1
         return record
-    seats = _band_seats(fp, surface)
+    seats = _band_seats(fp, surface, counts)
     if seats is None:
         counts["deck_plates_no_ground"] = counts.get("deck_plates_no_ground", 0) + 1
         return record
@@ -240,19 +459,28 @@ def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
             out.append(b)
             continue
         zero = float(a.surface_z) - float(a.y_zero)
-        for k, (dk, (la, lo, sz)) in enumerate(seats):
+        first = True
+        for k, (dk, seat, warp) in enumerate(seats):
+            if seat is None:
+                counts["deck_span_bands_dropped"] = counts.get("deck_span_bands_dropped", 0) + 1
+                continue
+            la, lo, sz = seat
             y0 = float(sz) - (zero + dk)
             a2 = _dc.replace(
                 a, lat=la, lon=lo, surface_z=float(sz), y_zero=y0,
                 offset=authored_offset(la, lo, y0, record.lat, record.lon, record.heading),
-                reason=(f"deck plate {k + 1}/{len(seats)} on its own end lines: zero "
+                reason=(f"deck {_what(fp, k)} {k + 1}/{len(seats)} on its own end lines: zero "
                         f"{zero + dk:.2f} ({dk:+.2f} off the frame's {zero:.2f}; #2112)"
-                        f"; was: {a.reason}"))
-            bid = b.body_id if k == 0 else next_id
-            next_id += 1 if k else 0
+                        + (f"; graded {warp[0][1][0][2]:+.2f} -> {warp[0][1][1][2]:+.2f} "
+                           "between its end lines (RULINGS 2026-11-18i (b))" if warp else "")
+                        + f"; was: {a.reason}"))
+            bid = b.body_id if first else next_id
+            next_id += 0 if first else 1
+            first = False
             out.append(named_body(m, b, body_id=bid, anchor=a2, band=fp.plates.band(k),
                                   feet=_in_band(fp, k, b.feet),
-                                  geom_pts=_in_band(fp, k, b.geom_pts)))
+                                  geom_pts=_in_band(fp, k, b.geom_pts),
+                                  **({"warp": warp} if warp else {})))
         counts["deck_plate_split_bodies"] = counts.get("deck_plate_split_bodies", 0) + 1
     counts["deck_plate_placements"] = counts.get("deck_plate_placements", 0) + 1
     return _dc.replace(record, bodies=tuple(out))

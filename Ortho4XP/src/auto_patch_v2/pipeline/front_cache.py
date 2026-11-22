@@ -181,7 +181,7 @@ class FrontCache:
     # ── the same records from another process ───────────────────────
     def worker_state(self) -> dict[str, _t.Any]:
         """What :meth:`in_worker` rebuilds this cache from in a pool worker
-        (``pipeline/late_speculate``): its identity as computed HERE (the
+        (``pipeline/stage_one_ahead``): its identity as computed HERE (the
         code and environment digests, the partition and pack names, the
         whole law's digest — a non-canonical digest need not repeat in
         another process) and the

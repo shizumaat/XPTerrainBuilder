@@ -106,6 +106,9 @@ class PatchController(QObject):
         self.map = map_view
         self._built = built
         self.state = self.HIDDEN
+        #: The map's Filter menu turned "Airport patch" off (#2214): the
+        #: layer, its toolbar and its gestures leave the map; loading goes on.
+        self.layer_hidden = False
         self.state_icao: str | None = None
         self.state_message = ""
         self.tile_built = False
@@ -139,7 +142,15 @@ class PatchController(QObject):
 
     @property
     def is_showing(self) -> bool:
-        return self.state == self.LOADED and self.model.doc is not None
+        return (self.state == self.LOADED and self.model.doc is not None
+                and not self.layer_hidden)
+
+    def set_layer_hidden(self, hidden: bool) -> None:
+        """The Filter menu's "Airport patch" (#2214; Mac:
+        ``PatchEditModel.layerHidden``)."""
+        if bool(hidden) != self.layer_hidden:
+            self.layer_hidden = bool(hidden)
+            self.state_changed.emit()
 
     def schedule(self) -> None:
         self._timer.start()

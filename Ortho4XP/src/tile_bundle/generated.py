@@ -39,6 +39,7 @@ def _record(tile, icao: str) -> "tuple[dict, str] | None":
     """``(record, graded surface path)`` of ``icao`` in ``tile``, or
     ``None`` (module doc)."""
     from auto_patch.agp_reader import resolve_library_path
+    from auto_patch.dsf_reader import ensure_dsf_text_path
     from auto_patch_v2.airport import apt_flatten as _af
     from auto_patch_v2.airport import generated_pack as _gen
     from auto_patch_v2.airport import generated_record as _rec
@@ -58,7 +59,7 @@ def _record(tile, icao: str) -> "tuple[dict, str] | None":
     root = _key.pack_root(tile, icao)
     apt = _af.apt_dat_of(root) if root else ""
     rec = _gen.recipe(pub, apt, icao, Law.for_airport(icao),
-                      resolve_library=resolve_library_path)
+                      resolve_library=resolve_library_path, read_dump=ensure_dsf_text_path)
     doc = _rec.to_record(rec, pub, icao, install_root(apt))
     return (doc, path) if doc else None
 

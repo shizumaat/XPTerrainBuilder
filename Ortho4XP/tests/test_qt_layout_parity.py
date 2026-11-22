@@ -194,6 +194,8 @@ AIRPORTS_CARD_TEXT = (
     ("gradeSentence", "GRADE_SENTENCE"),
     ("fitSentence", "FIT_SENTENCE"),
     ("backupNote", "BACKUP_NOTE"),
+    ("fitAirportTip", "FIT_AIRPORT_TIP"),
+    ("customPatchTag", "CUSTOM_PATCH_TAG"),
 )
 
 #: The patch editor's Edit-mode right-click items, in menu order (#1318
@@ -266,12 +268,12 @@ TILE_PACKAGE = (
 
 #: The tile pane's Modified airports row, its actions left to right (owner
 #: 2026-11-15T13:12Z: Adjust… beside Revert): (key, Swift marker in
-#: BuildPane.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
+#: PackRowButtons.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
 PACK_ROW_ACTIONS = (
     ("trees", "buildModel.undoPackForests(packPath:", "self._undo_pack_forests(p)"),
     ("optimise", "buildModel.packOptimiseFromRow(", "self._pack_optimise_from_row(p, u)"),
     ("adjust", "buildModel.adjustPackFromRow(", "self._adjust_pack_from_row(p)"),
-    ("revert", "revertModifiedAirports(row)", "self._revert_modified_pack(p)"),
+    ("revert", "Button(action: revert)", "self._revert_modified_pack(p)"),
 )
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
@@ -924,6 +926,38 @@ def test_both_tile_panes_read_the_world_pack_first(window):
     assert window.tile_world_row.isHidden()
 
 
+def test_both_tile_panes_say_a_tile_waits_for_x_plane(window):
+    """#2175 (RULINGS 2026-11-19e): the World-pack row says a built tile
+    waits for X-Plane to finish loading it, and offers "Reload scenery"
+    after a swap over a loaded version, in both apps (``WorldTilesWaiting``)."""
+    import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
+    import O4_World_State_Text as WORLD_TEXT
+    from o4_engine import events as EV
+    from o4_engine.world_state import WorldTile
+
+    row = (SWIFT / "TileWorldRow.swift").read_text(encoding="utf-8")
+    assert "O4WorldStateText.waitingNote(tile: coord.key, tilesWaiting)" in row
+    assert "O4OnDemandText.reloadSceneryTitle" in row
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    assert "tilesWaiting: buildModel.worldTilesWaiting" in pane
+    assert "reloadScenery: { buildModel.reloadScenery() }" in pane
+    window.map.set_world({(41, -88): WorldTile("placeholder", "", 0.0, "", "")})
+    window._active_changed((41, -88))
+    world_row = window.tile_world_row
+    assert world_row.waiting_label.isHidden()
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting(waiting=("+41-088",)))
+    assert not world_row.waiting_label.isHidden()
+    assert world_row.waiting_label.text() == WORLD_TEXT.WAITING_NOTE.format(
+        tile="+41-088")
+    assert world_row.reload_button.isHidden()
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting(reload=("+41-088",)))
+    assert world_row.waiting_label.text().startswith("+41-088 is in the World pack")
+    assert not world_row.reload_button.isHidden()
+    assert world_row.reload_button.text() == ONDEMAND_TEXT.RELOAD_SCENERY_TITLE
+    window._on_world_tiles_waiting(EV.WorldTilesWaiting())
+    assert world_row.waiting_label.isHidden() and world_row.reload_button.isHidden()
+
+
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     """#1958: one key (the same kinds in the same order; owner
     2026-11-12T22:05Z: one pill in the Build and Fly views) and one
@@ -1233,8 +1267,8 @@ TileRevealMarker = "Self.revealTitle"
 def test_both_pack_rows_show_the_same_actions_in_order():
     """The Modified airports row: 3D trees, Optimise, Adjust…, Revert —
     the same actions in the same order in both apps."""
-    mac = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
-    start = mac.index('Text("Modified airports:")')
+    mac = (SWIFT / "PackRowButtons.swift").read_text(encoding="utf-8")
+    start = mac.index("struct PackRowButtons")
     qt = inspect.getsource(GUI.MainWindow._on_reanchor_ready)
     for text, column, offset in ((mac, 1, start), (qt, 2, 0)):
         marks = [text.find(row[column], offset) for row in PACK_ROW_ACTIONS]
@@ -1266,3 +1300,79 @@ def test_both_activity_rows_show_a_memory_wait():
     source = inspect.getsource(GUI.MainWindow._paint_row_state)
     assert "self._memory_waits.get(tile" in source
     assert GUI.MainWindow._on_memory_wait
+
+
+def test_both_fit_switches_ask_before_fitting_custom_patches(window, monkeypatch):
+    """RULINGS 2026-11-18l (#2172): turning fitting on for tiles with a
+    custom patch asks the engine's question, Cancel the default and the
+    box staying off; the card's ``fit_buildings`` is the switch's default
+    (off on a tile a custom patch is new to).  The Mac card asks the same
+    ``fitConfirm`` with Cancel as its default action."""
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert "card?.fitConfirm" in swift and ".keyboardShortcut(.defaultAction)" in swift
+    card = window.airports_card
+    answers = []
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit",
+                        lambda _parent, question: answers.append(question) or False)
+    card.overrides.clear()
+    monkeypatch.setattr(card, "on_card_changed", None, raising=False)
+    card._on_ready((card._generation, {
+        "airports": [], "packs": [{"name": "KASE", "objects": 3}],
+        "total_s": [0, 0], "custom_patches": ["KASE"], "fit_buildings": False,
+        "fit_confirm": "Custom patches are installed for KASE. Continue?"}, ""))
+    assert not card.chk_fit.isChecked()            # the card's default
+    card.chk_fit.setChecked(True)
+    assert answers and "KASE" in answers[0]
+    assert not card.chk_fit.isChecked() and QTAIRPORTS.FIT_KEY not in card.overrides
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit", lambda *_a: True)
+    card.chk_fit.setChecked(True)
+    assert card.overrides == {QTAIRPORTS.FIT_KEY: True}
+    card.take_overrides()
+
+
+def test_both_cards_have_a_fit_switch_per_airport(window, monkeypatch):
+    """#2182 (owner 2026-11-19T14:15Z): one "Fit" switch per airport whose
+    pack may be fitted, kept for that airport's later builds through the
+    engine's ``set_airport_fit``; turning on an airport with a custom patch
+    asks its question first.  The Mac card lists ``card.fitAirports`` and
+    writes through ``setAirportFit``."""
+    import O4_Qt_Build_Airports as QTAIRPORTS
+    from o4_engine import build_airports as CARD
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert "card.fitAirports" in swift and "setAirportFit(row" in swift
+    assert "airportQuestion?.confirm" in swift
+    card = window.airports_card
+    writes, answers = [], []
+    monkeypatch.setattr(CARD, "set_airport_fit",
+                        lambda tile, icao, fit, folder="": writes.append(
+                            (tile, icao, fit)))
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit",
+                        lambda _parent, question: answers.append(question) or False)
+    monkeypatch.setattr(card, "on_card_changed", None, raising=False)
+    card.overrides.clear()
+    card._on_ready((card._generation, {
+        "airports": [], "packs": [{"name": "P", "objects": 3}],
+        "total_s": [0, 0], "custom_patches": ["KASE"], "fit_buildings": True,
+        "fit_confirm": "Custom patches are installed for KASE. Continue?",
+        "fit_airports": [
+            {"icao": "KASE", "tile": [39, -107], "fit": False,
+             "custom_patch": True,
+             "confirm": "Custom patches are installed for KASE. Continue?"},
+            {"icao": "KEGE", "tile": [39, -107], "fit": True,
+             "custom_patch": False, "confirm": ""}]}, ""))
+    kase = card.fit_airport_checks["KASE"]
+    kege = card.fit_airport_checks["KEGE"]
+    assert kase.text() == "KASE · " + QTAIRPORTS.CUSTOM_PATCH_TAG
+    assert not kase.isChecked() and kege.isChecked()
+    kase.setChecked(True)                      # asked; Cancel keeps it off
+    assert answers and not kase.isChecked() and writes == []
+    kege.setChecked(False)                     # no question: written
+    assert writes == [("+39-107", "KEGE", False)]
+    assert not card.chk_fit.isChecked()        # no airport fits now
+    monkeypatch.setattr(QTAIRPORTS, "confirm_fit", lambda *_a: True)
+    kase.setChecked(True)
+    assert writes[-1] == ("+39-107", "KASE", True) and card.chk_fit.isChecked()
+    assert QTAIRPORTS.FIT_KEY not in card.overrides

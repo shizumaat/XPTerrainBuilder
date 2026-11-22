@@ -1,5 +1,5 @@
 """The map's Filter menu (#2097; Mac: ``MapFilter.swift``, same keys,
-words and order): two sections of independent toggles, each item on or
+words and order): three sections of independent toggles, each item on or
 off with a check mark, kept per user.
 
 Airports -- ICAO, Small, Custom Scenery, Global.  ICAO / Small is the
@@ -19,6 +19,11 @@ Favorite (``TileInfo.pinned``, #2033); Turned off when the user turned
 XPTerrainBuilder off on it (#2100, World state ``off``).  A tile draws
 when ANY of its items is on.
 
+Patch -- Airport patch (#2214): the zoomed-in airport's patch layer (its
+shapes, the pack outlines and terrain under them, the patch toolbar).
+Off, the map shows the photo alone; the patch still loads, so turning it
+on again shows it at once.
+
 Only the items turned OFF are stored, so an item a later version adds
 starts on.
 """
@@ -32,6 +37,7 @@ __all__ = [
     "SECTIONS", "KEYS", "ICAO_CATEGORY",
     "parse_hidden", "dump_hidden", "is_filtering",
     "shows_airport", "shows_tile", "shows_other_ortho", "shows_any_tile",
+    "shows_patch", "MENU_HELP",
 ]
 
 #: (section header, ((key, label), ...)) top to bottom; the headers are
@@ -41,8 +47,12 @@ SECTIONS = (
                   ("custom", "Custom Scenery"), ("global", "Global"))),
     ("Ortho Tiles", (("favorites", "Favorites"), ("full", "Full"),
                      ("drape", "Drape"), ("off", "Turned off"))),
+    ("Patch", (("patch", "Airport patch"),)),
 )
 KEYS = tuple(key for _header, items in SECTIONS for key, _label in items)
+
+#: The menu's tooltip (Mac: ``MapFilterMenu.help``).
+MENU_HELP = "Choose which airports, ortho tiles and airport patch the map shows"
 
 #: The engine index's category of an airport with an ICAO code
 #: (``O4_Airport_Index.AIRPORT_CATEGORIES[0]``).
@@ -107,6 +117,11 @@ def shows_tile(hidden: FrozenSet[str], state: Optional[str],
 def shows_other_ortho(hidden: FrozenSet[str]) -> bool:
     """Other installed ortho / mesh packages' outlines are Full ortho."""
     return "full" not in hidden
+
+
+def shows_patch(hidden: FrozenSet[str]) -> bool:
+    """The zoomed-in airport's patch layer draws (#2214)."""
+    return "patch" not in hidden
 
 
 def shows_any_tile(hidden: FrozenSet[str]) -> bool:

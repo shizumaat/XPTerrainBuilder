@@ -97,8 +97,13 @@ final class PatchEditModel: ObservableObject {
         case quit
     }
 
-    /// Whether the map draws the layer now (loaded and zoomed in).
-    var isShowing: Bool { state == .loaded && document != nil }
+    /// The map's Filter menu turned "Airport patch" off (#2214): the layer,
+    /// its toolbar and its gestures leave the map; loading goes on.
+    @Published var layerHidden = false
+
+    /// Whether the map draws the layer now (loaded, zoomed in, not filtered
+    /// out).
+    var isShowing: Bool { state == .loaded && document != nil && !layerHidden }
 
     private struct Viewport {
         let box: O4LatLonBox

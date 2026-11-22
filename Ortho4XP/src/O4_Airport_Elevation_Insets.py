@@ -7343,19 +7343,36 @@ def bake_candidate_inset_paths(tile, keep_declined=False):
     composite query never reads a raster the bake refused -- the
     all-zero TINITALY cut over Corsica put 5,565 road nodes at 0.000 m
     through ``alt_vec`` while the ``.alt`` stayed clean.  Only the bake
-    passes ``keep_declined=True``, to record each refusal by name."""
+    passes ``keep_declined=True``, to record each refusal by name.
+
+    An airport standing on the base raster its custom patch was made for
+    (``O4_Custom_Patch_Ground.left_out``, RULINGS 2026-11-19n (2)) has its
+    insets left out here, for every one of those readers at once."""
     if not insets_enabled_for_tile(tile):
         return []
     provider_definitions = select_provider_definitions(
         getattr(tile, "airport_elevation_providers", "auto")
     )
     codes = [definition["code"] for definition in provider_definitions]
-    paths = _ranked_for_composite(list_cached_inset_dems(
+    paths = _ranked_for_composite(_not_left_out(tile, list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
-    ), codes)
+    )), codes)
     if keep_declined:
         return paths
     return [path for path in paths if not _declined_on_read(path)]
+
+
+def _not_left_out(tile, inset_paths):
+    """``inset_paths`` without the insets of an airport standing on the
+    base raster its custom patch was made for
+    (``O4_Custom_Patch_Ground.left_out``, RULINGS 2026-11-19n (2))."""
+    import O4_Custom_Patch_Ground as CUSTOM_GROUND
+
+    left_out = {icao.upper() for icao in CUSTOM_GROUND.left_out(tile)}
+    if not left_out:
+        return list(inset_paths)
+    return [path for path in inset_paths
+            if _inset_icao_from_path(path).upper() not in left_out]
 
 
 def _declined_on_read(inset_path):
@@ -8868,9 +8885,9 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
         getattr(tile, "airport_elevation_providers", "auto")
     )
     codes = [definition["code"] for definition in provider_definitions]
-    inset_paths = list_cached_inset_dems(
+    inset_paths = _not_left_out(tile, list_cached_inset_dems(
         tile.lat, tile.lon, provider_codes=codes or None
-    )
+    ))
     (sample_x, sample_y) = ea_mask_coverage.mask_sample_points(mask_geometry)
     sample_lons = sample_x + tile.lon
     sample_lats = sample_y + tile.lat
@@ -9319,7 +9336,9 @@ def warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction):
     """
     if coverage_fraction >= INSET_COVERAGE_THRESHOLD:
         return False
-    paths = cached_inset_paths_for_airport(tile, icao)
+    # Silent, too, for an airport whose insets the build leaves out (its
+    # custom patch stands on the base, :func:`_not_left_out`).
+    paths = _not_left_out(tile, cached_inset_paths_for_airport(tile, icao))
     if not paths:
         return False
     UI.loud_warning(

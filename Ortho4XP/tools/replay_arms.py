@@ -97,6 +97,10 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
                     "named sources are re-roled in the classification BEFORE "
                     "the map is built (tools/role_arm.py); a later resume "
                     "re-uses the captured map and its roles"),
+    "--no-bridge": (("replay/classify", "replay/planar"),
+                    "the full map withholds its generated decks where the map "
+                    "is built (planar/deck_airside, RULINGS 2026-11-19s); a "
+                    "later resume re-uses the captured map, decks and all"),
 }
 ARM_FLAGS: tuple[str, ...] = tuple(EFFECT)
 

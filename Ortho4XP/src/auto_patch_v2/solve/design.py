@@ -76,7 +76,6 @@ from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts, 
                           shipped_conflicts)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
-from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
                    _one_matrix,
                    apply_level_belt, _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
@@ -301,38 +300,56 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         free2 = frozenset(seed_rep.pop("stage2_free", None) or ())
         if free2:
             fixed2 = {v: z for v, z in levels.items() if v not in free2}
+        # RULINGS 2026-11-19s (1): the airside vertices round a generated deck
+        # the coordinate join left without a stage-1 level take the no-bridge
+        # surface there (``constraints/deck_floor_follow``)
+        extra2 = seed_rep.pop("stage2_fixed", None)
+        if extra2:
+            fixed2 = {**fixed2, **{int(v): float(z) for v, z in extra2.items()}}
+        shadow = seed_rep.pop("stage2_shadow", None)
+    else:
+        shadow = None
+
+    def _stage2_set(cs_x: ConstraintSet, free_x) -> ConstraintSet:
         # the caller's rewrite re-reads the set it was BOUND to (the un-
         # yielded one): a pin stage 1 RELEASED stays released in stage 2
         # (lane ``joinyield128``: HECA v28332 was re-pinned 0.32 m off the
         # level the sidecar told the core ribbon to take)
-        if yielded1:
+        if yielded1 and (stage2_rewrite is not None or (stage1 is not None and yield_heads)):
             from .pin_yield import release_pins
-            cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
-    elif stage1 is not None and yielded1 and yield_heads:
-        from .pin_yield import release_pins
-        cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
-    if stage1 is not None:
-        # pass 1b's hold law, carried by the join (never onto stage 2's own)
-        cs = stage1.apply_full(cs, free2) if free2 else stage1.apply_full(cs)
-    elif pass1a is not None and hasattr(hold, "apply"):
-        cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
+            cs_x = release_pins(cs_x, {int(r["v"]) for r in yielded1}, yield_heads)
+        if stage1 is not None:
+            # pass 1b's hold law, carried by the join (never onto stage 2's own)
+            return stage1.apply_full(cs_x, free_x) if free_x else stage1.apply_full(cs_x)
+        if pass1a is not None and hasattr(hold, "apply"):
+            return hold.apply(cs_x)    # stage 2 states pass 1b's hold law (§4)
+        return cs_x
+    cs_rw, cs = cs, _stage2_set(cs, free2)
     t2 = time.perf_counter()
-    sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
-                              method=method, low_rank=low_rank, fixed=fixed2,
-                              seed=seed2)
-    yielded: list[dict] = []
-    cs2_used = cs
-    if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
-        def _stage2(cs_x: ConstraintSet):
-            return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
-                                method=method, low_rank=low_rank, fixed=fixed2,
-                                seed=seed2)
-        among2 = {p.v for p in cs.pins} - set(s1_read)
-        sol2, rep2, yielded, _cs2 = _yield_pins(planar2, cs, law, sol2, rep2,
-                                                _stage2, among=among2)
-        for r in yielded:
-            r["stage"] = 2
-        cs2_used = _cs2
+    if shadow is not None:
+        # RULINGS 2026-11-19s (1): the stage-2 airside a generated deck's cut
+        # must not move, held at the surface solved without the cut
+        from .stage_shadow import held_levels
+        fixed2 = held_levels(
+            shadow, cs_rw, levels, fixed2, _stage2_set, lambda cs_x, fx: _solve_stage(
+                planar2, cs_x, law, options, method=method, low_rank=low_rank, fixed=fx,
+                seed=seed2), seed_rep)
+    # STAGE 2 IS SOLVED ONCE (#2206, owner RULINGS 2026-11-21a: "what can
+    # produce a very similar result ... with no grade violations in the
+    # shortest time"): its yielding pins released up front as design targets
+    # at their own values (``pin_yield.released_once``), a pin the solve moves
+    # past ``hard_tol_m`` recorded as yielded (#778: each pin by its own
+    # conflict).  The pinned solve and the narrowed re-solve it replaces cost
+    # two more stage-2 solves (LGAV solve_design 231 -> 108 s; KASE / BIKF /
+    # LGAV within the bar, no census family rising)
+    from .pin_yield import released_once
+    sol2, rep2, yielded, cs2_used = released_once(
+        planar2, cs, law, {p.v for p in cs.pins} - set(s1_read) if yield_heads else set(),
+        lambda cs_x: _solve_stage(planar2, cs_x, law, options, size_out=size_out,
+                                  method=method, low_rank=low_rank, fixed=fixed2,
+                                  seed=seed2))
+    for r in yielded:
+        r["stage"] = 2
     if follow_rewrite is not None and sol2.z:
         from .follow_stage import solve_follow
         sol2, rep2.follow_stage = solve_follow(

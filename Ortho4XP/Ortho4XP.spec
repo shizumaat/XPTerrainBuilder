@@ -300,7 +300,10 @@ exe = EXE(
     # ordering pins in auto_patch; this is defense in depth.
     [('hash_seed=0', None, 'OPTION')],
     exclude_binaries=True,
-    name='Ortho4XP',
+    # The process name every engine process shows (Activity Monitor, ps):
+    # owner 2026-11-18 (#2164).  Workers and the resource tracker re-exec
+    # sys.executable, so they carry it too.
+    name='XPTerrainBuilderEngine',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -319,5 +322,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Ortho4XP',
+    name='XPTerrainBuilderEngine',
 )

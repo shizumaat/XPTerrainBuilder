@@ -152,7 +152,8 @@ def test_map_filter_reaches_the_map_and_persists(make_window):
     assert not menu.items["full"].isChecked()
     assert menu.items["drape"].isChecked()
     # The headers are not selectable.
-    assert [h.text() for h in menu.headers] == ["Airports", "Ortho Tiles"]
+    # Mac: MapFilter.sections (the Patch section, #2214)
+    assert [h.text() for h in menu.headers] == ["Airports", "Ortho Tiles", "Patch"]
     assert not any(h.isEnabled() or h.isCheckable() for h in menu.headers)
 
 

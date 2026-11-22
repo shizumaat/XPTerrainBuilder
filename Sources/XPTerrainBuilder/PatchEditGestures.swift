@@ -86,6 +86,15 @@ final class PatchDragState: ObservableObject {
     /// The last hovered point, to refresh the cursor when ⌥ changes.
     var hoverPoint: CGPoint?
     let option = PatchOptionKey()
+
+    /// A drag SwiftUI dropped without `onEnded` (the layer left the map
+    /// mid-pan as the view moved off the airport, #2214) leaves `kind` set,
+    /// its pan anchored on that airport's view; a gesture that starts
+    /// anywhere else is a new one and must not resume it — a click at the
+    /// next airport jumped the map back.
+    func isLeftOver(gestureStart: CGPoint) -> Bool {
+        kind != .idle && gestureStart != start
+    }
 }
 
 /// The document as seen through the map camera: screen ↔ ground, and the
@@ -227,6 +236,7 @@ struct PatchEditLayer: View {
     private func changed(_ value: DragGesture.Value, size: CGSize) {
         guard let (screen, grid) = screen(size) else { return }
         let moved = hypot(value.translation.width, value.translation.height) >= Self.clickSlop
+        if drag.isLeftOver(gestureStart: value.startLocation) { reset() }
         switch drag.kind {
         case .idle:
             begin(at: value.startLocation, screen: screen, grid: grid)
@@ -324,6 +334,7 @@ struct PatchEditLayer: View {
         defer { reset() }
         guard let (screen, grid) = screen(size) else { return }
         let moved = hypot(value.translation.width, value.translation.height) >= Self.clickSlop
+        if drag.isLeftOver(gestureStart: value.startLocation) { reset() }
         switch drag.kind {
         case .nodes(let grabbed, let ids):
             if model.dragSkip != nil {

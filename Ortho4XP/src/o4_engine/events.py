@@ -248,6 +248,11 @@ CAPABILITIES: tuple = (
     "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
     "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
     "pack_overlaps",                # 2026-11-17, #2145 PackOverlaps + pack_overlaps
+    "pack_readonly",                # 2026-11-19, #2174 PackReadOnly + pack_readonly
+    "world_tiles_waiting",          # 2026-11-19, #2175 WorldTilesWaiting (staged tiles)
+    "custom_patch_notice",          # 2026-11-19, #2179 notices + custom_patch_notice_seen
+    "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
+    "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
 )
 
 
@@ -930,6 +935,50 @@ class PackAdjust(EngineEvent):
 
 
 @dataclass(frozen=True)
+class PackReadOnly(EngineEvent):
+    """An airport pack whose folders are READ-ONLY (as it was downloaded),
+    so the build cannot adjust it (issue #2174, RULINGS 2026-11-19d).
+
+    Emitted by the object stage (``auto_patch_v2.airport.pack_readonly.
+    gate``) before it writes the pack — the pack's writes then PAUSE in
+    that tile's build until the answer — and as the completion of a
+    ``pack_readonly`` command (capability ``pack_readonly``; it replies
+    ``{"status": "started"}`` at once).  ``state``:
+
+    * ``"found"`` — (build) ask once per pack: **Make writable** sends
+      ``pack_readonly`` with ``action="writable"``, **Not now** with
+      ``action="not_now"`` (the paused writes leave the pack as it is;
+      the tile's row under Modified airports reads "read-only — not
+      adjusted" with Ask again).
+    * ``"ask"`` — (command ``action="ask"``, the row's Ask again) the
+      same question, asked every time.
+    * ``"writable"`` — the engine added the owner's write permission to
+      the pack's folders and files (``changed`` paths); a paused build's
+      writes go on.  ``rebuild``: no build was waiting on the pack — the
+      app rebuilds tile ``lat``/``lon`` so it is adjusted.
+    * ``"not_now"`` / ``"none"`` (writable already) / ``"failed"``
+      (``error`` says why) — a command's outcome.
+
+    ``folders`` are the read-only folders, inside the pack (named first),
+    at most eight.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    folders: list = field(default_factory=list)
+    changed: int = 0
+    rebuild: bool = False
+    state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class GatewayAirports(EngineEvent):
     """Global Airports entries X-Plane flattens, and Gateway packs with a
     newer version (issue #1989; capability ``gateway_airports``).
@@ -984,7 +1033,20 @@ class PackOverlaps(EngineEvent):
     be disabled: its ``winner`` is ``"disable"`` (that pack's ini row is
     marked ``SCENERY_PACK_DISABLED``; X-Plane must restart), ``"keep"``
     (never asked again) or ``""``; ``lower == ""`` is a report (a pack
-    the ini does not list), never answered.  ``state``:
+    the ini does not list), never answered.  A row with ``"kind":
+    "drapes"`` (RULINGS 2026-11-19h, ``auto_patch.drape_overlap_stage``)
+    is ``lower``'s draped polygons inside the custom airport of
+    ``default`` (the airport pack): ``winner`` the airport pack hides
+    them, ``"both"`` keeps them.
+
+    The condensed question (capability ``pack_overlaps_default``, #2190):
+    every row's ``prefer`` / ``keep`` is the ``winner`` "Prefer the
+    airports" / "Keep everything" gives it (``""``: that answer cannot
+    decide the pair -- two airport packs -- so it is still asked);
+    ``default`` is the answer stored for all tiles (``"prefer_airports"``,
+    ``"keep_all"``, ``""`` none), which ``pack_overlaps`` ``default`` sets.
+    With one stored, a build answers the rows it decides itself and asks
+    only about the rest.  ``state``:
 
     * ``"found"`` — (build) ask, one picker per pair: **Apply** sends
       ``pack_overlaps`` with ``action="choose"`` and ``items``
@@ -1004,6 +1066,7 @@ class PackOverlaps(EngineEvent):
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""
+    default: str = ""
 
 
 @dataclass(frozen=True)
@@ -1139,7 +1202,16 @@ class BuildAirportsReady(EngineEvent):
     ``packs``: the enabled custom airport packs with an airport in the
     tiles and 3-D objects of their own —
     ``{"name", "path", "airports": [icao, ...], "objects": int}``.
-    ``total_s`` is ``[low, high]`` summed over ``airports``.  ``request``
+    ``total_s`` is ``[low, high]`` summed over ``airports``.
+    ``custom_patches``: the ICAOs a custom patch covers in the tiles;
+    ``fit_buildings``: whether the next build fits ("Fit custom airport
+    buildings" — off on a tile a custom patch is new to); ``fit_confirm``:
+    the question both apps ask before that switch is turned on, "" when
+    there is no custom patch (owner RULINGS 2026-11-18l, #2172).
+    ``fit_airports`` (#2182, capability ``airport_fit``): the switch PER
+    AIRPORT, one row per airport whose pack may be fitted —
+    ``{"icao", "tile": [lat, lon], "fit": bool, "custom_patch": bool,
+    "confirm": str}``; the ``set_airport_fit`` command changes one.  ``request``
     is the ``id`` of the command it answers; ``error`` the failure text.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
@@ -1150,6 +1222,10 @@ class BuildAirportsReady(EngineEvent):
     airports: list = field(default_factory=list)
     packs: list = field(default_factory=list)
     total_s: list = field(default_factory=list)
+    custom_patches: list = field(default_factory=list)
+    fit_buildings: Any = None
+    fit_confirm: str = ""
+    fit_airports: list = field(default_factory=list)
     error: str = ""
 
 
@@ -1266,6 +1342,28 @@ class WorldStatus(EngineEvent):
     governor: str = "ok"
     bytes: int = 0
     here: Any = None
+
+
+@dataclass(frozen=True)
+class WorldTilesWaiting(EngineEvent):
+    """The built tiles not yet in the World pack, and the ones that went in
+    over a tile X-Plane loaded (#2175, RULINGS 2026-11-19e; capability
+    ``world_tiles_waiting``): emitted by ``world_staged_sweep`` whenever
+    either list changes, an empty pair clearing the notes.
+
+    ``waiting``: tile names (``+41-088``) staged while X-Plane loads them
+    (they go in within seconds of X-Plane closing their files); the tile
+    pane says "+41-088 is waiting for X-Plane to finish loading it".
+    ``reload``: tile names swapped in over a version X-Plane loaded this
+    session while the "tiles" reload offer stands
+    (``o4_engine.reload_offer``); the tile pane offers "Reload scenery".
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    waiting: tuple = ()
+    reload: tuple = ()
 
 
 @dataclass(frozen=True)

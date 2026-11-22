@@ -32,8 +32,9 @@ the object stage's plate):
   ``[tunnel] wall_gap_m`` inside the deck's edge (:func:`deck_cut`): the
   corridor's VOID face spans that ground, its rim at deck level, and the
   mesh makes the bank.  A frame whose co-placed trench object states its
-  walls is no hard-deck bridge here: the walls define the cut, and the
-  trench object's own reading governs (``planar/covered_bores``).
+  walls is still a hard-deck bridge (RULINGS 2026-11-19a, amending the
+  reading of 10-30b): the walls set the cut's WIDTH only (WALLS below), the
+  trench object's depth its floor.
 * WALLS (owner RULINGS 2026-10-30f (3), #1692): where the frame itself
   models abutment walls under the deck (``planar/deck_walls``: vertical
   faces rising from its bottom along the road), the floor runs to the
@@ -77,7 +78,8 @@ from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
-from ..geom.wall_lines import project_span
+from ..geom.wall_lines import project_span, stretch_pair
+from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim_end_stations
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
@@ -87,23 +89,11 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
            "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
-           "is_walled",
+           "is_walled", "rim_end_stations", "walled_span_cuts", "open_stretch",
            "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
-
-
-def deck_polygon(db: DeckBridge) -> Polygon:
-    """The deck piece's outline as a valid polygon (the model holds no
-    shapely: ``model/structures.DeckBridge``)."""
-    return _ring_polygon(tuple(tuple(p) for p in db.ring))
-
-
-@functools.lru_cache(maxsize=4096)
-def _ring_polygon(ring: tuple) -> Polygon:
-    p = Polygon(ring)
-    return p if p.is_valid else p.buffer(0.0)
 
 
 def with_cuts(decks: _t.Sequence[DeckBridge], tunnels) -> tuple[DeckBridge, ...]:
@@ -237,6 +227,40 @@ def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bo
     return (min(ys) if ys else top), False
 
 
+def _piece_bottom(cache, frame, piece, law, top: float) -> float:
+    """RULINGS 2026-11-19a: the lowest solid triangle of the frame's members
+    standing in deck piece ``piece`` (its ring shrunk by ``[tunnel]
+    wall_gap_m``), else ``top`` -- a piece whose frame models nothing under
+    it states no level, and :func:`_road_floor`'s ladder sets its floor.
+    A frame carrying several bridges over one trench object reads each
+    bridge's own depth, never the trench's deepest part elsewhere
+    (MEASURED KRDU CTR_TML: -13.57 m at its far ramp, -1.25 / -6.07 under
+    its two taxiway bridges)."""
+    import numpy as np
+    import shapely
+
+    from ..airport.obj8 import placement_affine
+    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    inner = piece.buffer(-gap)
+    inner = piece if inner.is_empty else inner
+    low = math.inf
+    for q in frame:
+        g = cache.geometry(q.resolved) if q.resolved else None
+        if g is None or g.solid is None or not len(g.solid):
+            continue
+        t = np.asarray(g.vertices, dtype=float)[:, :3][np.asarray(g.solid)]   # (m, 3, 3)
+        # a triangle stands in the piece when a corner, an edge midpoint or
+        # its centroid does (a wall's corners all lie past the piece's ends)
+        pts = np.concatenate([t, 0.5 * (t + np.roll(t, 1, axis=1)),
+                              t.mean(axis=1, keepdims=True)], axis=1)
+        a, b, c, e, xo, yo = placement_affine(q.xy, q.heading_deg)
+        inside = shapely.contains_xy(inner, a * pts[..., 0] + b * pts[..., 2] + xo,
+                                     c * pts[..., 0] + e * pts[..., 2] + yo).any(axis=1)
+        if inside.any():
+            low = min(low, float(t[inside, :, 1].min()))
+    return low if math.isfinite(low) else top
+
+
 def _solid_lows(cache, q, under) -> list[float]:
     """Every genuine component's ``min_y`` of placement ``q`` when ``q``
     stands UNDER the deck -- one component's plan centroid inside ``under``
@@ -328,15 +352,16 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         under = u.buffer(-float(law.tables.structures.tunnel.wall_gap_m))
         bottom, walled = _bottom_y(cache, frame, trenches, top, u if under.is_empty else under)
         if walled:
-            # Q-A AS RULED: where the pack models walls the walls define the
-            # cut — the co-placed trench object's own reading governs
+            # RULINGS 2026-11-19a: a co-placed trench object's walls set the
+            # cut's WIDTH only (10-30b, 30f (3): ``wall_faces`` below reads
+            # them with the frame); the deck is still a bridge, seated, welded
+            # and cut span by span like any other
             notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: a co-placed trench "
-                         f"object states its walls — they define the cut (Q-A as ruled)")
-            continue
+                         f"object states its walls -- they set the cut's width, the deck "
+                         f"is a bridge (RULINGS 2026-11-19a)")
         mine: list[DeckBridge] = []
-        for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
-            if piece.geom_type != "Polygon" or piece.area < 1.0:
-                continue
+        walls = functools.partial(_frame_walls, cache, frame, bottom, top)
+        for piece, span in _span_pieces(u, airport, law, notes, d, walls):
             ring_ll = [to_ll(x, y) for x, y in piece.exterior.coords[:-1]]
             pairs = facing_contacts(ring_ll, surface, step, every=True)
             where = f"{d.id} {str(d.path).rsplit('/', 1)[-1]} piece {piece.area:,.0f} m2"
@@ -364,12 +389,16 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             if high:
                 notes.append(f"{where}: {high}")
                 continue
+            # 19a: a walled frame's depth is its own solids' UNDER THIS PIECE
+            # (a multi-bridge frame's trench reaches far deeper elsewhere)
+            pb = _piece_bottom(cache, frame, piece, law, top) if walled else bottom
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
-                                   float(bottom), float(d.deck_top_z) - top + 0.5 * (ta + tb),
-                                   family=fam, route=route, route_ref=ref))
+                                   float(pb), float(d.deck_top_z) - top + 0.5 * (ta + tb),
+                                   family=fam, route=route, route_ref=ref, span_cut=span))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
+        objs: list[DeckBridge] = []
         for db in (db if z is None else _dc.replace(db, deck_z=z) for db in mine):
             db = _road_floor(db, law, notes, level_b, _carries_movement(db, roles))
             if solid:
@@ -381,9 +410,160 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
                                  top_b=_end_top(plate, db.seats_b, reach, db.top_b))
             r, n = _road_dir(db), across_dir(db)
-            out.append(_dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
-                                                        0.5 * (db.top_a + db.top_b), r, n)))
+            db = _dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
+                                                  0.5 * (db.top_a + db.top_b), r, n))
+            notes.extend(_floor_pair_note(db))
+            objs.append(db)
+        gap = float(law.tables.structures.tunnel.wall_gap_m)
+        objs = _beyond_stretches(objs, gap, notes)
+        out.extend(_walled_zero(objs, airport, step, gap, notes))
     return tuple(out), notes
+
+
+def _walled_zero(objs: list[DeckBridge], airport, step: float, gap: float,
+                 notes: list[str]) -> list[DeckBridge]:
+    """``objs`` (one object's pieces) with the pre-solve zero read one sample
+    ``step`` OUTSIDE the larger of each walled piece's ring and its trench
+    rim (walled-multibridge-frames spec W3): a ring ending on the rim reads
+    the rim and the pit floor together (KORD's I-190 frame: 196.28 against
+    the taxiway's 199.0-199.2), and the survey's at-grade test
+    (``deck_bores``, #2128 R5) then reads a 5 m trench as 2.1-2.6 m.  A
+    wall-less piece keeps its stations."""
+    moved = [p for db in objs for st in (rim_end_stations(db, step, gap) or ())
+             for p in st]
+    z = _deck_z(airport, moved, None) if moved else None
+    if z is None or not objs:
+        return objs
+    notes.append(f"{objs[0].object_id} {objs[0].resource.rsplit('/', 1)[-1]}: the zero is read "
+                 f"{step:g} m outside its walled rim, {objs[0].deck_z:.2f} -> {z:.2f} "
+                 f"(walled frames W3)")
+    return [_dc.replace(db, deck_z=z) for db in objs]
+
+
+def _beyond_stretches(objs: list[DeckBridge], gap: float,
+                     notes: "list[str] | None" = None) -> list[DeckBridge]:
+    """W7b (walled-multibridge-frames spec; RULINGS 2026-11-19m "trust the
+    object"): ``objs`` (one object's pieces) with ``beyond`` set on every
+    WALLED piece -- the trench the frame models on past each END of the
+    piece along its road that faces no other piece of the object (the
+    stretch between two pieces is :func:`open_stretch`'s): from the ring's
+    end for as long as the frame's FLOOR (K2's near-horizontal bottom
+    solids, ``DeckBridge.walls[3]``) runs on unbroken between the piece's
+    walls.  Where it ends is the MOUTH: the road is free to climb there,
+    never inside the walls (MEASURED KORD I-190: road -5312 0.4 m past the
+    E span's end, inside the walls, held the span's floor at deck level by
+    its ramp ceiling).  The pair along it is the piece's own where its walls
+    or the frame's floor run on out to them (``geom/wall_lines.
+    stretch_pair``), else the stretch's own (:func:`inner_faces`)."""
+    out = []
+    for db in objs:
+        got = _walled_trench(db, gap)
+        if got is None or len(db.walls) < 4 or not db.walls[3]:
+            out.append(db)
+            continue
+        r, n, faces, floor = db.walls
+        u_lo, u_hi = project_span(db.ring, n)
+        s_lo, s_hi = project_span(db.ring, r)
+        mid = 0.5 * (u_lo + u_hi)
+        pair = inner_faces(faces, s_lo, s_hi, mid, (u_lo, u_hi), floor)
+        runs = []
+        for side in (1.0, -1.0):
+            end = s_hi if side > 0 else s_lo
+            if any((project_span(o.ring, r)[0] >= s_hi) if side > 0
+                   else (project_span(o.ring, r)[1] <= s_lo) for o in objs if o is not db):
+                continue        # the open stretch to the next piece
+            far = _floor_run(floor, pair, end, side)
+            if abs(far - end) <= 1.0:
+                continue
+            s0, s1 = sorted((end, far))
+            # the piece's own pair where its walls or the frame's floor run on
+            # out to them; a pier is never the trench's wall (K2)
+            va, vb = stretch_pair(faces, s0, s1, pair, pair, floor)
+            if va is None or vb is None:
+                ia, ib = inner_faces(faces, s0, s1, mid, (u_lo, u_hi), floor)
+                va, vb = (ia if va is None else va), (ib if vb is None else vb)
+            if va is None or vb is None or va >= vb:
+                continue
+            runs.append(((va, vb), (s0, s1)))
+            if notes is not None:
+                notes.append(f"{db.object_id} {db.resource.rsplit('/', 1)[-1]} piece "
+                             f"{deck_polygon(db).area:,.0f} m2: its trench runs on "
+                             f"{s1 - s0:.1f} m past its end between its walls "
+                             f"({va:.1f}..{vb:.1f}), floor at its own, mouth at the "
+                             f"frame's floor end (walled frames W7b)")
+        out.append(_dc.replace(db, beyond=tuple(runs)) if runs else db)
+    return out
+
+
+def _floor_run(floor, pair: tuple[float, float], end: float, side: float) -> float:
+    """How far from ``end`` (toward ``side`` along the road) the frame's floor
+    solids standing between ``pair`` run on unbroken -- each one starting
+    within one wall-line bin of where the run has reached."""
+    ua, ub = pair
+    iv = sorted(((s0, s1) if side > 0 else (-s1, -s0)) for a, b, s0, s1 in floor
+                if b > ua and a < ub)
+    reach = end * side
+    for a, b in iv:
+        if b <= reach:
+            continue
+        if a > reach + 0.5:
+            break
+        reach = b
+    return reach * side
+
+
+def _floor_pair_note(db: DeckBridge) -> list[str]:
+    """K2 (kord-trench-frame-spec): one note where the frame's floor moves
+    the deck's wall pair off the nearest-the-middle one -- the pair before
+    and after, so a replay lists every deck the rule reaches."""
+    if len(db.walls) < 4 or not db.walls[3]:
+        return []
+    r, n, faces, floor = db.walls
+    u_lo, u_hi = project_span(db.ring, n)
+    s_lo, s_hi = project_span(db.ring, r)
+    mid, reach = 0.5 * (u_lo + u_hi), (u_lo, u_hi)
+    old = inner_faces(faces, s_lo, s_hi, mid, reach)
+    new = inner_faces(faces, s_lo, s_hi, mid, reach, floor)
+    if old == new:
+        return []
+    fmt = lambda p: "none" if None in p else f"{p[0]:.2f}..{p[1]:.2f}"  # noqa: E731
+    name = db.resource.rsplit('/', 1)[-1]
+    return [f"{db.object_id} {name} piece {deck_polygon(db).area:,.0f} m2: "
+            f"K2 the wall pair stands at the frame's floor edge, {fmt(old)} -> {fmt(new)} "
+            f"across the road (kord-trench-frame-spec)"]
+
+
+def _frame_walls(cache, frame, bottom: float, top: float, r, n) -> tuple:
+    """The frame's wall faces across the road ``r`` (``deck_walls.wall_faces``)."""
+    return wall_faces(cache, frame, bottom, top, r, n)
+
+
+def _span_pieces(u, airport, law, notes: list[str], d, walls=None):
+    """``(piece, span_cut)`` per deck piece of the union ``u``, largest
+    first; a piece lying at grade on the airport's pavement is cut to its
+    spans (owner RULINGS 2026-11-18i, ``planar/deck_span_cut``), each span
+    carrying ``(a, b, spans, grade cap)``; every other piece is itself
+    with ``()``.  ``walls(r, n)``: the frame's wall faces
+    (``deck_span_cut._wall_spans``)."""
+    from .deck_span_cut import span_split
+    for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
+        if piece.geom_type != "Polygon" or piece.area < 1.0:
+            continue
+        got = span_split(piece, airport, law, walls)
+        if got is None:
+            yield piece, ()
+            continue
+        cut, parts = got
+        # RULINGS 2026-11-18i (b): each span takes its own grade, up to the
+        # taxiway cap (``edge_deck._graded_rows``, ``deck_plates._span_grade``)
+        cap = law.ruleset.taxi.longitudinal.value(None, None)
+        notes.append(f"{d.id} {str(d.path).rsplit('/', 1)[-1]}: lies at grade on the "
+                     f"airport's pavement -- cut to its {len(parts)} span(s) "
+                     + ", ".join(f"{a:.0f}-{b:.0f} m" for a, b in cut.spans)
+                     + f" of {cut.length:.0f} m (RULINGS 2026-11-18i)")
+        for p in parts:
+            yield p, (tuple(cut.a), tuple(cut.b), tuple(cut.spans),
+                      None if cap is None else float(cap))
 
 
 def _roads_under(airport, law, ring: Polygon) -> "XY | None":
@@ -686,6 +866,7 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     road = ramp          # the corridor's own carriageway, before the deck trims it
     keep = _keep(db, axis, other, band)
     walled = _walled_trench(db, inset, other)
+    rim = None
     if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
         # ``inset`` behind them — no bank climbs the walls
@@ -713,6 +894,13 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         # KIAH obj24551: the road ran on through the bank to the deck's
         # edge, 0.53 m off the deck's span)
         beside = roads.difference(unary_union([ramp, road]).buffer(0.5, join_style="mitre"))
+        if rim is not None and not beside.is_empty:
+            # RULINGS 2026-11-19m: a road INSIDE a walled frame's rim is under
+            # the frame -- its walls bound the cut, which takes the road to
+            # the object's floor (MEASURED KORD I-190: road ribbons left over
+            # the walls held the floor 4-5 m up, their cross-section rows
+            # against the floor's)
+            beside = beside.difference(rim)
         if not beside.is_empty:
             outer = outer.difference(beside)
 
@@ -766,6 +954,30 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
         banks = banks.difference(beside)
     banks = banks.intersection(_keep(db, axis, other, band))
     return None if banks.is_empty or banks.area <= 0.0 else banks
+
+
+def walled_span_cuts(decks: _t.Sequence[DeckBridge], inset: float
+                     ) -> list[tuple[str, Polygon]]:
+    """``(object id, span cut)`` of every WALLED PACK deck piece
+    (walled-multibridge-frames spec W8): its rim strip
+    (:func:`_walled_trench`, ``inset`` behind the walls) inside its ring --
+    the region nothing of the pavement survives in: no airside cell
+    (``deck_generated.carried_off``'s knife) and no taxi or road centreline
+    (``structure_service.decked_exclusion``).  A generated deck's own cut is
+    its ring (spec 2123 A3)."""
+    from ..model.structures import is_generated
+    out = []
+    for db in decks:
+        got = None if is_generated(db) else _walled_trench(db, inset)
+        if got is not None:
+            # the span's rim inside its ring, and the trench past its ends (W7b)
+            r, n = db.walls[0], db.walls[1]
+            cut = unary_union([got[1].intersection(deck_polygon(db))]
+                              + [wall_strip(r, n, va - inset, vb + inset, g0, g1)
+                                 for (va, vb), (g0, g1) in db.beyond])
+            if not cut.is_empty and cut.area > 0.0:
+                out.append((db.object_id, cut))
+    return out
 
 
 def is_walled(db: DeckBridge, inset: float) -> bool:
@@ -836,36 +1048,6 @@ def _lane_strip(db: DeckBridge, band: tuple[float, float], big: float) -> Polygo
     lo, hi = max(band[0], -big), min(band[1], big)
     return Polygon([(r[0] * s + n[0] * u, r[1] * s + n[1] * u)
                     for s, u in ((-big, lo), (big, lo), (big, hi), (-big, hi))])
-
-
-def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
-                  ) -> "tuple[Polygon, Polygon] | None":
-    """``(floor, rim)`` of a WALLED deck (``planar/deck_walls``; RULINGS
-    2026-10-30f (3)): the floor is the strip between the walls' inner faces
-    under the deck — and, toward ``other`` deck over the same road, along
-    the open stretch to it, between that stretch's own inner faces — and
-    the rim the same strip ``inset`` wider (behind the walls), inside the
-    deck's ring under it.  ``None`` where either side of the deck has no
-    wall: the 30b bank stands there."""
-    if not db.walls:
-        return None
-    r, n, faces = db.walls
-    u_lo, u_hi = project_span(db.ring, n)
-    s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi))
-    if ua is None or ub is None:
-        return None
-    floors = [wall_strip(r, n, ua, ub, s_lo, s_hi)]
-    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(deck_polygon(db))]
-    if other is not None:
-        o_lo, o_hi = project_span(other.ring, r)
-        g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
-        if g1 > g0:
-            va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi))
-            if va is not None and vb is not None:
-                floors.append(wall_strip(r, n, va, vb, g0, g1))
-                rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))
-    return unary_union(floors), unary_union(rims)
 
 
 def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
@@ -988,7 +1170,13 @@ def deck_seats(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
     there)``."""
     def two(d: DeckBridge) -> tuple:
         return ((d.object_id, d.seats_a, d.depth_a), (d.object_id, d.seats_b, d.depth_b))
-    s_own = max((axis.project(Point(q)) for q in db.ring), default=0.0)
+    # W7b: the floor stays level through the trench past the deck's end to
+    # the frame's floor end (``DeckBridge.beyond``), then climbs
+    r_n = db.walls[:2] if db.walls else None
+    past = [wall_strip(r_n[0], r_n[1], va, vb, g0, g1).exterior.coords
+            for (va, vb), (g0, g1) in db.beyond] if r_n else []
+    s_own = max((axis.project(Point(q)) for q in (*db.ring, *(p for c in past for p in c))),
+                default=0.0)
     x = axis.intersection(deck_polygon(other)) if other is not None and other is not db else None
     if x is None or x.is_empty:
         return s_own + gap, None, (), two(db), None

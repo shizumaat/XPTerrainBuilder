@@ -127,6 +127,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "FLANDERS1M",
         "IRELAND1M",
         "WALLONIA1M",
+        # Luxembourg national lidar (#2185).
+        "LUXEMBOURG50CM",
         "PORTUGAL2M",
         "PORTUGAL50CM",
         "PITKIN1M",

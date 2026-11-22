@@ -403,6 +403,11 @@ class _Sweep:
         a moved file lays back with its tile's next build)."""
         if self.spare and _spared(path, self.spare):
             return 0
+        # never mid-build: a file written since the pass read it, or of a
+        # tile a live build holds (``storage_hold``, incident 2026-11-18)
+        from .storage_hold import untouchable
+        if untouchable(store, path, st):
+            return 0
         size = DISK.freeable_bytes(path, st, unshared=True)
         if self.tier_only:
             return self._offload(store, path, st, size)

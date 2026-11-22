@@ -110,6 +110,17 @@ def auto_patch_begin(icaos):
 
 
 ################################################################################
+def airport_phases(icao, phases):
+    """A finished airport build's own stage clocks (the v2 report's
+    ``wall_s``) for the session's per-airport time record (#2206).  No-op
+    without an engine session; never raises."""
+    if engine_session is not None:
+        try:
+            engine_session.airport_phases(icao, phases)
+        except Exception:
+            pass
+
+
 def auto_patch_progress(icao, done, total, label, status="run",
                         eta_total_s=None):
     """Update one airport's row in the auto-patch progress window.
@@ -224,6 +235,20 @@ def pack_adjust(**fields):
     if engine_session is not None:
         try:
             engine_session.pack_adjust_event(**fields)
+        except Exception:
+            pass
+
+
+def pack_readonly(**fields):
+    """A read-only airport pack the build cannot adjust, or the outcome of
+    the user's answer (issue #2174).
+
+    ``fields`` are the ``PackReadOnly`` event's.  No-op without an engine
+    session and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_readonly_event(**fields)
         except Exception:
             pass
 

@@ -18,7 +18,7 @@ import O4_OSM_Utils as OSM
 import O4_UI_Utils as UI
 
 __all__ = ["BANK_FOOT_FEATURE", "BANK_RINGS_STATS", "bank_annulus_polygon",
-           "bank_annulus_region_areas"]
+           "bank_annulus_region_areas", "patch_paths_read"]
 
 
 # THE ANNULUS IS IDENTIFIED FROM THE PATCH ``.osm`` FILES, not from the
@@ -43,14 +43,39 @@ BANK_FOOT_FEATURE = "bank_foot"
 BANK_RINGS_STATS = {}
 
 
+def patch_paths_read(tile):
+    """The patch files the tile's mesh reads, as paths, in
+    ``include_patches``' order: the manual patches, then each auto patch
+    the auto-patch mode admits and no manual patch replaces.  A custom
+    patch is read from the copy its build wrote (``O4_Patch_Rebase.
+    read_path``: re-based, with the blend band's foot rings, #2173)."""
+    import O4_Airport_Modes as MODES
+    import O4_Patch_Rebase as PATCH_REBASE
+    from auto_patch import selection as SELECTION
+
+    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+    if not os.path.exists(patch_dir):
+        return []
+    all_files = [f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"]
+    manual = [f for f in all_files if "_auto.patch.osm" not in f]
+    manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
+    mode = SELECTION.resolved_auto_patch_mode(tile)
+    files = manual + [
+        f for f in all_files if "_auto.patch.osm" in f
+        and MODES.mode_admits(f[:-15].upper(), mode)
+        and f[:-15].upper() not in manual_icao]
+    return [PATCH_REBASE.read_path(tile, patch_dir, name) for name in files]
+
+
 def _bank_rings_from_patches(tile):
     """The tile's patch rings, split into FOOT rings and DESIGN rings.
 
     Returns ``(foot_polygons, design_polygons, open_foot_lines)`` in the
     isotropic tile-relative frame, or ``None`` when the patch directory
     cannot be read.  All three are empty for a tile with no patch, and
-    ``foot_polygons`` is empty for a v1 or manual patch — the caller then
-    does nothing at all.
+    ``foot_polygons`` is empty for a patch with no ``bank_foot`` way (every
+    v2 auto patch since RULINGS 2026-10-04c (3)) — the caller then does
+    nothing at all; a custom patch's copy carries them (#2173).
 
     ``open_foot_lines`` (RULINGS 2026-09-13cp) are the ``bank_foot`` ways
     that are OPEN — a ring straddling a tile seam.  They are LINEWORK, not
@@ -58,36 +83,19 @@ def _bank_rings_from_patches(tile):
     polygon, and it is never closed here by projection.  The closed
     coverage is the EMITTER's job.
     """
-    from shapely import geometry, ops
+    from shapely import geometry
 
-    from auto_patch import selection as SELECTION
-    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
-    if not os.path.exists(patch_dir):
+    if not os.path.exists(FNAMES.patch_dir(tile.lat, tile.lon)):
         BANK_RINGS_STATS.clear()
         return ([], [], [])
-    all_files = [f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"]
-    manual = [f for f in all_files if "_auto.patch.osm" not in f]
-    auto = [f for f in all_files if "_auto.patch.osm" in f]
-    manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
-    mode = SELECTION.resolved_auto_patch_mode(tile)
-    files = list(manual)
-    for name in auto:
-        icao = name.replace("_auto.patch.osm", "").upper()
-        if mode == "None":
-            continue
-        if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
-            continue
-        if icao in manual_icao:
-            continue
-        files.append(name)
+    files = patch_paths_read(tile)
     scalx = cos((tile.lat + 0.5) * pi / 180)
     feet, design = [], []
     open_feet = []                         # §37 (3): load-bearing runs
     for name in files:
         layer = OSM.OSM_layer()
         try:
-            layer.update_dicosm(os.path.join(patch_dir, name),
-                                input_tags=None, target_tags=None)
+            layer.update_dicosm(name, input_tags=None, target_tags=None)
         except Exception:
             continue
         nodes = layer.dicosmn
@@ -141,12 +149,13 @@ def bank_annulus_polygon(tile):
     the whole of the no-op path for a v1 or manual patch); ``None`` when
     the inputs cannot be read.
 
-    A ``bank_foot`` way is one RING of the banked region.  The design
-    coverage is a subset of that region, so a ring whose polygon meets the
-    design coverage is an EXTERIOR ring and one that does not is a HOLE:
-    ``banked = union(exteriors) - union(holes)``, and the annulus is
-    ``banked - design_coverage``.  Any error in that classification leaves
-    vertices to the harmonic extension, never the other way round.
+    A ``bank_foot`` way is one RING of the banked region: a ring inside
+    an even number of other foot rings is an EXTERIOR, inside an odd
+    number a HOLE (the custom-patch band's grass enclosed by pavement,
+    #2173, and an island of pavement inside that grass), applied from the
+    outermost in (:func:`_nested`), and the annulus is ``banked -
+    design_coverage``.  Any error in that classification leaves vertices
+    to the harmonic extension, never the other way round.
     """
     from shapely import geometry, ops
 
@@ -157,15 +166,26 @@ def bank_annulus_polygon(tile):
     if not feet:
         return geometry.Polygon()
     design_cov = ops.unary_union(design) if design else geometry.Polygon()
-    exteriors = [p for p in feet if p.intersects(design_cov)]
-    holes = [p for p in feet if not p.intersects(design_cov)]
-    if not exteriors:
+    if not any(p.intersects(design_cov) for p in feet):
         return geometry.Polygon()
-    banked = ops.unary_union(exteriors)
-    if holes:
-        banked = banked.difference(ops.unary_union(holes))
+    banked = geometry.Polygon()
+    for (depth, polygon) in _nested(feet):
+        banked = (banked.union(polygon) if depth % 2 == 0
+                  else banked.difference(polygon))
     annulus = banked.difference(design_cov)
     return annulus if not annulus.is_empty else geometry.Polygon()
+
+
+def _nested(feet):
+    """``[(depth, polygon)]`` outermost first: ``depth`` is how many of
+    the other foot polygons contain the polygon's interior point."""
+    out = []
+    for i, polygon in enumerate(feet):
+        point = polygon.representative_point()
+        depth = sum(1 for j, other in enumerate(feet) if j != i
+                    and other.area > polygon.area and other.contains(point))
+        out.append((depth, polygon))
+    return sorted(out, key=lambda item: (item[0], -item[1].area))
 
 
 # ── THE MESH MUST HAVE VERTICES TO CARRY THE BLEND ─────────────────────

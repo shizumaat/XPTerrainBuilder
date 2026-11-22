@@ -243,9 +243,8 @@ def room_for_copy(ram_gb: float | None, reader: _t.Callable[..., Reading] = _rea
     """Whether the machine has room NOW for one more process as big as this
     one (x :data:`COPY_MARGIN`) above the free floor — the question a stage
     asks before it runs a copy of the build's own work in a worker (the
-    speculative derives, ``pipeline/late_speculate``, ``pipeline/
-    stage_one_ahead``).  ``(answer, the reading as a phrase)``; a reading
-    that cannot be made says yes (the pool's own bounds and the ceilings
+    derive run ahead, ``pipeline/stage_one_ahead``).  ``(answer, the
+    reading as a phrase)``; a reading that cannot be made says yes (the pool's own bounds and the ceilings
     above still hold)."""
     try:
         r = reader(())

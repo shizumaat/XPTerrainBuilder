@@ -60,6 +60,9 @@ class TunnelObject:
     # of the plan area under its rim stands, as authored, under the ground
     # around it (a road ramp walled by its parapets climbs out of it)
     pit_sunken_min_share: float
+    # 2026-11-21d: a roofed portal at grade is still its tunnel's mouth where
+    # the mapped bore runs at least this many times the object's size
+    mouth_bore_min_ratio: float
     # #1949 rule 7: only an OPEN TRENCH (its rim's cover of the floor under
     # this share, no walls hanging under its plate) banks its open edges
     trench_roof_max_share: float

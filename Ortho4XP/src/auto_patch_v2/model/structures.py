@@ -470,6 +470,10 @@ class DeckAnchor:
     #: #2112: the deck PLATE this end line holds (``constraints/deck_lines.
     #: plate_of``): an object in disjoint plates has one zero per plate
     plate: int = 0
+    #: owner RULINGS 2026-11-18i (b): a span cut out of a pack deck lying at
+    #: grade (``DeckBridge.span_cut``) -- each end line its OWN level, the
+    #: span graded between them (``constraints/edge_deck._graded_rows``)
+    graded: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -498,9 +502,10 @@ class DeckBridge:
     bottom_y: float
     #: the pre-solve rendered deck top: the estimate a mouth plans from
     deck_z: float
-    #: the frame's WALLS under the deck, ``(r_w, n_w, faces)``
-    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3)); ``()``
-    #: for a deck the pack models no wall under
+    #: the frame's WALLS under the deck, ``(r_w, n_w, faces, floor)``
+    #: (``planar/deck_walls.wall_faces``, RULINGS 2026-10-30f (3); ``floor``
+    #: the frame's bottom solids, K2 of kord-trench-frame-spec, absent on a
+    #: deck read before it); ``()`` for a deck the pack models no wall under
     walls: tuple = ()
     #: the floor is the lower level's ladder (``planar/deck_bridge.
     #: _road_floor``: the frame stops short of the road), not the object's
@@ -550,6 +555,40 @@ class DeckBridge:
     #: off them are no ground once hidden (``planar/deck_pack_cover.
     #: hidden_cells_off``)
     hidden_plans: tuple = ()
+    #: owner 2026-11-19T13:51Z (RULINGS 2026-11-19m (2)): the placement ids
+    #: of a pack's WALLED MULTI-BRIDGE FRAME this GENERATED deck takes over
+    #: (``planar/deck_takeover``) -- hidden in the pack copy (``hides``) and
+    #: read by no planar pass, on either map; ``()`` for every other deck
+    replaces: tuple = ()
+    #: owner RULINGS 2026-11-18i: a deck piece cut to ONE SPAN of a pack
+    #: deck lying at grade elsewhere on the airport's pavement
+    #: (``geom/deck_spans``, ``planar/deck_span_cut``): ``(a, b, spans,
+    #: cap)`` -- the source piece's axis (frame xy), every span ``(s_a,
+    #: s_b)`` along it and the grade a span may take between its end lines
+    #: (18i (b)); the object stage keeps those bands of the frame and drops
+    #: the rest.  ``()`` for every other deck
+    span_cut: tuple = ()
+    #: walled-multibridge-frames W7b (RULINGS 2026-11-19m): the trench the
+    #: frame models on past this WALLED piece's ends -- ``((u_a, u_b), (s0,
+    #: s1))`` per stretch, across / along the walls' road
+    #: (``planar/deck_bridge._beyond_stretches``): its floor is the piece's,
+    #: its mouth where the frame's floor ends.  ``()`` for every other deck
+    beyond: tuple = ()
+    #: #2181 item 1: the generated road bridges (``Airport.road_bridges``
+    #: ids) a GENERATED deck carries on its edge (``planar/deck_gen_pairs.
+    #: riders``) -- built as part of the deck, never on their own
+    riders: tuple = ()
+    #: owner 2026-11-19T23:07Z: the cut a GENERATED deck owns
+    #: (``model/deck_carve.DeckCarve``, ``planar/deck_carve``) -- its paths,
+    #: floor stretches and the surveyed ground along them; ``None`` for a
+    #: pack deck or before the full map derives it
+    carve: _t.Any = None
+    #: owner RULINGS 2026-11-20a (1): ``(id, resource, (lon, lat), m2)`` of
+    #: every pack placement still drawing a deck-level top under a GENERATED
+    #: deck's footprint after the one decision (``planar/deck_takeover.
+    #: _one_decision``) -- a DEFECT the census counts
+    #: (``pack_bridge_under_deck``); ``()`` when the decision was clean
+    pack_under: tuple = ()
 
     @property
     def depth_a(self) -> float:

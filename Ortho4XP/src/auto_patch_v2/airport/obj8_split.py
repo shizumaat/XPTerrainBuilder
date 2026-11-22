@@ -803,14 +803,18 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
 
     def _wrow(body: int, v: int, table: list[str], cache: dict, normal_at: int) -> str:
         """#2144: row ``v`` of ``table`` raised by ``body``'s warp field
-        (the source table warped once per field)."""
+        (the source table warped once per field).  The table GROWS during
+        the walk: a band clip (#2112, ``obj8_band._corner``) appends the
+        rows it cuts at a band line, so the rows past the cached ones are
+        warped when first read (RULINGS 2026-11-18i (6): a warped span
+        band is also clipped -- KRDU 1.0.562 lost its whole cut here)."""
         f = warp_of.get(body)
         if f is None:
             return table[v]
-        key = id(f)
-        if key not in cache:
-            cache[key] = _warp.warp_rows(table, 1, f, normal_at)
-        return cache[key][v]
+        done = cache.setdefault(id(f), [])
+        if v >= len(done):
+            done.extend(_warp.warp_rows(table[len(done):], 1, f, normal_at))
+        return done[v]
 
     def vt_index(body: int, v: int, in_anim: bool) -> int:
         key = (v, in_anim)

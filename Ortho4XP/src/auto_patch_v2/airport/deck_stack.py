@@ -706,6 +706,10 @@ def attach_stacks(airport, objects, cache, law, route_of: RouteOf,
     mapped = getattr(airport, "osm_ways_mapped", None) or airport.osm_ways
     base = airport if mapped is airport.osm_ways else _dc.replace(airport, osm_ways=mapped)
     stacks, notes = _deck_stacks(base, objects, cache, law, route_of)
+    # #2116 item 3 (RULINGS 2026-11-18c): the members seated by their own
+    # end lines, predicted so the stack's ground meets them (22m)
+    from .stack_end_seat import seat_stacks
+    stacks = seat_stacks(stacks, base, objects, law, notes)
     if notes_out is not None:
         notes_out.extend(notes)
     if not stacks:

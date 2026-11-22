@@ -78,7 +78,7 @@ from O4_Imagery_Tier_Plan import TIER_WIDTH
 
 from . import imagery_follow_drape as DRAPE
 
-__all__ = ["TierLander"]
+__all__ = ["SquareGone", "TierLander"]
 
 
 def texture_corner(name: str) -> tuple[int, int]:
@@ -104,6 +104,12 @@ _COMBINED = threading.Lock()
 SOURCE_LOOK_S = 10.0
 
 
+class SquareGone(RuntimeError):
+    """The square's folders are gone (its drape given back to the disk
+    budget, #2193): nothing can land there; the follow job skips it at
+    once instead of fetching and converting into a missing folder."""
+
+
 class TierLander:
     """``lander(row, tier) -> {"tier_px", "full_bytes", "jpeg_path",
     "dds_cache_key", "network"}``; thread safe."""
@@ -118,8 +124,11 @@ class TierLander:
         """The tile object of ``row``'s build folder (read once)."""
         import O4_Config_Utils as CFG
         key = row["build_dir"]
+        built = _built_stamp(key, row["tile"])
         with self._guard:
             tile = self._tiles.get(key)
+            if tile is not None and getattr(tile, "_o4_built", None) != built:
+                tile = None         # rebuilt since it was read (#2224)
             if tile is None:
                 lat, lon = _tile_latlon(row["tile"])
                 tile = CFG.Tile(lat, lon, "")
@@ -131,6 +140,7 @@ class TierLander:
                 elif _masks_named(row):
                     tile.imprint_masks_to_dds = False
                 _frozen_colour_field(tile)
+                tile._o4_built = built
                 self._tiles[key] = tile
             return tile
 
@@ -181,6 +191,9 @@ class TierLander:
         import O4_Imagery_Utils as IMG
         final = INDEX.texture_path(row)
         width = TIER_WIDTH[int(tier)]
+        for folder in (row["build_dir"], os.path.dirname(final)):
+            if not os.path.isdir(folder):
+                raise SquareGone(f"{row['name']}: {folder} is gone")
         took: dict = {}
         if _land_from_source(row.get("source_path"), final, width, took):
             return dict(_facts(final, width, None, None, False),
@@ -211,6 +224,20 @@ class TierLander:
         if drape:
             DRAPE.landed(built)
         return _facts(final, width, jpeg, None, not cached)
+
+
+def _built_stamp(build_dir: str, tile: str) -> "float | None":
+    """When the folder's DSF was last written (``None`` without one): a
+    rebuild reads the tile again, since its cfg and its ``.ter`` masks
+    decide whether a landing imprints a mask and deletes its PNG (an
+    adopted tile rebuilt here kept the adopted read and deleted the masks
+    its new ``.ter`` files name, #2224)."""
+    import O4_World_Pack as WP
+    try:
+        path = os.path.join(build_dir, WP.dsf_relpath(*_tile_latlon(tile)))
+        return os.stat(path).st_mtime
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _own_settings(tile) -> None:

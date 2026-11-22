@@ -63,7 +63,7 @@ __all__ = ["MemberRow", "PadEvidence", "member_row", "resource_rows",
            "ring_area",
            "tall_base_fill", "tall_member_coverage", "tallest_extent_m",
            "has_vertical_structure_evidence", "evidence_name_vouches",
-           "wide_path_name_vouches", "pad_evidence",
+           "wide_path_name_vouches", "pad_evidence", "mostly_under_grade",
            "BUILDING_NAME_TOKENS"]
 
 #: One evidence row per COMPONENT of a cluster's member bodies —
@@ -129,6 +129,12 @@ class PadEvidence:
     #: They are small beside the footprint rings the cluster already
     #: carries (four floats per component).
     rows: tuple[MemberRow, ...] = ()
+    #: each row's component TOP — its authored ``base_y + height_m`` over
+    #: the object's own grade (``y = 0``), aligned with :attr:`rows`
+    #: (lane ``lk1fix``: K1 asks whether the cluster lies UNDER its grade
+    #: or is a slab whose top stands at it; :func:`mostly_under_grade`).
+    #: Empty in a cluster measured before the field — not measured.
+    tops: tuple[float, ...] = ()
 
     def line(self) -> str:
         return (f"tall_base_fill {self.tall_base_fill:.4f}, tallest "
@@ -243,6 +249,28 @@ def tallest_extent_m(rows: _t.Sequence[MemberRow]) -> float:
     return max((row[2] for row in rows), default=0.0)
 
 
+def mostly_under_grade(ev: "PadEvidence", sunk_m: float) -> "bool | None":
+    """K1's below-grade half (owner RULINGS 2026-11-19k (1), amended by
+    lane ``lk1fix``): does the cluster LIE UNDER its own grade — a road
+    bed, a trench floor, a pit — rather than stand at it?
+
+    A component is SUNK when its top stands ``sunk_m`` or more under the
+    object's own grade (authored ``y = 0``); the cluster is under its grade
+    when its sunk components carry MORE footprint area than the rest.  An
+    at-grade slab (its top at grade, a skirt reaching under it: ELLX
+    ``Terminal-Zone-2.010`` top +1.48, ``ELLX_Hub.003`` top +0.36) is not;
+    a road bed (KORD ``tunel_solido_nuevo``, top -2.28) or a walled trench
+    whose floor carries the area (KJFK ``deprimido_jetblue``, 82 % of its
+    area under -2 m) is.  ``None``: not measured (no tops)."""
+    tops = tuple(getattr(ev, "tops", ()) or ())
+    rows = tuple(getattr(ev, "rows", ()) or ())
+    if not tops or len(tops) != len(rows):
+        return None
+    sunk = sum(r[3] for r, t in zip(rows, tops, strict=True) if float(t) <= -float(sunk_m))
+    rest = sum(r[3] for r, t in zip(rows, tops, strict=True) if float(t) > -float(sunk_m))
+    return sunk > rest
+
+
 def has_vertical_structure_evidence(
         rows: _t.Sequence[MemberRow], hull_area_m2: float,
         evidence_min_height_m: float, evidence_min_coverage: float,
@@ -326,7 +354,8 @@ def pad_evidence(rows: _t.Sequence[MemberRow],
                  ml: float, mo: float,
                  tall_member_min_extent_m: float,
                  evidence_min_height_m: float,
-                 evidence_min_coverage: float) -> "PadEvidence | None":
+                 evidence_min_coverage: float,
+                 tops: _t.Sequence[float] = ()) -> "PadEvidence | None":
     """Measure one cluster — ``None`` where there is no footprint to
     measure (v1's ``degenerate`` / ``hull_failed`` verdicts), which the
     gate reads as "not measured" and never as a refusal.
@@ -367,4 +396,5 @@ def pad_evidence(rows: _t.Sequence[MemberRow],
         name_vouched=wide_path_name_vouches(paths),
         evidence_name_vouched=evidence_name_vouches(paths),
         length_m=length_m, width_m=width_m, components=len(rows),
-        rows=tuple(rows))
+        rows=tuple(rows),
+        tops=tuple(float(t) for t in tops) if len(tops) == len(rows) else ())

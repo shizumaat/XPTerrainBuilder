@@ -252,6 +252,9 @@ final class BuildModel: ObservableObject {
     /// A per-tile Settings change waiting for the user's yes: the selected
     /// tiles disagree (#1549, `BuildModel+SelectionSettings.swift`).
     @Published var pendingSelectionEdit: PendingSelectionEdit?
+    /// The Build pane's latest `build_airports` answer for the selection:
+    /// the fit switch's default and its custom-patch question (#2172).
+    @Published var airportsCard: O4BuildAirports?
     /// The next build's detail level: a zoom chosen for the selection, else
     /// the selection's own (each tile's recorded zoom, a never-built tile
     /// the default; disagreeing tiles build at the default, as in the Qt
@@ -301,6 +304,9 @@ final class BuildModel: ObservableObject {
     /// World spec §5.3); nil before the engine sent one. The Fly pane
     /// reads it.
     @Published private(set) var worldStatus: O4WorldStatus?
+    /// The engine's last `WorldTilesWaiting` (#2175): the tile pane's
+    /// "waiting for X-Plane" / reload note (`TileWorldRow`).
+    @Published private(set) var worldTilesWaiting: O4WorldTilesWaiting?
     /// Rescans the map when a World or flight job swaps a tile in.
     private var worldSwaps = WorldSwapWatch()
     private var imageryStatusChecked = false
@@ -335,6 +341,9 @@ final class BuildModel: ObservableObject {
     /// patch" row. The engine owns the rule (`custom_patches`,
     /// O4_Custom_Patches.py).
     @Published private(set) var customPatchTiles: [TileCoord: [String]] = [:]
+    /// Custom-patch elevation notices waiting to be shown, one at a time
+    /// (#2179; the tile pane's `CustomPatchNoticeAlert`).
+    @Published var customPatchNotices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
     /// Built tiles whose airport packs changed since the build (#1958,
     /// `BuildModel+StaleTiles.swift`): only the stale ones.
     @Published var staleTiles: [TileCoord: O4StaleTile] = [:]
@@ -417,6 +426,9 @@ final class BuildModel: ObservableObject {
     /// `overrides` and cleared once sent — never written to a cfg.
     @Published var gradeAirportsThisBuild: Bool?
     @Published var fitBuildingsThisBuild: Bool?
+    /// Bumped when an airport's own Fit switch was written (#2182): the
+    /// Build pane asks the engine for the card again.
+    @Published var airportFitGeneration = 0
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
@@ -429,6 +441,8 @@ final class BuildModel: ObservableObject {
     /// The tiles table's model (#2006), parked with it (RULINGS 2026-11-11k).
     let library = LibraryModel()
     let console = BuildConsoleModel()
+    /// Pack commands pressed and not yet answered (#2200).
+    let packWaits = PackCommandWaits()
     /// The one date filter of the Build History list and the map (#1226).
     @Published var historyRange: BuildDateRange = .all
     /// Live map imagery for the selected provider (Qt-map parity).
@@ -685,22 +699,38 @@ final class BuildModel: ObservableObject {
         Task { [weak self] in
             guard let reply = try? await client.customPatches() else { return }
             var found: [TileCoord: [String]] = [:]
+            var notices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
             for row in reply.tiles where !row.files.isEmpty {
-                found[TileCoord(lat: row.lat, lon: row.lon)] = row.files
+                let coord = TileCoord(lat: row.lat, lon: row.lon)
+                found[coord] = row.files
+                notices += row.notices.map { (tile: coord, notice: $0) }
             }
             self?.customPatchTiles = found
+            if self?.customPatchNotices.isEmpty ?? false { self?.customPatchNotices = notices }
+        }
+    }
+
+    /// The custom-patch notice answered (#2179): remembered by the engine
+    /// either way; "Use auto patch" then sets that airport's patch aside.
+    func answerCustomPatchNotice(useAutoPatch: Bool) {
+        guard let first = customPatchNotices.first else { return }
+        customPatchNotices.removeFirst()
+        guard let client else { return }
+        Task { [weak self] in
+            try? await client.customPatchNoticeSeen(tile: first.tile.key, file: first.notice.file)
+            if useAutoPatch { self?.useAutoPatch(for: first.tile, icao: first.notice.icao) }
         }
     }
 
     /// "Use auto patch" in the tile pane (#1229): the engine renames the
     /// tile's custom patches to `….disabled` — never deletes them — so the
     /// next build auto-patches those airports.
-    func useAutoPatch(for coord: TileCoord) {
+    func useAutoPatch(for coord: TileCoord, icao: String = "") {
         connectIfNeeded()
         guard let client, !tileInRun(coord) else { return }
         Task { [weak self] in
             do {
-                let reply = try await client.useAutoPatch(tile: coord.key)
+                let reply = try await client.useAutoPatch(tile: coord.key, icao: icao)
                 for path in reply.setAside {
                     self?.console.append(
                         "Tile \(coord.key): set the custom patch aside as \((path as NSString).lastPathComponent); the next build uses the auto patch.")
@@ -813,7 +843,7 @@ final class BuildModel: ObservableObject {
 
     // MARK: - Engine session (protocol path)
 
-    private func connectIfNeeded() {
+    func connectIfNeeded() {
         guard usesProtocol, client == nil, let engine else { return }
         let newClient = OrthoEngineClient(
             onEvent: { [weak self] event in
@@ -1286,6 +1316,8 @@ final class BuildModel: ObservableObject {
             gatewayAirports(offer)
         case .packOverlaps(let offer):
             packOverlaps(offer)
+        case .packReadOnly(let readOnly):
+            packReadOnly(readOnly)
         case .packPackage(let shipped):
             packPackage(shipped)
         case .engineError(let fatal, let text):
@@ -1307,6 +1339,10 @@ final class BuildModel: ObservableObject {
             worldStatus = status
             fly.showWorld(status)      // the Fly pane's World line and map
             if worldSwaps.worldStatus(status) { rescan() } // the map shows the swap
+        case .worldTilesWaiting(let waiting):
+            let swapped = !Set(worldTilesWaiting?.waiting ?? []).isSubset(of: Set(waiting.waiting))
+            worldTilesWaiting = waiting
+            if swapped { rescan() }    // a waiting tile went in: the map shows it
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
         case .flightStatus(let status):
@@ -1480,6 +1516,10 @@ final class BuildModel: ObservableObject {
         /// Vendor defects the pack health check repaired (#1978); 0 from
         /// an engine without the check.
         var repairedCount: Int = 0
+        /// Tiles whose builds wrote the pack (#2168).
+        var tiles: [String] = []
+        /// Left read-only by the user's Not now (#2174): not adjusted.
+        var readOnly = false
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1509,7 +1549,10 @@ final class BuildModel: ObservableObject {
                         objectCount: entry["objects"]?.intValue ?? 0,
                         forestCount: entry["forests"]?.intValue ?? 0,
                         optimisedCount: entry["optimised"]?.intValue ?? 0,
-                        repairedCount: entry["repaired"]?.intValue ?? 0)
+                        repairedCount: entry["repaired"]?.intValue ?? 0,
+                        tiles: entry["tiles"]?.arrayValue?
+                            .compactMap(\.stringValue) ?? [],
+                        readOnly: entry["read_only"]?.boolValue ?? false)
                 })
             }
         }
@@ -1591,14 +1634,26 @@ final class BuildModel: ObservableObject {
     /// The progress rows of `todo` name each tile's largest airports, a
     /// searched one first when it is not among them (#815, after #667).
     private func stampRunTags(_ todo: [TileCoord]) {
+        for coord in todo { activity.runTags[coord] = titleTag(coord) }
+    }
+
+    /// THE tile title's airport codes (#815, #2199): ` (KCLT, KJQF)` — the
+    /// tile's largest airports, a searched one first when it is not among
+    /// them. One derivation for the Activity rows (stamped when a run
+    /// queues the tile) and the Build History cells (`tileTitle`).
+    func titleTag(_ coord: TileCoord) -> String {
         let largest = largestAirportsByTile ?? AirportRank.largestByTile(globalAirports)
         largestAirportsByTile = largest
-        for coord in todo {
-            let tile = AirportTile(lat: coord.lat, lon: coord.lon)
-            activity.runTags[coord] = TileSearchTags.suffix(
-                AirportRank.titleCodes(largest: largest[tile] ?? [],
-                                       searched: searchTags.codes[tile] ?? []))
-        }
+        let tile = AirportTile(lat: coord.lat, lon: coord.lon)
+        return TileSearchTags.suffix(
+            AirportRank.titleCodes(largest: largest[tile] ?? [],
+                                   searched: searchTags.codes[tile] ?? []))
+    }
+
+    /// A tile's title as its Activity row shows it: the coordinate and the
+    /// run's stamped codes, else `titleTag` now (#2199).
+    func tileTitle(_ coord: TileCoord) -> String {
+        coord.key + (activity.runTags[coord] ?? titleTag(coord))
     }
 
     func clearSelection() {
@@ -2235,6 +2290,7 @@ final class BuildModel: ObservableObject {
     /// console through the engine's log line, and an upgrade or undo
     /// refreshes the tile's Modified airports rows.
     private func packOldForests(_ forests: O4PackOldForests) {
+        packWaits.end(PackCommandWaits.packKey(forests.packRoot))
         if forests.state == "upgraded" || forests.state == "undone" {
             packForestsChanged += 1
         }
@@ -2264,8 +2320,9 @@ final class BuildModel: ObservableObject {
 
     /// The pack row's Undo 3D trees: every upgraded DSF of the pack.
     func undoPackForests(packPath: String) {
-        connectIfNeeded()
-        client?.packForests(packRoot: packPath, action: "undo")
+        sendPackRowCommand(packPath: packPath) { done in
+            client?.packForests(packRoot: packPath, action: "undo", completion: done)
+        }
     }
 
     /// The package adjustments question to present, or nil (#1916).
@@ -2283,6 +2340,7 @@ final class BuildModel: ObservableObject {
     /// the tile's Modified airports rows. "adjust" (the pack row's Adjust…)
     /// asks every time; an outcome with `rebuild` rebuilds the tile.
     private func packAdjust(_ adjust: O4PackAdjust) {
+        packWaits.end(PackCommandWaits.packKey(adjust.packRoot))
         if adjust.state == "applied" || adjust.state == "undone" {
             packForestsChanged += 1
         }
@@ -2317,9 +2375,10 @@ final class BuildModel: ObservableObject {
     /// The pack row's Adjust… (owner 2026-11-15T13:12Z): the engine's report
     /// of the pack as it is on the tile opens the question (`state` "adjust").
     func adjustPackFromRow(packPath: String, tile: TileCoord) {
-        connectIfNeeded()
-        client?.packAdjust(packRoot: packPath, action: "adjust",
-                           lat: tile.lat, lon: tile.lon)
+        sendPackRowCommand(packPath: packPath) { done in
+            client?.packAdjust(packRoot: packPath, action: "adjust",
+                               lat: tile.lat, lon: tile.lon, completion: done)
+        }
     }
 
     /// A pack adjustment the tile's mesh reads (the terrain objects'): the
@@ -2375,6 +2434,57 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// The read-only pack question to present, or nil (#2174).
+    @Published var packReadOnlyPrompt: O4PackReadOnly?
+    private var packReadOnlyQueue: [O4PackReadOnly] = []
+    /// The packs already asked about this session ("found" asks once).
+    private var packReadOnlySeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_readonly`): "found"
+    /// asks once per pack, "ask" (the row's Ask again) every time; an
+    /// outcome refreshes the Modified airports rows, and "writable" with
+    /// `rebuild` rebuilds the tile no build was waiting on.
+    private func packReadOnly(_ readOnly: O4PackReadOnly) {
+        if !readOnly.asks {
+            packForestsChanged += 1
+            if readOnly.state == "writable" && readOnly.rebuild {
+                let coord = TileCoord(lat: readOnly.lat, lon: readOnly.lon)
+                let reason = isBuilding ? O4PackReadOnlyCopy.runBusy : rebuildWithItsImagery(coord)
+                if let reason {
+                    console.append(O4PackReadOnlyCopy.rebuildLater(
+                        tile: coord.key, pack: readOnly.pack, reason: reason))
+                }
+            }
+            return
+        }
+        if readOnly.state == "found" {
+            guard !packReadOnlySeen.contains(readOnly.id) else { return }
+            packReadOnlySeen.insert(readOnly.id)
+        }
+        if packReadOnlyPrompt == nil {
+            packReadOnlyPrompt = readOnly
+        } else if packReadOnlyPrompt?.id != readOnly.id {
+            packReadOnlyQueue.append(readOnly)
+        }
+    }
+
+    /// The answer to the question on screen: "writable" or "not_now" —
+    /// both sent, a build waits on either.
+    func answerPackReadOnlyPrompt(action: String) {
+        if let readOnly = packReadOnlyPrompt {
+            client?.packReadOnly(packRoot: readOnly.packRoot, action: action,
+                                 lat: readOnly.lat, lon: readOnly.lon)
+        }
+        packReadOnlyPrompt = packReadOnlyQueue.isEmpty ? nil : packReadOnlyQueue.removeFirst()
+    }
+
+    /// The read-only row's Ask again.
+    func askPackReadOnlyFromRow(packPath: String, tile: TileCoord) {
+        connectIfNeeded()
+        client?.packReadOnly(packRoot: packPath, action: "ask",
+                             lat: tile.lat, lon: tile.lon)
+    }
+
     /// The overlapping-packs question to present, or nil (#2145).
     @Published var packOverlapsPrompt: O4PackOverlaps?
     /// Questions waiting behind the one on screen, in arrival order.
@@ -2384,28 +2494,57 @@ final class BuildModel: ObservableObject {
 
     /// Parity with the Qt window (`O4_Qt_GUI._on_pack_overlaps`).
     /// A question with a pair in it asks once per tile and pair set (the
-    /// report asks again); an outcome asks nothing (the engine's log line
+    /// report asks again, and says so when the tile has no pair); an
+    /// outcome asks nothing (the engine's log line
     /// says what was hidden).
+    /// One question per tile (#2200): a tile's question already on screen
+    /// is not asked again behind itself, and a newer one for a tile in the
+    /// queue replaces the older (pressing Pack choices… twice, or a build's
+    /// question arriving after the report, never re-opens the sheet after
+    /// Apply).
     private func packOverlaps(_ offer: O4PackOverlaps) {
+        packOverlapsArrived(offer)
         if offer.state == "ask" { packOverlapsSeen.remove(offer.id) }
-        guard offer.asks, !packOverlapsSeen.contains(offer.id) else { return }
+        guard offer.asks || offer.reportsNone,
+              !packOverlapsSeen.contains(offer.id) else { return }
         packOverlapsSeen.insert(offer.id)
-        if packOverlapsPrompt == nil {
-            packOverlapsPrompt = offer
-        } else {
-            packOverlapsQueue.append(offer)
-        }
+        (packOverlapsPrompt, packOverlapsQueue) = PackOverlapsQueue.arrive(
+            offer, onScreen: packOverlapsPrompt, queue: packOverlapsQueue)
     }
 
-    /// The user's answer to the question on screen: `winners` (Apply,
-    /// `[pair key: pack or "both"]`) sends `pack_overlaps` "choose"; nil
-    /// (Not now) sends nothing.
-    func answerPackOverlapsPrompt(winners: [String: String]?) {
-        if let offer = packOverlapsPrompt, let winners {
+    /// The tile pane's "Pack choices…" (#2180): the tile's report, every
+    /// pair on its stored answer (or "no pairs"), as the same question.
+    /// Its working state shows at once (#2200).
+    func reviewPackOverlaps(_ tile: TileCoord) {
+        connectIfNeeded()
+        let key = PackCommandWaits.overlapsKey(lat: tile.lat, lon: tile.lon)
+        guard !packWaits.isWaiting(key) else { return }
+        packWaits.start(key)
+        console.append(PackWaitCopy.checkingLine(tile: tile.key))
+        client?.packOverlaps(action: "ask", lat: tile.lat, lon: tile.lon,
+                             completion: packCommandReply(key))
+    }
+
+    /// Whether the engine asks the condensed question (#2190).
+    var supportsPackOverlapsDefault: Bool {
+        engineCapabilities.supports(O4EngineCapabilities.packOverlapsDefault)
+    }
+
+    /// The user's answer to the question on screen: Apply (every pair's
+    /// `[pair key: pack or "both"]`, and the default for all tiles) sends
+    /// `pack_overlaps` "choose"; nil (Not now) sends nothing.
+    /// The sheet closes at once; the outcome is a console line (#2200).
+    func answerPackOverlapsPrompt(_ reply: PackOverlapsSheet.Answer?) {
+        if let offer = packOverlapsPrompt, let reply {
+            let key = PackCommandWaits.overlapsKey(lat: offer.lat, lon: offer.lon)
+            packWaits.start(key)
+            console.append(PackWaitCopy.applyingLine(tile: TileMath.key(lat: offer.lat, lon: offer.lon)))
             client?.packOverlaps(action: "choose", lat: offer.lat, lon: offer.lon,
-                                 winners: winners)
+                                 winners: reply.winners, defaultMode: reply.defaultMode,
+                                 completion: packCommandReply(key))
         }
-        packOverlapsPrompt = packOverlapsQueue.isEmpty ? nil : packOverlapsQueue.removeFirst()
+        (packOverlapsPrompt, packOverlapsQueue) = PackOverlapsQueue.closed(
+            packOverlapsPrompt, answered: reply != nil, queue: packOverlapsQueue)
     }
 
     /// Packages already noticed this session (one per package and state).
@@ -2451,6 +2590,7 @@ final class BuildModel: ObservableObject {
     /// Modified airports rows; the other states are on the console
     /// through the engine's log line.
     private func packOptimise(_ optimise: O4PackOptimise) {
+        packWaits.end(PackCommandWaits.packKey(optimise.packRoot))
         if optimise.state == "optimised" || optimise.state == "undone" {
             packOptimiseChanged += 1
         }
@@ -2488,13 +2628,14 @@ final class BuildModel: ObservableObject {
     /// steps ticked as the pack's current choice) or Undo optimise (every
     /// optimised DSF of the pack).
     func packOptimiseFromRow(packPath: String, undo: Bool, tile: TileCoord) {
-        connectIfNeeded()
-        if undo {
-            client?.packOptimise(packRoot: packPath, action: "undo")
-        } else {
-            // the question with the pack's current choice ticked
-            client?.packOptimise(packRoot: packPath, action: "ask",
-                                 lat: tile.lat, lon: tile.lon)
+        sendPackRowCommand(packPath: packPath) { done in
+            if undo {
+                client?.packOptimise(packRoot: packPath, action: "undo", completion: done)
+            } else {
+                // the question with the pack's current choice ticked
+                client?.packOptimise(packRoot: packPath, action: "ask",
+                                     lat: tile.lat, lon: tile.lon, completion: done)
+            }
         }
     }
 
@@ -3239,7 +3380,17 @@ final class BuildModel: ObservableObject {
             setConfigValue(item.name, to: value)
             return
         }
-        editSelection { [weak self] in self?.writeThroughToSelectedTiles(item.name, value) }
+        let write: () -> Void = { [weak self] in
+            self?.editSelection { [weak self] in self?.writeThroughToSelectedTiles(item.name, value) }
+        }
+        // RULINGS 2026-11-18l (#2172): turning fitting on for tiles with
+        // custom patches asks first, in the engine's words
+        if item.name == "modify_custom_airports", value.boolValue == true,
+           let question = airportsCard?.fitConfirm, !question.isEmpty {
+            pendingSelectionEdit = PendingSelectionEdit(fitQuestion: question, apply: write)
+        } else {
+            write()
+        }
     }
 
     /// Every config variable the current selection actually customizes —

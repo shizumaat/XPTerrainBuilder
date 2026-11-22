@@ -28,11 +28,13 @@ from PySide6.QtWidgets import (
 
 # --- copy (verbatim; identical to the Swift sheet) ----------------------
 TITLE = "Install airports from the X-Plane Gateway?"
-BODY = ("X-Plane flattens the ground under these airports, so it does not "
-        "draw the graded ground this app builds. Choose the airports to "
-        "install:")
+BODY = ("X-Plane draws these airports from its own files, which this app "
+        "never changes: some flatten the graded ground, others cannot carry "
+        "the bridges this app builds. Choose the airports to install:")
 REASON_DETAILS = {
     "flatten": "Install the latest Gateway version without the flatten tag.",
+    "bridges": ("Install the latest Gateway version so the app can add its "
+                "taxiway and road bridges."),
     "update": ("A newer Gateway version is available ({installed} → "
                "{latest}); it installs without the flatten tag."),
 }
@@ -45,7 +47,8 @@ NEVER_BUTTON = "Never for these airports"
 
 
 def offers(event) -> list[dict]:
-    """The rows to offer: a flattened entry or a newer Gateway version."""
+    """The rows to offer: a flattened entry, one whose bridges need a pack
+    of its own (#2169) or a newer Gateway version."""
     return [r for r in (getattr(event, "items", None) or ())
             if r.get("reason") in REASON_DETAILS]
 

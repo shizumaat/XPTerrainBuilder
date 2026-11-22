@@ -170,6 +170,12 @@ class Portal:
     #: (a parapet, a headwall): the ground in front of them is never its
     #: skirt (``planar/entrance_skirt``); ``None`` with none or no cover
     parapet_plan: object = None
+    #: owner RULINGS 2026-11-21d (#2221): a roofed portal standing ON the
+    #: author's ground that is still its tunnel's mouth (:func:`_tunnel_mouth`):
+    #: its row reads the uncut ground, never its road -- it states no floor of
+    #: its own (``airport/portal_floor`` reads none) and is seated on its
+    #: mouth's floor (``planar/portal_level``)
+    at_grade: bool = False
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -633,6 +639,63 @@ def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
             f"portal (RULINGS 2026-11-07b (1), #1972)")
 
 
+def _bore_runs(tunnel_ways) -> dict[int, float]:
+    """Each tunnel way's BORE RUN: the summed length of the mapped tunnel
+    ways joined to it end to end (one bore drawn as several ways)."""
+    lens, nodes = {}, {}
+    for w in tunnel_ways:
+        pts = [(float(x), float(y)) for x, y in w.points]
+        if len(pts) >= 2:
+            lens[int(w.id)] = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+            for q in (pts[0], pts[-1]):
+                nodes.setdefault((round(q[0], 2), round(q[1], 2)), set()).add(int(w.id))
+    parent = {w: w for w in lens}
+
+    def root(w):
+        while parent[w] != w:
+            parent[w] = parent[parent[w]]
+            w = parent[w]
+        return w
+    for ws in nodes.values():
+        first, *rest = sorted(ws)
+        for w in rest:
+            parent[root(w)] = root(first)
+    run: dict[int, float] = {}
+    for w, n in lens.items():
+        run[root(w)] = run.get(root(w), 0.0) + n
+    return {w: run[root(w)] for w in lens}
+
+
+def _plan_size(plan, end_xy: XY, into: "XY | None") -> float:
+    """``plan``'s larger extent, along the bore (``into``) or across it."""
+    pts = [c for q in getattr(plan, "geoms", [plan]) for c in q.exterior.coords]
+    if into is None:
+        x0, y0, x1, y1 = plan.bounds
+        return math.hypot(x1 - x0, y1 - y0)
+    along = [_station(c, end_xy, into) for c in pts]
+    across = across_bore(pts, end_xy, into)
+    return max(max(along) - min(along), max(across) - min(across))
+
+
+def _tunnel_mouth(plan, end_xy: XY, into: "XY | None", run_m: float, law
+                  ) -> tuple[bool, str]:
+    """Whether the roofed object over a bore end is that tunnel's MOUTH
+    though it stands on the author's ground, and the reading: the mapped
+    bore runs at least ``mouth_bore_min_ratio`` times the object's own size
+    — a mouth object at grade on the uncut ground (KBUF ``Road_Tunnel.obj``,
+    bores 231 m / 243 m), never a booth on a stub its own length (KDEN) nor
+    a building over a bore (owner RULINGS 2026-11-21d, #2221)."""
+    if plan is None or plan.is_empty:
+        return False, ""
+    size = _plan_size(plan, end_xy, into)
+    ratio = float(law.tables.structures.tunnel.object.mouth_bore_min_ratio)
+    if run_m < ratio * size:
+        return False, (f"its bore runs {run_m:.1f} m, under mouth_bore_min_ratio {ratio:g} x "
+                       f"its size {size:.1f} m (RULINGS 2026-11-21d)")
+    return True, (f"its bore runs {run_m:.1f} m, at least mouth_bore_min_ratio {ratio:g} x "
+                  f"its size {size:.1f} m: a tunnel mouth (RULINGS 2026-11-21d)")
+
+
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                  law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None,
                  ground=None, at_grade: "list[_GradeEnd] | None" = None,
@@ -658,6 +721,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     tree = STRtree([Point(p) for p, _w in ends])
     into = _bore_dirs(tunnel_ways)
     readings: dict[str, "tuple[float, float] | str"] = {}
+    runs: "dict[int, float] | None" = None
     out: list[Portal] = []
     refused: list[str] = []
     for o in objects:
@@ -739,12 +803,25 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         cover: dict[int, float] = {}
         grade = "" if depth > tn.mouth_depth_m else _at_grade(
             o, cache, _roof_over(roof, [ends[j][0] for j in near], tol), law, ground)
+        foot = _solids_plan(o, g, cache.genuine(o.resolved), law)
         if grade:
-            refused.append(f"{o.id} {name}: {grade}")
+            # 2026-11-21d: an end whose bore runs far past the object is its
+            # tunnel's mouth; the others stay ends at grade
+            runs = runs if runs is not None else _bore_runs(tunnel_ways)
+            read = {j: _tunnel_mouth(roof if foot is None else foot, ends[j][0],
+                                     into.get(ends[j]), runs.get(ends[j][1], 0.0), law)
+                    for j in near}
+            mouth = {j: why for j, (ok, why) in read.items() if ok}
+            low = [j for j in near if j not in mouth]
+            if low:
+                refused.append(f"{o.id} {name}: {grade}; {read[low[0]][1]}")
             if at_grade is not None:
                 at_grade.extend(_GradeEnd(ends[j][0], ends[j][1], o.id, o.path, grade)
-                                for j in near)
-            continue
+                                for j in low)
+            refused.extend(f"{o.id} {name}: at grade, but {mouth[j]}" for j in sorted(mouth))
+            near = sorted(mouth)
+            if not near:
+                continue
         if depth > tn.mouth_depth_m:
             cover = {j: z for j in near
                      if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law,
@@ -756,7 +833,6 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                                f"{tn.mouth_depth_m} and no surveyed ground stands on its "
                                f"roof: a building on the bore, not a portal")
                 continue
-        foot = _solids_plan(o, g, cache.genuine(o.resolved), law)
         framed: list = []            # #1689 R5 R1: the frame, read once
         for j in near:
             xy, wid = ends[j]
@@ -802,7 +878,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                               cover_plan=None if cov is None else cov[1],
                               cover_top_z=None if cov is None else float(floor + cov[0]),
                               parapet_plan=None if cov is None else _parapet(
-                                  o, framed[0], cov[0], law)))
+                                  o, framed[0], cov[0], law),
+                              at_grade=bool(grade)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

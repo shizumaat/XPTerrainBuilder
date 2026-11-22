@@ -25,9 +25,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from shapely.geometry import Polygon
 
-from ..geom.wall_lines import inner_faces
+from ..geom.wall_lines import inner_faces, project_span
+from ..geom.walled_trench import wall_strip
 
 __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 
@@ -39,29 +39,37 @@ _ALONG_DEG = 20.0
 #: depth over the frame's bottom, and is a wall when it rises this share
 _REACH_FRAC = 0.25
 _HEIGHT_FRAC = 0.5
+#: K2 (kord-trench-frame-spec): a FLOOR solid is a triangle at least this
+#: near-horizontal (``|normal_y|``; the complement of :data:`_VERTICAL_NY`)
+#: standing wholly within :data:`_REACH_FRAC` of the depth over the bottom,
+#: of a component holding no wall triangle (a wall block's own bottom cap
+#: is the wall, never the floor beside it)
+_FLOOR_NY = 1.0 - _VERTICAL_NY
 
 
 
-def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray] | None":
-    """``(vertices, triangles)`` of placement ``q``'s genuine static
-    components, or ``None``."""
+def _frame_tris(cache, q) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
+    """``(vertices, triangles, component of each)`` of placement ``q``'s
+    genuine static components, or ``None``."""
     if not q.resolved:
         return None
     g = cache.geometry(q.resolved)
     comps = cache.genuine(q.resolved)
     if g is None or not comps:
         return None
-    return g.vertices[:, :3], np.concatenate([c.tris for c in comps])
+    return (g.vertices[:, :3], np.concatenate([c.tris for c in comps]),
+            np.concatenate([np.full(len(c.tris), k) for k, c in enumerate(comps)]))
 
 
 def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, float],
                n: tuple[float, float]) -> tuple:
-    """``(r_w, n_w, faces)``: the frame's walls (module doc) — ``r_w`` the
-    walls' own direction (the length-weighted mean of the faces running
+    """``(r_w, n_w, faces, floor)``: the frame's walls (module doc) — ``r_w``
+    the walls' own direction (the length-weighted mean of the faces running
     within :data:`_ALONG_DEG` of the road ``r``), ``n_w`` across it on
-    ``n``'s side, and every face as ``(u, s0, s1)`` in that frame — or
+    ``n``'s side, every face as ``(u, s0, s1)`` in that frame and (K2) every
+    FLOOR solid as ``(u_lo, u_hi, s0, s1)`` (``geom/wall_lines.Floor``) — or
     ``()`` with no wall face."""
-    segs = _wall_segments(cache, frame, bottom_y, top_y)
+    segs, flats = _wall_segments(cache, frame, bottom_y, top_y)
     cos_along = math.cos(math.radians(_ALONG_DEG))
     sx = sy = 0.0
     kept = []
@@ -87,22 +95,25 @@ def wall_faces(cache, frame, bottom_y: float, top_y: float, r: tuple[float, floa
                    min(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]),
                    max(p[0] * rw[0] + p[1] * rw[1], q[0] * rw[0] + q[1] * rw[1]))
                   for p, q in kept)
-    return rw, nw, faces
+    floor = tuple(project_span(tri, nw) + project_span(tri, rw) for tri in flats)
+    return rw, nw, faces, floor
 
 
-def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> list:
-    """The plan segment (its farthest pair of points, frame xy) of every
-    wall triangle of ``frame`` (module doc)."""
+def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, list]:
+    """``(segments, floor)``: the plan segment (its farthest pair of points,
+    frame xy) of every wall triangle of ``frame`` (module doc), and the plan
+    corners of every FLOOR triangle (:data:`_FLOOR_NY`, K2)."""
     from ..airport.obj8 import _to_frame
     depth = top_y - bottom_y
     if depth <= 0.0:
-        return []
+        return [], []
     out: list = []
+    flats: list = []
     for q in frame:
         got = _frame_tris(cache, q)
         if got is None:
             continue
-        v, tris = got
+        v, tris, owner = got
         a, b, c = v[tris[:, 0]], v[tris[:, 1]], v[tris[:, 2]]
         nrm = np.cross(b - a, c - a)
         ln = np.linalg.norm(nrm, axis=1)
@@ -118,12 +129,9 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> list:
                    for p in (a[k], b[k], c[k])]
             out.append(max(((pts[i], pts[j]) for i, j in ((0, 1), (0, 2), (1, 2))),
                            key=lambda e: math.dist(*e)))
-    return out
-
-
-def wall_strip(r: tuple[float, float], n: tuple[float, float], u0: float, u1: float,
-               s0: float, s1: float) -> Polygon:
-    """The plan rectangle ``u0 <= u <= u1``, ``s0 <= s <= s1``."""
-    def at(s: float, u: float) -> tuple[float, float]:
-        return (r[0] * s + n[0] * u, r[1] * s + n[1] * u)
-    return Polygon([at(s0, u0), at(s1, u0), at(s1, u1), at(s0, u1)])
+        flat = ok & (ny >= _FLOOR_NY) & (hi <= bottom_y + _REACH_FRAC * depth) \
+            & ~np.isin(owner, owner[keep])
+        for k in np.flatnonzero(flat):
+            flats.append(tuple(_to_frame(q.xy, q.heading_deg, float(p[0]), float(p[2]))
+                               for p in (a[k], b[k], c[k])))
+    return out, flats

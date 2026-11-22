@@ -221,7 +221,20 @@ def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
         # the reference ``constraints/edge_deck._station_rows`` holds every
         # station flush from (RULINGS 2026-10-30a (1))
         y, st, *rest = out[oid]
-        out[oid] = (sum(by_pt.values()) / len(by_pt), st, *rest)
+        y = sum(by_pt.values()) / len(by_pt)
+        if len(rest) > 3 and rest[3]:
+            # RULINGS 2026-11-18i (b): a span cut carries each station's top
+            # off the mean -- a graded band reads its ground less it
+            # (``airport/deck_plates._span_grade``)
+            rest = [*rest[:3], (*tuple(rest[3])[:4],
+                                tuple(round(by_pt.get(tuple(p), y) - y, 4) for p in st)),
+                    *rest[4:]]
+        if len(rest) > 4:
+            # walled-multibridge spec W9: each piece's stations' tops too
+            rest = [*rest[:4], tuple(
+                (ring, tag, pts, tuple(round(by_pt.get(p, y) - y, 4) for p in pts), cut)
+                for ring, tag, pts, cut in rest[4])]
+        out[oid] = (y, st, *rest)
     _unit_members(out, pm, kept)
     return out
 
@@ -275,13 +288,40 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     held = [a for a in getattr(pm, "deck_anchors", ()) or () if a.object_id == oid]
     if held and len(rest) < 3:
         rest = [*rest, held[0].z_m - held[0].top_y - bottom]
+    pieces = _deck_pieces(es, pm)
+    cuts = list(dict.fromkeys(cut for *_r, cut in pieces if cut))
+    if len(cuts) == 1 and len(rest) == 3:
+        # owner RULINGS 2026-11-18i: the deck was cut to its spans
+        # (``planar/deck_span_cut``) -- the object stage keeps those bands;
+        # pieces cut on two or more axes are cut into cells instead, from
+        # every piece's own cut (walled-multibridge spec W6)
+        rest = [*rest, cuts[0]]
     by_pt = tops.setdefault(oid, {})
     for e in es:
         pts = [tuple(pm.vertices[v].xy) for v, _w in e.terms]
         for p in pts:
             by_pt.setdefault(p, bottom + float(e.depth))
         st = st + [p for p in pts if p not in st]
+    # W9: EVERY piece published, its own stations and span cut
+    while len(rest) < 4:            # an absent anchor zero / span cut
+        rest = [*rest, None if len(rest) == 2 else ()]
+    rest = [*rest[:4], pieces]
     out[oid] = (y, st, *rest)
+
+
+def _deck_pieces(es, pm) -> tuple:
+    """``(ring, tag, stations, span_cut)`` per deck piece of the end lines
+    ``es`` (frame xy; walled-multibridge spec W9): the tag ``road`` for a
+    road deck (W2 (b)), else ``airside``; the stations the seat vertices of
+    its own end lines, in order."""
+    out: dict[int, list] = {}
+    for e in es:
+        d = e.deck
+        rec = out.setdefault(id(d), [tuple(tuple(q) for q in getattr(d, "ring", ())),
+                                     "road" if getattr(d, "family", "") == "road" else "airside",
+                                     [], tuple(getattr(d, "span_cut", ()) or ())])
+        rec[2] += [p for p in (tuple(pm.vertices[v].xy) for v, _w in e.terms) if p not in rec[2]]
+    return tuple((r, t, tuple(pts), c) for r, t, pts, c in out.values())
 
 
 def plate_stations(footprint, standoff_m: float, step_m: float, rim_path=(),
@@ -426,21 +466,55 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
 
 
 def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
-    """#1934 R3 (``airport/retaining_seat``): placement id -> ``(retained
-    top y, upper-side stations, 0.0, RETAINING_PLATE)`` for each retaining
-    wall no other rule seats."""
+    """#1934 R3, RULINGS 2026-11-20m (``airport/retaining_seat``): placement
+    id -> ``(footing y, low-side stations, 0.0, RETAINING_PLATE)`` for each
+    retaining wall no other rule seats."""
     from ..airport.retaining_seat import RETAINING_PLATE, retaining_seats
     from ..classify.rules import load_rules
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
-    got = retaining_seats(airport, load_rules().service,
+    service = load_rules().service
+    got = retaining_seats(airport, service,
                           float(law.tables.emit.identity.min_distinct_spacing_m),
                           float(law.tables.structures.bridge.abutment_sample_step_m),
-                          taken)
+                          taken, level_m=float(getattr(law.tables.structures.placement,
+                                                       "split_bar_m", 0.0) or 0.0),
+                          level_break=_level_break(pm, law, service))
     for w in got:
+        where = ("footing y {:+.2f} on the road beside it (RULINGS 2026-11-20m)" if w.footing
+                 else "y {:+.2f} on its upper ground").format(w.y)
         print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
-              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on its upper "
-              f"ground, {len(w.stations)} stations")
-    return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+              f"({w.resource.rsplit('/', 1)[-1]}): {where}, {len(w.stations)} stations")
+    return {w.oid: (w.y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+
+
+def _level_break(pm, law, service):
+    """RULINGS 2026-11-20m: ``def (low stations, upper stations) -> bool`` --
+    a wall stands on a LEVEL BREAK where at least half its low-side stations
+    are within ``[service] retaining_wall_step_ring_m`` of a GROUNDSIDE
+    pavement (the road) and half its upper-side stations of an AIRSIDE one
+    (``law.tables.contact_roles``); ``None`` with no planar map."""
+    if pm is None or not getattr(pm, "faces", None):
+        return None
+    from shapely import STRtree, points
+
+    from ..law.tables import contact_roles, pavement_roles, role_side
+    from ..planar.index import face_polygon
+    reach = float(getattr(service, "retaining_wall_step_ring_m", 0.0) or 0.0)
+    air = contact_roles(law)
+    road = frozenset(r for r in pavement_roles(law) if role_side(law, r) == "groundside")
+
+    def tree(roles):
+        polys = [face_polygon(pm, fid) for fid, f in pm.faces.items() if f.role in roles]
+        polys = [p for p in polys if p is not None and not p.is_empty]
+        return STRtree(polys) if polys else None
+    t_road, t_air = tree(road), tree(air)
+
+    def near(t, pts) -> bool:
+        if t is None or not pts:
+            return False
+        hit = t.query(points([tuple(p) for p in pts]), predicate="dwithin", distance=reach)[0]
+        return 2 * len(set(hit.tolist())) >= len(pts)
+    return lambda low, up: near(t_road, low) and near(t_air, up)
 
 
 def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
@@ -639,7 +713,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
             law, airport, objects, _portal_cuts(pm, airport),
             set(plates) | excluded | shelled | modelled | set(free_decks)
             | {str(r.get("id")) for r in authored}))
-    # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
+    # #1934 R3 (RULINGS 2026-11-20m): a retaining wall's footing on its low side
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the

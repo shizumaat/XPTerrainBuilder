@@ -14,7 +14,16 @@ import SceneryKit
 /// first and names the space it frees.
 @MainActor
 final class StorageModel: ObservableObject {
-    @Published var scan: O4StorageScan?
+    @Published var scan: O4StorageScan? {
+        didSet {
+            if let chosen = chosenBudgetGB, let budget = scan?.budget,
+               O4StorageText.reflects(budget, gigabytes: chosen) { chosenBudgetGB = nil }
+        }
+    }
+    /// A budget just set (GB), shown until a scan reflects it (#2162).
+    @Published var chosenBudgetGB: Double?
+    /// One quiet scan once the budget controls are still (#2162).
+    private let budgetSettle = O4Settle(seconds: 1.5)
     @Published var isWorking = false
     /// A quiet refresh is running while the last result is shown (#2029).
     @Published var updating = false
@@ -44,11 +53,25 @@ final class StorageModel: ObservableObject {
                                kinds: [], olderThanDays: nil)
     }
 
+    /// A budget set (#2162): saved and shown at once; the usage is
+    /// measured again in the background, once for a burst of changes,
+    /// and the controls stay live meanwhile.
+    func setBudget(gigabytes: Double, _ buildModel: BuildModel) {
+        buildModel.setConfigValue(Self.budgetKey, to: .double(gigabytes))
+        chosenBudgetGB = gigabytes
+        budgetSettle.run { [weak self] in
+            guard let client = buildModel.libraryContext()?.client,
+                  let fresh = try? await client.storageScan(), !Task.isCancelled else { return }
+            self?.scan = fresh
+        }
+    }
+
     /// The disk budget lowered below what is in use, confirmed (#2007):
     /// the budget is set, then the automatic cleanup's budget hold
     /// (`storage_budget.hold`) clears to fit, caches first.
     func applyBudget(gigabytes: Double, _ buildModel: BuildModel) {
         buildModel.setConfigValue(Self.budgetKey, to: .double(gigabytes))
+        chosenBudgetGB = gigabytes
         guard let client = buildModel.libraryContext()?.client else { return }
         isWorking = true
         status = "Fitting the new budget…"

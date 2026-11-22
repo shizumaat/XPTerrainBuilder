@@ -187,7 +187,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import world_commands as WORLD
     from . import world_job_run as WORLD_JOB
     from .aircraft_watch import aircraft_watch_handlers
-    from .build_airports import start_build_airports
+    from .build_airports import set_airport_fit, start_build_airports
     from .elevation_commands import cursor_elevation
     from .flight_commands import flight_handlers, flight_plan_handlers
     from .imagery_commands import (
@@ -283,6 +283,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "gateway_airports": session.gateway_airports,
         # #2145 (capability pack_overlaps): completes through PackOverlaps.
         "pack_overlaps": session.pack_overlaps,
+        # #2174 (capability pack_readonly): completes through PackReadOnly.
+        "pack_readonly": session.pack_readonly,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -312,6 +314,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the auto patch runs again.  Synchronous file work.
         "custom_patches": patch_commands.custom_patches,
         "use_auto_patch": patch_commands.use_auto_patch,
+        "custom_patch_notice_seen": patch_commands.custom_patch_notice_seen,
         # Patches dropped on the map or the app icon (#1979, capability
         # patch_drop): the plan (airport, tile, destination; writes
         # nothing) and the install.  Synchronous file work.
@@ -329,6 +332,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # CIFP, apt.dat and the Custom Scenery walk stay off THIS thread.
         "build_airports": lambda **kw: start_build_airports(
             session._emit, **kw),
+        # The card's per-airport "Fit custom airport buildings" switch
+        # (#2182, capability airport_fit).  Synchronous file work.
+        "set_airport_fit": set_airport_fit,
         # ... and the pack's own apt.dat pavement and boundary, as the
         # map's dashed reference outlines.  Synchronous, cache-only.
         "pack_outlines": pack_outlines,
@@ -713,6 +719,36 @@ def _start_parent_death_watchdog(session: EngineSession) -> None:
                      name="o4-engine-parent-watchdog").start()
 
 
+def _is_build_worker() -> bool:
+    """Is this process a parallel build's worker child (``--engine-worker``,
+    ``parallel.tile_worker_command``)?  Its parent engine publishes and
+    tidies what it builds."""
+    return "--engine-worker" in sys.argv
+
+
+def _watch_app_session(session: "EngineSession") -> None:
+    """The app engine's after-run work, never a build worker's (#2247: a
+    worker's World sweep swapped the parent's staged drapes from another
+    process while the parent swapped them too, and cut a drape's
+    ``terrain`` folder short)."""
+    # A tile built with imagery on demand: indexed, its airport
+    # cores sharp, when the run ends (#1992 follow-up).
+    from .imagery_after_build import watch as _watch_built_tiles
+    _watch_built_tiles(session)
+    # ... and published into the World pack when there is one
+    # (flight manager / World spec §7.3).
+    from .world_publish import watch as _watch_world
+    _watch_world(session)
+    # Settings > Storage's scan measured in the background, shared and
+    # refreshed after each run (#2029).
+    from .storage_shared import watch as _watch_storage
+    _watch_storage(session)
+    # ... and what X-Plane does not read moved to a mounted storage
+    # tier after each run (RULINGS 2026-11-16c, #2103).
+    from .storage_offload import watch as _watch_offload
+    _watch_offload(session)
+
+
 def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     """Run the JSON-lines transport until ``stdin`` closes or ``shutdown``.
 
@@ -791,22 +827,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             for info in CFG_MIGRATIONS.migrate_global():
                 print("INFO: " + info, file=sys.stderr)
         session.subscribe(lambda event: write_obj(serialize_event(event)))
-        # A tile built with imagery on demand: indexed, its airport
-        # cores sharp, when the run ends (#1992 follow-up).
-        from .imagery_after_build import watch as _watch_built_tiles
-        _watch_built_tiles(session)
-        # ... and published into the World pack when there is one
-        # (flight manager / World spec §7.3).
-        from .world_publish import watch as _watch_world
-        _watch_world(session)
-        # Settings > Storage's scan measured in the background, shared and
-        # refreshed after each run (#2029).
-        from .storage_shared import watch as _watch_storage
-        _watch_storage(session)
-        # ... and what X-Plane does not read moved to a mounted storage
-        # tier after each run (RULINGS 2026-11-16c, #2103).
-        from .storage_offload import watch as _watch_offload
-        _watch_offload(session)
+        if not _is_build_worker():
+            _watch_app_session(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

@@ -1,5 +1,8 @@
 import Foundation
+import os
 import SceneryKit
+
+private let airportsLog = Logger(subsystem: "com.novemberlima.XPTerrainBuilder", category: "build")
 
 /// The Build pane's Airports card (#818): the per-build "Grade airports"
 /// and "Fit custom airport buildings" switches, and the engine's answer
@@ -18,7 +21,11 @@ extension BuildModel {
     var gradeAirports: Bool { gradeAirportsThisBuild ?? gradeAirportsByDefault }
 
     /// What the next press fits: this build's switch, else Settings'.
-    var fitBuildings: Bool { fitBuildingsThisBuild ?? modifyCustomAirports }
+    var fitBuildings: Bool { fitBuildingsThisBuild ?? fitBuildingsByDefault }
+
+    /// Settings' value, or the engine's reading of the selected tiles:
+    /// off on a tile a custom patch is new to (RULINGS 2026-11-18l).
+    var fitBuildingsByDefault: Bool { airportsCard?.fitBuildings ?? modifyCustomAirports }
 
     /// A switch back at its Settings value is no override at all.
     func setGradeAirports(_ enabled: Bool) {
@@ -26,7 +33,7 @@ extension BuildModel {
     }
 
     func setFitBuildings(_ enabled: Bool) {
-        fitBuildingsThisBuild = enabled == modifyCustomAirports ? nil : enabled
+        fitBuildingsThisBuild = enabled == fitBuildingsByDefault ? nil : enabled
     }
 
     /// The press's `overrides` (engine keys), and the switches reset to
@@ -38,6 +45,26 @@ extension BuildModel {
         gradeAirportsThisBuild = nil
         fitBuildingsThisBuild = nil
         return overrides
+    }
+
+    /// Whether the engine keeps "Fit custom airport buildings" per
+    /// airport (#2182).
+    var supportsAirportFit: Bool {
+        engineCapabilities.supports(O4EngineCapabilities.airportFit)
+    }
+
+    /// One airport's own Fit switch (#2182), kept for its later builds;
+    /// the card is asked again once the engine wrote it.
+    func setAirportFit(_ row: O4BuildAirports.FitAirport, to fit: Bool) {
+        guard supportsAirportFit, let client = buildAirportsClient() else { return }
+        Task { @MainActor [weak self] in
+            do {
+                try await client.setAirportFit(tile: row.tile.key, icao: row.icao, fit: fit)
+                self?.airportFitGeneration += 1
+            } catch {
+                airportsLog.notice("\(row.icao): Fit custom airport buildings not saved: \(error)")
+            }
+        }
     }
 
     /// The engine's card for `tiles`; nil when the engine predates it.

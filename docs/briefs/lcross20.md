@@ -1,0 +1,94 @@
+# Brief pack — lane `lcross20`
+
+Base: main `e3ee2bb97` · generated 2026-11-20 by `tools/brief_pack.py`
+
+Read THIS file first and whole. Do not grep the spec, RULINGS or INDEX monoliths for
+what is here; use `tools/docq.py` for anything else you need.
+
+## Task
+
+Bridge round 4: one decision per crossing, width, clearance/ramp/end gaps
+
+## The brief
+
+OWNER 2026-11-20T14:21Z, verbatim: "Go ahead with one more bridge round to address the open bridge issues." ONE round; a miss goes back to the master (one-miss cap → Fable review), not another round.
+
+Base: origin/claude/lbridge3 e3ee2bb97 (= app 1.0.567 3d74abae7 + RULINGS 20a). Branch: claude/lcross20. Opus, effort high.
+
+## Items, in order (each with its site; replay-first, synthetic where possible)
+
+1. #2191 + RULINGS 2026-11-20a (1): ONE decision per crossing. Where a pack bridge object (ANY bridge body: single span, e.g. KMCO Buildings/puente.obj / puente2.obj, or a 19p walled multi-bridge frame) spans a crossing and seats lawfully, keep it and generate NO deck; otherwise generate ours and HIDE every pack bridge body over that crossing plus its frame mates (KMCO puente_luz.obj / puente2_luz.obj lights) in the pack copy (Restore originals puts them back). Never both; count "pack bridge under a generated deck footprint" as a build defect (census family). Route 19p's walled-frame hide and 19r (2)'s lidar crossings through this ONE decision site (extend `planar/deck_takeover`, do not fork). KMCO evidence (owner's pack copy 13:39Z, engine 1.50.1902): puente__b0 at 28.42334,-81.30689 under generated decks at lon -81.30636/-81.30644; puente2__b0 at 28.43937,-81.31162 under deck at 28.43935,-81.30749; provenance o4_generated/hides = [], kept = 0. Owner sim: pack bridges seated too low with ours on top (z-fighting flashing).
+2. RULINGS 20a (2): generated deck width = width of the pack (apt.dat) pavement it meets at each end of the cut, the NARROWER end, never below 19s (8a)'s 2x taxiway, never widened to an apron; 19s (8c) riders still widen. Extend `planar/deck_width`.
+3. KRDU o4gen_80bc82b9 clearance 3.55 / 4.2 m: a curving road runs -254 off the floor band — split deck_ground along every covered road.
+4. KJFK path -6514 ramp 10.5-11.3 % > 10 % cap; KJFK 6f1f538c clearance 4.91 / 5.0.
+5. End gaps 0.5-1.9 m between deck end and ground: KRDU 2011dcf6, 7bc95e55; KJFK e3f48dd4; KORD 07ca2110 / bba4397d; KPHX 6494eed8 0.178.
+6. Road-deck far ends run down the trench bank: split cut cells along road-deck end segments so the road deck lands (19s (8d)).
+7. KPHX airside mover 0.26 m at 33.43470,-111.99352 (bar ≤ 0.05 m vs a no-bridge solve, 19s).
+
+NOT in scope: #2192 KMCO terminal grouping (owner question open), ELLX #2194-#2197 (Beta 9), stage 2 timing.
+
+## Process
+- Read Ortho4XP/CLAUDE.md and src/auto_patch/CLAUDE.md; `tools/blast.py <file>` before editing; extend existing modules.
+- `lane_worktree.sh up lcross20 origin/claude/lbridge3`; lane-local tmp `Ortho4XP/tmp/lcross20`; never raise the lane cap; delete your scratch builds when you report.
+- Synthetic-first, STOP at replay/capture evidence on the six bridge airports (KRDU KJFK KORD KPHX KBNA KMCO); no closing tile build (17r). KMCO has no capture yet: take one with the harness (`build_airport.py KMCO --tile 28 -82`, capture only) if needed for item 1.
+- CI registry gates named in your PR tests: windows_text_io, patch_env_classification, tile_failures, console_encoding; ratchets dupes/unused/layers may fall, never rise.
+- Report: push claude/lcross20, remove the worktree, per-item MEASURED before→after at each site, net lines ±, new public symbols, a "Process" line; spec section 10 in airside-first-bridges-spec.md.
+
+## Bars
+
+- No pack bridge body under any generated deck footprint at KMCO, KORD, KRDU, KBNA, KPHX, KJFK (census count 0); every hidden body listed with its crossing.
+- Deck width = narrower adjoining pavement end, ≥ 2x taxiway, at every generated deck (list both ends' widths).
+- Clearance ≥ the class minimum at every generated deck (KRDU 80bc82b9 ≥ 4.2, KJFK 6f1f538c ≥ 5.0).
+- Road ramp ≤ 10 % (KJFK -6514).
+- Deck end vs ground ≤ 0.1 m at every end line listed in item 5.
+- Road-deck ends land at deck level, not on the trench bank.
+- Airside movers vs no-bridge solve ≤ 0.05 m at all six airports (KPHX 33.43470,-111.99352 included); certified airports (KEGE BIKF OMDB LGAV) movers listed if > 0.1 m.
+
+## RULINGS
+
+## 2026-11-20a — OWNER, ONE RULE DECIDES EACH CROSSING: THE PACK'S BRIDGE OR OURS, NEVER BOTH; A GENERATED DECK'S WIDTH FOLLOWS THE NARROWER ADJOINING PAVEMENT, AT LEAST 2× THE TAXIWAY (#2191 KMCO; extends 19p, 19r (2), 19s (8a)): 2026-11-20T13:55Z owner sim read of 1.0.566 at KMCO: flashing on the taxiway bridges; the pack copy still placed Buildings/puente.obj and puente2.obj (+ their _luz light objects) under our generated decks (o4_generated/hides = [], kept = 0). 13:57Z: "the north taxiway bridges have the pack bridge objects seated too low, with our own custom bridges on top". 14:01Z, verbatim: "Should be the same rule that determines whether we build our own bridge or not, that also hides the pack's bridges if we do. At KMCO, if the pack's bridges can be seated, why build our own? Also, bridge width, should match the width of the pack pavement it touches on either side of the cut as long as it's larger than the taxiway x2 rule, if the two sides are different, use the narrower one, we don't want to expand to match a whole apron for example." RULED: (1) ONE decision per crossing, made in one place: where a pack bridge object (any bridge body, single span or 19p walled multi-bridge frame) spans the crossing and can be seated lawfully (its deck carries the solved airside surface within the deck/flush law), the pack's bridge is kept and NO deck is generated there; otherwise our deck is generated and EVERY pack bridge body over that crossing, with its frame mates (light objects, riders), is hidden in the pack copy (Restore originals puts it back). Never both; a pack bridge under a generated deck footprint is a defect counted by the build. 19p's walled-frame hide and 19r (2)'s lidar-found crossings both route through this decision. (2) A generated deck's width = the width of the pack (apt.dat) pavement it meets at each end of the cut, the NARROWER of the two ends, but never less than 19s (8a)'s ≈ 2× taxiway width; it never widens to an apron or other broad pavement beyond the narrower end. 19s (8c) (a riding service road widens the deck) still applies.
+
+## 2026-11-19p — OWNER, BETA 8: A PACK'S WALLED MULTI-BRIDGE OBJECT IS HIDDEN AND OUR OWN GENERATED BRIDGES TAKE ITS CROSSINGS (KORD I-190, KRDU north/central, KBNA taxiway L; lane lwfhide `planar/deck_takeover`; extends 19m (2)): 2026-11-19T13:51Z, owner, verbatim: "As a fallback for beta 8 at least, can we detect complex, multi-bridge objects like the ones at KORD and KRDU and simply hide them and install our own bridges that we can cut and align correctly with the terrain?" 14:04Z: "The KORD bridge has two parallel taxiway bridges, just like KPHX"; "And KRDU's north crossings will also be a road bridge and two taxiway bridges". 15:35Z, on KBNA (clean with the pack object; its frame matches the rule): "I guess replace the KBNA bridges as well because our bridges can slope, and seat independently to better match the high resolution terrain." RULED: the rule is general (no per-airport exemption): a walled multi-bridge frame carrying a taxiway/runway is hidden in the pack copy (Restore originals puts it back) when our generated decks stand on every taxiway/runway bridge it carried; the lidar sets the trench depth; otherwise the pack keeps it with a KEPT note.
+(2) Same day, generated bridges (#2181 KPHX, #2183 KIAH; general, KIAH the test case): side-by-side parallel decks get one full-width cut with no terrain raise under them; a service road very close to a taxiway deck rides that deck (owner 14:33Z: "If the service road is very close like at KPHX, it rides the same bridge, if the gap is larger like at KIAH, it get's it's own bridge"), and a road's own bridge is a narrower version of our flat taxiway deck, not an X-Plane road bridge; a deck takes the pavement at the taxi route centreline; wear/dirt/tire films follow what the author applied to the taxiways at the bridge ends (none if none); taxiway edge lines are redrawn on the deck.
+
+## 2026-11-19r — OWNER, OUR GENERATED BRIDGES: ONLY A MINIMUM CLEARANCE; THE DECK MAY STAND HIGHER AND SLOPES WITH THE TAXIWAY; A ROAD UNDER TAXIWAY PAVEMENT PER THE LIDAR GETS A BRIDGE PER PAVEMENT CROSSING (KBNA taxiway L, KRDU north; lane lkrdun; extends 19p): 2026-11-19T16:58Z "At krdu, at the north bridges, is there lidar evidence that the road is below the taxiway level? It's rare that a road, except service roads, cross a taxiway, so that should be enough, with the taxiway pavement to identify where bridges are needed". 16:59Z "Since we set the bridge heights for our own bridges, shouldn't they be set so the taxiway can meet the ends within grade?" 17:02Z "The bridges just need minimum clearances, they are allowed to have more, and they are allowed to slope at the same grade as the taxiway". RULED: (1) a generated deck's level is solved with the taxiway profile, bounded below only by the road clearance over the lidar road floor, and may slope within taxiway grade law; (2) where a non-service road passes under taxiway/runway pavement and the lidar shows it below the pavement by the clearance, each pavement crossing gets its own taxiway deck regardless of OSM bridge tagging, and a road crossing a road there gets a narrow road deck.
+
+## 2026-11-19s — OWNER, A GENERATED BRIDGE NEVER MOVES AIRSIDE: SOLVE AIRSIDE AS IF THERE WERE NO BRIDGE, THEN CUT AND DROP IN A DECK THAT TAKES THAT SURFACE (refines 19r (1); lane lkrdun): 2026-11-19T18:13Z, owner, verbatim: "Maybe you're already doing it this way, but essentially what I am picturing when we build the bridges is that airside is unaffected, solved like there is no bridge, and then we cut and drop in a bridge that perfectly matches the size and slope needed for the spot without requiring airside pavement to be adjusted. Does that make sense?" RULED: airside pavement is solved with no deck rows acting on it; the generated deck's top is the solved pavement over its footprint (size and slope as solved); the ground beneath is cut to the road clearance below the deck (or the lidar road floor if lower). Bar: airside movers against a no-bridge solve ≤ 0.05 m.
+(2) 2026-11-19T18:16Z, same item: "Then the cut is at the lidar depth or the minimum needed for clearance, whichever is greater, and the ends of the cut then grade smoothly back to the terrain following the road or rails path and ensuring the right road or rail grade." RULED: the cut floor is the deeper of the lidar road floor and (deck underside − clearance); past the deck the road or rail grades smoothly back to the terrain along its own path within its grade law (18e: roads, rail 1.25 %).
+(3) 2026-11-19T18:26Z, owner, verbatim, design notes for the airside-first bridge architecture: "a road should always have enough room to ramp back to terrain no matter the cut depth, just keep following the road back at the grade until it matches. Each taxiway gets its own bridge, due to wingspan requirements, there's a max width and two parallel taxiways have to have a minimum gap between them which always leave a gap between two bridges with the cut running straight through." RULED: (a) a road or rail in a cut ramps back along its own path at its grade cap for as long as needed to meet the terrain (no shortfall case); (b) one generated deck per taxiway, never one deck carrying two parallel taxiways; the gap between parallel taxiway decks stays open with the cut running straight through it (supersedes the 19p (2) "one full-width cut" reading only in that the decks stay separate; the cut beneath is continuous).
+(4) 2026-11-19T20:55Z, owner, KBNA sim read of 1.0.565, verbatim items for the bridge architecture: "The road cut is neither smooth, nor deep enough to pass cleanly under"; "The bridges lack the steep embankment on either end like we built at ESSA and I thought should be on all bridges, unless the size or position requires a vertical wall (which KBNA might to accommodate the road)"; the deck at 36.122904718, -86.665696406 "seems to fail identify the orientation of the taxiway and road and puts the edge lip all the way around so aircraft can't drive on to it"; "How is bridge width determined? They seem wider than they need to be, I would expect them to generally match the width of the taxiway + a shoulder." RULED for the architecture: (a) every generated bridge gets the steep embankment at each abutment (as ESSA), a vertical wall only where the span or the road needs it; (b) the edge lip runs only along the deck's sides parallel to the taxiway, never across its ends; (c) deck width = taxiway width + shoulders (its taxiway's own width class), not the pack pavement or cut footprint; (d) the road cut is smooth and deep enough for clearance per 19s (2).
+(5) 2026-11-19T23:07Z, owner, verbatim: "When we insert a bridge, we know the size and shape of the cut needed to provide the clearance under it, whether there's OSM or not, if we have the evidence to insert a bridge then we have to add the cut to the patch..." RULED: the cut belongs to the generated deck: every generated deck mints its own cut in the patch (span under the deck between abutments, banks, floor per (2)) whether or not the road under it is an OSM way or a patch ribbon; a mapped road/rail only adds its ramp back to terrain along its own path ((3)(a)).
+(6) 2026-11-19T23:09Z, owner, verbatim: "We need the ramp whether there's road or rail evidence or not, but what scenario would cause us to insert the bridge in the first place if there was no road or rail? If we insert a bridge, we need the cut, and the cut needs to grade smoothly away from the bridge back to the natural terrain." RULED: every deck-owned cut ramps out of both ends smoothly back to natural terrain at the road grade cap (rail 1.25 % where the evidence is rail): along the mapped road/rail where one exists, otherwise along the cut's own axis (trench direction from the lidar or the hidden pack frame).
+(7) 2026-11-20T00:33Z, owner, verbatim: "When there's two parallel bridges, closer then would allow a full ramp up to grade, then back down again, then they get cut like a single bridge, full depth between them, only two ramps on the outside. The cut is the full width of the bridge regardless of what roads or rails pass under it, a single cut, not multiple parallel ones." RULED: a deck's cut is one trench the full width of the bridge, whatever roads or rails pass under it (they lie on its floor); decks closer than a ramp up and down at the cap are one cut at full depth between them with ramps only on the outer ends.
+(8) 2026-11-20T06:46Z, owner sim read of 1.0.566 (KPHX, KBNA), verbatim: "bridges are too narrow now, looks like exactly taxiway width, but they should have a half width shoulder, so the total bridge width is closer to twice the width of the taxiway. At KBNA, the south taxiway L bridge is aligned correctly with the raised edges over the cut on either side of the bridge, but the North bridge is shaped like it thinks the flow is 90 degrees turned, its raised edges block the taxiway instead of marking the edges over the cut. At KPHX, the East bridge has a service road that shares the same deck on the west side, so that bridge needs to be wide enough to include that. The two road bridges to the east of the eastern most taxiway bridge, done reach across their whole span, leaving floating ends. The terrain on either end of each cut should be graded up to match the taxiway height, and the bridges are the same length as the taxiway ones they are paralleling, just narrower." RULED: (a) deck width = taxiway width + a half-taxiway-width shoulder each side (≈ 2× the taxiway width), not the bare taxiway width; (b) the deck's axis is its taxi route's direction at the crossing; the lips run along the taxiway, never across it; (c) a service road riding a taxiway deck widens that deck to include it; (d) a road deck spans the full cut, the same length as the taxiway deck it parallels, only narrower; the ground at each end of every cut is graded up to the deck/taxiway level so no deck end floats.
+
+## Standing discipline (unchanged for every lane; the long form is `.claude/agents/lane.md`)
+
+- Worktree: `tools/harness/lane_worktree.sh up <lane> <base sha>`; branch `claude/<lane>`.
+  `git merge main` FIRST if main has moved past the base sha.
+- `Ortho4XP/venv/bin/python tools/blast.py <file>` before editing each source
+  file. SIZE (owner 2026-10-04c, `tools/ratchets.py`): 1,000 lines is a guide and a
+  warning, never a gate — the report (files past 1,000, files that grew, functions of
+  200+ lines) is read by the master at merge. Split by responsibility, never to make a
+  number. THE PRIORITY IS REUSE: small one-responsibility modules, no second
+  implementation of a thing that exists (the identical-body duplicate count IS a gate:
+  it may fall, never rise; `dupes --near` is reported).
+- ONE closing build through the harness (v2 is the only engine, RULINGS
+  2026-09-13au — there is no `--engine` flag); base arms cut with
+  `git archive <sha> src`, never another live checkout.
+- NEVER write `/Users/noah/XPTerrainBuilderData` or `/Users/noah/X-Plane 12/Custom Scenery/`;
+  no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`.
+  Do NOT set `O4_DSF_CACHE_DIR` / `O4_AIRPORT_MOD_CACHE_DIR`: the harness makes its own
+  overlay, and with them set a build refuses ("pack DSF dump MISSING", #342) — they are
+  the pytest suite's mechanism, set by `tests/conftest.py`.
+- Any wait loop is bounded (`timeout N` or `$SECONDS`); prefer foreground.
+- Suite from `Ortho4XP/` twice: `venv/bin/python -m pytest -q --no-header -p no:cacheprovider -rfE tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py tests/test_auto_patch_freshness.py`.
+- Attempt cap two per rule; a bar that moves backwards twice → delete the code, report the measurement.
+- Consumer census (RULINGS 2026-08-30l) in the spec MEASURED block before any consumer is edited.
+- Extend tools, never fork; INDEX row + twin for any new option. Do NOT merge into main; do NOT write RULINGS.
+- Read law with `tools/docq.py spec '§N'`, `tools/docq.py ruling 13xx`, `tools/docq.py index <name>`;
+  find captures with `tools/harness/frames.py list [ICAO]`; register yours when done.
+- REPORT: branch + sha; per-bar before → after with the frame named; what you did NOT do;
+  intent questions with their measurement; files touched; net lines added/removed
+  + new public symbols (owner 2026-10-04a (5)).
+

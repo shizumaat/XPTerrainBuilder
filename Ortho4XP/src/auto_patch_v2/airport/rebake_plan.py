@@ -154,6 +154,34 @@ def _deck_ring_xy(o: _obj8.PlacedObject) -> list[XY]:
     return [(float(x), float(y)) for x, y in poly.exterior.coords[:-1]]
 
 
+def _deck_rings(o: _obj8.PlacedObject, pieces: _t.Sequence[tuple], to_ll) -> tuple:
+    """EVERY hard-deck piece of ``o`` (walled-multibridge spec W9,
+    ``model/deck_piece``): each published piece ``(ring, tag, stations,
+    tops, span_cut)`` (frame xy, ``pipeline/rebake_inputs``) as a span,
+    then each polygon of ``o``'s deck that no published piece covers by
+    half its area as a RIDER."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from ..model.deck_piece import DeckPiece
+    out = []
+    for ring, tag, pts, tops, cut in pieces:
+        out.append(DeckPiece(tuple(to_ll(x, y) for x, y in ring), str(tag),
+                             tuple(to_ll(x, y) for x, y in pts), tuple(tops),
+                             (to_ll(*cut[0]), to_ll(*cut[1]), tuple(tuple(q) for q in cut[2]),
+                              *cut[3:4]) if cut else ()))
+    spans = unary_union([Polygon(r).buffer(0) for r, *_q in pieces]) if pieces else None
+    polys = getattr(o.hard_deck, "geoms", [o.hard_deck])
+    for g in sorted(polys, key=lambda q: -q.area):
+        if g.geom_type != "Polygon" or g.is_empty:
+            continue
+        if spans is not None and g.intersection(spans).area >= 0.5 * g.area:
+            continue
+        out.append(DeckPiece(tuple(to_ll(float(x), float(y))
+                                   for x, y in g.exterior.coords[:-1])))
+    return tuple(out)
+
+
 def _reads_datum(o: _obj8.PlacedObject) -> bool:
     """Does :func:`_with_deck` ask ``deck_datum`` about ``o``?  A hard deck
     that is not a SIGNATURE deck with its plate (R12 reads that one at its
@@ -162,8 +190,18 @@ def _reads_datum(o: _obj8.PlacedObject) -> bool:
             and not (o.deck_kind == "signature" and o.deck_plate is not None))
 
 
+def _datum_ring_xy(o: _obj8.PlacedObject, cache: _obj8.ResourceCache | None,
+                   law: Law | None) -> list[XY]:
+    """The ring a hard deck's datum is read over: its DECK PLANE when the
+    deck is two-level (``deck_plane_ring``, RULINGS 2026-11-18f: never the
+    median over a ring that holds its own floor), else its whole ring."""
+    from .deck_plane_ring import deck_plane_ring
+    return deck_plane_ring(o, cache, law) or _deck_ring_xy(o)
+
+
 def datum_rings(objects: _t.Sequence[_obj8.PlacedObject],
-                below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = ()
+                below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
+                cache: _obj8.ResourceCache | None = None, law: Law | None = None
                 ) -> list[list[XY]]:
     """EVERY ring :func:`plan` can ask its ``deck_datum`` about, for these
     objects and below-grade regions — the rings of every placement, seated
@@ -171,7 +209,11 @@ def datum_rings(objects: _t.Sequence[_obj8.PlacedObject],
     ``rebake_screen``: the solved surface is gone by the object step) reads
     them all while the surface is in hand.  In object order."""
     objs, _basin = _promoted(objects, below_grade)
-    return [_deck_ring_xy(o) for o in objs if _reads_datum(o)]
+    out = []
+    for o in (o for o in objs if _reads_datum(o)):
+        whole, plane = _deck_ring_xy(o), _datum_ring_xy(o, cache, law)
+        out += [whole] if plane == whole else [plane, whole]
+    return out
 
 
 def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -302,6 +344,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                 screen.plate_paths, keep=keep_extension
                                 ).filtered(screen, law)
     _to_xy, to_ll = airport.frame.transformers()
+    witness = _witness(part.pack_root, airport)
     by_id = {o.id: o for o in objs}
     counts = dict(part.counts)
     counts["plate_objects"] = len(plates)
@@ -315,7 +358,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             o = by_id.get(oid)
             members.append(m if o is None
                            else _with_deck(m, o, to_ll, deck_datum, plates, counts,
-                                           law, free_decks))
+                                           law, free_decks, cache, witness))
         units.append(_dc.replace(u, id=f"unit:{ui}", members=tuple(members)))
     flat = _flat_datum(airport, to_ll)
     if flat is not None:
@@ -330,6 +373,25 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       origin_tile=_origin_tile(airport))
 
 
+def _witness(pack_root: "str | None", airport) -> _t.Callable[..., "str | None"]:
+    """The pack-patch witness line of a two-level deck (RULINGS
+    2026-11-18f (1), ``pack_patch_witness.deck_note``), its pads read on
+    first use; ``None`` for a pack that ships no patch for the tile."""
+    from . import pack_patch_witness as _ppw
+    tile = _origin_tile(airport)
+    memo: list = []
+
+    def note(plane, ring) -> "str | None":
+        if not memo:
+            memo.append(_ppw.pack_pads(pack_root, *tile) if tile else [])
+        return _ppw.deck_note(memo[0], plane, ring)
+    return note
+
+
+def _z(z: "float | None") -> str:
+    return "none" if z is None else f"{float(z):.2f}"
+
+
 def _origin_tile(airport) -> tuple[int, int] | None:
     """The tile of the airport's reference point (#1645, ``RebakePlan.
     origin_tile``); ``None`` for a site with no frame."""
@@ -342,13 +404,16 @@ def _origin_tile(airport) -> tuple[int, int] | None:
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                counts: dict[str, int], law: Law | None = None,
-               free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None) -> Member:
+               free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
+               cache: _obj8.ResourceCache | None = None,
+               witness: _t.Callable[..., "str | None"] | None = None) -> Member:
     """``m`` with the PLANAR and SOLVED fields attached: the hard-deck
     ring and its datum (or the signature plate's ends / profile /
     stations) and the tunnel-wall plate's height and band stations.
     These are the only member fields the load-time partition cannot
     carry — every one of them reads a planar product or the solve."""
     deck_ring = deck_top_y = deck_datum_z = deck_ends = None
+    plane_note: tuple[str, ...] = ()
     deck_end_stations: tuple[tuple[float, float], ...] = ()
     deck_profile: tuple[tuple[float, float], ...] = ()
     deck_stations: tuple[tuple[float, float, float], ...] = ()
@@ -367,7 +432,17 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
             deck_profile = tuple(pl.profile)
             deck_stations = tuple((*to_ll(sx, sy), float(y)) for (sx, sy), y in pl.stations)
         else:
-            deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
+            datum_xy = _datum_ring_xy(o, cache, law)
+            deck_datum_z = deck_datum(datum_xy) if deck_datum is not None else None
+            if datum_xy != ring_xy:
+                counts["deck_plane_datums"] = counts.get("deck_plane_datums", 0) + 1
+                whole = deck_datum(ring_xy) if deck_datum is not None else None
+                plane_note = ("two-level deck: the datum read over its deck plane "
+                              f"{_z(deck_datum_z)}, the whole ring (its floor in it) "
+                              f"{_z(whole)} (RULINGS 2026-11-18f)",)
+                seen = witness([to_ll(x, y) for x, y in datum_xy], deck_ring) \
+                    if witness is not None else None
+                plane_note += (seen,) if seen else ()
             if deck_datum_z is None and law is not None:
                 # §16e (2): A FLAG DECK OVER NO GRADED FACE GETS ITS END
                 # LINES FROM ITS RING.  R12's abutment reading needs the
@@ -395,7 +470,13 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     # an EDGE BRIDGE's seat (``pipeline/rebake_inputs._edge_seat_plates``)
     plate_kind = str(rest[1]) if o.id in plates and len(rest) > 1 else ""
     # deck-end-anchors spec §3: the zero the deck's anchors state
-    anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 else None
+    anchor_zero = float(rest[2]) if o.id in plates and len(rest) > 2 \
+        and rest[2] is not None else None
+    # owner RULINGS 2026-11-18i: a deck cut to its spans (``deck_span_cut``)
+    cut = rest[3] if o.id in plates and len(rest) > 3 else ()
+    deck_spans = (to_ll(*cut[0]), to_ll(*cut[1]), tuple(cut[2]), *cut[3:5]) if cut else ()
+    deck_rings = _deck_rings(o, rest[4] if o.id in plates and len(rest) > 4 else (), to_ll) \
+        if o.hard_deck is not None and o.deck_top_z is not None else ()
     wp = getattr(o, "walled_plate", None)
     if wp is not None:
         # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END
@@ -410,12 +491,13 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     out = _dc.replace(m, deck_ring=deck_ring, deck_top_y=deck_top_y,
                        deck_datum_z=deck_datum_z, deck_kind=o.deck_kind,
                        deck_ends=deck_ends, deck_profile=deck_profile,
-                       deck_evidence=tuple(o.deck_evidence),
+                       deck_evidence=(*o.deck_evidence, *plane_note),
                        deck_stations=deck_stations,
                        deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
                        plate_clearance_m=plate_clearance, plate_kind=plate_kind,
-                       anchor_zero=anchor_zero)
+                       anchor_zero=anchor_zero, deck_spans=deck_spans,
+                       deck_rings=deck_rings)
     rec = (free_decks or {}).get(o.id)
     if rec is None or law is None:
         return out

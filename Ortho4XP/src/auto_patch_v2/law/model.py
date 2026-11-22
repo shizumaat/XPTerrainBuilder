@@ -724,6 +724,10 @@ class LoadLaw:
     #: network's length on the pavement sources, the §60 SURFACE pages are
     #: taken as pavement sources.  0 = off.
     network_pages_share_max: float
+    #: RULINGS 2026-10-30e (#2215): at or above the share, a §60 page holding
+    #: at least this many metres of the network no source holds is a source.
+    #: 0 = off.
+    network_page_unheld_min_m: float
 
 
 @_dc.dataclass(frozen=True)
@@ -933,6 +937,13 @@ class RoadProfile:
     #: whose in-band segments follow the terrain up to ``cap_ceiling``
     #: (``O4_Vector_Utils.road_inside_cap``); every other class keeps the
     #: patch's ``road_grade_limit``
+    #: OWNER RULINGS 2026-11-18e ("shouldn't allow super sharp changes in
+    #: angle"): the road profile's VERTICAL CURVE, metres of road per 1 % of
+    #: grade change (``vertical_curve_k_grade_unit``), held in every run and
+    #: every DEM-wrong window (``O4_Road_Grade``); ``rail_vertical_curve_k_m``
+    #: is a railway's
+    vertical_curve_k_m: float
+    rail_vertical_curve_k_m: float
     public_classes: tuple[str, ...] = ()
 
 
@@ -1306,6 +1317,8 @@ def _check_cross_refs(t: LawTables) -> None:
     if not (0.0 <= nps <= 1.0):
         raise LawError(f"load.network_pages_share_max {nps} is not a "
                        "share in [0, 1] (#1957)")
+    if t.structures.load.network_page_unheld_min_m < 0.0:
+        raise LawError("load.network_page_unheld_min_m must be >= 0 (RULINGS 2026-10-30e)")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

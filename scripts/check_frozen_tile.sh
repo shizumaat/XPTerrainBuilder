@@ -23,7 +23,7 @@
 # import — before the artifact is signed (mac) or zipped (Windows/Linux).
 #
 # Usage: scripts/check_frozen_tile.sh <frozen-binary> [python] [extra args]
-#   <frozen-binary>  the frozen executable (mac engine `Ortho4XP`, or the
+#   <frozen-binary>  the frozen executable (mac engine `XPTerrainBuilderEngine`, or the
 #                    Windows/Linux Qt app `Ortho4XP_Qt[.exe]` — that
 #                    binary dispatches --engine-jsonl before any Qt
 #                    import, so it is a headless engine too)

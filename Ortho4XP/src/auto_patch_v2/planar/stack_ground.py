@@ -47,6 +47,18 @@ def _areal(g):
     return shapely.union_all([q for q in shapely.get_parts(g) if q.geom_type == "Polygon"])
 
 
+def _split(parts, cut) -> list:
+    """``parts`` each cut in two along ``cut``'s edge (its piece inside and
+    the rest, on the overlay grid); ``cut`` ``None``: as given."""
+    if cut is None or cut.is_empty:
+        return list(parts)
+    out = []
+    for p in parts:
+        rest = fixed_difference(p, cut)
+        out += [*shapely.get_parts(fixed_difference(p, rest)), *shapely.get_parts(rest)]
+    return out
+
+
 def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: float,
                         hairline_m: float, vertex_m: float, law=None, airside=(),
                         notes: "list | None" = None) -> list[tuple[str, _t.Any]]:
@@ -75,14 +87,19 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
     air = canonical_union(_near(airside))
     out: list[tuple[str, _t.Any]] = []
     for st, fp in fps:
-        parts = [(f"{st.id}:cap", fp["caps"])]
-        parts += [(f"{st.id}:shadow:{d.object_id}#{d.piece}", g) for d, g in fp["shadows"]]
-        parts += [(f"{st.id}:apron:{d.object_id}#{d.piece}{side}", g)
-                  for d, side, _top, g, _slab in fp["aprons"]]
-        parts.append((f"{st.id}:bank", fp["bank"]))
+        # #2116 item 3: an end-seated deck's apron is minted as its slab and
+        # the rest, so the slab's outer edge is a ring whose vertices R1 holds
+        # (its apron runs to L_e, its slab one step)
+        seated = {d.object_id for d in getattr(st, "end_seated", ()) or ()}
+        parts = [(f"{st.id}:cap", fp["caps"], None)]
+        parts += [(f"{st.id}:shadow:{d.object_id}#{d.piece}", g, None) for d, g in fp["shadows"]]
+        parts += [(f"{st.id}:apron:{d.object_id}#{d.piece}{side}", g,
+                   slab if d.object_id in seated else None)
+                  for d, side, _top, g, slab in fp["aprons"]]
+        parts.append((f"{st.id}:bank", fp["bank"], None))
         claimed = None
         own_air = air.difference(fp["keep"].buffer(2.0 * cut_m)) if not air.is_empty else air
-        for name, g in parts:
+        for name, g, cut in parts:
             if g is None or g.is_empty:
                 continue
             if claimed is not None:
@@ -92,7 +109,7 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
             if notes is not None and not own_air.is_empty and g.intersects(own_air.buffer(cut_m)):
                 notes.append(f"{name}: cut back from the airside")
             k = 0
-            for part in shapely.get_parts(fixed_difference(g, knife)):
+            for part in _split(shapely.get_parts(fixed_difference(g, knife)), cut):
                 if part.geom_type != "Polygon" or part.area < 1.0 \
                         or is_hairline(part, hairline_m):
                     continue

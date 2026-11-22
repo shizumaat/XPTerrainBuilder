@@ -80,7 +80,9 @@ def test_a_bridge_deck_at_the_ground_still_bridges_the_road_under_it(tmp_path):
     round the deck — a bridge."""
     from test_deck_bridge1671 import _deck
     got, notes = _decks(tmp_path, _deck(tmp_path), _Dem(z=106.0), 6.0)
-    assert len(got) == 1 and not notes
+    # the walled deck's W3 zero record (planar/deck_bridge._walled_zero) is
+    # a record, never a refusal: no other note
+    assert len(got) == 1 and not [n for n in notes if "(walled frames W3)" not in n]
 
 
 def test_a_taxiway_across_a_deck_is_its_own_witness(tmp_path):
@@ -191,3 +193,41 @@ def test_the_ground_is_read_round_the_roof_over_the_bore_end(tmp_path):
     assert over.equals(near)
     assert "a building over the road at grade" in P._at_grade(o, cache, over, LAW, ground)
     assert P._roof_over(near, [(0.0, 0.5)], 5.0) is near
+
+
+def _mouth_portals(tmp_path, bores):
+    ground = BG.ground_of(_airport(_Dem()), [], O.ResourceCache(THICK), LAW)
+    o = _portal_placed(_portal(tmp_path))
+    o.kind, o.anchor_z, o.agl_m = "OBJECT", 100.0, 0.0
+    grade: list = []
+    got, refused = P.read_portals([o], O.ResourceCache(THICK), LAW, bores, ground=ground,
+                                  at_grade=grade)
+    return got, refused, grade
+
+
+def test_a_roofed_object_at_grade_on_a_long_bore_is_its_tunnel_mouth(tmp_path):
+    """KBUF ``Road_Tunnel.obj`` (owner RULINGS 2026-11-21d, #2221): a mouth
+    object at grade on the uncut ground over the end of a bore that runs
+    far past it — the bore drawn as two ways joined end to end — is that
+    tunnel's portal, and its end stands at grade in no building."""
+    far = types.SimpleNamespace(id=-757, points=[(0.0, 60.0), (0.0, 240.0)])
+    got, refused, grade = _mouth_portals(tmp_path, [BORE, far])
+    assert [p.way_id for p in got] == [-756] and grade == []
+    assert got[0].at_grade
+    assert "a tunnel mouth (RULINGS 2026-11-21d)" in refused[0]
+
+
+def test_a_roofed_object_at_grade_on_a_stub_its_own_length_stays_at_grade(tmp_path):
+    """KDEN's booths: the stub runs about the booth's own length — the
+    booth stays a building over the road at grade (2026-11-21d)."""
+    stub = types.SimpleNamespace(id=-758, points=[(0.0, 0.5), (0.0, 30.0)])
+    got, refused, grade = _mouth_portals(tmp_path, [stub])
+    assert got == [] and [g.way_id for g in grade] == [-758]
+    assert "a building over the road at grade" in refused[0]
+
+
+def test_bore_runs_join_ways_end_to_end():
+    a = types.SimpleNamespace(id=1, points=[(0.0, 0.0), (0.0, 10.0)])
+    b = types.SimpleNamespace(id=2, points=[(0.0, 10.0), (0.0, 40.0)])
+    c = types.SimpleNamespace(id=3, points=[(50.0, 0.0), (55.0, 0.0)])
+    assert P._bore_runs([a, b, c]) == {1: 40.0, 2: 40.0, 3: 5.0}

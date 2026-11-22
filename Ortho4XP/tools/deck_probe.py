@@ -12,7 +12,9 @@ station off the anchor level; then every HARD row over the materiality
 floor (0.02 m) that touches a vertex within ``--near`` metres (default 5)
 of a deck ring or on an end line — the "no NOT SETTLED row within 5 m of
 any deck" bar — and the row fingerprint (count and sha of every row).
-``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
+``--bank-perimeter``: the bank round every banked deck
+(``tools/deck_bank_perimeter``: steps, jags and slope breaks along offset
+lines round the ring).  ``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
 row on it with its violation.  ``--cut-cover TOL``: the cut under every
 BANKED deck (generated or a wall-less pack deck, RULINGS 2026-11-17p) and
 generated road bridge (``tools/deck_cut_cover``; owner 2026-11-17 "the cut
@@ -122,6 +124,27 @@ def main(argv=None) -> int:
                     help="the cut under every GENERATED deck and road bridge "
                          "(tools/deck_cut_cover): solved ground over the bank / "
                          "floor / clearance by more than TOL m fails; exit 1")
+    ap.add_argument("--bank-perimeter", action="store_true",
+                    help="the bank round every BANKED deck (tools/deck_bank_perimeter): "
+                         "the worst step, grade, jags and slope break along offset "
+                         "lines round its ring")
+    ap.add_argument("--span-clean", action="store_true",
+                    help="nothing of the pavement inside a walled span's cut "
+                         "(tools/deck_span_clean, walled frames W8): rows per walled deck; "
+                         "exit 1 on any")
+    ap.add_argument("--carve", action="store_true",
+                    help="the cut every GENERATED deck owns (tools/deck_carve_bars, owner "
+                         "2026-11-19T23:07Z): per path its evidence, direction, clearance, "
+                         "floor against the rule, ramps back to the terrain and the "
+                         "abutment bank; exit 1 on a FAIL")
+    ap.add_argument("--widths", action="store_true",
+                    help="every GENERATED deck's width across its taxi route against its "
+                         "letter's TSA, and each side of the centreline "
+                         "(tools/deck_width_bars.width_rows, RULINGS 2026-11-21c)")
+    ap.add_argument("--piers", action="store_true",
+                    help="the piers of every GENERATED deck (tools/deck_carve_bars.pier_bars, "
+                         "owner 2026-11-20T14:50Z): columns floating over the solved ground "
+                         "or standing on a mapped road / railway; exit 1 on any")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -184,6 +207,68 @@ def main(argv=None) -> int:
                   + (f" over {q['lower']}" if q.get("lower") else "")
                   + f": {q['over']}/{q['samples']} sample(s) over {a.cut_cover:g} m, worst "
                   f"{q['worst_m']} m at {q.get('ll')} {q['worst_at']} {q.get('note', '')}")
+    if a.carve:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_carve_bars import carve_bars
+        res["carve"] = carve_bars(pm, z, Law.for_airport(pm.icao), d.get("generated_tops"))
+        for q in res["carve"]:
+            ok = q["pass_clearance"] and q["pass_grade"] and q["pass_meets"] \
+                and q.get("pass_ends", True)
+            rc |= not ok
+            print(f"CARVE {'PASS' if ok else 'FAIL'} {q['deck']} {q['kind']} {q['way']}: "
+                  f"clearance {q['clearance_min_m']} (need {q['need_m']}), floor "
+                  f"{q['floor_m']} rule {q['floor_rule_m']}, ramps {q.get('ramp_before')} "
+                  f"{q.get('ramp_after')} cap {q['cap']}, bank {q.get('bank_slope_max')}, ends "
+                  f"{[(e['end'], e['gap_m']) for e in q.get('end_gaps') or ()]}; "
+                  f"{', '.join(q['evidence'])}; {q['direction']}")
+    if a.widths:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_width_bars import width_rows
+        res["widths"] = width_rows(pm, d.get("airport"), Law.for_airport(pm.icao))
+        for q in res["widths"]:
+            print(f"WIDTH {q['deck']} at {q['ll']}: taxiway {q['route']} "
+                  f"{q.get('letters')} TSA {q.get('tsa_m')} m: {q.get('width_m')} m, "
+                  f"{q.get('left_m')} / {q.get('right_m')} each side, riders {q['riders']}")
+    if a.piers:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_carve_bars import pier_bars
+        res["piers"] = pier_bars(pm, z, Law.for_airport(pm.icao), d.get("airport"),
+                                 d.get("generated_tops"))
+        from deck_carve_bars import road_deck_bars
+        res["road_decks"] = road_deck_bars(pm, z, Law.for_airport(pm.icao), d.get("airport"),
+                                           d.get("generated_tops"))
+        for q in res["road_decks"]:
+            sh = q["clearance_short"]
+            bad = (sh is not None and sh[0] < -0.05) or any(
+                e is not None and abs(e) > 0.05 for e in q["end_gaps"]) or (
+                q["top_vs_taxiway_m"] is not None and abs(q["top_vs_taxiway_m"]) > 0.05)
+            rc |= bad
+            print(f"ROAD-DECK {'FAIL' if bad else 'PASS'} {q['deck']} (bridge "
+                  f"{q['road_bridge']}, over {q['spans_cut']}'s cut): clearance short {sh}, "
+                  f"ends {q['end_gaps']}, top vs the taxiway deck {q['top_vs_taxiway_m']}")
+        for q in res["piers"]:
+            bad = bool(q["floating"] or q["on_road"])
+            rc |= bad
+            print(f"PIERS {'FAIL' if bad else 'PASS'} {q['deck']}: {q['columns']} column(s), "
+                  f"floating {q['floating'][:4]}, on a road {q['on_road'][:4]}")
+    if a.bank_perimeter:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_bank_perimeter import bank_perimeter
+        res["bank_perimeter"] = bank_perimeter(pm, z, d.get("airport"))
+        for q in res["bank_perimeter"]:
+            per = " ".join(f"{k:g}:{v['grade']:.2f}/{v['jags']}" for k, v in q["offsets"].items())
+            print(f"BANK-PERIMETER {q['object']}: step {q['step_m']} m grade {q['grade']} "
+                  f"jags {q['jags']} break {q['break']} off-patch {q['off']} "
+                  f"at {q.get('ll')} | {per}")
+    if a.span_clean:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from deck_span_clean import span_clean
+        res["span_clean"] = span_clean(pm, Law.for_airport(pm.icao))
+        for q in res["span_clean"]:
+            rc |= q["rows"] > 0
+            print(f"SPAN-CLEAN {'FAIL' if q['rows'] else 'PASS'} {q['object']}: strip "
+                  f"{q['strip_m2']} m2, {q['rows']} vertex(es) {q['roles']} {q['lines']} "
+                  f"{q['vertices']}")
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, default=str))
     return rc

@@ -27,14 +27,52 @@ public struct O4BuildAirports: Sendable, Equatable {
         public let objects: Int
     }
 
+    /// One airport's own "Fit custom airport buildings" switch (#2182,
+    /// capability `airport_fit`): kept for its later builds.
+    public struct FitAirport: Sendable, Equatable, Identifiable {
+        public var id: String { "\(tile.lat),\(tile.lon),\(icao)" }
+        public let icao: String
+        public let tile: O4TileRef
+        /// What its next build does: its own value, else the tile's.
+        public let fit: Bool
+        public let customPatch: Bool
+        /// The engine's question before it turns on; "" = none.
+        public let confirm: String
+
+        public init(icao: String, tile: O4TileRef, fit: Bool,
+                    customPatch: Bool = false, confirm: String = "") {
+            self.icao = icao
+            self.tile = tile
+            self.fit = fit
+            self.customPatch = customPatch
+            self.confirm = confirm
+        }
+    }
+
     public let airports: [Airport]
     public let packs: [Pack]
     public let totalSeconds: ClosedRange<Double>
+    /// The airports a custom patch covers in the tiles (owner RULINGS
+    /// 2026-11-18l, #2172).
+    public let customPatches: [String]
+    /// Whether the next build fits custom airport buildings: off on a
+    /// tile a custom patch is new to; nil from an engine that predates it.
+    public let fitBuildings: Bool?
+    /// The engine's question before the fit switch turns on; "" = none.
+    public let fitConfirm: String
+    /// The switch per airport (#2182); empty from an engine that predates it.
+    public let fitAirports: [FitAirport]
 
-    public init(airports: [Airport], packs: [Pack], totalSeconds: ClosedRange<Double>) {
+    public init(airports: [Airport], packs: [Pack], totalSeconds: ClosedRange<Double>,
+                customPatches: [String] = [], fitBuildings: Bool? = nil,
+                fitConfirm: String = "", fitAirports: [FitAirport] = []) {
         self.airports = airports
         self.packs = packs
         self.totalSeconds = totalSeconds
+        self.customPatches = customPatches
+        self.fitBuildings = fitBuildings
+        self.fitConfirm = fitConfirm
+        self.fitAirports = fitAirports
     }
 
     /// A `[low, high]` wire pair, ordered; nil when absent or malformed.
@@ -71,9 +109,22 @@ public struct O4BuildAirports: Sendable, Equatable {
                         airports: row["airports"]?.arrayValue?.compactMap(\.stringValue) ?? [],
                         objects: row["objects"]?.intValue ?? 0)
         }
+        let fitAirports = (event["fit_airports"]?.arrayValue ?? []).compactMap { row -> FitAirport? in
+            guard let icao = row["icao"]?.stringValue,
+                  let pair = row["tile"]?.arrayValue, pair.count >= 2,
+                  let lat = pair[0].intValue, let lon = pair[1].intValue else { return nil }
+            return FitAirport(icao: icao, tile: O4TileRef(lat: lat, lon: lon),
+                              fit: row["fit"]?.boolValue ?? false,
+                              customPatch: row["custom_patch"]?.boolValue ?? false,
+                              confirm: row["confirm"]?.stringValue ?? "")
+        }
         return .success(O4BuildAirports(
             airports: airports, packs: packs,
-            totalSeconds: range(event["total_s"]) ?? 0...0))
+            totalSeconds: range(event["total_s"]) ?? 0...0,
+            customPatches: event["custom_patches"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+            fitBuildings: event["fit_buildings"]?.boolValue,
+            fitConfirm: event["fit_confirm"]?.stringValue ?? "",
+            fitAirports: fitAirports))
     }
 }
 
@@ -84,7 +135,23 @@ extension O4ProtocolVersion {
     }
 }
 
+/// The `set_airport_fit` reply.
+struct O4SetAirportFitReply: Decodable, Sendable {
+    let tile: String
+    let icao: String
+    let fit: Bool
+}
+
 extension OrthoEngineClient {
+    /// One airport's own "Fit custom airport buildings" value in its tile
+    /// (#2182, capability `airport_fit`), kept for its later builds.
+    public func setAirportFit(tile: String, icao: String, fit: Bool,
+                              customBuildDir: String = "") async throws {
+        let _: O4SetAirportFitReply = try await request(
+            "set_airport_fit", ["tile": tile, "icao": icao, "fit": fit,
+                                "custom_build_dir": customBuildDir])
+    }
+
     /// Asynchronous on the engine side: the reply is `{"status": "started"}`
     /// and the `BuildAirportsReady` event naming this command's id carries
     /// the card or the error.

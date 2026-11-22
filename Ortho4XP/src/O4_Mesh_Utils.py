@@ -17,6 +17,7 @@ import O4_Rebuild_Cache as REBUILD
 import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
+import O4_Road_Bank as ROAD_BANK
 import O4_Mesh_Pins as MESH_PINS
 import O4_Patch_Voids as PATCH_VOIDS
 import O4_Triangle_IO as TRI_IO
@@ -27,7 +28,7 @@ import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
 import O4_Version
 from O4_Bank_Annulus import (BANK_RINGS_STATS, _bank_rings_from_patches,
-                              bank_annulus_polygon)
+                              bank_annulus_polygon, patch_paths_read)
 
 if "dar" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "mac", "Triangle4XP ")
@@ -1290,50 +1291,30 @@ def bank_pavement_lines(tile):
     caller then declines to override any pre-valued vertex at all.
     """
     from shapely import geometry
-    from auto_patch import selection as SELECTION
 
     scalx = cos((tile.lat + 0.5) * pi / 180)
     lines = []
-    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
-    if os.path.exists(patch_dir):
-        all_files = [f for f in os.listdir(patch_dir)
-                     if f[-10:] == ".patch.osm"]
-        manual = [f for f in all_files if "_auto.patch.osm" not in f]
-        auto = [f for f in all_files if "_auto.patch.osm" in f]
-        manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
-        mode = SELECTION.resolved_auto_patch_mode(tile)
-        files = list(manual)
-        for name in auto:
-            icao = name.replace("_auto.patch.osm", "").upper()
-            if mode == "None":
+    for name in patch_paths_read(tile):
+        layer = OSM.OSM_layer()
+        try:
+            layer.update_dicosm(name, input_tags=None, target_tags=None)
+        except Exception:
+            continue
+        nodes = layer.dicosmn
+        for wayid in layer.dicosmfirst["w"]:
+            tags = layer.dicosmtags["w"].get(wayid, {})
+            if not any(k in tags for k in BANK_PAVEMENT_TAG_KEYS):
                 continue
-            if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
+            way = layer.dicosmw.get(wayid)
+            if not way or len(way) < 2:
                 continue
-            if icao in manual_icao:
-                continue
-            files.append(name)
-        for name in files:
-            layer = OSM.OSM_layer()
             try:
-                layer.update_dicosm(os.path.join(patch_dir, name),
-                                    input_tags=None, target_tags=None)
+                pts = [((float(nodes[n][0]) - tile.lon) * scalx,
+                        float(nodes[n][1]) - tile.lat) for n in way]
             except Exception:
                 continue
-            nodes = layer.dicosmn
-            for wayid in layer.dicosmfirst["w"]:
-                tags = layer.dicosmtags["w"].get(wayid, {})
-                if not any(k in tags for k in BANK_PAVEMENT_TAG_KEYS):
-                    continue
-                way = layer.dicosmw.get(wayid)
-                if not way or len(way) < 2:
-                    continue
-                try:
-                    pts = [((float(nodes[n][0]) - tile.lon) * scalx,
-                            float(nodes[n][1]) - tile.lat) for n in way]
-                except Exception:
-                    continue
-                if len(pts) >= 2:
-                    lines.append(geometry.LineString(pts))
+            if len(pts) >= 2:
+                lines.append(geometry.LineString(pts))
     roads = _levelled_road_lines(tile, scalx)
     if roads is None:
         return None
@@ -2452,10 +2433,33 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch pins: {len(stranded)} patch-pinned vertex(es) "
                 "touched no INTERP_ALT triangle and took their patch value "
                 "instead of the DEM (#2034).")
+    import itertools
+    # THE ROAD'S SIDE BANKS (owner RULINGS 2026-11-18d, ``O4_Road_Bank``):
+    # the free ground beside a levelled ribbon is cut / filled to it -- a
+    # 1:2 bank, or a 2:1 retaining face where no bank fits the width cap.
+    try:
+        banked = ROAD_BANK.road_bank_values(
+            tile, vertices, itertools.chain(
+                (v for tri in interp_alt_tris for v in tri), water_valued,
+                pins[0] if pins is not None else ()))
+    except Exception as error:
+        banked = {}
+        UI.lvprint(1, "WARNING: the road side banks (RULINGS 2026-11-18d) "
+                      "failed; the ground beside the roads keeps the DEM:",
+                   str(error))
+    for index, value in banked.items():
+        vertices[6 * index + 2] = value
+        vertices[6 * index + 3] = 0
+        vertices[6 * index + 4] = 0
+    if banked:
+        UI.vprint(
+            1,
+            f"   Road banks: {len(banked)} free vertex(es) beside the "
+            "levelled roads cut or filled to the road's side bank (RULINGS "
+            "2026-11-18d).")
     # #2053 round 3: THE HOLD -- the free vertices under an object the mesh
     # holds the cut ground under (auto_patch.terrain_cut_stage.hold)
     # (``fixed`` is lazy: read only when the tile holds an object)
-    import itertools
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
     TERRAIN_CUT.hold(tile, vertices, corners, itertools.chain(
         (v for tri in interp_alt_tris for v in tri), water_valued,

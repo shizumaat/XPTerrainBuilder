@@ -7,7 +7,8 @@
 #   default : Ortho4XP.spec     (engine + jsonl protocol; what the mac app embeds)
 #   --qt    : Ortho4XP_Qt.spec  (standalone Qt GUI; the Windows/Linux release app)
 #
-# Output: Ortho4XP/dist/Ortho4XP/ (onedir: executable + _internal/)
+# Output: Ortho4XP/dist/XPTerrainBuilderEngine/ (onedir: executable + _internal/;
+#         the Qt flavor Ortho4XP/dist/Ortho4XP_Qt/)
 set -euo pipefail
 
 SPEC="Ortho4XP.spec"
@@ -125,7 +126,7 @@ rm -rf build dist
 find dist -name '* [2-9].*' -delete 2>/dev/null || true
 
 VERSION="$(grep -m1 '^version' src/O4_Version.py | cut -d= -f2 | tr -d " '\"" )"
-OUT="dist/Ortho4XP"
+OUT="dist/XPTerrainBuilderEngine"
 if [[ -d "dist/Ortho4XP.app" && ! -d "$OUT" ]]; then
   # The Qt spec on macOS may emit an .app; the raw onedir also exists for it.
   OUT="$(ls -d dist/*/ | head -1)"
@@ -138,13 +139,13 @@ bash "$ROOT/scripts/engine_stamp.sh" write "$OUT" "$ROOT"
 # ONE implementation, run against whichever binary this freeze produced —
 # the same script the Windows and Linux release jobs run against theirs.
 # The Qt freeze emits `Ortho4XP_Qt/Ortho4XP_Qt`, the engine freeze
-# `Ortho4XP/Ortho4XP`; on macOS the Qt freeze ALSO emits an .app, whose
+# `XPTerrainBuilderEngine/XPTerrainBuilderEngine`; on macOS the Qt freeze ALSO emits an .app, whose
 # executable is the same file inside the bundle, so the onedir binary is
 # the one tested.
 if (( NEED_QT )); then
   LERC_BIN="dist/Ortho4XP_Qt/Ortho4XP_Qt"
 else
-  LERC_BIN="dist/Ortho4XP/Ortho4XP"
+  LERC_BIN="dist/XPTerrainBuilderEngine/XPTerrainBuilderEngine"
 fi
 "$ROOT/scripts/check_frozen_lerc.sh" "$ENGINE/$LERC_BIN" "$PY"
 

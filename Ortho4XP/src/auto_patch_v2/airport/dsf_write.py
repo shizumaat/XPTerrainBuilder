@@ -142,6 +142,7 @@ from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
 from . import generated_pack as _gen
+from . import generated_tile as _gt
 from . import pack_art as _pa
 from . import pack_drapes as _pd
 from . import pack_forests as _pf
@@ -1299,6 +1300,30 @@ def _with_overlap_hides(pack_root: str, dsf_path: str,
     return dict(gen_recipe or {}, overlap_hides=[tuple(h) for h in hides])
 
 
+def _with_road_cover(pack_root: str, dsf_path: str,
+                     gen_recipe: _t.Mapping[str, _t.Any]) -> _t.Mapping[str, _t.Any]:
+    """RULINGS 2026-11-19i (owner 2026-11-19T01:35Z "Yes, skip our overlay
+    roads where simheaven covers"): the recipe with ``drop_network`` when
+    this is one of OUR overlay packs (``O4_Overlay_Pack.is_ours``) and an
+    enabled pack replaces the default road network over the tile
+    (``O4_Overlay_Pack.road_cover``); its forests and buildings stay.  Read
+    on every write, never recorded: the roads are back on the first write
+    after that pack is gone."""
+    import O4_Overlay_Pack as _OP  # lazy: the engine's install reading
+    import O4_UI_Utils as UI
+
+    from .tile_route import tile_of_dsf
+    tile = tile_of_dsf(dsf_path)
+    if tile is None or not _OP.is_ours(pack_root):
+        return gen_recipe
+    cover = _OP.road_cover(os.path.dirname(os.path.normpath(pack_root)), *tile)
+    if cover is None:
+        return gen_recipe
+    UI.vprint(0, f"   {tile[0]:+03d}{tile[1]:+04d}: our overlay leaves its road network "
+                 f"out -- {cover[0]} {cover[1]}.")
+    return dict(gen_recipe or {}, drop_network=cover[0])
+
+
 def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
@@ -1488,7 +1513,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         drapes = _pd.recorded(prior_entry, backup_sha)
     if gen_recipe is None:
         gen_recipe = _gen.recorded(prior_entry, backup_sha)
-    gen_recipe = _with_overlap_hides(pack_root, dsf_path, gen_recipe)
+    gen_recipe = _with_road_cover(pack_root, dsf_path,
+                                  _with_overlap_hides(pack_root, dsf_path, gen_recipe))
     _gen.write_files(pack_root, gen_recipe)
     gen_counts: dict = {}
     # one omission: the missing art the user accepted and the photos hidden
@@ -1517,11 +1543,19 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                          optimise, pack_root)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # spec 2123: the generated decks and road bridges, last
-        edited, gen_counts = _gen.apply_text(edited, gen_recipe)
+        edited, gen_counts = _gen.apply_text(edited, gen_recipe, splits=composed.splits,
+                                             pack_root=pack_root)
+        # #2178: an object row off the tile never reaches the encoder
+        edited, off_tile = _gt.drop_off_tile_objects(edited, _sg.tile_box(edited))
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
         # ... and a seat is stored at its nearest quantum, never floored
         edited = _dh.nearest_row_elevations(edited)
+        # a row DSFTool would refuse fails the whole file: named here, never encoded
+        refused_rows = _dh.refused_rows(edited)
+        if refused_rows:
+            raise ValueError(f"{len(refused_rows)} object row(s) the encoder "
+                             f"cannot place, first {refused_rows[0]}")
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)
@@ -1535,6 +1569,15 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                 raise
             undone[idx] = "DSFTool could not place a body"
     _undone_notes(plan, undone, notes)
+    if off_tile:
+        notes.append(f"{off_tile} object row(s) outside the tile {base} covers were "
+                     f"left out of it (#2178)")
+    if gen_counts.get("hides_drawn"):
+        # RULINGS 2026-11-20a (1): a hidden pack bridge still drawn in the
+        # written pack is the census's ``pack_bridge_under_deck`` defect
+        notes.append(f"DEFECT -- {len(gen_counts['hides_drawn'])} row(s) of hidden pack "
+                     f"placement(s) still drawn in {base}: "
+                     + ", ".join(sorted({str(r[0]) for r in gen_counts["hides_drawn"]})))
     notes.extend(f"a hand-set object elevation was not applied: {why}; set it "
                  f"again in the patch editor" for why in refused)
     report = verify_roundtrip(out_dsf, edited, tool)

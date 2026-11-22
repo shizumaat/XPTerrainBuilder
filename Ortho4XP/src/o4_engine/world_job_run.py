@@ -301,12 +301,11 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
         water_wait_s=WATER_WAIT_S, route=_route_dict(),
         core=None if core is None else (float(core[0]), float(core[1]),
                                         CORE_FULL_S))
-    if os.path.exists(staged):
-        shutil.rmtree(staged)
+    work = _work_dir(staged)
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
-                      staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
-    _record_drape(staged, provider, zoomlevel, fetched.get("blend"))
+                      work, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
+    _record_drape(work, provider, zoomlevel, fetched.get("blend"))
     WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": px,
                      **{k: fetched.get(k) for k in (
                          "squares", "dds", "download_s", "convert_s",
@@ -314,32 +313,54 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
                          "water_wait_s", "core_squares")}})
     with contextlib.suppress(OSError):
         shutil.rmtree(fetched["tile"])
-    return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+    return _stage_verified(work, staged, tile, tool)
+
+
+def _work_dir(staged: str) -> str:
+    """The hidden folder a drape is written in before it is staged (no
+    sweep reads a name starting with a dot), emptied."""
+    import shutil
+    work = os.path.join(os.path.dirname(staged),
+                        f".{os.path.basename(staged)}.writing")
+    shutil.rmtree(work, ignore_errors=True)
+    return work
+
+
+def _stage_verified(work: str, staged: str, tile, tool: str) -> bool:
+    """The drape written in ``work`` staged as ``staged`` in one rename
+    once it verifies (``verify_drape``: every ``.pol`` its DSF names is
+    there), under the swap lock, so a sweep never copies a drape while it
+    is written, checked or replaced (#2247); ``work`` gone either way.
+    True when it verifies."""
+    import shutil
+
+    import O4_World_Drape as DRAPE
+
+    from . import world_publish as PUBLISH
+    ok = not DRAPE.verify_drape(work, *tile, tool)["problems"]
+    if ok:
+        with PUBLISH.SWAP_LOCK:
+            shutil.rmtree(staged, ignore_errors=True)
+            os.rename(work, staged)
+    shutil.rmtree(work, ignore_errors=True)
+    return ok
 
 
 def _recalled(tile, staged: str, engine: str) -> bool:
     """A drape the disk budget offloaded to a tier is laid back as the
     staged tile instead of fetched again (#2142 Q3,
     ``world_drape_evict.recall``); True when it verifies."""
-    import shutil
-
-    import O4_World_Drape as DRAPE
-
     from . import world_drape_evict as EVICT
-    if os.path.exists(staged):
-        shutil.rmtree(staged)
+    work = _work_dir(staged)
     try:
-        if not EVICT.recall(tuple(tile), staged):
+        if not EVICT.recall(tuple(tile), work):
             return False
-        ok = not DRAPE.verify_drape(staged, *tile,
-                                    WP.dsftool_path(engine))["problems"]
+        ok = _stage_verified(work, staged, tile, WP.dsftool_path(engine))
     except Exception as error:              # logged; fetched as any drape
         WORLD.write_log({"drape_recall_error": repr(error)[:300],
                          "tile": WP.tile_name(*tile)})
         ok = False
     WORLD.write_log({"drape_recalled": WP.tile_name(*tile), "ok": ok})
-    if not ok:
-        shutil.rmtree(staged, ignore_errors=True)
     return ok
 
 
@@ -365,12 +386,20 @@ def _record_drape(staged: str, provider: str, zoomlevel: int,
         "auto": auto, "blend": blend or {}, "at": _utc()})
 
 
-def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:
+def _merge_held(pack: str, staged: str, lat: int, lon: int,
+                refused: list) -> None:
     """A held tile merged in (S5: every old name kept), the staging
     folder gone.  The reload that shows it is offered once for the
-    episode by the job (``WorldJob.offer``, #2142), not per merge."""
+    episode by the job (``WorldJob.offer``, #2142), not per merge.  A
+    merge ``O4_World_Pack.swap_in`` refuses goes to ``refused``; a short
+    staged tile is removed (made again), a short copy stays staged."""
     import shutil
-    WP.swap_in(pack, staged, lat, lon, merge=True)
+    try:
+        WP.swap_in(pack, staged, lat, lon, merge=True)
+    except WP.IncompleteTile as error:
+        refused.append(error)
+        if error.where != "staged":
+            return
     shutil.rmtree(staged, ignore_errors=True)
 
 
@@ -419,12 +448,17 @@ class _PackPublisher:
             self._pending.pop(tile, None)
             if held and not WP.nothing_held(pack, lat, lon):
                 return "staged"             # S4: a real tile X-Plane holds
-            with FOLLOW.paused("world swap", tiles=[WP.tile_name(lat, lon)]):
+            refused: list = []
+            with PUBLISH.SWAP_LOCK, FOLLOW.paused(
+                    "world swap", tiles=[WP.tile_name(lat, lon)]):
                 if merge:
-                    _merge_held(pack, staged, lat, lon)
+                    _merge_held(pack, staged, lat, lon, refused)
                 else:
                     WP.swap_staged(pack, WORLD.staging_root(),
-                                   only=(lat, lon))
+                                   only=(lat, lon), refused=refused)
+            if refused:                     # #2247: the pack kept its tile
+                PUBLISH.log_refused(refused[0])
+                return "failed"
             # a drape's rows from the pack's files (#2037), a tile's from
             # its build folder
             PUBLISH._after_swap(self.scenery_dir,

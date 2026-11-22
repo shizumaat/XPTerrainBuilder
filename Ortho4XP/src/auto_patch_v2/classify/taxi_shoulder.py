@@ -29,8 +29,11 @@ ends and so does the shoulder.  The rest keeps the verdict it had.
 The joined part takes the taxi cell's role, ref and code letter, so it is
 one shape with the taxiway: one surface, one law, no zone between them
 (zones are drawn round the taxi family's union).  What is never a shoulder:
-a ROAD on mapped evidence (a road strip source, a 1206 route corridor) and
-pavement holding a 1300 startup (a stand is apron).
+a ROAD on mapped evidence (a 1206 route corridor; a road strip source or a
+10l arm road BESIDE its mapped road) and pavement holding a 1300 startup (a
+stand is apron).  RULINGS 2026-11-21e (#2223 KBIL): a pack strip bordering
+airside pavement with no mapped road route is the airside shoulder, never a
+service road; it grades with the pavement it borders.
 
 #1900 (owner 2026-11-10T23:12Z, HECA taxiway G at 30.12699,31.41024: "there
 is only a single taxiway running perpendicular to the runways here ... a
@@ -53,6 +56,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom.parts import line_parts
+from ..geom.valid_area import valid_area
 from .evidence import polygon_parts
 
 __all__ = ["join_taxi_shoulders", "SHOULDER_HOSTS"]
@@ -65,22 +69,44 @@ SHOULDER_HOSTS = ("apron", "parking_lot", "service_road", "groundside_pavement",
 
 
 def _mapped_road(ref: str, evid: _t.Mapping) -> bool:
-    """A road on MAPPED evidence, never a shoulder: a road strip source
-    (owner 2026-09-04j), a 1206 route corridor outside pavement.  A §43 /
-    RULINGS 2026-11-10l ARM ROAD is a road only BESIDE its road
-    (``_beside_road``): the leg of it that runs along a taxiway away from
-    any road is that taxiway's shoulder (#1900, owner 2026-11-10T23:12Z)."""
-    return evid.get("kind") == "strip" or ref.startswith("route")
+    """A road on MAPPED evidence, never a shoulder: a 1206 route corridor
+    outside pavement.  A §43 / RULINGS 2026-11-10l ARM ROAD and a road
+    STRIP source (owner 2026-09-04j) are roads only BESIDE their road
+    (``_beside_road``): the part of them that runs along a taxiway away
+    from any mapped road is that taxiway's shoulder (#1900, owner
+    2026-11-10T23:12Z; RULINGS 2026-11-21e, #2223 KBIL ``dsf:pol81``: a
+    7.3 m pack strip ringing an infield beside the taxiway, a mapped
+    service road along 207 m of its 1,760 m, was a service road whole)."""
+    return ref.startswith("route")
 
 
 def _beside_road(evid: _t.Mapping, roads, narrow: float):
-    """The ground a 10l arm road is a road on: within one road width
-    (``apron.arm_road_max_width_m``) of a road centreline beyond its own
-    width — ``neck.road_arms``' own "beside" reach.  ``None`` for any other
-    strip, or when no road is mapped."""
-    if not evid.get("arm_road") or roads is None:
+    """The ground a 10l arm road or a road strip source is a road on:
+    within one road width (``apron.arm_road_max_width_m``) of a road
+    centreline beyond its own width — ``neck.road_arms``' own "beside"
+    reach.  ``None`` for any other strip.  A strip source with no road
+    mapped beside it carries no road route (21e): all of it may be
+    shoulder."""
+    if evid.get("arm_road"):
+        own = float(evid.get("neck_width_m", narrow))
+    elif evid.get("kind") == "strip":
+        own = float(evid.get("source_width_m", narrow))
+    else:
         return None
-    return roads.buffer(narrow + float(evid.get("neck_width_m", narrow)))
+    if roads is None:
+        return None
+    return _valid(roads.buffer(narrow + own))
+
+
+def _segment_band(edge, depth: float):
+    """The flat-capped band ``depth`` deep on both sides of EVERY segment
+    of ``edge``, unioned.  A whole shared edge turns the strip's corners
+    (the contact tolerance reaches round them), and one buffer of that
+    bent line mitres its corners into the strip: a 600 m x 8 m strip kept
+    a 41 m wedge at each end out of its own shoulder."""
+    segs = [LineString([a, b]) for ln in line_parts(edge)
+            for a, b in zip(ln.coords, list(ln.coords)[1:], strict=False) if a != b]
+    return unary_union([sg.buffer(depth, cap_style="flat") for sg in segs])
 
 
 def _run_along(edge, axis: LineString) -> float:
@@ -135,6 +161,19 @@ def join_taxi_shoulders(final: list[list], taxi_family: tuple[str, ...],
     return stats
 
 
+def _valid(geom):
+    """``geom`` as an overlay operand GEOS can read: itself when valid
+    (no build that did not throw changes), else its ``valid_area``.
+
+    #2170 (KTUL objpav50 beside objpav238, KBHM): both cells valid, but the
+    host carries the classify snap grid (0.01 m) and GEOS's 1 m buffer of
+    its ring, snap-rounded on that grid, came back self-intersecting —
+    ``TopologyException: side location conflict`` and the airport lost its
+    patch.  Every operand this join builds is read through here, so one
+    bad cell never fails an airport."""
+    return geom if geom.is_valid else valid_area(geom)
+
+
 def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
                 roads, stats) -> int:
     """One pass of the join over ``final``; returns the strips joined."""
@@ -159,36 +198,52 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
             out.append(row)
             continue
         road_here = _beside_road(evid, roads, narrow)
+        face = _valid(face)
         best = None
         for j in taxi_tree.query(face.buffer(tol)):
             host = taxi[int(j)]
             hp: Polygon = host[2]
-            edge = face.boundary.intersection(hp.boundary.buffer(tol))
+            edge = face.boundary.intersection(_valid(hp.boundary.buffer(tol)))
             if edge.is_empty or edge.length < need:
                 continue
-            # the cell's own centreline: the taxi axis nearest the shared
-            # edge among those within the route territory of the cell
-            near = [axes[int(k)] for k in axis_tree.query(hp.buffer(reach))]
-            if not near:
-                continue
-            mid = edge.centroid
-            axis = min(near, key=lambda a: a.distance(mid))
-            par = _parallel_edge(edge, axis, cos_tol)
-            if par is None:
-                continue
-            run = _run_along(par, axis)
-            if run < need:
+            if evid.get("kind") == "strip":
+                # RULINGS 2026-11-21e: a pack road STRIP bordering airside
+                # pavement is its shoulder wherever it carries no mapped
+                # road, along its whole shared edge, centreline parallel
+                # or not (#2223 KBIL: 5,301 m2 of dsf:pol81 along junction
+                # pav8, its long chords parallel to no centreline)
+                par, run = edge, edge.length
+            else:
+                # the cell's own centreline: the taxi axis nearest the
+                # shared edge among those within the route territory
+                near = [axes[int(k)] for k in axis_tree.query(hp.buffer(reach))]
+                if not near:
+                    continue
+                mid = edge.centroid
+                axis = min(near, key=lambda a: a.distance(mid))
+                par = _parallel_edge(edge, axis, cos_tol)
+                run = 0.0 if par is None else _run_along(par, axis)
+            if par is None or run < need:
                 continue
             # NARROW: the strip's mean depth off the edge, a 10l road's own
             # ground left out (an L-shaped neck's road leg is not the
             # depth of its taxiway leg); the shoulder is the strip in the
             # edge's flat-capped band, so it stops where the taxi cell stops
-            own = face if road_here is None else face.difference(road_here)
-            if own.area > narrow * run:
+            # (polygonal parts only: a difference can come back a
+            # GeometryCollection, whose intersection GEOS reads as its
+            # lines — #2223 KBIL lost 3,809 m2 of shoulder to it)
+            own = face if road_here is None else \
+                unary_union(polygon_parts(face.difference(road_here)))
+            if own.is_empty:
                 continue
-            part = own.intersection(par.buffer(band_m, cap_style="flat"))
+            depth = own.area / run
+            if depth > narrow:
+                continue
+            band = _segment_band(par, band_m) if evid.get("kind") == "strip" \
+                else par.buffer(band_m, cap_style="flat")
+            part = own.intersection(_valid(band))
             if best is None or run > best[1]:
-                best = (host, run, part, own.area / run)
+                best = (host, run, part, depth)
         joined = [] if best is None else \
             [p for p in polygon_parts(best[2]) if p.area >= floor]
         if not joined:

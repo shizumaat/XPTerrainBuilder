@@ -37,7 +37,8 @@ _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 # them HERE — never as literals beside the clamp.
 def road_neighbourhood_law() -> dict:
     """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes,
-    terrain_cap}`` from the law table (``O4_Vector_Utils.clamp_road_network``
+    terrain_cap, rail_cap, grade_change_per_m, rail_grade_change_per_m}``
+    from the law table (``O4_Vector_Utils.clamp_road_network``
     / v2's ``airport/road_profile``).  ``terrain_cap`` is the road on steep
     ground's cap (owner RULINGS 2026-11-17, ``tables.road_terrain_cap``)."""
     from auto_patch_v2.law import tables as _v2_tables
@@ -49,7 +50,9 @@ def road_neighbourhood_law() -> dict:
         "cap_ceiling": float(rp.cap_ceiling),
         "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
         "public_classes": tuple(str(c) for c in rp.public_classes),
-        "terrain_cap": float(_v2_tables.road_terrain_cap(law)),
+        # OWNER RULINGS 2026-11-18e: terrain_cap, rail_cap and the
+        # vertical curves (one derivation, ``tables.road_steep_law``)
+        **_v2_tables.road_steep_law(law),
     }
 
 
@@ -520,6 +523,18 @@ cfg_tile_vars = {
     # set.  The key lives on only in ``retired_cfg_keys`` below, so a cfg
     # that still carries the line loads with a loud no-op warning instead
     # of an error.
+    "rebase_custom_patches": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "A custom patch authored over another elevation source (the "
+            "coarse base elevation, say) is re-based onto the elevation "
+            "the build meshes with: its pad and ramp heights take a smooth "
+            "offset so the patch meets the high-resolution ground while "
+            "keeping its own shapes. The user's file is never edited "
+            "(RULINGS 2026-11-19b)."
+        ),
+    },
     "modify_custom_airports": {
         "type": bool,
         "default": True,
@@ -1200,6 +1215,7 @@ gui_app_vars_long = list_app_vars[-4:]
 list_vector_vars = [
     "auto_patch",
     "modify_custom_airports",
+    "rebase_custom_patches",
     "elevation_level",
     "approach_rings",
     "elevation_coastline_band_km",

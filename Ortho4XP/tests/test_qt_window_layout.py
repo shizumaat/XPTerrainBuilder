@@ -28,6 +28,7 @@ MainWindow construction (see qt_tests_prefs_file_clobber).
 
 import os
 import sys
+import types
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -201,6 +202,9 @@ class TestPanelFitsItsViewport:
         window.info_mesh.setText("12 Sep 2026 14:30")
         window.info_imagery.setText("12 Sep 2026 14:30")
         window.info_size.setText("48.0 GB (12 folders)")
+        # The build's airport rows, shown (their label is the widest)
+        window._show_build_airports(types.SimpleNamespace(
+            airport_elevation=LONG_TEXT, airports=LONG_TEXT))
         qapp.processEvents()
         panel = window.info_group.parentWidget()
         scroll = panel.parentWidget()
@@ -391,6 +395,7 @@ class TestStartupCallsAreOwnedByTheWindow:
 
     def _pump(self, qapp, seconds):
         import time
+
         from PySide6.QtCore import QCoreApplication, QEvent
 
         deadline = time.monotonic() + seconds

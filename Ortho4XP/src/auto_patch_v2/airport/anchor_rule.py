@@ -655,12 +655,13 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
         return Datum(float(plate_y), tuple(m.plate_stations),
                      "edge bridge (RULINGS 2026-10-27r)"
                      if m.plate_kind == "edge" else "wall-top plate (#2099 P5b)")
-    # a RETAINING WALL's retained face reaches its upper ground (#1934 R3,
-    # RULINGS 2026-11-16d; ``airport/retaining_seat``): never its footing
+    # a RETAINING WALL's footing stands on the lowest ground beside it
+    # (RULINGS 2026-11-20m, replacing 16d's upper ground; #1934 R3;
+    # ``airport/retaining_seat``)
     if (plate_y is not None and getattr(m, "plate_kind", "") == "retaining"
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
-                     "retaining wall (RULINGS 2026-11-16d)")
+                     "retaining wall footing (RULINGS 2026-11-20m)")
     # a PORTAL IN A CUT stands its top on the cover beside the cut (#2120 R2
     # P2; ``airport/cut_portal_seat``): its foot goes where that puts it
     # ... and a BRIDGE OVER A PORTAL'S CUT its deck top at its cover-side

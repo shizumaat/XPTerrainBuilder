@@ -134,7 +134,7 @@ echo "  Mach-O objects: $TOTAL_FOUND"
 # pass below, and the app executable + engine entry point are signed last,
 # in that order, by the explicit steps after the loop.
 APP_EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist" 2>/dev/null || echo XPTerrainBuilder)"
-ENGINE_EXE="$APP/Contents/Resources/Engine/Ortho4XP"
+ENGINE_EXE="$APP/Contents/Resources/Engine/XPTerrainBuilderEngine"
 
 # SIGNED counts DISCOVERED Mach-O objects that this run covered — directly
 # in the loop, or through the framework bundle that contains them.  It must
@@ -175,7 +175,7 @@ done < "$FRAMEWORK_LIST"
 if [[ -f "$ENGINE_EXE" ]]; then
   sign_one "$ENGINE_EXE"
   SIGNED=$((SIGNED + 1))
-  echo "    engine entry point Engine/Ortho4XP"
+  echo "    engine entry point Engine/XPTerrainBuilderEngine"
 fi
 
 # The app's own executable is sealed by signing the bundle.

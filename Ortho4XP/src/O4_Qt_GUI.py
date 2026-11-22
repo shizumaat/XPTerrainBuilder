@@ -112,10 +112,12 @@ import O4_Qt_Build_History as QTHIST
 import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Pack_Forests as QTFOREST
+import O4_Qt_Pack_ReadOnly as QTRO
 import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Gateway_Airports as QTGATE
 import O4_Qt_Pack_Overlaps as QTOVER
+import O4_Qt_Pack_Waits as QTWAIT
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Map_Legend as QTLEGEND
@@ -156,6 +158,9 @@ from O4_Qt_Widgets import (  # noqa: E402
     wrap_and_never_widen as _wrap_and_never_widen,
 )
 
+# #2168: a pack row's buttons wait only for a run writing that pack
+_PACK_ROW_WAIT = ("Wait: the current run is building a tile that writes "
+                 "this pack.")
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 # Margin around a tile framed from its Activity row (#816), in degrees on
 # each side — the Mac app's MapCamera.framing uses the same fraction.
@@ -992,6 +997,7 @@ class MainWindow(QMainWindow):
             EV.MemoryWait: self._on_memory_wait,
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
+            EV.PackReadOnly: self._on_pack_readonly,
             EV.GatewayAirports: self._on_gateway_airports,
             EV.PackOverlaps: self._on_pack_overlaps,
             # RULINGS 2026-11-11m (4): a pack's shipped .xptb was applied.
@@ -1010,6 +1016,9 @@ class MainWindow(QMainWindow):
             # Build-ahead (W2): the Fly pane's World line and, in free
             # flight, its drapes on the map (RULINGS 2026-11-11j).
             EV.WorldStatus: self._on_world_status,
+            # #2175: built tiles waiting for X-Plane, or in over a loaded
+            # version (the tile pane's note; mac: TileWorldRow).
+            EV.WorldTilesWaiting: self._on_world_tiles_waiting,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1020,6 +1029,7 @@ class MainWindow(QMainWindow):
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
         self._pack_forests_seen = set()
+        self._pack_readonly_seen = set()
         # #1351: the open slow-step boxes, by (lat, lon, step key).
         self._slow_step_boxes = {}
         # #1707: the same for the "Optimise pack" questions
@@ -1032,6 +1042,7 @@ class MainWindow(QMainWindow):
         self._gateway_seen = set()
         # #2145: the same for the overlapping-structure questions
         self._overlap_seen = set()
+        self._pack_waits = QTWAIT.PackWaits()      # #2200
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -1290,6 +1301,10 @@ class MainWindow(QMainWindow):
         # gives the Ignored-policy elided labels ZERO width (their size
         # hint is meaningless by design) — the values simply vanish.
         ig.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        # A label too wide for the fixed panel ("Airport elevation:" is
+        # 216 px in the Windows font against a 266 px panel) puts its value
+        # on the line below instead of widening the panel past the viewport.
+        ig.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.info_title = QLabel("—")
         # Rich text (no elision support), so it clips rather than ever
         # widening the fixed-width panel; the tooltip keeps the whole
@@ -1313,6 +1328,7 @@ class MainWindow(QMainWindow):
             self._rebuild_tile_missing_textures)
         self.tile_world_row.export_requested.connect(self._export_package_at)
         self.tile_world_row.removed.connect(lambda _tile: self.refresh_tiles())
+        self.tile_world_row.reload_requested.connect(self._reload_scenery)
         ig.addRow(self.tile_world_row)
         # Imagery row: the source, plus the mixed-sources warning button
         # that opens the per-source breakdown and its cleanup offer
@@ -1491,6 +1507,13 @@ class MainWindow(QMainWindow):
         # (_show_build_airports); the window starts with no tile (aad0a7764)
         self._show_build_airports(None)
         self._modified_airport_packs = []
+        # Review this tile's overlapping-packs answers (#2180; mac-app
+        # parity: BuildPane's "Pack choices…"): the question on every pair.
+        self.pack_choices_btn = QPushButton(QTOVER.REVIEW_BUTTON)
+        self.pack_choices_btn.setToolTip(QTOVER.REVIEW_HELP)
+        self.pack_choices_btn.clicked.connect(self._review_pack_overlaps)
+        _never_widen(self.pack_choices_btn)
+        ig.addRow(self.pack_choices_btn)
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
         _never_widen(self.install_check)
@@ -1775,8 +1798,8 @@ class MainWindow(QMainWindow):
         # beside the console (BuildConsoleView.swift is the layout).
         self.console_drawer = QTHIST.ConsoleDrawer(
             self.console, lambda: self._built,
-            lambda lat, lon: self.map.set_active(lat, lon),
-            self.map.set_dimmed)
+            lambda lat, lon: self._show_tile_on_map((lat, lon)),   # #2199
+            self.map.set_dimmed, title=self._tile_title)
 
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(center)
@@ -2174,6 +2197,14 @@ class MainWindow(QMainWindow):
         self.fly_pane.show_world(event)
         if self._world_swaps.world_status(getattr(event, "last_swap", ())):
             self.refresh_tiles()        # the map shows the swap
+
+    def _on_world_tiles_waiting(self, event):
+        """``WorldTilesWaiting`` (#2175): the tile pane's note; a tile that
+        stopped waiting went in, so the map rescans."""
+        before = set(self.tile_world_row.waiting_tiles())
+        self.tile_world_row.show_waiting(event)
+        if not before <= set(event.waiting):
+            self.refresh_tiles()
 
     def _on_flight_notice(self, event):
         """One ``FlightNotice`` (lane F2): a system notification and the
@@ -2714,6 +2745,8 @@ class MainWindow(QMainWindow):
         tick the menu to match and keep the choice per user."""
         self.map.set_map_filter(hidden)
         hidden = self.map.map_filter()
+        self.patch_editor.controller.set_layer_hidden(
+            not MAPFILTER.shows_patch(hidden))
         self.map_filter_menu.set_hidden(hidden)
         self.map_filter_button.setText(
             "Filter ●" if MAPFILTER.is_filtering(hidden) else "Filter")
@@ -3252,6 +3285,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "export_package_action"):
             self.export_package_action.setEnabled(bool(sel))
         self._refresh_customized_tiles(sel)
+        self._show_pack_choices_wait()          # #2200: the active tile's
         self._search_tags = {
             t: c for t, c in self._search_tags.items() if t in sel
         }
@@ -3753,6 +3787,7 @@ class MainWindow(QMainWindow):
         if tile != self.map.active_tile():
             return  # stale probe: the user moved on
         self._modified_airport_packs = list(packs)
+        self._pack_rows_busy = [self._pack_row_busy(p) for p in packs]
         while self._modified_airport_rows.count():
             item = self._modified_airport_rows.takeAt(0)
             widget = item.widget()
@@ -3782,6 +3817,15 @@ class MainWindow(QMainWindow):
                         % (repaired, "s" if repaired != 1 else ""))
             label.setToolTip(tip)
             rl.addWidget(label, 1)
+            if pack.get("read_only"):
+                # #2174: left read-only (Not now) — its words, Ask again
+                label.setToolTip("%s — %s" % (pack["pack_name"], QTRO.ROW_STATUS))
+                for w in QTRO.row_widgets(
+                        lambda p=pack: self._ask_pack_readonly(p)):
+                    rl.addWidget(w, 0, Qt.AlignRight)
+                self._modified_airport_rows.addWidget(row)
+                continue
+            busy = self._pack_row_busy(pack)
             if pack.get("forests", 0):
                 # #1360: the pack's 3D trees, undone on their own (the mac
                 # row's twin button)
@@ -3789,10 +3833,9 @@ class MainWindow(QMainWindow):
                 trees.setAutoRaise(True)
                 trees.setText("🌲")
                 trees.setFixedSize(18, 18)
-                trees.setEnabled(not self._building)
+                trees.setEnabled(not busy)
                 trees.setToolTip(
-                    "Wait for the current run — the engine may be "
-                    "rewriting these files." if self._building
+                    _PACK_ROW_WAIT if busy
                     else QTFOREST.UNDO_HELP)
                 trees.clicked.connect(
                     lambda _checked=False, p=pack: self._undo_pack_forests(p))
@@ -3803,10 +3846,9 @@ class MainWindow(QMainWindow):
             opt.setAutoRaise(True)
             opt.setText("↺⚡" if optimised else "⚡")
             opt.setFixedHeight(18)
-            opt.setEnabled(not self._building)
+            opt.setEnabled(not busy)
             opt.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files." if self._building
+                _PACK_ROW_WAIT if busy
                 else QTOPT.UNDO_HELP if optimised else QTOPT.OPTIMISE_HELP)
             opt.clicked.connect(
                 lambda _checked=False, p=pack, u=optimised:
@@ -3818,10 +3860,9 @@ class MainWindow(QMainWindow):
             adjust.setAutoRaise(True)
             adjust.setText(QTADJ.ADJUST_BUTTON)
             adjust.setFixedHeight(18)
-            adjust.setEnabled(not self._building)
+            adjust.setEnabled(not busy)
             adjust.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files." if self._building
+                _PACK_ROW_WAIT if busy
                 else QTADJ.ADJUST_HELP)
             adjust.clicked.connect(
                 lambda _checked=False, p=pack: self._adjust_pack_from_row(p))
@@ -3831,11 +3872,9 @@ class MainWindow(QMainWindow):
             undo.setIcon(self.style().standardIcon(
                 QStyle.SP_ArrowBack))
             undo.setFixedSize(18, 18)
-            undo.setEnabled(not self._building)
+            undo.setEnabled(not busy)
             undo.setToolTip(
-                "Wait for the current run — the engine may be "
-                "rewriting these files."
-                if self._building else
+                _PACK_ROW_WAIT if busy else
                 "Revert to default: restores this package's original "
                 "object files from the reseater's backups."
             )
@@ -3847,12 +3886,20 @@ class MainWindow(QMainWindow):
             self._modified_airport_rows.addWidget(row)
         self._info_layout.setRowVisible(self.modified_airports_row, True)
 
+    def _pack_row_refused(self, pack):
+        """The engine's reason a pack a live run is rewriting must wait
+        (``Session.pack_busy_reason``, #2168), printed; False when free."""
+        reason = self._session.pack_busy_reason(pack["pack_path"])
+        if reason:
+            print("Revert of %s waits: %s." % (pack["pack_name"], reason))
+        return bool(reason)
+
     def _revert_modified_pack(self, pack):
         """Put ONE pack's .anchor_bak originals back (engine restore
         semantics: backups stay for the next bake, provenance sidecar
         removed), then re-probe so the row updates."""
         tile = self.map.active_tile()
-        if self._building or tile is None:
+        if tile is None or self._pack_row_refused(pack):
             return
         import O4_Config_Utils as CFG
 
@@ -4030,6 +4077,39 @@ class MainWindow(QMainWindow):
         except Exception:
             rows = []
         self.map.set_custom_patched({(r["lat"], r["lon"]) for r in rows})
+        self._ask_custom_patch_notices(rows)
+
+    def _ask_custom_patch_notices(self, rows):
+        """Once per custom patch (#2179; the Mac app's
+        ``CustomPatchNoticeAlert``): which elevation it was built for, and
+        "Use auto patch" or "Keep custom patch".  Either answer is
+        remembered (``O4_Custom_Patches.notice_seen``)."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        if getattr(self, "_asking_custom_patch", False):
+            return
+        self._asking_custom_patch = True
+        try:
+            for row in rows:
+                for notice in row.get("notices") or ():
+                    tile = (row["lat"], row["lon"])
+                    box = QMessageBox(QMessageBox.Information,
+                                      CUSTOM_PATCHES.CUSTOM_PATCH_TITLE,
+                                      notice["text"], parent=self)
+                    use = box.addButton(CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
+                                        QMessageBox.AcceptRole)
+                    box.addButton(CUSTOM_PATCHES.KEEP_CUSTOM_PATCH_TITLE,
+                                  QMessageBox.RejectRole)
+                    box.exec()
+                    try:
+                        CUSTOM_PATCHES.notice_seen(tile[0], tile[1],
+                                                   notice["file"])
+                    except (OSError, ValueError):
+                        pass
+                    if box.clickedButton() is use:
+                        self._use_auto_patch(tile, notice["icao"])
+        finally:
+            self._asking_custom_patch = False
 
     def _refresh_custom_patch(self, tile):
         """The tile pane's Custom patch row for the active tile."""
@@ -4058,21 +4138,32 @@ class MainWindow(QMainWindow):
         return (self._building and tile in self._run_tiles
                 and not (state and ACTORDER.is_finished(state[0], state[1])))
 
+    def _pack_row_busy(self, pack):
+        """#2168: a Modified airports row waits only while the run builds
+        the active tile or a tile whose build wrote the pack (the mac
+        row's ``packRowBusy``); other tiles and background jobs never
+        hold it."""
+        cells = [self.map.active_tile()] + [
+            FNAMES.parse_tile_key(key) for key in pack.get("tiles") or ()]
+        return any(cell is not None and self._tile_in_run(cell)
+                   for cell in cells)
+
     def _sync_use_auto_patch_btn(self):
         """Use auto patch waits only while ITS tile is in the run."""
         tile = getattr(self, "_custom_patch_tile", None)
         self.use_auto_patch_btn.setEnabled(
             tile is not None and not self._tile_in_run(tile))
 
-    def _use_auto_patch(self):
-        """Use auto patch: set the active tile's custom patches aside."""
+    def _use_auto_patch(self, tile=None, icao=None):
+        """Use auto patch: set the active tile's custom patches aside (or
+        *tile*'s, *icao*'s only, from the custom-patch notice)."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
-        tile = self._custom_patch_tile
+        tile = tile if isinstance(tile, tuple) else self._custom_patch_tile
         if tile is None or self._tile_in_run(tile):
             return
         try:
-            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
+            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1], icao)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
                                 str(exc))
@@ -4875,12 +4966,7 @@ class MainWindow(QMainWindow):
             # The status elides before it reaches the clock, which never
             # shrinks (a plain QLabel's minimum is its full text).
             # The tile's largest airports, a searched one first (#815).
-            title = ElidedRowLabel(
-                FNAMES.short_latlon(*tile)
-                + APTBATCH.tile_tag(RANK.title_codes(
-                    self._largest_airports().get(tile, ()),
-                    self._search_tags.get(tile, ())))
-            )
+            title = ElidedRowLabel(self._tile_title(tile))
             title.setObjectName("tile_title")
             rl.addWidget(title)
             # The bar sits right under the title (owner 2026-10-24) so
@@ -5005,6 +5091,16 @@ class MainWindow(QMainWindow):
             lambda _result, box=box: box in self._pack_art_boxes
             and self._pack_art_boxes.remove(box))
         box.show()
+
+    def _tile_title(self, tile):
+        """THE tile title (#815, #2199; the mac app's
+        ``BuildModel.tileTitle``): the coordinate and the tile's largest
+        airports, a searched one first — the Activity rows' and the Build
+        History cells'."""
+        return (FNAMES.short_latlon(*tile)
+                + APTBATCH.tile_tag(RANK.title_codes(
+                    self._largest_airports().get(tile, ()),
+                    self._search_tags.get(tile, ()))))
 
     def _show_tile_on_map(self, tile):
         """An Activity row was clicked (#816): select its tile, as a
@@ -5178,6 +5274,15 @@ class MainWindow(QMainWindow):
         self._sync_row_order()
         if tile == self._custom_patch_tile:
             self._sync_use_auto_patch_btn()
+        self._sync_pack_rows_busy()
+
+    def _sync_pack_rows_busy(self):
+        """#2168: redraw the Modified airports rows when one's wait
+        changes (its pack's tile entered or left the run)."""
+        packs = getattr(self, "_modified_airport_packs", None)
+        if packs and [self._pack_row_busy(p) for p in packs] != getattr(
+                self, "_pack_rows_busy", None):
+            self._on_reanchor_ready((self.map.active_tile(), packs))
 
     def _paint_row_state(self, tile):
         """Repaint one Activity row: status text and colour, the title
@@ -5478,10 +5583,44 @@ class MainWindow(QMainWindow):
         re-reads the tile's Modified airports rows; the other states are
         on the console through the engine's own log line.
         """
+        self._pack_row_answered(event)
         self._pack_choice_event(
             event, ("upgraded", "undone"), getattr(event, "can_update", False),
             QTFOREST.question_key, QTFOREST.pack_forests_box,
             self._pack_forests_seen, "pack_forests")
+
+    def _on_pack_readonly(self, event):
+        """#2174: a read-only airport pack whose writes wait for the answer.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packReadOnly``): ``"found"`` asks once per pack, ``"ask"`` (the
+        row's Ask again) every time; Make writable / Not now both send
+        ``pack_readonly``.  An outcome re-reads the Modified airports rows;
+        ``"writable"`` with ``rebuild`` rebuilds the tile no build waited on.
+        """
+        state = getattr(event, "state", "")
+        if state == "ask":
+            import dataclasses
+            event = dataclasses.replace(event, state="found")
+            self._pack_readonly_seen.discard(QTRO.question_key(event))
+        elif state == "writable" and getattr(event, "rebuild", False):
+            tile = FNAMES.short_latlon(int(event.lat), int(event.lon))
+            reason = (QTRO.RUN_BUSY if self._building
+                      else self.rebuild_patch_tile(tile))
+            if reason:
+                print(QTRO.REBUILD_LATER.format(tile=tile, pack=event.pack,
+                                                reason=reason))
+        self._pack_choice_event(
+            event, ("writable", "not_now", "none", "failed"), True,
+            QTRO.question_key, QTRO.pack_readonly_box,
+            self._pack_readonly_seen, "pack_readonly")
+
+    def _ask_pack_readonly(self, pack):
+        """The read-only row's Ask again (#2174)."""
+        tile = self.map.active_tile()
+        lat, lon = tile if tile is not None else (None, None)
+        self._session.pack_readonly(pack_root=pack["pack_path"], action="ask",
+                                    lat=lat, lon=lon)
 
     def _on_pack_optimise(self, event):
         """#1707: an airport pack "Optimise pack" can lighten.
@@ -5493,6 +5632,7 @@ class MainWindow(QMainWindow):
         ``pack_optimise``, Not now sends nothing.  An optimise or an undo
         re-reads the tile's Modified airports rows.
         """
+        self._pack_row_answered(event)
         if getattr(event, "state", "") == "ask":
             # the pack row's Optimise: asked every time it is pressed
             import dataclasses
@@ -5515,6 +5655,7 @@ class MainWindow(QMainWindow):
         ``"adjust"`` is the pack row's Adjust… (asked every time it is
         pressed); an outcome with ``rebuild`` rebuilds the tile.
         """
+        self._pack_row_answered(event)
         state = getattr(event, "state", "")
         if state == "ask":
             import dataclasses
@@ -5568,10 +5709,45 @@ class MainWindow(QMainWindow):
         report of the pack as it is on the active tile, which opens the
         question (``PackAdjust(state="adjust")``)."""
         tile = self.map.active_tile()
-        if self._building or tile is None:
+        if tile is None or self._pack_row_busy(pack):
             return
-        self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
-                                  lat=int(tile[0]), lon=int(tile[1]))
+        self._pack_row_command(pack, lambda: self._session.pack_adjust(
+            pack_root=pack["pack_path"], action="adjust",
+            lat=int(tile[0]), lon=int(tile[1])))
+
+    def _review_pack_overlaps(self):
+        """Pack choices… (#2180): the active tile's overlapping-packs
+        report (``pack_overlaps`` ``action="ask"``), which opens the
+        question on every pair with its stored answer."""
+        tile = self.map.active_tile()
+        if tile is None:
+            return
+        lat, lon = int(tile[0]), int(tile[1])
+        if not self._pack_waits.start(QTWAIT.overlaps_key(lat, lon)):
+            return
+        print(QTWAIT.checking_line(FNAMES.short_latlon(lat, lon)))
+        self._show_pack_choices_wait()
+        why = QTWAIT.refusal(self._session.pack_overlaps(action="ask", lat=lat,
+                                                         lon=lon))
+        if why:
+            self._pack_overlaps_answered(lat, lon)
+            print(QTWAIT.refused_line(why))
+
+    def _show_pack_choices_wait(self):
+        """Pack choices… says "Checking packs…" (disabled) while the active
+        tile's question is pending (#2200)."""
+        if not hasattr(self, "pack_choices_btn"):
+            return
+        tile = self.map.active_tile()
+        waiting = tile is not None and self._pack_waits.waiting(
+            QTWAIT.overlaps_key(int(tile[0]), int(tile[1])))
+        self.pack_choices_btn.setText(QTWAIT.CHECKING if waiting
+                                      else QTOVER.REVIEW_BUTTON)
+        self.pack_choices_btn.setEnabled(not waiting)
+
+    def _pack_overlaps_answered(self, lat, lon):
+        self._pack_waits.end(QTWAIT.overlaps_key(lat, lon))
+        self._show_pack_choices_wait()
 
     def _on_pack_overlaps(self, event):
         """#2145: two packs drawing the same large structures, as one
@@ -5581,14 +5757,19 @@ class MainWindow(QMainWindow):
         ``state == "found"`` (or ``"ask"``, the report) with a pair asks
         once, each picker on the remembered answer else the airport pack;
         Apply sends ``pack_overlaps`` ``action="choose"`` with every
-        pair's pick, Not now sends nothing.  An outcome asks nothing (the
-        engine's log line says what was hidden)."""
+        pair's pick, Not now sends nothing.  The report of a tile with no
+        pair says so (#2180).  An outcome asks nothing (the engine's log
+        line says what was hidden)."""
         state = getattr(event, "state", "found")
+        self._pack_overlaps_answered(int(event.lat), int(event.lon))
+        outcome = QTWAIT.outcome_line(event)
+        if outcome:
+            print(outcome)
         key = QTOVER.question_key(event)
         if state == "ask":
             self._overlap_seen.discard(key)
-        if state not in ("found", "ask") or not QTOVER.offers(event) \
-                or key in self._overlap_seen:
+        asks = state in ("found", "ask") and bool(QTOVER.offers(event))
+        if not (asks or QTOVER.reports_none(event)) or key in self._overlap_seen:
             return
         self._overlap_seen.add(key)
         box, buttons = QTOVER.pack_overlaps_box(event, parent=self)
@@ -5597,6 +5778,9 @@ class MainWindow(QMainWindow):
         def finished(_result, box=box, buttons=buttons):
             for action, button in buttons.items():
                 if box.clickedButton() is button:
+                    if action == "choose":                    # #2200
+                        self._pack_waits.start(QTWAIT.overlaps_key(lat, lon))
+                        print(QTWAIT.applying_line(FNAMES.short_latlon(lat, lon)))
                     self._session.pack_overlaps(
                         action=action, lat=lat, lon=lon,
                         **box.answer_extra(action))
@@ -5721,28 +5905,45 @@ class MainWindow(QMainWindow):
         pack gets its original forest definitions back (the engine
         command; it completes with a PackOldForests event that refreshes
         the rows)."""
-        if self._building:
+        if self._pack_row_busy(pack):
             return
-        self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
+        self._pack_row_command(pack, lambda: self._session.pack_forests(
+            pack_root=pack["pack_path"], action="undo"))
 
     def _pack_optimise_from_row(self, pack, undo):
         """#1707: the pack row's Optimise (the question for the active
         tile's DSF, its steps ticked as the pack's current choice) or Undo
         optimise (every optimised DSF of the pack); the engine command
         completes with a PackOptimise event."""
-        if self._building:
+        if self._pack_row_busy(pack):
             return
         if undo:
-            self._session.pack_optimise(pack_root=pack["pack_path"],
-                                        action="undo")
+            self._pack_row_command(pack, lambda: self._session.pack_optimise(
+                pack_root=pack["pack_path"], action="undo"))
             return
         tile = self.map.active_tile()
         if tile is None:
             return
         # the question with the pack's current choice ticked (state "ask")
-        self._session.pack_optimise(pack_root=pack["pack_path"],
-                                    action="ask", lat=int(tile[0]),
-                                    lon=int(tile[1]))
+        self._pack_row_command(pack, lambda: self._session.pack_optimise(
+            pack_root=pack["pack_path"], action="ask", lat=int(tile[0]),
+            lon=int(tile[1])))
+
+    def _pack_row_command(self, pack, send):
+        """#2200 (the mac app's ``sendPackRowCommand``): one pending
+        command per pack row — pressed again before the engine answers, it
+        is ignored; a refusal is one console line."""
+        key = QTWAIT.pack_key(pack["pack_path"])
+        if not self._pack_waits.start(key):
+            return
+        why = QTWAIT.refusal(send())
+        if why:
+            self._pack_waits.end(key)
+            print(QTWAIT.refused_line(why))
+
+    def _pack_row_answered(self, event):
+        """The pack row's pending command is answered (#2200)."""
+        self._pack_waits.end(QTWAIT.pack_key(getattr(event, "pack_root", "")))
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own
@@ -5825,6 +6026,7 @@ class MainWindow(QMainWindow):
     def _on_run_done(self, event):
         self._building = False
         self._sync_use_auto_patch_btn()
+        self._sync_pack_rows_busy()
         self._storage_auto_clean()
         for box in list(self._slow_step_boxes.values()):
             box.close()

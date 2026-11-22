@@ -158,10 +158,82 @@ def test_the_card_totals_its_airports(monkeypatch):
                          {"icao": "KCCC", "estimate_s": [30.0, 90.0]}]}
     monkeypatch.setattr(CARD, "tile_airports",
                         lambda lat, lon, _dir="": rows.get((lat, lon), []))
-    monkeypatch.setattr(CARD, "airport_packs", lambda cells, _dir=None: [])
+    monkeypatch.setattr(CARD, "airport_packs", lambda cells, _dir=None, **_kw: [])
+    monkeypatch.setattr(CARD, "_custom_patch_fit", lambda cells, _dir="": ([], True))
     card = CARD.build_airports([(48, -123), (47, -123), (47, -123)])
     assert [a["icao"] for a in card["airports"]] == ["KAAA", "KBBB", "KCCC"]
     assert card["total_s"] == [120.0, 300.0]
+
+
+def test_the_card_has_a_fit_switch_per_airport(tmp_path, monkeypatch):
+    """#2182: one row per airport whose pack may be fitted, its own value
+    (the tile's when it has none; off while its custom patch is new), and
+    the card's switch is on while any airport fits."""
+    import types
+
+    import O4_Airport_Fit as FIT
+    import O4_Config_Utils as CFG
+    import O4_File_Names as FNAMES
+    from o4_engine import build_airports as CARD
+
+    patches = tmp_path / "Patches"
+    patches.mkdir()
+    (patches / "KASE_custom.patch.osm").write_text("<osm/>", encoding="utf-8",
+                                                   newline="")
+    monkeypatch.setattr(FNAMES, "patch_dir", lambda lat, lon: str(patches))
+    folder = tmp_path / "tile"
+
+    def tile(lat, lon, _dir=""):
+        t = types.SimpleNamespace(lat=lat, lon=lon, build_dir=str(folder),
+                                  modify_custom_airports=True)
+        t.read_from_config = lambda: None
+        return t
+
+    monkeypatch.setattr(CFG, "Tile", tile)
+    monkeypatch.setattr(CARD, "tile_airports", lambda lat, lon, _dir="": [])
+
+    def packs(cells, _dir=None, homes=None):
+        homes.update({"KASE": (39, -107), "KEGE": (39, -107)})
+        return [{"name": "P", "path": "/P", "airports": ["KASE", "KEGE"],
+                 "objects": 9}]
+
+    monkeypatch.setattr(CARD, "airport_packs", packs)
+    card = CARD.build_airports([(39, -107)])
+    rows = {r["icao"]: r for r in card["fit_airports"]}
+    assert rows["KASE"]["fit"] is False and rows["KASE"]["custom_patch"]
+    assert rows["KASE"]["confirm"].startswith(
+        "Custom patches are installed for KASE.")
+    assert rows["KEGE"] == {"icao": "KEGE", "tile": [39, -107], "fit": True,
+                            "custom_patch": False, "confirm": ""}
+    assert card["fit_buildings"] is True
+    assert CARD.set_airport_fit("+39-107", "kege", False, str(folder)) == {
+        "tile": "+39-107", "icao": "KEGE", "fit": False}
+    assert FIT.read(str(folder)) == {"KEGE": False}
+    card = CARD.build_airports([(39, -107)])
+    assert card["fit_buildings"] is False
+    with pytest.raises(ValueError):
+        CARD.set_airport_fit("39,-107", "KEGE", True)
+
+
+def test_the_object_stage_skips_only_the_airport_switched_off(tmp_path):
+    """#2182: an airport's own switch stands only its own pack down; the
+    stage stands down whole only when no airport fits."""
+    import types
+
+    import O4_Airport_Fit as FIT
+    from auto_patch import object_stage as STAGE
+
+    tile = types.SimpleNamespace(lat=39, lon=-107, build_dir=str(tmp_path),
+                                 modify_custom_airports=True)
+    FIT.set_fit(str(tmp_path), "KASE", False)
+    assert STAGE._pack_stand_down(tile, "KASE")
+    assert not FIT.fits(tile, "KASE") and FIT.fits(tile, "KEGE")
+    tile.modify_custom_airports = False
+    assert not FIT.any_fits(tile)
+    FIT.set_fit(str(tmp_path), "KEGE", True)
+    assert FIT.any_fits(tile)
+    assert STAGE._pack_stand_down(tile, "KASE")
+    assert not STAGE._pack_stand_down(tile, "KEGE").startswith('"Modify')
 
 
 def test_objects_are_counted_outside_the_dsf_folder(tmp_path):

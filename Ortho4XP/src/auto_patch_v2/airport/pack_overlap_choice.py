@@ -8,6 +8,9 @@ Two stores beside the other pack answers (``pack_choice``):
   (hide nothing).  No answer hides nothing: the offer pre-selects the
   airport pack (owner 2026-11-17T19:15Z "Default would be to prefer the
   airport pack"), the user's answer is what writes.
+  A drape pair (:func:`drape_key`, RULINGS 2026-11-19h) is one per tile:
+  the airport pack winning hides the lower pack's draped polygons inside
+  the airport (``pack_overlap_drapes``).
 * :data:`pack_choice.OVERLAP_FOUND` — per pair, the last detection
   (``src/auto_patch/overlap_stage.py``): the tile, the airport pack, and each
   side's overlapping rows (``pack_overlap.HideRow``), so the answer works
@@ -30,8 +33,8 @@ import typing as _t
 from . import pack_choice as _PC
 from .pack_overlap import HideRow
 
-__all__ = ["BOTH", "STORE", "FOUND", "pair_key", "remember_found", "found",
-           "winner", "overlap_hides", "kept_rows"]
+__all__ = ["BOTH", "STORE", "FOUND", "pair_key", "drape_key", "remember_found",
+           "found", "winner", "overlap_hides", "kept_rows"]
 
 #: the answer that keeps both packs' structures
 BOTH = "both"
@@ -52,6 +55,27 @@ def pair_key(scenery_dir: str, a: str, b: str) -> str:
     stores key theirs; order-free)."""
     x, y = sorted((a, b))
     return os.path.join(os.path.abspath(scenery_dir), f"{x} | {y}")
+
+
+#: the key segment of a drape pair (RULINGS 19h): a lower pack's draped
+#: polygons inside a custom airport, one key per tile (its rows are that
+#: tile's DSF's)
+DRAPE_MARK = "draped polygons"
+
+
+def drape_key(scenery_dir: str, lat: int, lon: int, a: str, b: str) -> str:
+    """The stores' key of a drape pair on one tile (order-free)."""
+    x, y = sorted((a, b))
+    return os.path.join(os.path.abspath(scenery_dir),
+                        f"{DRAPE_MARK} {int(lat):+03d}{int(lon):+04d}", f"{x} | {y}")
+
+
+def _scenery_of(key: str) -> str:
+    """The Custom Scenery folder a structure or drape pair's key names."""
+    head = os.path.dirname(key)
+    if os.path.basename(head).startswith(DRAPE_MARK + " "):
+        head = os.path.dirname(head)
+    return head
 
 
 def remember_found(key: str, lat: int, lon: int, airport: str,
@@ -85,7 +109,7 @@ def _pairs_of(pack_name: str, scenery_dir: str, lat: int, lon: int
     keys = _PC.read_all(_PC.store_path(_PC.OVERLAP_FOUND), _any)
     root = os.path.normcase(os.path.abspath(scenery_dir))
     for key in keys:
-        if os.path.normcase(os.path.dirname(key)) != root:
+        if os.path.normcase(_scenery_of(key)) != root:
             continue
         doc = found(key)
         if (pack_name in (doc.get("packs") or ())

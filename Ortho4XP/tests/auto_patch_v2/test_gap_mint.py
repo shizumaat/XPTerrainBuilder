@@ -236,3 +236,20 @@ def test_a_page_sheet_on_a_runway_cell_mints_nothing_and_lists_nothing():
     out, stats, notes = _mint(airport, [runway])
     assert out == [] and notes == []
     assert stats["gap_pieces"] == 0 and stats["gap_pieces_unminted_airside"] == 0
+
+
+def test_a_footprint_the_route_rule_refused_keeps_its_ground_out_of_the_mint():
+    """Lane lk1fix (RULINGS 2026-11-19k (2) with 19m (3)): the ring a 1202
+    route passes over mints no pad, and its ground is never read as new
+    apron either -- it stands off the mint as the pad would have."""
+    import dataclasses as dc
+    apron = _cell(0, "apron", "pav1", box(0, 0, 100, 50))
+    ring = box(40, 70, 60, 90)
+    ev = dc.replace(_evidence(), refused_ground=[ring])
+    out, _stats, _ = _mint(_airport(box(-20, -20, 120, 140)), [apron], ev)
+    ident = LAW.tables.emit.identity.min_distinct_spacing_m
+    piece = out[0][2]
+    assert piece.intersection(ring).area == pytest.approx(0.0, abs=1e-6)
+    assert piece.distance(ring) == pytest.approx(0.95 + ident, abs=0.02)
+    bare, _s, _ = _mint(_airport(box(-20, -20, 120, 140)), [apron])
+    assert bare[0][2].intersection(ring).area == pytest.approx(ring.area)

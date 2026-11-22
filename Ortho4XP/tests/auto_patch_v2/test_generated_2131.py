@@ -110,12 +110,9 @@ def _fake_install(tmp_path):
     (pav / "pavement" / "c.pol").write_text(
         "A\n850\nDRAPED_POLYGON\nTEXTURE ../textures/c_ALB.png\n"
         "TEXTURE_NORMAL 1.0 ../textures/c_NML.png\nSCALE 22 44\n", encoding="utf-8", newline="\n")
-    (pav / "pavement" / "r.pol").write_text(
-        "A\n850\nDRAPED_POLYGON\nTEXTURE r.png\nSCALE 30 30\n", encoding="utf-8", newline="\n")
-    for f in ("textures/c_ALB.dds", "textures/c_NML.png", "pavement/r.dds"):
+    for f in ("textures/c_ALB.dds", "textures/c_NML.png"):
         (pav / f).write_bytes(b"DDS ")
-    return str(root), {"lib/airport/pavement/concrete_4D.pol": str(pav / "pavement" / "c.pol"),
-                       "lib/airport/default_runways/rubber.pol": str(pav / "pavement" / "r.pol")}
+    return str(root), {"lib/airport/pavement/concrete_4D.pol": str(pav / "pavement" / "c.pol")}
 
 
 def test_page_art_and_the_recipe_link_xplanes_art(tmp_path, monkeypatch):
@@ -131,7 +128,7 @@ def test_page_art_and_the_recipe_link_xplanes_art(tmp_path, monkeypatch):
     assert deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", root, None) is None
     assert deck_skin.install_root(os.path.join(root, "Custom Scenery", "P", "apt.dat")) == root
     assert deck_skin.link_name(art.albedo) == "xp_c_ALB.dds"
-    # the slab in the page's art; paint + lights and the rubber as overlays
+    # the slab in the page's art; paint + lights as an overlay
     rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", LAW, xplane_root=root,
                      resolve_library=look)
     objs = {k: v.decode("ascii") for k, v in rec["files"].items() if k.endswith(".obj")}
@@ -140,7 +137,7 @@ def test_page_art_and_the_recipe_link_xplanes_art(tmp_path, monkeypatch):
     assert "ATTR_hard_deck concrete" in slab and "LIGHT_NAMED" not in slab
     paint = objs[f"{gen.GENERATED_DIR}/deck_t_paint.obj"]
     assert "LIGHT_NAMED taxi_g " in paint and "ATTR_hard_deck" not in paint
-    assert "TEXTURE xp_r.dds" in objs[f"{gen.GENERATED_DIR}/deck_t_rubber.obj"]
+    assert f"{gen.GENERATED_DIR}/deck_t_rubber.obj" not in objs     # #2183 (2): none of ours
     assert {d["resource"] for d in rec["decks"]} == set(objs)
     # the art is LINKED into the pack and Restore removes the link only
     pack = tmp_path / "Pack"

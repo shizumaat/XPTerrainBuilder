@@ -183,6 +183,9 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # ``airport/object_pavement``, issue #20): the sheet's own outline is
     # simplified at half the identity spacing BEFORE the difference, so the
     # runs it shares with a standing cell stay that cell's own boundary
+    # a footprint the route rule refused keeps its ground out of the mint,
+    # stood off like the pad it would have been (``Evidence.refused_ground``)
+    apart += [off(q) for q in getattr(ev, "refused_ground", ()) or ()]
     standing = unary_union(flush + apart)
 
     def _cut(sh):

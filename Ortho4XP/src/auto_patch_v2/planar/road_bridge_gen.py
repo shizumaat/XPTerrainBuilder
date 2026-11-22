@@ -47,12 +47,14 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from .deck_generated import GLOBAL_OFFER, global_only
 from .road_bridge_clear import clearance_plan, span_cuts, witnessed
 from .structure_approach import carriageway_width_m
+from .structure_underpass import is_road_bridge as _is_road_bridge
 
 __all__ = ["attach_road_bridges", "span_cells"]
 
@@ -64,10 +66,6 @@ def _layer(tags) -> int:
         return 0
 
 
-def _is_road_bridge(tags) -> bool:
-    b = str((tags or {}).get("bridge", "")).strip()
-    return bool(b) and b != "no" and bool((tags or {}).get("highway")) \
-        and not (tags or {}).get("aeroway")
 
 
 def _pages(airport) -> list[Polygon]:
@@ -81,10 +79,10 @@ def _pages(airport) -> list[Polygon]:
 
 
 def _pack_ok(airport) -> bool:
+    """B1 (d): a pack DSF to write the chain into; a Global Airports entry
+    is read on (its bridges are the offer's candidates, #2169)."""
     pack = getattr(airport, "pack", None)
-    apt = str(getattr(pack, "apt_dat_path", "") or "").replace("\\", "/").lower()
-    return bool(pack is not None and getattr(pack, "dsf_paths", ())
-                and "global airports" not in apt)
+    return global_only(airport) or bool(pack is not None and getattr(pack, "dsf_paths", ()))
 
 
 def _cut_region(dem, line: LineString, reach: float, levels: tuple[float, float],
@@ -125,7 +123,10 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
              ) -> tuple[list[dict], list[str]]:
     rg = law.tables.structures.road_gen
     ways = [w for w in getattr(airport, "osm_ways", ()) or () if len(w.points) >= 2]
-    cands = [w for w in ways if _is_road_bridge(w.tags)]
+    # #2169: an airport over two tiles reads a way once per tile's extract
+    # (two ids, one line): one bridge per line
+    cands = list({tuple((round(x, 2), round(y, 2)) for x, y in w.points): w
+                  for w in reversed(ways) if _is_road_bridge(w.tags)}.values())[::-1]
     if not cands or not _pack_ok(airport):
         return [], []
     pages = _pages(airport)
@@ -137,7 +138,12 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
     tree = STRtree(lines)
     tn = law.tables.structures.tunnel
     dem = getattr(airport, "dem", None)
+    from .deck_generated import _approach_run_m
     from .road_bridge_pack import PackRoads, pack_provides
+    from .structure_underpass import aeroway_decks
+    aero = [(LineString(a.points), carriageway_width_m(a.tags, law) / 2.0)
+            for a in aeroway_decks(airport, law)]
+    run = _approach_run_m(law)
     roads = PackRoads(airport, mod_cache_root)
     _to_xy, to_ll = airport.frame.transformers()
     out: list[dict] = []
@@ -149,8 +155,6 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         if carriage.area <= 0.0:
             continue
         cover = carriage.intersection(P).area / carriage.area
-        if cover < float(rg.page_cover_frac):
-            continue
         lay = max(_layer(w.tags), 1)
         crossed = []
         for j in tree.query(line, predicate="crosses"):
@@ -161,9 +165,21 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
             if not (_layer(t) < lay or str(t.get("tunnel", "no")) in tn.admitted_values):
                 continue
             x = line.intersection(lines[int(j)])
-            pts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Point"]
+            # a road leaving the bridge's own END is its approach, never a
+            # road under it (MEASURED KIAH -1318: service -1482 runs on from
+            # its north end and read as a lower road)
+            pts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Point"
+                   and min(q.distance(Point(line.coords[0])),
+                           q.distance(Point(line.coords[-1]))) > _JOIN_END_M]
             if pts:
                 crossed.append((str(o.id), lines[int(j)], pts[0], t))
+        into = None
+        if cover < float(rg.page_cover_frac):
+            # #2181 item 3 / #2183 item 5: no pack page draws it, but a lower
+            # road it crosses runs into a taxiway bridge's cut
+            into = _into_deck_cut(crossed, lines, tree, aero, run, law)
+            if into is None:
+                continue
         # #2141 item 5: the clearance is the survey's ends on their
         # embankments and the lower roads cut by the rest (road_bridge_clear)
         plan = clearance_plan(airport, law, w, line, crossed)
@@ -172,7 +188,9 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         la, lo = to_ll(mid.x, mid.y)
         where = (f"road bridge {w.id} {w.tags.get('highway')} {line.length:.0f} m "
                  f"at {la:.6f},{lo:.6f}")
-        if not witnessed(plan, law):
+        cut_by = into if into is not None else (
+            _into_deck_cut(crossed, lines, tree, aero, run, law) if plan is not None else None)
+        if not witnessed(plan, law) and cut_by is None:
             notes.append(f"{where}: {100 * cover:.0f} % under pack pavement, "
                          + ("crosses no lower road" if not crossed else
                             f"over {', '.join(lower[:4])} the survey shows "
@@ -188,6 +206,10 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                          f"{', '.join(lower[:4])} -- REFUSED: {provided} (B1 (c), the pack "
                          f"always wins)")
             continue
+        if global_only(airport):
+            notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
+                         f"{', '.join(lower[:4])} -- REFUSED: {GLOBAL_OFFER}")
+            continue
         low = _cut_region(dem, line, float(rg.cut_reach_m), plan.levels, float(rg.cut_drop_m))
         if low is not None:
             span = unary_union([span, low]).buffer(0.0)
@@ -198,11 +220,19 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
         ground = span_cuts(airport, law, line, plan.levels, crossed, span)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
                     "_line_xy": plan.chain or line, "_span_xy": span, "half_m": half,
+                    "into": into,
                     "cover": round(cover, 3), "over": lower, "ground": ground,
                     "levels": plan.levels, "_axis_xy": line})
-        notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
-                     f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B); "
-                     f"{plan.note()}")
+        if not witnessed(plan, law):
+            # lane lcross21 (KIAH ``-1342`` over ``-7074``: 2.2 m of 5 surveyed):
+            # the lower road runs into a taxiway deck's cut, which cuts it to
+            # the deck's floor -- the mapped bridge over it is built
+            notes.append(f"{where}: the survey shows {plan.witnessed:.1f} m of its clearance, "
+                         f"but {cut_by}: the deck's cut carries it (RULINGS 2026-11-20e)")
+        notes.append(f"{where}: " + (f"{100 * cover:.0f} % under pack pavement" if into is None
+                                     else f"over {into}")
+                     + f" over {', '.join(lower[:4])} -- GENERATED (spec 2123 B; a narrow flat "
+                       f"deck, #2183 item 5); {plan.note()}")
     return out, notes
 
 
@@ -243,6 +273,7 @@ def _road_bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                     # the deck line (``road_bridge_clear.deck_at``): the ends'
                     # levels on their embankments along the mapped axis
                     "levels": [round(float(v), 3) for v in b["levels"]],
+                    "half_m": round(float(b["half_m"]), 3),
                     "axis_xy": [[round(x, 3), round(y, 3)] for x, y in b["_axis_xy"].coords]})
     return tuple(out), notes
 
@@ -264,6 +295,43 @@ def attach_road_bridges(airport, law, notes: "list[str] | None" = None, objects=
     return _dc.replace(airport, road_bridges=tuple(bs),
                        osm_ways=_densified(getattr(airport, "osm_ways", ()) or (), bs))
 
+
+def _into_deck_cut(crossed, lines, tree, aero, run: float, law) -> "str | None":
+    """#2181 item 3 / #2183 item 5: the bridge crosses a lower road that
+    runs, within ``run`` (the generated cut's approach run,
+    ``deck_generated._approach_run_m``) of the crossing along its mapped
+    chain, under a mapped aeroway bridge (``aeroway_decks``) -- the road
+    the build cuts down to a taxiway deck's floor: the bridge over it is
+    built though no pack page draws it.  Names the crossing, or ``None``.
+    MEASURED KPHX ``-301`` / ``-302`` over motorways ``-1002`` / ``-2560``
+    64 / 60 m from taxiway bridges ``-96`` / ``-1259``; KIAH ``-1318``
+    over ``-59337`` 66 m from ``-373``."""
+    from shapely.geometry import Point
+    from shapely.ops import substring
+
+    from .deck_generated import _road_chain
+    if not aero:
+        return None
+    for oid, low, pt, tags in crossed:
+        # the road grown end to end through OSM's splits, whatever their
+        # length (a primary split 34 m short of the bridge runs on under it
+        # as a 185 m way: KIAH -59337 / -54869), read within ``run``
+        chain = _road_chain(low, lines, tree, 10.0 * run)
+        s = chain.project(Point(pt))
+        near = substring(chain, max(0.0, s - run), min(chain.length, s + run))
+        half = carriageway_width_m(tags, law) / 2.0
+        for a, a_half in aero:
+            # the lower road's carriageway reaches under the bridge's own
+            # (its mapped end may stop short of the aeroway's centreline)
+            if near.distance(a) <= half + a_half:
+                q = a.interpolate(a.project(near.centroid))
+                d = abs(chain.project(q) - s)
+                return f"lower road {oid}, {d:.0f} m from a taxiway bridge's cut"
+    return None
+
+
+#: a crossing this close to the bridge's mapped end is its own approach (m)
+_JOIN_END_M = 0.5
 
 #: a lower road under a cut ribbon carries a node at least this often (m)
 _DENSE_M = 2.0

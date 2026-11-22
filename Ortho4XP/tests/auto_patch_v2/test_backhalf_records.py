@@ -426,9 +426,11 @@ _ALONE_LIVE = max(1, min(4, os.cpu_count() or 1))
 #: ``row.source`` — ``design_assemble`` reads what a row's SOURCE decides
 #: once per source object within ONE assembly pass (every row alive, so no
 #: id is reused); ``x`` — ``design_qp`` keeps ``A1 @ x`` per ITERATE within
-#: one QP call (an array, never a row).
+#: one QP call (an array, never a row).  ``db`` / ``e.deck``: a planar
+#: ``DeckBridge`` (an input of the map, never a row) keyed within ONE call
+#: (``constraints/deck_lines._rim_seats``, ``constraints/walled_floor._pieces``).
 _ID_OF = frozenset({"planar", "pm", "law", "airport", "airside", "ps.stations",
-                    "out[1]", "rep_y", "p", "row.source", "x"})
+                    "out[1]", "rep_y", "p", "row.source", "x", "db", "e.deck"})
 
 
 def test_t6_no_reader_keys_a_row_by_its_identity():

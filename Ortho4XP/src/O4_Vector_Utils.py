@@ -8,6 +8,7 @@ from rtree import core as rtree_core
 from rtree import index
 import O4_UI_Utils as UI
 import O4_Geo_Utils as GEO
+import O4_Road_Grade as ROADGRADE
 import O4_ZProv as ZPROV
 
 _RTREE_DOUBLE2 = ctypes.c_double * 2
@@ -1986,44 +1987,217 @@ def _arclength_distance_to_mask(s, mask):
     return numpy.minimum(fwd, bwd)
 
 
+def _solve_run(s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
+               cap_ceiling, budget_m, rate=None, lead=None, tail=None,
+               pin_ceiling=None, window=False):
+    """ONE RUN (or one DEM-wrong window: a run with no band), solved alone:
+    ``(profile, pin report or None, run record)``.
+
+    The cap: the class cap where its profile stands within ``budget_m`` of
+    the DEM at the judged stations (out of band, unpinned); else the
+    smallest cap up to ``cap_ceiling`` that does (THE YIELD, S.3); else --
+    OWNER RULINGS 2026-11-18e, replacing "follow the terrain at the
+    ceiling" -- ``need`` is the move the ceiling itself cannot avoid and
+    the cap is the gentlest whose worst move is within ``need + budget_m``
+    with every pin held (``at_ceiling``, ``need_m``).  ``cap_ceiling`` is
+    the way's STEEP CAP (``O4_Road_Grade.steep_limits``: 20 % a road,
+    1.25 % a railway); a class cap above it takes it.  A deck or join pin
+    the steep cap cannot reach takes the gentlest cap up to
+    ``pin_ceiling`` that does (``pins_over_steep_cap``): the structure's
+    level is fixed, the road reaches it.
+
+    ``rate`` -- THE VERTICAL CURVE (11-18e), :func:`O4_Road_Grade.
+    hold_curve`; ``curve`` = ``"held"``, or ``"infeasible"`` where no
+    curved profile exists and the capped one stands.  The curve is laid
+    ONLY where the grading changed the road: in a DEM-wrong ``window`` and
+    on a run the steep cap YIELDED; every other run keeps the class-cap
+    profile it had before the curve (lane lroads2: a curve on an ordinary
+    run moved certified KEGE's roads up to 2.94 m).
+    """
+    n_r = len(s_r)
+    pinned_mask = numpy.zeros(n_r, dtype=bool)
+    for k in p_idx:
+        pinned_mask[int(k)] = True
+    judged = (~band_r) & (~pinned_mask)
+    inside_seg = band_r[:-1] & band_r[1:]
+
+    def _caps(c):
+        return numpy.where(inside_seg, cap_inside, c)
+
+    def _solve(c):
+        if p_idx:
+            return cap_lipschitz_profile(s_r, z_r, _caps(c), p_idx, p_val)
+        return cap_lipschitz_profile(s_r, z_r, _caps(c)), None
+
+    # 11-18e "with feasible pins": where some cap up to the pin ceiling
+    # holds every pin, a cap that cannot is no answer -- its move reads
+    # infinite.  Where none can, the run is §6's refusal at every cap and
+    # reads as it always did (the unpinned profile's move).
+    top_cap = max(cap_ceiling, float(pin_ceiling or cap_ceiling))
+    strict = bool(p_idx) and not (_solve(top_cap)[1] or {}).get("refused")
+
+    def _dev(c):
+        prof, rep_ = _solve(c)
+        if strict and rep_ is not None and rep_.get("refused"):
+            return numpy.inf
+        if not judged.any():
+            return 0.0
+        return float(numpy.abs(prof[judged] - z_r[judged]).max())
+
+    def _gentlest(lo, hi, target):
+        for _ in range(_YIELD_HALVINGS):
+            mid = 0.5 * (lo + hi)
+            if _dev(mid) <= target:
+                hi = mid
+            else:
+                lo = mid
+        return hi
+
+    lo = min(cap_class, cap_ceiling)
+    yielded = False
+    at_ceiling = False
+    over = False
+    need = None
+    cap_eff = lo
+    if _dev(lo) > budget_m:
+        yielded = True
+        top = _dev(cap_ceiling)
+        if not numpy.isfinite(top):
+            at_ceiling = True
+            cap_eff = cap_ceiling
+            if top_cap > cap_ceiling:
+                over = True
+                cap_eff = _gentlest(cap_ceiling, top_cap,
+                                    numpy.finfo(float).max)
+        elif top > budget_m:
+            at_ceiling = True
+            need = top
+            cap_eff = _gentlest(lo, cap_ceiling, need + budget_m)
+        else:
+            cap_eff = _gentlest(lo, cap_ceiling, budget_m)
+    prof, rep = _solve(cap_eff)
+    curve = None
+    if rate is not None and n_r >= 2 and (window or yielded) \
+            and not (rep or {}).get("refused"):
+        allow = max(_max_offset(prof, z_r, judged),
+                    (need if need is not None else 0.0) + budget_m)
+        prof, cap_eff, curve = ROADGRADE.hold_curve(
+            s_r, prof, z_r, judged, _caps, cap_eff,
+            max(cap_ceiling, cap_eff), rate, p_idx, p_val, lead, tail, allow)
+    record = {
+        "cap_eff": round(float(cap_eff), 6),
+        "yielded": bool(yielded),
+        "at_ceiling": bool(at_ceiling),
+        "max_offset_m": round(_max_offset(prof, z_r, judged), 4),
+    }
+    if need is not None:
+        record["need_m"] = round(float(need), 4)
+    if over:
+        record["pins_over_steep_cap"] = True
+    if curve is not None:
+        record["curve"] = curve
+    return prof, rep, record
+
+
+def _window_frame(i0, i1, n, s, z, out, ours, trig):
+    """A DEM-wrong window ``[i0, i1]``'s solve frame: ``(j0, j1, pins,
+    lead, tail)`` -- the window grows by the adjacent run station, pinned
+    at the run's value; any other extremity is pinned to the DEM unless it
+    is the way's own end on a trigger segment (free)."""
+    j0, j1 = i0, i1
+    pins = []
+    if i0 > 0 and ours[i0 - 1]:
+        j0 = i0 - 1
+        pins.append((0, float(out[j0])))
+    elif not (i0 == 0 and trig[0]):
+        pins.append((0, float(z[i0])))
+    if i1 < n - 1 and ours[i1 + 1]:
+        j1 = i1 + 1
+        pins.append((j1 - j0, float(out[j1])))
+    elif not (i1 == n - 1 and trig[-1]):
+        pins.append((j1 - j0, float(z[i1])))
+    lead = ((float(s[j0] - s[j0 - 1]), float(out[j0 - 1]))
+            if j0 > 0 and pins and pins[0][0] == 0 else None)
+    tail = ((float(s[j1 + 1] - s[j1]), float(out[j1 + 1]))
+            if j1 < n - 1 and pins and pins[-1][0] == j1 - j0 else None)
+    return j0, j1, pins, lead, tail
+
+
+def _solve_window(i0, i1, s, z, out, ours, trig, cap_class, cap_inside,
+                  cap_ceiling, budget_m, rate):
+    """One DEM-wrong window solved alone: ``(slice, profile, pin report,
+    record)``, or ``None`` when it spans no segment."""
+    j0, j1, pins, lead, tail = _window_frame(i0, i1, len(z), s, z, out, ours,
+                                             trig)
+    if j1 - j0 < 1:
+        return None
+    sl = slice(j0, j1 + 1)
+    prof, rep, record = _solve_run(
+        s[sl] - s[j0], z[sl], numpy.zeros(j1 - j0 + 1, dtype=bool),
+        [k for k, _v in pins], [v for _k, v in pins], cap_class, cap_inside,
+        cap_ceiling, budget_m, rate, lead, tail, window=True)
+    return sl, prof, rep, record
+
+
+def _grown(i0, i1, s, taken, runout_m):
+    """``[i0, i1]`` grown by ``runout_m`` of arclength each way over
+    stations no run or window holds."""
+    g0, g1 = i0, i1
+    while g0 > 0 and not taken[g0 - 1] and s[i0] - s[g0 - 1] <= runout_m:
+        g0 -= 1
+    while g1 < len(s) - 1 and not taken[g1 + 1] \
+            and s[g1 + 1] - s[i1] <= runout_m:
+        g1 += 1
+    return g0, g1
+
+
 def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
                                cap_inside, runout_m, budget_m, cap_ceiling,
-                               pin_idx=None, pin_val=None):
+                               pin_idx=None, pin_val=None, in_area=None,
+                               grade_change_per_m=None, pin_ceiling=None):
     """THE CLAMP, SCOPED TO THE PATCH NEIGHBOURHOOD (owner RULINGS
     2026-09-18n; spec ``linear-transport-redesign-spec.md``
-    §2-SUPPLEMENT S.1–S.3).
+    §2-SUPPLEMENT S.1–S.3) AND TO THE DEM-WRONG WINDOWS (RULINGS
+    2026-11-18e).
 
     ``in_band`` is the per-station mask of "inside the patch band"
     (``patches_area ∪ road bridge decks`` buffered by ``lane_width + 2``
     — the caller does the geometry; this function is pure numpy so v2
     and a twin call it directly).
 
-    * A way with NO in-band station is TERRAIN: the DEM is returned
-      identically and the caller must not station it in the answering
-      index — outside the neighbourhood the road pipeline is upstream's,
-      value for value (18n: "normal engine road processing").
+    * A way with NO in-band station and no window is TERRAIN: the DEM is
+      returned identically and the caller must not station it in the
+      answering index — outside the neighbourhood the road pipeline is
+      upstream's, value for value (18n: "normal engine road processing").
     * Otherwise each maximal RUN — every station within ``runout_m`` of
       ARCLENGTH along the way from an in-band station — is solved
-      independently by :func:`cap_lipschitz_profile` under a PER-SEGMENT
-      cap, PINNED TO THE DEM at each run extremity that is outside the
-      band, so the run re-meets terrain EXACTLY, by construction.
+      independently (:func:`_solve_run`) under a PER-SEGMENT cap, PINNED
+      TO THE DEM at each run extremity that is outside the band, so the
+      run re-meets terrain EXACTLY, by construction.
     * Segment caps: both ends in band → ``cap_inside`` (the patch's law,
       ``road_grade_limit`` — inside the patch v2 owns the earthwork);
-      otherwise the way's class cap, AFTER THE YIELD.
-    * THE YIELD (S.3, the §50 analogue): a real road on real terrain may
-      exceed its class cap.  ``cap_eff`` is the smallest cap in
-      ``[cap_class, cap_ceiling]`` whose profile stands no more than
-      ``budget_m`` off the DEM at the run's out-of-band, unpinned
-      stations, found by bisection (``dev`` is non-increasing in the
-      cap).  ONE uniform ``cap_eff`` per run, never a per-station
-      exception.  When even ``cap_ceiling`` cannot meet the budget the
-      run ships at the ceiling and says so (``at_ceiling``).
-    * Stations outside every run take ``dem`` identically.
+      otherwise the way's class cap, AFTER THE YIELD, never above
+      ``cap_ceiling`` — the way's STEEP CAP (11-18e: 20 % a road, 1.25 % a
+      railway).  Where even the steep cap cannot hold the budget the run
+      takes the gentlest cap within ``budget_m`` of the move the steep cap
+      needs (``at_ceiling``; it no longer follows the terrain at 30 %).
+    * ``in_area`` (11-18e, "the ones near the airport we are grading"): the
+      stations in the airport area.  A segment there whose DEM grade
+      exceeds ``cap_ceiling`` is a TRIGGER; the stations within
+      ``runout_m`` of it outside every run form a DEM-WRONG WINDOW
+      (:func:`O4_Road_Grade.steep_windows`), solved alone like a run with
+      no band and recorded in ``runs`` with ``kind`` ``"dem_wrong"``.  A
+      window the steep cap cannot pin keeps the DEM (``dem_kept``).
+    * ``grade_change_per_m`` — THE VERTICAL CURVE (11-18e) in every
+      DEM-wrong window and on every YIELDED run, never an ordinary one.
+      ``pin_ceiling`` — the steepest cap a run takes to reach a deck or
+      join pin the steep cap cannot (the law's ``cap_ceiling``).
+    * Stations outside every run and window take ``dem`` identically.
 
     Returns ``(altitudes, report)`` with ``report`` =
-    ``{"scope": "neighbourhood"|"terrain", "runs": [...]}`` plus the
-    deck-pin keys of :func:`cap_lipschitz_profile` when pins were
-    offered.
+    ``{"scope": "neighbourhood"|"dem_wrong"|"terrain", "runs": [...],
+    "dem_kept": [...]}`` plus the deck-pin keys of
+    :func:`cap_lipschitz_profile` when pins were offered.
     """
     s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
     z = numpy.asarray(values, dtype=numpy.float64).ravel()
@@ -2031,20 +2205,30 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
     out = z.copy()
     report = {"scope": "terrain", "runs": []}
     _pins = list(zip(list(pin_idx or ()), list(pin_val or ())))
-    if len(z) < 2 or len(band) != len(z) or not band.any():
+    area = (numpy.asarray(in_area, dtype=bool).ravel()
+            if in_area is not None else None)
+    if area is not None and len(area) != len(z):
+        area = None
+    if len(z) < 2 or len(band) != len(z) or not (
+            band.any() or (area is not None and area.any())):
         if _pins:
             report.update({"pins": 0, "refused": False})
         return out, report
-    report["scope"] = "neighbourhood"
-    ours = _arclength_distance_to_mask(s, band) <= float(runout_m)
+    ours = (_arclength_distance_to_mask(s, band) <= float(runout_m)
+            if band.any() else numpy.zeros(len(z), dtype=bool))
+    if band.any():
+        report["scope"] = "neighbourhood"
     cap_inside = float(cap_inside)
     cap_class = float(cap_class)
     cap_ceiling = float(cap_ceiling)
     budget_m = float(budget_m)
+    rate = (float(grade_change_per_m) if grade_change_per_m is not None
+            else None)
     pin_tot = 0
     refused_any = False
     worst_infeas = 0.0
     pin_move = 0.0
+    n = len(z)
     for (i0, i1) in _runs_of(ours):
         if i1 - i0 < 1:
             continue
@@ -2067,56 +2251,58 @@ def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
                 p_idx.append(gi - i0)
                 p_val.append(float(gv))
                 pin_tot += 1
-        pinned_mask = numpy.zeros(n_r, dtype=bool)
-        for k in p_idx:
-            pinned_mask[int(k)] = True
-        # the stations the budget is measured at: out of band, unpinned
-        judged = (~band_r) & (~pinned_mask)
-        inside_seg = band_r[:-1] & band_r[1:]
-
-        def _solve(c):
-            caps = numpy.where(inside_seg, cap_inside, c)
-            if p_idx:
-                return cap_lipschitz_profile(s_r, z_r, caps, p_idx, p_val)
-            return cap_lipschitz_profile(s_r, z_r, caps), None
-
-        def _dev(c):
-            prof, _rep = _solve(c)
-            if not judged.any():
-                return 0.0
-            return float(numpy.abs(prof[judged] - z_r[judged]).max())
-
-        yielded = False
-        at_ceiling = False
-        cap_eff = cap_class
-        if _dev(cap_class) > budget_m:
-            yielded = True
-            if _dev(cap_ceiling) > budget_m:
-                cap_eff = cap_ceiling
-                at_ceiling = True
-            else:
-                lo, hi = cap_class, cap_ceiling
-                for _ in range(_YIELD_HALVINGS):
-                    mid = 0.5 * (lo + hi)
-                    if _dev(mid) <= budget_m:
-                        hi = mid
-                    else:
-                        lo = mid
-                cap_eff = hi
-        prof, rep = _solve(cap_eff)
+        lead = ((float(s[i0] - s[i0 - 1]), float(z[i0 - 1]))
+                if i0 > 0 and not band_r[0] else None)
+        tail = ((float(s[i1 + 1] - s[i1]), float(z[i1 + 1]))
+                if i1 < n - 1 and not band_r[-1] else None)
+        prof, rep, record = _solve_run(
+            s_r, z_r, band_r, p_idx, p_val, cap_class, cap_inside,
+            cap_ceiling, budget_m, rate, lead, tail, pin_ceiling)
         if rep is not None:
             refused_any = refused_any or bool(rep.get("refused"))
             worst_infeas = max(worst_infeas,
                                float(rep.get("worst_infeasibility_m", 0.0)))
             pin_move = max(pin_move, float(rep.get("max_pin_move_m", 0.0)))
         out[sl] = prof
-        report["runs"].append({
-            "i0": int(i0), "i1": int(i1),
-            "cap_eff": round(float(cap_eff), 6),
-            "yielded": bool(yielded),
-            "at_ceiling": bool(at_ceiling),
-            "max_offset_m": round(_max_offset(prof, z_r, judged), 4),
-        })
+        report["runs"].append(dict({"i0": int(i0), "i1": int(i1)}, **record))
+    if area is not None:
+        wins, trig = ROADGRADE.steep_windows(s, z, area, ours, cap_ceiling,
+                                             runout_m)
+        kept = []
+        taken = ours.copy()
+        for (a, b) in wins:
+            taken[a:b + 1] = True
+        for (i0, i1) in wins:
+            solved = _solve_window(i0, i1, s, z, out, ours, trig, cap_class,
+                                   cap_inside, cap_ceiling, budget_m, rate)
+            if solved is None:
+                continue
+            if solved[3].get("curve") == "free_ends":
+                # the curve had no room to meet the ground: the window grows
+                # by ``runout_m`` over free DEM stations, once
+                g0, g1 = _grown(i0, i1, s, taken, runout_m)
+                if (g0, g1) != (i0, i1):
+                    grown = _solve_window(g0, g1, s, z, out, ours, trig,
+                                          cap_class, cap_inside, cap_ceiling,
+                                          budget_m, rate)
+                    if grown is not None and grown[3].get("curve") in (
+                            "held", None) and not (grown[2] or {}).get(
+                                "refused"):
+                        taken[g0:g1 + 1] = True
+                        i0, i1, solved = g0, g1, grown
+            sl, prof, rep, record = solved
+            if (rep or {}).get("refused") or record.get("curve") == \
+                    "infeasible":
+                kept.append({"i0": int(i0), "i1": int(i1),
+                             "reason": "pins" if (rep or {}).get("refused")
+                             else "curve"})
+                continue
+            out[sl] = prof
+            report["runs"].append(dict({"i0": int(i0), "i1": int(i1),
+                                        "kind": "dem_wrong"}, **record))
+        report["dem_kept"] = kept
+        if report["scope"] == "terrain" and report["runs"]:
+            report["scope"] = "dem_wrong"
     if _pins:
         report.update({
             "pins": int(pin_tot),
@@ -2201,6 +2387,10 @@ class Levelled_Roads:
         #: and ``excess_m`` — how far past ``budget_m`` the ribbon stands
         #: there.  Reported, never silent.
         self.join_pins = {}
+        #: ``{way index: [window]}`` — OWNER RULINGS 2026-11-18e: the
+        #: DEM-wrong windows the steep cap could not solve, which keep the
+        #: DEM (counted loudly by the caller, published in the sidecar).
+        self.dem_kept = {}
 
     def note_deck_pins(self, way_index, report):
         self.deck_pins[int(way_index)] = dict(report)
@@ -2366,9 +2556,35 @@ class Levelled_Roads:
             "deck_pins_refused": n_ref,
             "deck_pin_worst_infeasibility_m": worst,
             "join_pinned_stations": sum(len(v) for v in self.join_pins.values()),
+            **self._dem_wrong_summary(),
             "join_pin_worst_excess_m": round(max(
                 (r["excess_m"] for v in self.join_pins.values() for r in v),
                 default=0.0), 4),
+        }
+
+    def _dem_wrong_summary(self):
+        """11-18e: the DEM-wrong windows solved (road / rail), their
+        length and worst move, and the windows kept on the DEM."""
+        n = {"road": 0, "rail": 0}
+        km = {"road": 0.0, "rail": 0.0}
+        worst = 0.0
+        for w in self.ways:
+            kind = "rail" if ROADGRADE.is_rail(w.get("class")) else "road"
+            s = w["s_m"]
+            for r in w.get("runs", ()):
+                if r.get("kind") != "dem_wrong":
+                    continue
+                n[kind] += 1
+                km[kind] += float(s[int(r["i1"])] - s[int(r["i0"])]) / 1000.0
+                worst = max(worst, float(r.get("max_offset_m", 0.0)))
+        kept = [r for v in self.dem_kept.values() for r in v]
+        return {
+            "dem_wrong_windows": n["road"],
+            "dem_wrong_km": round(km["road"], 3),
+            "dem_wrong_rail_windows": n["rail"],
+            "dem_wrong_rail_km": round(km["rail"], 3),
+            "dem_wrong_max_move_m": round(worst, 4),
+            "dem_kept_windows": len(kept),
         }
 
     def sidecar(self, lat, lon):
@@ -2420,6 +2636,15 @@ class Levelled_Roads:
                 "dem_alt": [round(float(v), 6) for v in w["dem"]],
                 "alt": [round(float(v), 6) for v in w["alt"]],
             })
+            if i in self.dem_kept:
+                ways[-1]["dem_kept"] = self.dem_kept[i]
+            if "bank_run" in w:
+                # THE SIDE BANKS (RULINGS 2026-11-18d, ``O4_Road_Bank``):
+                # per station, [left, right] run per rise and foot distance.
+                ways[-1]["bank_run"] = [[round(float(v), 3) for v in side]
+                                        for side in w["bank_run"]]
+                ways[-1]["bank_foot_m"] = [[round(float(v), 2) for v in side]
+                                           for side in w["bank_foot_m"]]
         return {
             "version": 2,
             "producer": "O4_Vector_Map.include_roads",
@@ -2443,13 +2668,30 @@ class Levelled_Roads:
         }
 
 
+def _stations_in(stations, gbounds, area, area_bounds, _Pt):
+    """Per-station mask of ``stations`` inside the prepared ``area``
+    (bbox-prefiltered; all False without one)."""
+    mask = numpy.zeros(len(stations), dtype=bool)
+    if area is None:
+        return mask
+    ax0, ay0, ax1, ay1 = area_bounds
+    gx0, gy0, gx1, gy1 = gbounds
+    if gx1 < ax0 or gx0 > ax1 or gy1 < ay0 or gy0 > ay1:
+        return mask
+    for k, (px, py) in enumerate(stations):
+        if ax0 <= px <= ax1 and ay0 <= py <= ay1 \
+                and area.covers(_Pt(float(px), float(py))):
+            mask[k] = True
+    return mask
+
+
 def clamp_road_network(road_network, alt_vec, cap, lane_width,
                        station_m=DEFAULT_ROAD_STATION_M, deck_pins=None,
                        coverage=None, way_classes=None, way_ids=None,
                        runout_m=None,
                        budget_m=None, cap_ceiling=None, class_caps=None,
                        join_pins=None, public_classes=None,
-                       terrain_cap=None):
+                       terrain_cap=None, steep_area=None, law=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
     THE ONE SITE THAT DECIDES WHO IS CLAMPED (owner RULINGS 2026-09-18n;
@@ -2496,7 +2738,17 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     ``budget_m`` (S.3), so the budget yields at the join and nowhere else;
     the excess over the budget is recorded per station
     (``Levelled_Roads.join_pins``).
+
+    ``steep_area`` — OWNER RULINGS 2026-11-18e: the AIRPORT AREA (the
+    elevation-inset boxes the airport-area roads are fetched in), in the
+    same frame.  Every way of every class with a station in it is searched
+    for DEM-wrong windows (:func:`neighbourhood_road_profile`'s
+    ``in_area``); ``None`` searches none.  ``law`` — the law table
+    (:func:`road_neighbourhood_law`) for the steep caps and vertical
+    curves; read when ``None``.
     """
+    if law is None:
+        law = road_neighbourhood_law()
     if runout_m is None or budget_m is None or cap_ceiling is None \
             or class_caps is None or public_classes is None \
             or terrain_cap is None:
@@ -2541,6 +2793,11 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     if coverage is not None and not getattr(coverage, "is_empty", True):
         band = _prep(coverage)
         band_bounds = coverage.bounds
+    area = None
+    area_bounds = None
+    if steep_area is not None and not getattr(steep_area, "is_empty", True):
+        area = _prep(steep_area)
+        area_bounds = steep_area.bounds
     for gi, geom in enumerate(geoms):
         try:
             coords = numpy.array(geom.coords, dtype=numpy.float64)
@@ -2567,8 +2824,10 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                         in_band[k] = True
         elif coverage is None:
             in_band[:] = True          # legacy: the whole way is "inside"
+        in_area = _stations_in(stations, geom.bounds, area, area_bounds,
+                               _Pt) if coverage is not None else None
         dem = numpy.asarray(alt_vec(stations), dtype=numpy.float64)
-        if not in_band.any():
+        if not in_band.any() and (in_area is None or not in_area.any()):
             # UPSTREAM'S ROAD (18n): no clamp, no answering station.
             out.add_way(stations, dem, dem, s, scope="terrain",
                         way_class=cls, layer_way_id=wid_layer)
@@ -2615,13 +2874,20 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         for k, jlevel, _d in joins_here:
             pin_idx.append(k)
             pin_val.append(jlevel)
+        # 11-18e: the way follows its DEM up to its STEEP CAP and no
+        # further (20 % a road, 1.25 % a railway), on a vertical curve
+        steep_cap, rate = ROADGRADE.steep_limits(cls, law)
         # 22h: a PUBLIC road follows its terrain inside the band
         clamped, report = neighbourhood_road_profile(
             s, dem, in_band, cap_class,
-            cap_inside=road_inside_cap(cls, cap, cap_ceiling, public_classes,
+            cap_inside=road_inside_cap(cls, cap, steep_cap, public_classes,
                                        terrain_cap),
-            runout_m=runout_m, budget_m=budget_m, cap_ceiling=cap_ceiling,
-            pin_idx=pin_idx or None, pin_val=pin_val or None)
+            runout_m=runout_m, budget_m=budget_m, cap_ceiling=steep_cap,
+            pin_idx=pin_idx or None, pin_val=pin_val or None,
+            in_area=in_area, grade_change_per_m=rate,
+            pin_ceiling=cap_ceiling)
+        if report.get("dem_kept"):
+            out.dem_kept[len(out.ways)] = list(report["dem_kept"])
         if n_deck:
             report["deck_ways"] = sorted(set(str(w) for w in pin_wid))
             out.note_deck_pins(len(out.ways), report)

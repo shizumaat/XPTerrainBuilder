@@ -169,7 +169,8 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
     """THE END-LINE ROAD VERTICES, ONE selection (v2 §3.4): every road
     vertex (``ROAD_ROLES``, on no structure face) within two ``[bridge]
     abutment_sample_step_m`` of a deck end line's station (``geom/end_line.
-    near_stations``) and on the approach slab, at most one sample step
+    near_stations``; a trench stack's end-seated decks' too, #2116 item
+    3) and on the approach slab, at most one sample step
     ``H`` beyond the end line -> ``(height, stack id, deck object id, which
     end, distance to the end line)``.  On a free or kept stack the height is
     the PLATE'S OWN height at the vertex (#2091 R3: an end edge with a
@@ -200,7 +201,10 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
     rxy = [pm.vertices[v].xy for v in roads]
     claims: dict[int, list[tuple[float, tuple[float, str, str, str, float]]]] = {}
     for st in stacks:
-        for d in st.decks:
+        # #2116 item 3: a trench stack's end-seated decks meet their roads
+        # at their plate top as its own decks do
+        seated = tuple(getattr(st, "end_seated", ()) or ()) if st.kind == TRENCH else ()
+        for d in (*st.decks, *seated):
             for side, line, top in (("a", d.end_a, d.top_a), ("b", d.end_b, d.top_b)):
                 if not line:
                     continue

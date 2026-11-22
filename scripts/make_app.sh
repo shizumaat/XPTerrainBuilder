@@ -64,8 +64,8 @@ fi
 # The log names the commit of the engine actually EMBEDDED (a stale frozen
 # engine reported the source sha, 1.0.471): a frozen engine must carry a
 # stamp matching this tree (scripts/engine_stamp.sh), else we refuse.
-FROZEN="$ROOT/Ortho4XP/dist/Ortho4XP"
-if [[ -x "$FROZEN/Ortho4XP" ]]; then
+FROZEN="$ROOT/Ortho4XP/dist/XPTerrainBuilderEngine"
+if [[ -x "$FROZEN/XPTerrainBuilderEngine" ]]; then
   EMBEDDED_SHA="$(bash "$ROOT/scripts/engine_stamp.sh" check "$FROZEN" "$ROOT")" || exit 1
 else
   EMBEDDED_SHA="$COMMIT_SHA (source tree)"
@@ -96,7 +96,7 @@ done
 # Python runtime and packages, nothing for the user to install. Falls back
 # to embedding the engine source tree (dev builds), which needs a system
 # python3 with the engine's packages.
-if [[ -x "$FROZEN/Ortho4XP" ]]; then
+if [[ -x "$FROZEN/XPTerrainBuilderEngine" ]]; then
   echo "Embedding frozen engine (self-contained)"
   # Utils/win + Utils/lin are the engine's Windows/Linux helper binaries
   # (~165 MB) — dead weight in a mac app; the engine picks per platform.
@@ -283,7 +283,7 @@ esac
 # freeze-time checks passed while the SIGNED engine could not import osgeo,
 # so every lidar airport refused to patch in the owner's app.  The engine
 # that ships is the signed one, so it is the one asked.
-SIGNED_ENGINE="$STAGE/Contents/Resources/Engine/Ortho4XP"
+SIGNED_ENGINE="$STAGE/Contents/Resources/Engine/XPTerrainBuilderEngine"
 if [[ -x "$SIGNED_ENGINE" ]]; then
     # Read the whole output first: `| head -1` under pipefail kills the
     # script silently (SIGPIPE) when the engine prints more than one line.

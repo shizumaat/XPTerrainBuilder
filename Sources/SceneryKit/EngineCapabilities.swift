@@ -76,6 +76,18 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// The map's tile menu "Use XPTerrainBuilder here" (#2100):
     /// `world_tile_use` (sync); flag only.
     public static let worldTileUse = "world_tile_use"
+    /// A read-only pack asked about (#2174): `PackReadOnly` +
+    /// `pack_readonly`, and `reanchor_status` rows with `read_only`.
+    public static let packReadOnly = "pack_readonly"
+    /// The once-per-patch elevation notice (#2179): `custom_patches`
+    /// rows' `notices` + `custom_patch_notice_seen`.
+    public static let customPatchNotice = "custom_patch_notice"
+    /// "Fit custom airport buildings" per airport (#2182):
+    /// `BuildAirportsReady.fit_airports` + `set_airport_fit`.
+    public static let airportFit = "airport_fit"
+    /// The condensed overlapping-packs question (#2190): `PackOverlaps`
+    /// rows' `prefer` / `keep`, its `default`, and `pack_overlaps` `default`.
+    public static let packOverlapsDefault = "pack_overlaps_default"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

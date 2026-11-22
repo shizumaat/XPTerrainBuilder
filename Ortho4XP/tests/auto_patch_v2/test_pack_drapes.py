@@ -435,3 +435,15 @@ def test_the_write_hides_a_wrapping_photo_grid(written):
                  drapes=found)
     live = rp.dsf.read_text(encoding="utf-8")
     assert "Orthophotos/" not in live and live.count("POLYGON_DEF ") == 9
+
+
+def test_a_grid_cut_by_the_tile_edge_is_hidden_on_both_tiles(pack):
+    """#2129: the far tile holds only three columns of the grid -- too few
+    to make a family there -- so it reads nothing alone; the paths the
+    witness hides on the pack's other tile make them the grid's tiles."""
+    areas = [b for b, _ok in PD.airport_boxes(str(pack / "Earth nav data" / "apt.dat"))]
+    cut = _dump(GRID[:3]).splitlines(True)
+    assert PD.draped_orthos(str(pack), cut, areas) == ()
+    near = {m.path for m in _found(pack)}
+    found = PD.draped_orthos(str(pack), cut, areas, shared=near)
+    assert [m.path for m in found] == [f"grid/Tile{k}.pol" for k in (1, 2, 3)]

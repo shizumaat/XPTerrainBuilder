@@ -30,7 +30,7 @@ import typing as _t
 
 from .deck_skin import Resolver, texture_file
 
-__all__ = ["LinePage", "line_pages"]
+__all__ = ["LinePage", "line_pages", "read_page"]
 
 
 class LinePage(_t.NamedTuple):
@@ -54,7 +54,9 @@ class LinePage(_t.NamedTuple):
         return ((layer[1] - layer[0]) * k, (layer[2] - layer[1]) * k)
 
 
-def _read_page(path: str) -> "LinePage | None":
+def read_page(path: str) -> "LinePage | None":
+    """The :class:`LinePage` of the ``.lin`` file at ``path``, ``None`` when
+    it names no texture, width, scale or layer."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             rows = [ln.split() for ln in fh if ln.strip()]
@@ -113,7 +115,7 @@ def line_pages(line_lib: str, xplane_root: "str | None", resolve: "Resolver | No
             path = resolve(f"{lib_dir}/{name}", xplane_root) or os.path.join(folder, name)
         except (OSError, ValueError):
             path = os.path.join(folder, name)
-        page = _read_page(path)
+        page = read_page(path)
         if page is not None:
             out[int(head)] = page
     if not out:

@@ -334,7 +334,8 @@ def test_2032_a_held_placeholder_with_no_file_is_swapped_at_once(tmp_path):
     for la, lo in ((lat, lon + 1), (lat + 1, lon)):
         dsf = os.path.join(stage, WP.tile_name(la, lo), WP.dsf_relpath(la, lo))
         os.makedirs(os.path.dirname(dsf))
-        shutil.copyfile(os.path.join(FIXTURES, "full_ortho.dsf"), dsf)
+        with open(dsf, "wb") as h:  # a real tile naming no file (#2247)
+            h.write(DSFB.placeholder_bytes(la, lo, "a real tile"))
         for sub in ("terrain", "textures"):
             os.makedirs(os.path.join(stage, WP.tile_name(la, lo), sub,
                                      WP.tile_name(la, lo)))
@@ -457,3 +458,36 @@ def test_2055_pack_dsf_keys_lists_without_a_stat_per_file(tmp_path, monkeypatch)
     assert WP.pack_dsf_keys(pack) == expected
     assert calls == []
     assert WP.pack_dsf_keys(str(tmp_path / "none")) == set()
+
+
+def test_2224_a_reload_alias_in_the_build_folder_publishes(tmp_path):
+    """#2224: the imagery follow renewed textures of a finished build
+    folder before its publish (``.xp_reload/<stem>~<token>.dds``,
+    #2106); the alias folder is never staged, so the publish failed on
+    every renewed ``.ter``.  Staging names the texture itself again."""
+    import O4_Imagery_Ter_Alias as ALIAS
+    lat, lon = 45, 7
+    build = _build_dir(tmp_path, os.path.join(FIXTURES, "full_ortho.dsf"),
+                       lat, lon)
+    tex = os.path.join(build, "textures", "23456_34112_BI16.dds")
+    os.rename(os.path.join(build, "textures", "21040_21648_BI16.dds"), tex)
+    for name in os.listdir(os.path.join(build, "terrain")):
+        path = os.path.join(build, "terrain", name)
+        text = open(path, encoding="utf-8").read().replace("21040_21648_BI16", "23456_34112_BI16")
+        open(path, "w", encoding="utf-8", newline="\n").write(text)
+    assert ALIAS.renew(tex, os.path.join(build, "terrain"), now=1.0)
+    assert ALIAS.renew(tex, os.path.join(build, "terrain"), now=2.0)
+    ters = [os.path.join(build, "terrain", n)
+            for n in os.listdir(os.path.join(build, "terrain"))]
+    assert all(ALIAS.ALIAS_DIR in open(t, encoding="utf-8").read() for t in ters)
+    pack = str(tmp_path / "pack")
+    WP.write_placeholder(pack, lat, lon)
+    res = WP.publish(pack, build, lat, lon, staging_root=str(tmp_path / "s"))
+    assert res["state"] == "swapped" and not res["problems"], res
+    for name in os.listdir(os.path.join(pack, "terrain", "+45+007")):
+        text = open(os.path.join(pack, "terrain", "+45+007", name), encoding="utf-8").read()
+        assert ALIAS.ALIAS_DIR not in text
+        assert "../../textures/+45+007/23456_34112_BI16.dds" in text
+    assert WP.rewrite_ter(
+        "BASE_TEX ../../textures/+45+007/.xp_reload/a_b~1z.dds\n",
+        "+45+007")[0] == "BASE_TEX ../../textures/+45+007/a_b.dds\n"

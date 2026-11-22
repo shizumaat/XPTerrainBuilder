@@ -336,7 +336,7 @@ class DeckPrint:
             w = _bary(self.tris[q], lat, lon)
             if w is None:
                 continue
-            y = sum(wi * yi for wi, yi in zip(w, self.ys[q]))
+            y = sum(wi * yi for wi, yi in zip(w, self.ys[q], strict=False))
             if best is None or y > best:
                 best = y
         if best is not None or reach_m <= 0.0:
@@ -727,94 +727,21 @@ def deck_components(p: DeckPrint, gap_m: float = CONTACT_M
     return out
 
 
-def _first_per_key(key, k: int):
-    """Indices of the first ``k`` entries (in order) of each distinct
-    ``key`` value."""
-    import numpy as np
-    order = np.argsort(key, kind="stable")
-    ks = key[order]
-    start = np.r_[0, np.nonzero(ks[1:] != ks[:-1])[0] + 1]
-    rank = np.arange(ks.size) - np.repeat(start, np.diff(np.r_[start, ks.size]))
-    return np.sort(order[rank < k])
-
-
 def _touch_components(p: DeckPrint, gap_m: float) -> list[int]:
     """The component label of each triangle of ``p`` — triangles chained
-    where they come within ``gap_m`` in plan (GEOS ``dwithin``, the
-    predicate :func:`deck_components` always read).
+    where they share a plan vertex or come within ``gap_m`` in plan (GEOS
+    ``dwithin``, the predicate :func:`deck_components` always read).
 
-    issue #1213: the SAME PARTITION as testing every pair, at a fraction
-    of the cost (KMCI's 325 k-triangle steel frame: 373 M box-near pairs,
-    222 s).  Triangles sharing a vertex (the same plan coordinate) touch,
-    so they are chained first with no test.  The box-near pairs are then
-    read in source CHUNKS, and a pair is tested only while its two
-    triangles are still in different components — one pair per component
-    pair in the first round (4, 16, ... after), the components re-read
-    after each round's unions — so
-    a pair is skipped only once its answer can no longer change the
-    partition."""
+    issue #2177: asked per SHARED-VERTEX GROUP pair, never per triangle
+    (``deck_touch.touch_components``): the same partition (issue #1213's
+    per-triangle rounds before it), bounded by the groups."""
     import numpy as np
-    import shapely
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-    n = len(p.tris)
+
+    from .deck_touch import touch_components
     ml, mo = p._ml, p._mo                                    # noqa: SLF001
     xy = np.array([[(q[0] * ml, q[1] * mo) for q in t] for t in p.tris],
                   dtype=float)
-    u, vid = np.unique(xy.reshape(-1, 2), axis=0, return_inverse=True)
-    m = len(u)
-    g = coo_matrix((np.ones(3 * n, dtype=np.int8),
-                    (np.repeat(np.arange(n), 3), n + vid.reshape(-1))),
-                   shape=(n + m, n + m))
-    lab0 = connected_components(g, directed=False)[1][:n]   # shared vertex
-    parent = np.arange(int(lab0.max()) + 1)
-    geo = shapely.polygons(np.concatenate([xy, xy[:, :1]], axis=1))
-    tree = shapely.STRtree(geo)
-    shapely.prepare(geo)
-    r = gap_m + 1e-3                     # a millimetre over: a superset
-    lo, hi = xy.min(axis=1), xy.max(axis=1)
-    boxes = shapely.box(lo[:, 0] - r, lo[:, 1] - r, hi[:, 0] + r, hi[:, 1] + r)
-
-    def _flat(par: np.ndarray) -> np.ndarray:
-        while True:
-            nxt = par[par]
-            if np.array_equal(nxt, par):
-                return par
-            par = nxt
-    step = 4096
-    for c0 in range(0, n, step):
-        qa, qb = tree.query(boxes[c0:c0 + step])
-        qa = qa + c0
-        keep = qa < qb
-        qa, qb = qa[keep], qb[keep]
-        k_max = 1
-        while qa.size:
-            parent = _flat(parent)
-            ra, rb = parent[lab0[qa]], parent[lab0[qb]]
-            live = ra != rb
-            qa, qb, ra, rb = qa[live], qb[live], ra[live], rb[live]
-            if not qa.size:
-                break
-            lo_r, hi_r = np.minimum(ra, rb), np.maximum(ra, rb)
-            first = _first_per_key(lo_r * (len(parent) + 1) + hi_r, k_max)
-            k_max *= 4
-            # the tree's own reading: the SOURCE geometry prepared, either
-            # way round (a polygon collapsed to a point reads no distance)
-            ta, tb = geo[qa[first]], geo[qb[first]]
-            hit = (shapely.dwithin(ta, tb, gap_m)
-                   | shapely.dwithin(tb, ta, gap_m))
-            for x, y in zip(lo_r[first][hit].tolist(),
-                            hi_r[first][hit].tolist(), strict=True):
-                while parent[x] != x:
-                    x = parent[x]
-                while parent[y] != y:
-                    y = parent[y]
-                if x != y:
-                    parent[max(x, y)] = min(x, y)
-            done = np.ones(qa.size, dtype=bool)
-            done[first] = False
-            qa, qb = qa[done], qb[done]
-    return _flat(parent)[lab0].tolist()
+    return touch_components(xy, gap_m)
 
 
 def viaduct_of(vias: "_t.Sequence[Viaduct] | None",
@@ -914,7 +841,7 @@ def landing_pieces(p: DeckPrint, band_m: float
     lo = min(y for t in p.ys for y in t)
     cut = lo + float(band_m)
     out = []
-    for t, ys in zip(p.tris, p.ys):
+    for t, ys in zip(p.tris, p.ys, strict=False):
         if min(ys) > cut:
             continue
         pts: list = []

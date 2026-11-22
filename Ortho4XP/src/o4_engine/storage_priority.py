@@ -184,6 +184,13 @@ def _protected(tiles: dict, now: float) -> set:
     return session_tiles() | {p for p, t in tiles.items() if t.last_used >= recent}
 
 
+def _held() -> set:
+    """The tiles a live build holds, on the whole machine: every input
+    they read stays (``storage_hold``, never mid-build)."""
+    from .storage_hold import held_tiles
+    return set(held_tiles())
+
+
 def _protected_inputs(pairs) -> set:
     """Every input the builds of ``pairs`` read, normalised."""
     from tile_bundle import inputs as INPUTS
@@ -250,13 +257,14 @@ def _clear_tile(tile: _Tile, need: int, sweep, now: float, keep: set,
     return freed
 
 
-def clear(over_by: int, sweep, now: float) -> int:
+def clear(over_by: int, sweep, now: float, skip_tiles=()) -> int:
     """Free ``over_by`` bytes, shared data first, then tile by tile in
-    priority order (module doc); the bytes freed."""
+    priority order (module doc); the bytes freed.  ``skip_tiles`` (a
+    run about to build them, ``storage_room``) are protected too."""
     from . import storage_packages as PACKAGES
     shared, tiles = _survey(now)
-    protected = _protected(tiles, now)
-    keep = _protected_inputs(protected)
+    protected = _protected(tiles, now) | _pairs(skip_tiles)
+    keep = _protected_inputs(protected | _held())
     freed = 0
     recent = now - RECENT_DAYS * _DAY
     for tier in SHARED_TIERS:
@@ -289,7 +297,12 @@ def clear(over_by: int, sweep, now: float) -> int:
 
 
 
-def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
+def _pairs(tiles) -> set:
+    return {(int(t[0]), int(t[1])) for t in tiles}
+
+
+def offload(over_by: int, sweep, now: float, keep_tiles=(),
+            skip_tiles=()) -> int:
     """MOVE up to ``over_by`` bytes to a storage tier (#2103, RULINGS
     2026-11-16c: data X-Plane does not read lives on the tier); the bytes
     moved.  ``sweep`` must be ``tier_only``: nothing is deleted, made
@@ -300,13 +313,17 @@ def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
     the last week, then this session's), favorites and the most recently
     used last.  The inputs of ``keep_tiles`` (the builds running or
     queued) stay, and so does any file written in the last hour or under
-    a held lock (``storage._files``)."""
+    a held lock (``storage._files``).  A tile of ``skip_tiles`` (a run
+    about to build them, ``storage_room``) is never moved, nor its
+    inputs."""
     if not sweep.tier_only:
         raise ValueError("offload moves only: a tier_only sweep")
     shared, tiles = _survey(now)
     session = session_tiles()
-    keep = _protected_inputs(keep_tiles)
+    skip = _pairs(skip_tiles)
+    keep = _protected_inputs(set(keep_tiles) | skip | _held())
     protected = _protected(tiles, now)
+    tiles = {p: t for p, t in tiles.items() if p not in skip}
     freed = 0
     for tier in SHARED_TIERS:
         if freed >= over_by or sweep.stopped:

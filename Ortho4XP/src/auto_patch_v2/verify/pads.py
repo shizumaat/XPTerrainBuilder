@@ -24,13 +24,16 @@ missed hard ceiling and the census reports it.
 """
 from __future__ import annotations
 
+import typing as _t
+
 import numpy as np
 
 from .frame import Patch, Row, Shape, row
 from ..model.planar import is_bank_ref
 
 __all__ = ["pad_flat", "plane_fit", "plane_fit_quantum", "plane_residual",
-           "relief_offsets"]
+           "relief_offsets", "planar_relief", "sloped_plane_offsets",
+           "sloped_pair_cap"]
 
 FAMILY = "pad_flat"
 
@@ -111,6 +114,56 @@ def _pad_points(p: Patch, sh: Shape, off: dict[int, float] | None = None
             ids.extend(h.ids)
     o = off or {}
     return [p.xy[i] for i in ids], [p.z[i] - o.get(i, 0.0) for i in ids], ids
+
+
+def planar_relief(xy: _t.Sequence[tuple[float, float]],
+                  offs: _t.Sequence[float | None]) -> list[float] | None:
+    """``offs`` when every point carries one and they lie on ONE PLANE
+    (residual within a millimetre) — a SLOPED BASE's plane (owner RULINGS
+    2026-11-19o (1), ``constraints/pad_relief.pad_slope_offsets``) — else
+    ``None`` (no relief, or a per-foot relief: 12u).  The ONE reading the
+    verify and the census (``tools/check_grade._planar_relief``) share."""
+    if len(xy) < 3 or any(o is None for o in offs):
+        return None
+    a = np.column_stack([np.ones(len(xy)), np.asarray(xy, float)])
+    o = np.asarray(offs, float)
+    coef, *_r = np.linalg.lstsq(a, o, rcond=None)
+    if float(np.abs(o - a @ coef).max()) > 1e-3 or not o.any():
+        return None
+    return [float(x) for x in o]
+
+
+def sloped_plane_offsets(p: Patch) -> dict[int, dict[int, float]]:
+    """``vertex -> {pad shape index: plane offset}`` over every rigid pad
+    whose published relief is ONE PLANE (:func:`planar_relief`): the pads
+    on an authored sloped base (a vertex two such pads share carries
+    both).  Owner RULINGS 2026-11-19q (1): an apron or pad pair with both
+    ends on ONE such pad (its footprint and its weld) is capped at the
+    plane's grade along it, not the 1.5 % apron cap
+    (``constraints/pad_relief.pad_slope_pair_caps``; :func:`sloped_pair_cap`)."""
+    off = relief_offsets(p)
+    if not off:
+        return {}
+    out: dict[int, dict[int, float]] = {}
+    for k, sh in enumerate(p.shapes):
+        if not p.is_rigid(sh.role) or is_bank_ref(sh.ref):
+            continue
+        xy, _z, ids = _pad_points(p, sh)
+        plane = planar_relief(xy, [off.get(i) for i in ids])
+        if plane is not None:
+            for i, o in zip(ids, plane):
+                out.setdefault(i, {})[k] = o
+    return out
+
+
+def sloped_pair_cap(sloped: dict[int, dict[int, float]], a: int, b: int,
+                    d: float) -> float:
+    """The authored plane's grade along ``a``-``b`` where both lie on one
+    sloped pad (:func:`sloped_plane_offsets`), else 0."""
+    pa, pb = sloped.get(a), sloped.get(b)
+    if not pa or not pb or d <= 0.0:
+        return 0.0
+    return max((abs(pa[k] - pb[k]) / d for k in pa.keys() & pb.keys()), default=0.0)
 
 
 def pad_flat(p: Patch) -> list[Row]:

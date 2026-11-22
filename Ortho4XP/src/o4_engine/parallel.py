@@ -28,8 +28,10 @@ back when its download queue drains and converts to DDS under
 never takes a fetch token at all: each fetch subsystem answers for
 itself through an ``is_cached(tile)`` predicate co-located with its own
 fetch code (``STEP_FETCH_SUBSYSTEMS``), so the scheduler never
-re-derives what a step will read.  The parent-side OpenStreetMap cache
-warmer below takes an osm token like any other fetcher.
+re-derives what a step will read.  The OpenStreetMap cache warmer below
+takes an osm token like any other fetcher, warms only a queued tile no
+worker could take (idle or yet to be spawned), and downloads in a process
+of its own (``osm_warm_process``), never on the command process.
 
 A child whose next step's class is full waits idle (a between-steps
 child holds almost nothing — the pipeline communicates through files).
@@ -76,6 +78,7 @@ import O4_UI_Utils as UI
 from . import boundary_reselect as BOUNDARY
 from . import build_order as ORDER
 from . import events as EVENTS
+from . import osm_warm_process as OSM_WARM
 from . import step_memory
 from . import storage_floor as FLOOR
 from .memory_waits import (REASON_MACHINE, REASON_RUN, MemoryWaits,
@@ -86,7 +89,8 @@ from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
     ETA_EMIT_SECONDS,
-    _offer_gateway_airports, _offer_pack_overlaps, _predict_step_seconds, build_done,
+    _gateway_line, _offer_gateway_airports, _offer_pack_overlaps, _predict_step_seconds,
+    build_done,
     last_outcome_counts,
     plan_steps, prediction_features, reweight_plan_by_seconds, stopped_tile_state,
 )
@@ -484,38 +488,28 @@ def step_reservation_gigabytes(step_key, elevation_level_value=None):
         step_key, step_memory.charged_gigabytes(step_key, default))
 
 
-def step_memory_budget_gigabytes(run_resident_gb=0.0):
-    """Gigabytes a run may PROJECT onto its concurrently admitted steps.
+def step_memory_budget_gigabytes():
+    """Gigabytes this run's steps may BOOK and not yet use: the memory the
+    machine has free now, above the machine headroom
+    (``O4_Machine_Slots.headroom_gigabytes``: the larger of 15 % of
+    physical memory and 8 GB, kept for the operating system, the app and
+    the user's other work — #1225, #2083).  Re-read every sample
+    (``ParallelBuildRun._refresh_memory_budget_locked``).
 
-    ``MEMORY_CEILING_FRACTION`` (80 %, owner ruling 2026-07-30) of the
-    memory the machine could hand THIS RUN — what it can hand out now
-    plus what the run's own running steps hold (``run_resident_gb``,
-    capped at physical memory) — and never more than that less the
-    machine headroom (``O4_Machine_Slots.headroom_gigabytes``: the larger
-    of 15 % of physical memory and 8 GB, kept for the operating system,
-    the app and the user's other work — #1225, #2083).  Counting the
-    run's own memory back in is what keeps a live re-read from becoming
-    a feedback loop (the run's consumption shrinking its own budget).
-
-    Until 2026-11-17 this was sampled ONCE, at run start: app 1.0.552
-    started with 27.6 GB free (other programs held memory), took
-    min(22.1, 27.6 - 19.2) = 8.4 GB for the whole run, and held every
-    second step — an 0.5 GB overlays step "with 34 GB free" — for hours
-    after the machine had room.  The scheduler now re-sizes it from the
-    machine every sample (``ParallelBuildRun._refresh_memory_budget_locked``).
-    Floored at one default estimate so a single tile can never deadlock.
+    THE RULE (owner 2026-11-18): a step starts when the free memory, less
+    the part of every running step's booking its process tree has not yet
+    grown into (``ParallelBuildRun._run_booked_locked``), covers its need
+    plus the headroom.  Memory a step already holds is out of the free
+    figure, so it is never counted twice.  Until 2026-11-18 the run
+    compared the SUM of its steps' whole projections to 80 % of (free +
+    the run's resident): app 1.0.558 held a 9 GB masks step with 61 GB
+    free ("this run's steps hold 98.5 of its 79.4 GB budget") — booked
+    memory its steps had long grown into or would never reach.
     """
     import O4_Parallel_Utils as PARALLEL_UTILS
 
-    available = min(
-        PARALLEL_UTILS.machine_memory_gigabytes(),
-        PARALLEL_UTILS.machine_available_memory_gigabytes()
-        + max(0.0, float(run_resident_gb)))
-    return max(
-        MESH_MEMORY_DEFAULT_GB,
-        min(available * PARALLEL_UTILS.MEMORY_CEILING_FRACTION,
-            available - O4_Machine_Slots.headroom_gigabytes()),
-    )
+    return max(0.0, PARALLEL_UTILS.machine_available_memory_gigabytes()
+               - O4_Machine_Slots.headroom_gigabytes())
 
 
 # A re-read budget replaces the current one only when it moved this much
@@ -690,6 +684,8 @@ _FORWARDED_EVENT_TYPES = (
     "GatewayAirports",
     # #2145: ... and the large structures two packs both draw.
     "PackOverlaps",
+    # #2174: ... and a read-only pack whose writes wait for the answer.
+    "PackReadOnly",
     # RULINGS 11m (4): ... and the packages the tile's packs ship.
     "PackPackage",
     "Log",
@@ -793,6 +789,9 @@ class _WorkerChild:
         # The running step's peak resident memory (its process tree),
         # sampled by the run's ticker (#2083).
         self.step_peak_gb = 0.0
+        # The child's whole process tree as last sampled (GB): what its
+        # running step has grown into, or what earlier steps left.
+        self.tree_gb = 0.0
         self.step_failed = False       # current tile had a failing step
         self.cancelling = False        # a mid-step cancel is in flight
         # The child's own "stopped" TileState, held until the parent has
@@ -826,6 +825,10 @@ class _WorkerChild:
             # This run reserves each step it starts on the machine memory
             # ledger; the child's own step slot reserves nothing more.
             child_environment[MEMORY.ENV_STEP_RESERVED] = "1"
+            # A BUILD worker: its tree runs in the background, below the
+            # command process that answers the app's commands and dialogs
+            # (owner 2026-11-20T18:40Z, ``O4_Machine_Slots.lower_priority``).
+            child_environment[O4_Machine_Slots.ENV_BUILD_WORKER] = "1"
             # The child lists its tiles' edit caches in THIS front end's
             # session and never clears it (O4_Edit_Cache, #1323).
             child_environment[EDITCACHE.LIST_ENV] = EDITCACHE.begin_session()
@@ -840,7 +843,8 @@ class _WorkerChild:
             # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
                 # Normal QoS (RULINGS 2026-10-22k): no utility clamp, so
-                # workers reach the performance cores; nice 10 is inherited.
+                # workers reach the performance cores; the worker sets its
+                # own nice (``O4_Machine_Slots.NICE``) at start.
                 tile_worker_command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -1259,6 +1263,7 @@ class ParallelBuildRun:
             wanted_children = min(self._slots, len(self._queue))
         if not wanted_children:
             return False
+        self._make_room()
         # Import the fetch subsystems' cache predicates off the dispatch
         # path (see preload_cache_predicates), and BEFORE the handshakes
         # so the two waits overlap: the first sweep below must be able to
@@ -1298,6 +1303,23 @@ class ParallelBuildRun:
         # drained the queue already; settle immediately in that case.
         self._maybe_finish()
         return True
+
+    def _make_room(self):
+        """Room on disk for the run's tiles before any starts (owner
+        2026-11-18T13:32Z, ``storage_room``): no storage pass touches a
+        tile once its build holds it."""
+        from . import storage_room
+        with self._lock:
+            tiles = list(self._queue)
+            if not tiles:
+                return
+            arguments = self._tile_arguments[tiles[0]]
+            program = self._programs[tiles[0]]
+        storage_room.before_run(
+            tiles, arguments["provider"], arguments["zoomlevel"],
+            arguments["custom_build_dir"],
+            ("vector" in program, "imagery" in program,
+             "overlays" in program))
 
     def _preload_predicates_then_dispatch(self):
         """Preload thread body: register the predicates, then sweep.
@@ -1391,7 +1413,15 @@ class ParallelBuildRun:
                 self._judging -= 1
             self._maybe_finish()
 
-    def _reselect_tile_locked(self, tile, icaos):
+    def repatch(self, tile, icaos, line):
+        """#2169 (3): *tile*'s patch of *icaos* was built against what
+        X-Plane no longer draws (a Gateway install this run): its vector
+        step runs again (:meth:`_reselect_tile_locked`), saying *line*."""
+        with self._lock:
+            self._reselect_tile_locked(tile, icaos, line)
+            self._dispatch_locked()
+
+    def _reselect_tile_locked(self, tile, icaos, line=None):
         """A tile still on its program re-runs from its vector step when
         its step in flight ends; a FINISHED, built tile is queued again; a
         queued attempt reads the run afresh at its own vector dispatch."""
@@ -1400,9 +1430,10 @@ class ParallelBuildRun:
         carried = any(child.tile == tile for child in self._children)
         if tile in self._queue:
             return
-        line = ("Tile %s: %s crosses into a tile queued after its airports "
-                "were chosen; building its vector step again to patch it."
-                % (_short_latlon(tile), ", ".join(icaos)))
+        line = line or (
+            "Tile %s: %s crosses into a tile queued after its airports "
+            "were chosen; building its vector step again to patch it."
+            % (_short_latlon(tile), ", ".join(icaos)))
         print(line)
         self.tile_log_line(tile, line)
         if carried or tile in self._next_step_index:
@@ -1533,79 +1564,121 @@ class ParallelBuildRun:
         return step_memory.charged_gigabytes(
             step_key, self._step_memory_estimate(tile, step_key))
 
+    def _step_memory_booking(self, tile, step_key):
+        """What the step BOOKS once started — in the run and on the machine
+        ledger alike: its charge, except that a self-gated step books its
+        own parse only (``step_memory.ledger_gigabytes``): its airport
+        builds and their pools book their memory on the ledger, slot by
+        slot, against live memory.  Until 2026-11-18 the run booked a
+        vector step at 8 GB besides: app 1.0.558 started eleven vector
+        steps on 119 GB free and held the twelfth ("94.7 of its 95.2 GB
+        budget") while the ledger held 33 GB of them."""
+        return step_memory.ledger_gigabytes(
+            step_key, self._step_memory_charge(tile, step_key))
+
     def _memory_admits_locked(self, tile, step_key):
-        """True when the step's charged memory fits the budget now.
+        """True when the step's memory fits now (owner 2026-11-18, the
+        rule at :func:`step_memory_budget_gigabytes`).
 
-        One step is always admitted (a single tile must never deadlock,
-        however big its raster); beyond that, the sum of the admitted
-        steps' projections stays within the budget (80 % of the memory
-        the machine could hand this run now, less the headroom — re-read
-        every sample), and a heavy step (``step_memory.LIVE_CHECKED_STEPS``)
-        also waits until the machine has its projection free above the
-        headroom NOW (#2083).  A running step is never paused or stopped.
+        The step NEEDS its booking (:meth:`_step_memory_booking`) less
+        what its tile's worker already
+        holds (a step's projection is its whole process tree's peak, and
+        the worker keeps the memory of the tile's earlier steps).  The run
+        has ``_memory_budget`` (free above the headroom, re-read every
+        sample) less what its running steps have BOOKED and not yet grown
+        into (:meth:`_run_booked_locked`).  One step is always admitted
+        (a single tile must never deadlock, however big its raster), and
+        a running step is never paused or stopped.
 
-        #2101: every step that is refused is held in FIFO order, and
-        the oldest held step RESERVES its projection — no other step that
-        projects more than ``TINY_STEP_GB`` starts unless the run's budget
-        left over still holds it (the budget, not the machine's live free
-        memory: the budget already follows the machine, and judging the
-        reservation live let memory other programs hold block the whole
-        run behind one waiter).  The
-        run's committed memory therefore drains until the waiter fits (at
-        the latest when nothing else holds memory).  When the waiter is
-        the only work the run could start, the live check gives way to
-        the budget sum: its vector step's airport builds take machine
-        slots against live memory one worker at a time
-        (``O4_Machine_Slots.try_take``), so starting it shares the machine
-        instead of waiting on another application without bound.
+        #2101: every refused step is held in FIFO order, and the oldest
+        held step RESERVES its need — no other step that needs more than
+        ``TINY_STEP_GB`` starts unless the run's room still holds both.
+        When the waiter is the only work the run could start and only
+        memory other programs hold stands in its way, it starts: its
+        vector step's airport builds take machine slots against live
+        memory one worker at a time (``O4_Machine_Slots.try_take``).
 
-        THE MACHINE LEDGER (incident 2026-11-17): the live check is the
-        machine memory ledger's (``O4_Machine_Slots.machine_verdict``) —
-        free memory less what every build on the machine (other app
-        sessions, the harness, command-line runs, this run) has admitted
-        and not yet grown into, X-Plane's room and, for a lane, the app's.
-        It holds every step, the run's first one too, when other builds,
-        X-Plane or the pressure stand in its way (``contended``); free
-        memory alone holds only the heavy ones, as before.  An admitted
-        step reserves its memory there (:meth:`_try_start_step_locked`).
+        THE MACHINE LEDGER (incident 2026-11-17): the machine's verdict
+        (``O4_Machine_Slots.machine_verdict``) is free memory less what
+        every build on the machine (other app sessions, the harness,
+        command-line runs, this run) has booked and not yet grown into,
+        X-Plane's room and, for a lane, the app's.  It holds every step,
+        the run's first one too, when other builds, X-Plane or a pressure
+        that refuses this role stand in its way (``contended``); free
+        memory alone holds only the heavy ones.  An admitted step books
+        its memory there (:meth:`_try_start_step_locked`).
         """
-        estimate = self._step_memory_charge(tile, step_key)
-        if estimate <= 0.0:
+        need = self._step_memory_need_locked(tile, step_key)
+        if need <= 0.0:
             return True
         key = (tile, step_key)
         reserved = self._memory_waits.oldest(self._memory_wait_pending_locked)
         if (reserved is not None and reserved[0] != key
-                and estimate > TINY_STEP_GB
-                and self._memory_wait_startable_locked(reserved[0])):
-            need = reserved[1].needed_gb
-            if not self._memory_fits_locked(estimate + need, live=False):
-                self._hold_for_memory_locked(
-                    key, estimate, REASON_RUN,
-                    behind="%s %s step" % (_short_latlon(reserved[0][0]),
-                                           reserved[0][1]))
-                return False
+                and need > TINY_STEP_GB
+                and self._memory_wait_startable_locked(reserved[0])
+                and not self._run_fits_locked(need + reserved[1].needed_gb)):
+            self._hold_for_memory_locked(
+                key, need, REASON_RUN,
+                behind="%s %s step" % (_short_latlon(reserved[0][0]),
+                                       reserved[0][1]))
+            return False
         idle = not self._memory_holders
-        machine = O4_Machine_Slots.machine_verdict(estimate, idle=idle)
+        machine = O4_Machine_Slots.machine_verdict(need, idle=idle)
         held = not machine.ok and (
             machine.contended or step_key in step_memory.LIVE_CHECKED_STEPS)
-        if idle and not held:
-            return True
-        if not idle and self._memory_in_use + estimate > self._memory_budget:
-            reason = REASON_RUN
+        if not idle and not self._run_fits_locked(need):
+            # The run's own steps stand in the way when they hold (booked
+            # or grown) what the need lacks; else memory others hold.
+            reason = (REASON_RUN if need <= self._memory_budget
+                      + self._run_resident_locked() else REASON_MACHINE)
         elif held:
             reason = REASON_MACHINE
-            if (not machine.contended and reserved is not None
-                    and reserved[0] == key
-                    and self._only_waiting_work_locked(key)):
-                return True
         else:
+            return True
+        if (reason == REASON_MACHINE and not machine.contended
+                and reserved is not None and reserved[0] == key
+                and self._only_waiting_work_locked(key)):
             return True
         # Every refused step is held and shown (a tile must never look
         # stalled): the first refusal prints, the row gets a MemoryWait.
         self._hold_for_memory_locked(
-            key, estimate, reason,
-            machine=machine if reason == REASON_MACHINE else None)
+            key, need, reason,
+            machine=machine if reason == REASON_MACHINE and not machine.ok
+            else None)
         return False
+
+    def _step_memory_need_locked(self, tile, step_key):
+        """What the step needs free to start: its charge less what its
+        tile's idle worker already holds from the tile's earlier steps
+        (sampled; nothing for a tile's first step, whose record was
+        measured on its own)."""
+        charge = self._step_memory_booking(tile, step_key)
+        if not self._next_step_index.get(tile, 0):
+            return charge
+        held = max([getattr(child, "tree_gb", 0.0) for child in self._children
+                    if child.tile == tile and child.running_step is None]
+                   or [0.0])
+        return max(0.0, charge - held)
+
+    def _run_resident_locked(self):
+        """What this run's running steps' process trees hold (sampled)."""
+        return sum(getattr(child, "tree_gb", 0.0) for child in self._children
+                   if child.running_step is not None)
+
+    def _run_booked_locked(self):
+        """What this run's running steps have booked and their process
+        trees have not yet grown into: each holder's charge less its
+        child's sampled tree (a step past its charge books nothing)."""
+        grown = {(child.tile, child.running_step):
+                 getattr(child, "tree_gb", 0.0) for child in self._children
+                 if child.running_step is not None}
+        return sum(max(0.0, charge - grown.get(key, 0.0))
+                   for key, charge in self._memory_holders.items())
+
+    def _run_fits_locked(self, gigabytes):
+        """Would ``gigabytes`` more fit the run's room now — free memory
+        above the headroom, less what its steps booked and not yet use?"""
+        return self._run_booked_locked() + gigabytes <= self._memory_budget
 
     #: how long one reading of the disk's free space serves the gate
     DISK_CHECK_SECONDS = 2.0
@@ -1640,28 +1713,28 @@ class ParallelBuildRun:
         if os.environ.get(O4_Machine_Slots.ENV_UNGATED):
             return
         process = getattr(child, "process", None)
+        # The ledger counts growth from now; the projection is the whole
+        # tree's peak, of which the worker already holds what the tile's
+        # earlier steps left (``_step_memory_need_locked``'s rule).
+        held = (getattr(child, "tree_gb", 0.0)
+                if self._next_step_index.get(child.tile, 0) else 0.0)
         self._ledger_holds[(child.tile, step_key)] = MEMORY.reserve(
-            step_memory.ledger_gigabytes(step_key, charged),
+            max(0.0, step_memory.ledger_gigabytes(step_key, charged) - held),
             "%s %s step" % (_short_latlon(child.tile), step_key),
             pid=getattr(process, "pid", None))
-
-    def _memory_fits_locked(self, gigabytes, live):
-        """Would ``gigabytes`` more fit the budget sum (and, ``live``, the
-        machine's free memory above the headroom) now?"""
-        if self._memory_in_use + gigabytes > self._memory_budget:
-            return False
-        return not live or O4_Machine_Slots.memory_admits(need_gb=gigabytes)
 
     def _hold_for_memory_locked(self, key, estimate, reason, behind="",
                                 machine=None):
         """Record a refused heavy step (FIFO) and log its first refusal
-        with what holds it: the reserving step, the run's budget, or the
-        machine — then, for the machine, who holds its memory (the
+        with what holds it: the reserving step, what the run's steps
+        booked and do not yet use, or the machine — then, for the machine, who holds its memory (the
         ledger's ``note_wait``: logged when the holders change; an app
         run's wait also asks the lanes to leave it room)."""
         import O4_Parallel_Utils as PARALLEL_UTILS
 
         free = PARALLEL_UTILS.machine_available_memory_gigabytes()
+        booked = self._run_booked_locked()
+        kept = O4_Machine_Slots.headroom_gigabytes()
         if machine is not None:
             # The ledger logs the wait, and again when its holders change.
             MEMORY.note_wait("tile %s's %s step" % (_short_latlon(key[0]),
@@ -1673,36 +1746,32 @@ class ParallelBuildRun:
                 key, estimate, free, reason,
                 MEMORY.holders_text(MEMORY.snapshot())
                 if machine.contended else "",
-                self._memory_in_use, self._memory_budget)
+                booked, kept)
             return
         if behind:
             cause = "behind %s" % behind
         elif reason == REASON_RUN:
-            cause = ("this run's steps hold %.1f of its %.1f GB budget"
-                     % (self._memory_in_use, self._memory_budget))
+            cause = ("this run's steps have booked %.1f GB not yet in use; "
+                     "%.1f GB kept free" % (booked, kept))
         else:
-            cause = "the machine keeps %.1f GB free" % (
-                O4_Machine_Slots.headroom_gigabytes())
+            cause = "%.1f GB kept free" % kept
         if self._memory_waits.note(key, estimate, free, reason, behind,
-                                   self._memory_in_use, self._memory_budget):
+                                   booked, kept):
             print("Tile %s waits for free memory before its %s step "
                   "(needs about %.1f GB, %.1f GB free; %s)."
                   % (_short_latlon(key[0]), key[1], estimate, free, cause))
 
-    def _refresh_memory_budget_locked(self, run_resident_gb):
-        """Re-size the run's budget from the machine NOW (lane lmemwait,
-        2026-11-17): what it can hand out plus what this run's running
-        steps hold.  A move under ``MEMORY_BUDGET_HYSTERESIS_GB`` is
-        ignored.  Only the cache-aware gate's budget follows the machine;
-        the legacy mesh budget is physical memory, already fixed."""
+    def _refresh_memory_budget_locked(self):
+        """Re-read the run's room from the machine NOW (free memory above
+        the headroom, :func:`step_memory_budget_gigabytes`).  A move under
+        ``MEMORY_BUDGET_HYSTERESIS_GB`` is ignored.  Only the cache-aware
+        gate's room follows the machine; the legacy mesh budget is
+        physical memory, already fixed."""
         if not cache_aware_admission_enabled():
             return
-        budget = step_memory_budget_gigabytes(run_resident_gb)
-        if abs(budget - self._memory_budget) < MEMORY_BUDGET_HYSTERESIS_GB:
-            return
-        print("Memory budget for this build: %.1f GB (was %.1f GB)."
-              % (budget, self._memory_budget))
-        self._memory_budget = budget
+        budget = step_memory_budget_gigabytes()
+        if abs(budget - self._memory_budget) >= MEMORY_BUDGET_HYSTERESIS_GB:
+            self._memory_budget = budget
 
     def _memory_wait_pending_locked(self, key):
         """Is the held step still this run's next work for its tile?"""
@@ -1763,7 +1832,7 @@ class ParallelBuildRun:
             changes = []
             for key, wait in now.items():
                 shown = (round(wait.needed_gb, 1), round(wait.free_gb),
-                         wait.reason, wait.behind, round(wait.budget_gb))
+                         wait.reason, wait.behind, round(wait.booked_gb))
                 if sent.get(key) != shown:
                     sent[key] = shown
                     changes.append((key, wait, False))
@@ -1780,7 +1849,7 @@ class ParallelBuildRun:
                     FLOOR.wait_message(wait.free_gb, wait.needed_gb)
                     if wait.reason == FLOOR.REASON_DISK else wait_message(
                         wait.needed_gb, wait.free_gb, wait.reason,
-                        wait.behind, wait.in_use_gb, wait.budget_gb)),
+                        wait.behind, wait.booked_gb, wait.kept_gb)),
                 resolved=resolved))
 
     def _tile_configuration(self, tile):
@@ -1906,7 +1975,7 @@ class ParallelBuildRun:
             if self._memory_waits.clear((child.tile, step_key)):
                 print("Tile %s has the memory it waited for; its %s step "
                       "starts." % (_short_latlon(child.tile), step_key))
-            estimate = self._step_memory_charge(child.tile, step_key)
+            estimate = self._step_memory_booking(child.tile, step_key)
             if estimate > 0.0:
                 self._memory_holders[(child.tile, step_key)] = estimate
                 self._memory_in_use += estimate
@@ -2201,13 +2270,15 @@ class ParallelBuildRun:
     def slow_step_choice(self, tile, choice):
         """Hand the user's slow-step answer (#1351) to the child running
         the tile's step; False when no child is running one."""
-        with self._lock:
-            for child in self._children:
-                if (child.tile == tile and not child.retired
-                        and child.running_step is not None):
-                    return child.send({"cmd": "slow_step_choice",
-                                       "lat": tile[0], "lon": tile[1],
-                                       "choice": choice})
+        # No scheduler lock: a dialog answer never waits for a dispatch
+        # (owner 2026-11-20T18:40Z); the list is copied whole, and the
+        # child's own stdin lock orders its pipe.
+        for child in list(self._children):
+            if (child.tile == tile and not child.retired
+                    and child.running_step is not None):
+                return child.send({"cmd": "slow_step_choice",
+                                   "lat": tile[0], "lon": tile[1],
+                                   "choice": choice})
         return False
 
     def cancel_all(self):
@@ -2521,12 +2592,20 @@ class ParallelBuildRun:
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     (finished, child.tile) = (child.tile, None)
+                    stale = []
                     if self._last_ok.get(finished):
                         # #1989: the built tile's Gateway airports (the
-                        # per-step children each see one step)
+                        # per-step children each see one step); #2169 (3):
+                        # one installed this run after its patch was built
                         _offer_gateway_airports(*finished)
                         _offer_pack_overlaps(*finished)
-                    if rerun and self._last_ok.get(finished):
+                        from auto_patch import gateway_stage as _GW
+                        stale = _GW.stale_patches(*finished)
+                        if stale and not rerun:
+                            line = _gateway_line(finished, stale)
+                            print(line)
+                            self.tile_log_line(finished, line)
+                    if (rerun or stale) and self._last_ok.get(finished):
                         self._readmit_locked(finished)
             self._dispatch_locked()
         if stopped is not None:
@@ -2557,18 +2636,22 @@ class ParallelBuildRun:
         peak on its child (#2083); then dispatch again, so a step held by
         the live free-memory check starts once memory is back."""
         with self._lock:
-            running = {child.process.pid: (child, child.running_step)
-                       for child in self._children
-                       if child.running_step is not None
-                       and getattr(child, "process", None) is not None}
-        resident = (step_memory.tree_resident_gigabytes(list(running))
-                    if running else {})
+            live = {child.process.pid: (child, child.running_step)
+                    for child in self._children
+                    if getattr(child, "process", None) is not None
+                    and not child.retired}
+        resident = (step_memory.tree_resident_gigabytes(list(live))
+                    if live else {})
         with self._lock:
-            for pid, gigabytes in resident.items():
-                child, step_key = running[pid]
-                if child.running_step == step_key:
+            for pid, (child, step_key) in live.items():
+                gigabytes = resident.get(pid, 0.0)
+                # What the worker holds now: grown into its step's booking,
+                # or left from its tile's earlier steps (the next step's
+                # projection is the whole tree's peak, so it counts).
+                child.tree_gb = gigabytes
+                if step_key is not None and child.running_step == step_key:
                     child.step_peak_gb = max(child.step_peak_gb, gigabytes)
-            self._refresh_memory_budget_locked(sum(resident.values()))
+            self._refresh_memory_budget_locked()
             self._dispatch_locked()
 
     def _report_released_stop(self, tile, attempt, held, last_step):
@@ -2738,7 +2821,6 @@ class ParallelBuildRun:
             return
         try:
             import O4_Config_Utils as CFG
-            import O4_OSM_Utils as OSM
             import O4_Vector_Map as VMAP
         except Exception as error:
             print("OpenStreetMap cache warmer unavailable:", error)
@@ -2753,19 +2835,20 @@ class ParallelBuildRun:
                     return
                 # Only the head of the queue (#1225): a planet-sized
                 # queue must not be downloaded ahead of its builds.
-                tile = next(
-                    (t for t in itertools.islice(self._queue,
-                                                 QUEUE_SCAN_WINDOW)
-                     if t not in self._warmed_tiles),
-                    None,
-                )
+                unwarmed = [t for t in itertools.islice(
+                    self._queue, QUEUE_SCAN_WINDOW)
+                    if t not in self._warmed_tiles]
+                tile = next((t for t in unwarmed
+                             if not self._worker_could_take_locked(t)),
+                            None)
                 behind = len(self._queue) > QUEUE_SCAN_WINDOW
                 if tile is not None:
                     self._warming_tile = tile
             if tile is None:
-                if not behind:
+                if not behind and not unwarmed:
                     return
-                time.sleep(WARM_AHEAD_POLL_SECONDS)   # the head moves on
+                # The head moves on, or a worker takes the tile itself.
+                time.sleep(WARM_AHEAD_POLL_SECONDS)
                 continue
             # The warmer exists to spare the OVERPASS servers.  A tile
             # fully covered by locally stored regional extracts never
@@ -2821,28 +2904,10 @@ class ParallelBuildRun:
             if not self._await_warm_token(tile):
                 continue
             try:
-                specifications = VMAP.osm_layer_warm_specifications(
-                    tile_configuration)
-                warmed_layers = 0
-                for (cached_suffix, queries, tags_of_interest,
-                        node_tags_of_interest,
-                        cache_schema) in specifications:
-                    with self._lock:
-                        still_queued = tile in self._queue
-                        stopping = self._finished or self._cancel_all
-                    if stopping or not still_queued:
-                        break
-                    OSM.OSM_queries_to_OSM_layer(
-                        queries,
-                        OSM.OSM_layer(),
-                        tile[0],
-                        tile[1],
-                        tags_of_interest,
-                        cached_suffix=cached_suffix,
-                        node_tags_of_interest=node_tags_of_interest,
-                        cache_schema=cache_schema,
-                    )
-                    warmed_layers += 1
+                warmed_layers = self._warm_tile_layers(
+                    tile, tile_build_dir, len(
+                        VMAP.osm_layer_warm_specifications(
+                            tile_configuration)))
                 if warmed_layers:
                     print("[warm] OpenStreetMap cache ready for",
                           _short_latlon(tile),
@@ -2859,6 +2924,40 @@ class ParallelBuildRun:
                 self._dispatch_locked()
             self._maybe_finish()
 
+    def _warm_tile_layers(self, tile, build_dir, layer_count):
+        """Warm ``tile``'s layers in a worker process of their own
+        (``osm_warm_process``: never on the command process's
+        interpreter), stopping between layers when the run stops or a
+        worker took the tile.  Returns the layers warmed."""
+        runner = OSM_WARM.open_runner()
+        warmed = 0
+        try:
+            for index in range(layer_count):
+                with self._lock:
+                    still_queued = tile in self._queue
+                    stopping = self._finished or self._cancel_all
+                if stopping or not still_queued:
+                    break
+                runner.layer(tile[0], tile[1], build_dir, index)
+                warmed += 1
+        finally:
+            runner.close()
+        return warmed
+
+    def _worker_could_take_locked(self, tile):
+        """Whether a worker could start queued ``tile`` now or once the
+        pool grows: it is among the first N queued tiles, N = the idle
+        children plus the children the slot count still allows.  The
+        warmer leaves such a tile alone — warming it held it off an idle
+        worker (owner's 1.0.568 run, 2026-11-20: -23-048 claimed by the
+        warmer for an hour, a worker idle beside it for 23 minutes)."""
+        alive = [child for child in self._children if not child.retired]
+        free = sum(1 for child in alive
+                   if child.tile is None and not child.cancelling)
+        free += max(0, self._slots - len(alive))
+        return tile in itertools.islice(self._queue,
+                                        min(free, QUEUE_SCAN_WINDOW))
+
     def _await_warm_token(self, tile):
         """Block until the warmer holds an osm token for ``tile``.
 
@@ -2874,6 +2973,11 @@ class ParallelBuildRun:
                     self._warming_tile = None
                     return False
                 if tile not in self._queue:
+                    self._warming_tile = None
+                    return False
+                if self._worker_could_take_locked(tile):
+                    # A slot freed while the warmer waited: the tile's
+                    # own worker downloads it.
                     self._warming_tile = None
                     return False
                 self._warming_tile = tile

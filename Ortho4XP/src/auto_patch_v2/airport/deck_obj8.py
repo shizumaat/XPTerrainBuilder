@@ -144,9 +144,72 @@ def _region_uv(region, x: float, z: float, box: tuple[float, float, float, float
     return (u0 + eps + fu * (u1 - u0 - 2 * eps), v0 + eps + fv * (v1 - v0 - 2 * eps))
 
 
-def _tris(poly: Polygon) -> list[Polygon]:
-    return [t for t in shapely.get_parts(shapely.constrained_delaunay_triangles(poly))
+#: THE TOP FOLLOWS ITS SURFACE (owner 2026-11-20T15:17Z / 15:30Z, KIAH
+#: 1.0.567: "Markings ... are floating above the pavement"; "A few the lines
+#: are not showing, perhaps ... not drawn on the object?"; lane lcross20):
+#: every face over the top is triangulated on a grid this fine (m) and every
+#: overlay band is stationed this often, so the slab and its markings read
+#: the same surface (a Coons patch, ``geom/coons_patch``) within a fraction
+#: of a millimetre -- 1.0.567 drew a four-corner deck's top as TWO planar
+#: triangles, its overlays on the patch itself: they stood up to centimetres
+#: over it or sank under it, out of sight
+TOP_STEP_M = 2.0
+
+
+def _tris(poly: Polygon, step: float = TOP_STEP_M) -> list[Polygon]:
+    """``poly``'s triangles, on a ``step`` grid where it is larger."""
+    x0, z0, x1, z1 = poly.bounds
+    if max(x1 - x0, z1 - z0) <= step:
+        cells = [poly]
+    else:
+        cells = []
+        for i in range(int(math.ceil((x1 - x0) / step))):
+            for j in range(int(math.ceil((z1 - z0) / step))):
+                bx = shapely.box(x0 + i * step, z0 + j * step, x0 + (i + 1) * step,
+                                 z0 + (j + 1) * step)
+                cells += [q for q in shapely.get_parts(poly.intersection(bx))
+                          if q.geom_type == "Polygon" and q.area > 1e-6]
+    return [t for c in cells
+            for t in shapely.get_parts(shapely.constrained_delaunay_triangles(c))
             if t.area > 1e-6]
+
+
+def surface_of(poly: Polygon, top_y: _t.Callable[[float, float], float]
+               ) -> _t.Callable[[float, float], float]:
+    """``top_y`` as the slab DRAWS it: linear over the very triangles
+    :func:`_tris` lays on ``poly`` (each corner at ``top_y``), ``top_y``
+    itself off them -- so a marking stationed on it lies on the drawn top,
+    never on the smooth surface between its vertices (MEASURED KIAH 1.0.567
+    on a 2 m grid: the lines up to 17 mm under the drawn slab, read off the
+    patch itself)."""
+    from shapely.strtree import STRtree
+    tris = _tris(poly)
+    if not tris:
+        return top_y
+    corners = [[(x, z, top_y(x, z)) for x, z in list(t.exterior.coords)[:3]] for t in tris]
+    tree = STRtree(tris)
+
+    def at(x: float, z: float) -> float:
+        for i in tree.query(shapely.Point(x, z).buffer(1e-6)):
+            (xa, za, ya), (xb, zb, yb), (xc, zc, yc) = corners[int(i)]
+            det = (xb - xa) * (zc - za) - (xc - xa) * (zb - za)
+            if abs(det) < 1e-12:
+                continue
+            b = ((x - xa) * (zc - za) - (xc - xa) * (z - za)) / det
+            c = ((xb - xa) * (z - za) - (x - xa) * (zb - za)) / det
+            if b >= -1e-9 and c >= -1e-9 and b + c <= 1.0 + 1e-9:
+                return ya + b * (yb - ya) + c * (yc - ya)
+        return top_y(x, z)
+    return at
+
+
+def _dense(points: _t.Sequence[XY], step: float = TOP_STEP_M / 2.0) -> list[XY]:
+    """``points`` with a vertex at least every ``step`` metres."""
+    out = [tuple(points[0])]
+    for (xa, za), (xb, zb) in zip(points[:-1], points[1:], strict=True):
+        n = max(1, int(math.ceil(math.hypot(xb - xa, zb - za) / step)))
+        out += [(xa + (xb - xa) * k / n, za + (zb - za) * k / n) for k in range(1, n + 1)]
+    return out
 
 
 def _cap(m: _Mesh, poly: Polygon, y, up: bool, uv) -> None:
@@ -166,7 +229,8 @@ def _sides(m: _Mesh, poly: Polygon, y_hi, y_lo, uv) -> None:
     edge's right normal.  ``uv(metres along the ring, ring length, top)``."""
     poly = orient(poly, 1.0)
     for ring in (poly.exterior, *poly.interiors):
-        pts = list(ring.coords)
+        # stationed as the top is (:data:`TOP_STEP_M`): no slit under its edge
+        pts = _dense(list(ring.coords), TOP_STEP_M)
         per = max(ring.length, 1e-9)
         s = 0.0
         for (xa, za), (xb, zb) in zip(pts[:-1], pts[1:], strict=True):
@@ -247,7 +311,8 @@ def _paint(m: _Mesh, lines: _t.Sequence[DeckLine], top_y) -> None:
         uv = _tex.uv_centre({"yellow": _tex.YELLOW_UV, "black": _tex.BLACK_UV}
                             .get(ln.colour, _tex.WHITE_UV))
         h = ln.width_m / 2.0
-        for (xa, za), (xb, zb) in zip(ln.points[:-1], ln.points[1:], strict=True):
+        pts = _dense(ln.points)
+        for (xa, za), (xb, zb) in zip(pts[:-1], pts[1:], strict=True):
             d = math.hypot(xb - xa, zb - za)
             if d < 1e-6:
                 continue
@@ -313,6 +378,24 @@ class DeckStrip:
     mirror_v: bool = False
 
 
+def _gridded(tri) -> list:
+    """One decal triangle ``((x, z, u, v) * 3)`` cut on the top's grid, its
+    ``(u, v)`` interpolated (affine over the triangle)."""
+    (xa, za, ua, va), (xb, zb, ub, vb), (xc, zc, uc, vc) = tri
+    det = (xb - xa) * (zc - za) - (xc - xa) * (zb - za)
+    poly = Polygon([(xa, za), (xb, zb), (xc, zc)])
+    if abs(det) < 1e-12 or max(poly.bounds[2] - poly.bounds[0],
+                               poly.bounds[3] - poly.bounds[1]) <= TOP_STEP_M:
+        return [tri]
+
+    def uv(x: float, z: float) -> tuple[float, float]:
+        b = ((x - xa) * (zc - za) - (xc - xa) * (z - za)) / det
+        c = ((xb - xa) * (z - za) - (x - xa) * (zb - za)) / det
+        return ua + b * (ub - ua) + c * (uc - ua), va + b * (vb - va) + c * (vc - va)
+    return [tuple((x, z, *uv(x, z)) for x, z in list(t.exterior.coords)[:3])
+            for t in _tris(poly)]
+
+
 @_dc.dataclass(frozen=True)
 class DeckDecal:
     """Textured triangles on the top (a runway marking clipped to the
@@ -324,8 +407,9 @@ class DeckDecal:
 
 
 def _decal(m: _Mesh, d: DeckDecal, top_y) -> None:
-    """One :class:`DeckDecal`, facing up."""
-    for tri in d.tris:
+    """One :class:`DeckDecal`, facing up, each triangle on the top's grid
+    (:data:`TOP_STEP_M`; its texture coordinates interpolated)."""
+    for tri in (q for t in d.tris for q in _gridded(t)):
         ids = [m.vertex((x, top_y(x, z) + d.lift_m, z), (0.0, 1.0, 0.0), (u, v))
                for x, z, u, v in tri]
         m.tri(ids[0], ids[1], ids[2], (0.0, -1.0, 0.0))
@@ -354,7 +438,7 @@ def _stations(points: _t.Sequence[XY], v_scale: float, mirror: bool
 
 def _strip(m: _Mesh, st: DeckStrip, top_y) -> None:
     """One :class:`DeckStrip`: a mitred quad band, facing up."""
-    pts = _stations(st.points, st.v_scale_m, st.mirror_v)
+    pts = _stations(_dense(st.points), st.v_scale_m, st.mirror_v)
     if len(pts) < 2:
         return
 

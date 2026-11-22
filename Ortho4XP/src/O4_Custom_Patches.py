@@ -12,8 +12,15 @@ the tile info, and the tile info offers "Use auto patch", which renames
 each custom patch to ``….disabled`` (``.disabled.2`` … when that name is
 taken).  Nothing here ever deletes a patch or overwrites a file.
 
+Once per custom patch (owner 2026-11-19T13:42Z, #2179) both apps say which
+elevation it was built for — the build's fit (``O4_Patch_Rebase``)
+records it — and that the auto patch gives this airport higher-resolution
+elevation, with "Use auto patch" and "Keep custom patch" as the answers
+(:func:`_elevation_notices`, :func:`notice_seen`).
+
 The Qt app calls these functions in process; the Mac app through the
-engine's ``custom_patches`` and ``use_auto_patch`` commands
+engine's ``custom_patches``, ``use_auto_patch`` and
+``custom_patch_notice_seen`` commands
 (``o4_engine.patch_commands``).  Nothing a build step imports may import
 this module: it is outside the auto-patch code closure, so its wording can
 change without staling an airport patch.
@@ -22,17 +29,27 @@ change without staling an airport patch.
 from __future__ import annotations
 
 import os
+import re
 
+import O4_Airport_Fit as AIRPORT_FIT
 import O4_File_Names as FNAMES
 
 __all__ = ["CUSTOM_PATCH_TITLE", "USE_AUTO_PATCH_TITLE", "SET_ASIDE_SUFFIX",
+           "KEEP_CUSTOM_PATCH_TITLE",
            "custom_patches", "custom_patch_tiles", "set_aside",
-           "use_auto_patch", "info_text", "use_auto_patch_help"]
+           "use_auto_patch", "info_text", "use_auto_patch_help",
+           "notice_seen",
+           "FIT_KEY", "unmodified_airports", "stand_down_new", "fit_state",
+           "airport_fits",
+           "fit_confirm_text"]
 
 #: The tile info's label (``BuildPane.customPatchTitle`` in the Mac app).
 CUSTOM_PATCH_TITLE = "Custom patch"
 #: The tile info's button (``BuildPane.useAutoPatchTitle``).
 USE_AUTO_PATCH_TITLE = "Use auto patch"
+#: The custom-patch notice's other button (#2179; ``O4CustomPatchText.
+#: keepTitle``): the patch stays, the notice is not shown again.
+KEEP_CUSTOM_PATCH_TITLE = "Keep custom patch"
 #: What a custom patch set aside is renamed with; the build reads only
 #: names ending ``.patch.osm``.
 SET_ASIDE_SUFFIX = ".disabled"
@@ -50,8 +67,9 @@ def custom_patches(lat: int, lon: int) -> list[str]:
 
 
 def custom_patch_tiles() -> list[dict]:
-    """Every tile with a custom patch: ``[{"lat", "lon", "files"}]``,
-    sorted by tile, read from ``Patches/<10°>/<1°>/`` of the data root."""
+    """Every tile with a custom patch: ``[{"lat", "lon", "files",
+    "notices"}]`` (:func:`_elevation_notices`), sorted by tile, read from
+    ``Patches/<10°>/<1°>/`` of the data root."""
     out = []
     root = FNAMES.Patch_dir
     try:
@@ -72,7 +90,8 @@ def custom_patch_tiles() -> list[dict]:
                 continue
             files = custom_patches(lat, lon)
             if files:
-                out.append({"lat": lat, "lon": lon, "files": files})
+                out.append({"lat": lat, "lon": lon, "files": files,
+                            "notices": _elevation_notices(lat, lon)})
     return out
 
 
@@ -129,3 +148,203 @@ def use_auto_patch_help() -> str:
     """The "Use auto patch" button's hover text (the Mac app: the same)."""
     return ("Renames the custom patch to .disabled (it is never deleted), "
             "so the next build auto-patches the airport.")
+
+
+# ── Which elevation a custom patch was built for (owner 2026-11-19T13:42Z,
+# #2179) ─────────────────────────────────────────────────────────────────
+#: The tile's record of the notices the user has answered, in its build
+#: folder: ``{file name: [mtime_ns, size]}``.
+_NOTICES_SEEN = "custom_patch_notices_seen.json"
+_BASE_SOURCE = re.compile(r"^base elevation \((.*)\)$")
+
+
+def _source_text(source: str) -> str:
+    """The user's words for an elevation source the build's fit named
+    (``O4_Patch_Rebase``): the base raster by its name and resolution —
+    Viewfinderpanoramas called the Ortho4XP default — an inset by its file
+    name."""
+    base = _BASE_SOURCE.match(source or "")
+    if base:
+        name = base.group(1)
+        if name.lower().startswith("viewfinder"):
+            return name + " (the Ortho4XP default)"
+        return name
+    if source == "build DEM":
+        return "this tile's high-resolution elevation"
+    return source or "an unknown elevation source"
+
+
+def _notice_text(file: str, source: str) -> str:
+    """The notice both apps show once per custom patch (the Mac app shows
+    the engine's text as is)."""
+    return ("This custom patch (%s) was built for %s. For higher-resolution "
+            "elevation data at this airport, use the auto patch."
+            % (file, _source_text(source)))
+
+
+def _read_json(path: str) -> dict:
+    import json
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _elevation_notices(lat: int, lon: int, custom_build_dir: str = "") -> list:
+    """``[{"icao", "file", "source", "text"}]``: each custom patch of the
+    tile whose elevation source a build identified (``O4_Patch_Rebase.
+    SOURCES_RECORD``, for the file as it is now) and whose notice the user
+    has not answered (:func:`notice_seen`), sorted by file."""
+    import O4_Patch_Rebase as REBASE
+
+    folder = FNAMES.build_dir(lat, lon, custom_build_dir)
+    found = _read_json(os.path.join(folder, REBASE.SOURCES_RECORD))
+    seen = _read_json(os.path.join(folder, _NOTICES_SEEN))
+    out = []
+    for (name, stamp) in sorted(_signature(lat, lon).items()):
+        row = found.get(name)
+        if (isinstance(row, dict) and row.get("signature") == stamp
+                and seen.get(name) != stamp):
+            source = str(row.get("source") or "")
+            out.append({"icao": FNAMES.patch_file_icao(name), "file": name,
+                        "source": source, "text": _notice_text(name, source)})
+    return out
+
+
+def notice_seen(lat: int, lon: int, file: str,
+                custom_build_dir: str = "") -> None:
+    """Remember that the user answered *file*'s notice: it is not shown
+    again until the file changes."""
+    import json
+
+    stamp = _signature(lat, lon).get(file)
+    if stamp is None:
+        raise ValueError("tile %s has no custom patch %s"
+                         % (FNAMES.short_latlon(lat, lon), file))
+    folder = FNAMES.build_dir(lat, lon, custom_build_dir)
+    path = os.path.join(folder, _NOTICES_SEEN)
+    seen = _read_json(path)
+    seen[file] = stamp
+    os.makedirs(folder, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        json.dump(seen, handle, sort_keys=True)
+
+
+# ── "Fit custom airport buildings" and a custom patch (owner RULINGS
+# 2026-11-18l, #2172; per airport since #2182, ``O4_Airport_Fit``) ─────────
+#: The tile setting each airport's own value falls back to.
+FIT_KEY = AIRPORT_FIT.FIT_KEY
+#: The tile's record of the custom patches a build has seen, in its build
+#: folder: ``{file name: [mtime_ns, size]}``.
+_SEEN_RECORD = "custom_patches_seen.json"
+
+
+def _unmodified_files(lat: int, lon: int) -> dict:
+    """``{file: ICAO}`` of the custom patches whose airport's pack is used
+    unmodified (RULINGS 2026-11-18k): every custom patch but the patch
+    editor's own ``<ICAO>_edited.patch.osm``."""
+    out = {}
+    for name in custom_patches(lat, lon):
+        icao = FNAMES.patch_file_icao(name)
+        if icao and name != FNAMES.edited_patch_name(icao):
+            out[name] = icao
+    return out
+
+
+def unmodified_airports(lat: int, lon: int) -> list[str]:
+    """The ICAOs of the tile's custom patches (2026-11-18k), sorted."""
+    return sorted(set(_unmodified_files(lat, lon).values()))
+
+
+def _signature(lat: int, lon: int) -> dict:
+    directory = FNAMES.patch_dir(lat, lon)
+    out = {}
+    for name in _unmodified_files(lat, lon):
+        try:
+            st = os.stat(os.path.join(directory, name))
+        except OSError:
+            continue
+        out[name] = [st.st_mtime_ns, st.st_size]
+    return out
+
+
+def _seen(tile) -> dict:
+    return _read_json(os.path.join(tile.build_dir, _SEEN_RECORD))
+
+
+def _new_airports(tile) -> list[str]:
+    """The airports whose custom patch this tile's builds have not seen
+    (newly installed, or changed since the last build), sorted."""
+    seen = _seen(tile)
+    return sorted({FNAMES.patch_file_icao(name)
+                   for (name, stamp) in _signature(tile.lat, tile.lon).items()
+                   if seen.get(name) != stamp})
+
+
+def stand_down_new(tile) -> list[str]:
+    """At a build's start: a custom patch the tile has not seen turns
+    "Fit custom airport buildings" OFF for ITS airport (the airport's own
+    value, ``O4_Airport_Fit``; #2182: the tile's other airports keep
+    theirs), logged in one line naming the airports; the patches are
+    recorded as seen.  Returns the new airports.  A per-build switch the
+    user turns on afterwards (``Tile.apply_build_overrides``) still wins."""
+    import json
+
+    signature = _signature(tile.lat, tile.lon)
+    if signature == _seen(tile):
+        return []
+    new = _new_airports(tile)
+    turned = [icao for icao in new if AIRPORT_FIT.fits(tile, icao)]
+    own = AIRPORT_FIT.read(tile.build_dir)
+    for icao in new:
+        if own.get(icao) is not False:   # off as its own value, not the tile's
+            AIRPORT_FIT.set_fit(tile.build_dir, icao, False)
+    if turned:
+        import O4_UI_Utils as UI
+
+        UI.vprint(0, "Custom patch new for %s: \"Fit custom airport buildings "
+                     "to the new ground\" is turned off for %s — the "
+                     "airport's pack is used unmodified; the tile's other "
+                     "airports keep their own setting." % (
+                         ", ".join(turned),
+                         "this airport" if len(turned) == 1 else "these airports"))
+    os.makedirs(tile.build_dir, exist_ok=True)
+    with open(os.path.join(tile.build_dir, _SEEN_RECORD), "w",
+              encoding="utf-8", newline="") as handle:
+        json.dump(signature, handle, sort_keys=True)
+    return new
+
+
+def airport_fits(tile, icaos) -> dict:
+    """``{ICAO: fit}`` for a configured tile's next build: each airport's
+    own value (``O4_Airport_Fit.fits``) — off when its custom patch is new
+    to the tile (the build's :func:`stand_down_new` will turn it off)."""
+    new = set(_new_airports(tile))
+    return {icao: icao not in new and AIRPORT_FIT.fits(tile, icao)
+            for icao in sorted(set(icaos))}
+
+
+def fit_state(tile) -> tuple[list[str], bool]:
+    """``(custom-patch airports, fit)`` for a configured tile: whether its
+    next build fits any of the airports it knows (its custom patches' and
+    those with a value of their own; else the tile's setting).  The Build
+    card reads each pack airport's own value (:func:`airport_fits`); this
+    is its answer when no pack is listed."""
+    custom = unmodified_airports(tile.lat, tile.lon)
+    known = set(custom) | set(AIRPORT_FIT.read(tile.build_dir))
+    if not known:
+        return (custom, AIRPORT_FIT.any_fits(tile))
+    return (custom, any(airport_fits(tile, known).values()))
+
+
+def fit_confirm_text(icaos) -> str:
+    """The question both apps ask before the switch is turned on for tiles
+    with custom patches, or "" when there are none."""
+    if not icaos:
+        return ""
+    return ("Custom patches are installed for %s. Fitting buildings to the "
+            "new ground will also modify these airports' scenery packages. "
+            "Continue?" % ", ".join(icaos))

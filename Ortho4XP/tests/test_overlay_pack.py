@@ -15,6 +15,8 @@ for DSFTool -- nothing is spawned, the real install is never read.
   over the whole tile, or already holds the default content (same
   creation agent); an airport overlay, a forest-only pack or a disabled
   pack covers nothing;
+* our overlay packs' writes leave the road network out where an enabled
+  pack replaces it over the whole tile (RULINGS 2026-11-19i);
 * the ini: Overlays then World are the last two rows, an existing row is
   moved there, and the World pack's own filing keeps that order;
 * an adopted tile (Convert existing tiles) requests its overlay, and the
@@ -194,6 +196,59 @@ def test_our_own_packs_never_cover(world):
     _pack_dsf(world, OPACK.PACK_NAME, agent=DEFAULT_AGENT)
     _pack_dsf(world, WP.PACK_NAME, extra=[_network()])
     assert OVL.overlay_decision(LAT, LON, world)["state"] == "build"
+
+
+# ------------------------- RULINGS 2026-11-19i: our overlay's roads left out
+
+
+def test_a_pack_replacing_the_road_network_leaves_our_overlays_roads_out(world, monkeypatch):
+    """Where an enabled overlay pack excludes the default road network over
+    the whole tile, every write of OUR overlay packs' tile DSF carries
+    ``drop_network`` (one log line names the pack); another pack's write,
+    a disabled pack or a forests-only pack changes nothing."""
+    from auto_patch_v2.airport import dsf_write as DW
+    said = []
+    monkeypatch.setattr(UI, "vprint", lambda level, *words: said.append(" ".join(map(str, words))))
+    ours = [os.path.join(world, n) for n in (OPACK.PACK_NAME, OPACK.LEGACY_PACK_NAME)]
+    dsf = [os.path.join(p, WP.dsf_relpath(LAT, LON)) for p in ours]
+    _pack_dsf(world, "Forests Only", extra=[
+        ("sim/exclude_for", f"{LON}/{LAT}/{LON + 1}/{LAT + 1}")])
+    assert OPACK.road_cover(world, LAT, LON) is None
+    assert DW._with_road_cover(ours[0], dsf[0], {}) == {}
+    _pack_dsf(world, "Roads Everywhere", extra=[_network()])
+    assert OPACK.road_cover(world, LAT, LON)[0] == "Roads Everywhere"
+    assert OPACK.road_cover(world, LAT + 1, LON) is None       # another tile
+    for root, path in zip(ours, dsf, strict=True):
+        assert DW._with_road_cover(root, path, {"decks": [1]}) == {
+            "decks": [1], "drop_network": "Roads Everywhere"}
+    other = os.path.join(world, "Some Airport")
+    assert DW._with_road_cover(other, dsf[0].replace(OPACK.PACK_NAME, "Some Airport"),
+                               {}) == {}
+    assert any("our overlay leaves its road network out -- Roads Everywhere" in w
+               for w in said)
+    with open(os.path.join(world, "scenery_packs.ini"), "a",
+              encoding="utf-8", newline="\n") as handle:
+        handle.write("SCENERY_PACK_DISABLED Custom Scenery/Roads Everywhere/\n")
+    assert DW._with_road_cover(ours[1], dsf[1], {}) == {}      # roads back
+
+
+def test_the_dropped_network_keeps_every_forest_object_and_polygon():
+    from auto_patch_v2.airport import generated_pack as G
+    text = ("NETWORK_DEF lib/g10/roads.net\nPOLYGON_DEF lib/a.for\nOBJECT_DEF lib/b.obj\n"
+            "BEGIN_POLYGON 0 255 2\nBEGIN_WINDING\nPOLYGON_POINT 5.1 43.1\nEND_WINDING\n"
+            "END_POLYGON\nOBJECT 0 5.2 43.2 0\n"
+            "BEGIN_SEGMENT 0 10 1 5.3 43.3 0\nSHAPE_POINT 5.31 43.31 1\n"
+            "END_SEGMENT 2 5.4 43.4 0\nBEGIN_SEGMENT 0 10 2 5.4 43.4 0\n"
+            "END_SEGMENT 3 5.5 43.5 0\n")
+    out, counts = G.apply_text(text, {"drop_network": "Roads Everywhere"})
+    assert counts["segments_dropped"] == 2 and "SEGMENT" not in out and "SHAPE" not in out
+    assert out.replace("\n", "") == text.split("BEGIN_SEGMENT")[0].replace("\n", "")
+    assert G.apply_text(text, {})[0] == text
+
+
+def test_the_legacy_overlay_name_is_the_links_one():
+    import O4_Scenery_Links as LINKS
+    assert OPACK.LEGACY_PACK_NAME == LINKS.OVERLAY_LINK_NAME
 
 
 # ------------------------------------------------------------------- the ini

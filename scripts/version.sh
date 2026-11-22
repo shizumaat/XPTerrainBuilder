@@ -7,7 +7,7 @@
 #
 #   engine  Ortho4XP/src/O4_Version.py           version='1.50.<build>'
 #           bumped by scripts/make_engine.sh, stamped into
-#           Ortho4XP/dist/Ortho4XP/VERSION.txt (frozen engines have no
+#           Ortho4XP/dist/XPTerrainBuilderEngine/VERSION.txt (frozen engines have no
 #           src/ on disk, so that file is how they report themselves).
 #   app     Sources/XPTerrainBuilder/Resources/VERSION   1.0.<build>
 #           bumped by scripts/make_app.sh; SwiftPM copies it into the app's

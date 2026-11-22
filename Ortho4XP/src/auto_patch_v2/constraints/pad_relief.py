@@ -88,17 +88,18 @@ the ONE grouping derivation).  No mesh, no environment.
 """
 from __future__ import annotations
 
-
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 from ..geom import exact
+from ..geom.pad_base_slope import SlopeField, sloped_pads
 from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["relief_radius_m", "pad_relief_offsets"]
+__all__ = ["relief_radius_m", "pad_relief_offsets", "pad_slope_offsets",
+           "pad_slope_pair_caps"]
 
 
 def relief_radius_m(law: Law) -> float:
@@ -140,20 +141,101 @@ def _otherwise_levelled(planar: PlanarMap, law: Law) -> set[int]:
     return out
 
 
+def _sloped_groups(planar: PlanarMap, law: Law, airport: Airport | None
+                   ) -> dict[str, tuple[SlopeField, set[int]]]:
+    """``{pad ref: (its authored plane, every vertex of the ref)}`` over the
+    pads ``geom/pad_base_slope.sloped_pads`` reads as sloped — the ONE
+    grouping :func:`pad_slope_offsets` and :func:`pad_slope_pair_caps`
+    read."""
+    from .pads import _pad_polys  # one derivation
+    if (airport is None or not getattr(airport, "clusters", None)
+            or float(law.tables.structures.base_profile.sloped_pad_rms_m) <= 0.0):
+        return {}
+    pads = _pad_polys(planar, law)
+    fields = sloped_pads([(ref, poly) for _f, ref, _g, poly in pads], airport, law)
+    out: dict[str, tuple[SlopeField, set[int]]] = {}
+    for _fid, ref, group, _poly in pads:
+        f = fields.get(str(ref))
+        if f is not None:
+            out.setdefault(str(ref), (f, set()))[1].update(group)
+    return out
+
+
+def pad_slope_offsets(planar: PlanarMap, law: Law, airport: Airport | None
+                      ) -> dict[int, float]:
+    """THE SLOPED BASE'S PLANE (owner RULINGS 2026-11-19o (1); #2184):
+    ``vertex -> metres the pad's authored base plane stands there above
+    its value at the member's origin``, over EVERY vertex of a pad
+    ``geom/pad_base_slope.sloped_pads`` reads as sloped — its rim shared
+    with the pavement included.
+
+    UNLIKE the per-foot relief below this IS one plane, so it is no demand
+    a surface cannot build (12u's objection was a per-foot target dragged
+    onto an apron vertex): the plate's TARGET and its HARD 1 % CEILING
+    both read it (``pads._pad_rows``), so "the 09c 1 % allowance measured
+    from that plane" is exactly the ceiling's own sentence on the level
+    plane, and the pavement shared along the rim takes the pad's slope
+    where its own caps allow — the apron grading into it."""
+    out: dict[int, float] = {}
+    for f, vs in _sloped_groups(planar, law, airport).values():
+        for v in vs:
+            x, y = planar.vertices[v].xy
+            out[v] = f.offset(x, y)
+    return out
+
+
+def pad_slope_pair_caps(planar: PlanarMap, law: Law, airport: Airport | None
+                        ) -> dict[tuple[int, int], float]:
+    """THE APRON CAP YIELDS TO THE AUTHORED SLOPE UNDER THE OBJECT (owner
+    RULINGS 2026-11-19q (1), #2184; the pair-lift mechanism of the 11-05a
+    taxi route exception, ``taxi_route_yield.route_pair_caps``):
+    ``(a, b)`` (``a < b``) -> the grade the authored plane runs along that
+    pair, for every pair of vertices of ONE sloped pad — its footprint and
+    the rim it shares with the apron (its weld), nothing beyond.  The
+    apron's within-shape rows on such a pair are hard at
+    ``max(apron cap, this)``; the plane's magnitude is already capped at
+    ``[common] pavement_max_grade`` (``pad_base_slope._member_field``).
+    The census reads the same pairs off the sidecar ``pad_relief`` plane
+    (``tools/check_grade._planar_relief``), the verify through
+    ``verify/pads.sloped_plane_offsets``."""
+    out: dict[tuple[int, int], float] = {}
+    for f, vs in _sloped_groups(planar, law, airport).values():
+        pts = sorted((v, planar.vertices[v].xy) for v in vs)
+        for i, (a, pa) in enumerate(pts):
+            oa = f.offset(*pa)
+            for b, pb in pts[i + 1:]:
+                d = exact.hypot(pa[0] - pb[0], pa[1] - pb[1])
+                if d > 0.0:
+                    g = abs(oa - f.offset(*pb)) / d
+                    if g > 0.0:
+                        out[(a, b)] = max(g, out.get((a, b), 0.0))
+    return out
+
+
 def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
                        ) -> dict[int, float]:
     """``vertex -> the metres the terrain there stands above the pad's
-    LEVEL`` (module doc).  Empty where the law is disarmed, where no pack
+    LEVEL`` (module doc), with a SLOPED base's plane
+    (:func:`pad_slope_offsets`, 19o) in place of the per-foot read on the
+    pads it covers.  Empty where the law is disarmed, where no pack
     was read, or where no group's feet fall on a pad.
 
     Only vertices of RIGID (pad) faces are ever returned: the relief
     target is the pad law's, and nothing outside a pad carries it.
     """
+    out = _foot_offsets(planar, law, airport)
+    out.update(pad_slope_offsets(planar, law, airport))
+    return out
+
+
+def _foot_offsets(planar: PlanarMap, law: Law, airport: Airport
+                  ) -> dict[int, float]:
+    """The per-FOOT relief target (module doc, 11j / 12u / #1855 / #1905)."""
     radius = relief_radius_m(law)
     groups = getattr(airport, "groups", None)
     if radius <= 0.0 or groups is None or not getattr(groups, "groups", ()):
         return {}
-    from .pads import _pad_polys, _pavement_geoms      # one derivation of both
+    from .pads import _pad_polys, _pavement_geoms  # one derivation of both
     pads = _pad_polys(planar, law)
     if not pads:
         return {}

@@ -156,10 +156,16 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     # its own record: no shelf share or float reading decides it (its back
     # cut lengthens the rim off the apron, spec A2 (3))
     shells = {str(s.pad_ref) for s in getattr(planar, "storey_shells", ()) or ()}
+    polys = {ref: unary_union([_poly(planar, f.ring) for f in fs]) for ref, fs in pads.items()}
+    # owner RULINGS 2026-11-19o (1): a building AUTHORED to its slope is no
+    # building on a slope — its pad takes the authored plane
+    # (``geom/pad_base_slope``), never one level
+    from ..geom.pad_base_slope import sloped_pads
+    sloped = sloped_pads(list(polys.items()), airport, law)
     out: list[DoorPad] = []
     for ref, fs in sorted(pads.items()):
-        P = unary_union([_poly(planar, f.ring) for f in fs])
-        if P.is_empty or (P.area >= min_m2 and ref not in shells):
+        P = polys[ref]
+        if P.is_empty or (P.area >= min_m2 and ref not in shells) or ref in sloped:
             continue
         rim = {v for f in fs for v in planar.ring_vertices(f.ring)}
         on = sum(1 for v in rim if v in apron_v)

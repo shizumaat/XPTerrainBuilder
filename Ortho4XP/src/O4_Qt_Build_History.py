@@ -202,8 +202,10 @@ class BuildHistoryPanel(QWidget):
     tile_clicked = Signal(int, int)
     range_changed = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, title=None):
         super().__init__(parent)
+        # the cells' titles: the Activity rows' (#2199), else the coordinate
+        self._title = title
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
         top = QHBoxLayout()
@@ -240,8 +242,9 @@ class BuildHistoryPanel(QWidget):
                 parts.append("%d min" % max(1, round(record["duration"] / 60)))
             if row["built_by"]:
                 parts.append(row["built_by"])
+            name = self._title(tuple(row["tile"])) if self._title else row["key"]
             item = QListWidgetItem("%s %s   %s\n%s" % (
-                _OUTCOME_MARKS.get(record.get("outcome"), "·"), row["key"],
+                _OUTCOME_MARKS.get(record.get("outcome"), "·"), name,
                 _when(row["date"]), " · ".join(parts)))
             item.setData(Qt.UserRole, row["tile"])
             item.setToolTip(outcome_text(row["record"]))
@@ -262,11 +265,13 @@ class ConsoleDrawer(QWidget):
     History panel beside it.
 
     ``built`` returns the window's ``{(lat, lon): TileInfo}``;
-    ``select_tile(lat, lon)`` selects one tile alone on the map;
-    ``dim(tiles)`` hands the map the tiles the date filter leaves out.
+    ``select_tile(lat, lon)`` selects one tile alone on the map (and
+    frames it, #2199); ``dim(tiles)`` hands the map the tiles the date
+    filter leaves out; ``title(tile)`` is the tile's Activity-row title
+    (the coordinate and its top airport codes, #2199), the history cells'.
     """
 
-    def __init__(self, console, built, select_tile, dim, parent=None):
+    def __init__(self, console, built, select_tile, dim, parent=None, title=None):
         super().__init__(parent)
         self.console = console
         self.lines = ConsoleLines(
@@ -325,7 +330,7 @@ class ConsoleDrawer(QWidget):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
         body.addWidget(console, 1)
-        self.history = BuildHistoryPanel()
+        self.history = BuildHistoryPanel(title=title)
         self.history.setVisible(False)
         self.history.tile_clicked.connect(self._select_tile)
         self.history.range_changed.connect(lambda _key: self.refresh_history())

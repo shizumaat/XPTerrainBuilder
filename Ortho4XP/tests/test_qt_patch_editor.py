@@ -1036,3 +1036,24 @@ def test_the_patch_draws_before_its_staleness_check(qapp, patches, tmp_path, mon
     assert ed.model.patch.stale is True and ed.model.patch.stale_inputs == ["o4_dem"]
     assert not ed.panel.stale_note.isHidden()
     view.deleteLater()
+
+
+def test_the_filter_menu_hides_the_patch_layer_and_its_gestures(editor):
+    """#2214 (Mac twin: ``MapFilterTests.testAirportPatchHidesTheLayer``):
+    the Filter menu's "Airport patch" off takes the layer, its toolbar and
+    its Edit-mode clicks off the map; the patch stays loaded, so on again
+    shows it at once."""
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert ed.controller.is_showing and ed.overlay._editing()
+    ed.controller.set_layer_hidden(True)
+    assert not ed.controller.is_showing and not ed.overlay._editing()
+    assert ed.controller.state == ed.controller.LOADED
+    press = _screen(ed, -5)
+    _mouse(view, QEvent.MouseButtonPress, press)
+    assert ed.model.selection == set()             # the hidden layer took no click
+    _mouse(view, QEvent.MouseButtonRelease, press, buttons=Qt.NoButton)
+    ed.controller.set_layer_hidden(False)
+    assert ed.controller.is_showing

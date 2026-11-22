@@ -189,3 +189,58 @@ def test_a_drape_row_lands_with_the_blend_it_was_made_with(tmp_path):
     assert blend.toward == {"N": "USA2"}
     value = blend.at(numpy.array([LAT + 1.0]), numpy.array([LON + 0.5]))[0]
     numpy.testing.assert_allclose(value, (6, 2, -4, 0.2, 0.1, 0.0), atol=1e-9)
+
+
+def test_a_drape_given_back_leaves_no_rows_and_no_landing(tmp_path,
+                                                          monkeypatch):
+    """#2193: the disk budget gives a drape back (``forget``): its index
+    rows go with its rows folder (a full tile's own rows stay), and a row
+    the follow job still holds is refused at once — nothing fetched or
+    converted into the folder that is gone."""
+    import O4_Imagery_Utils as IMG
+    from o4_engine.imagery_follow_land import SquareGone, TierLander
+    pack = _pack(tmp_path)
+    index, store = str(tmp_path / "index.sqlite"), str(tmp_path / "store")
+    DRAPE_ROWS.register(str(pack), LAT, LON, index=index, store=store)
+    conn = INDEX.open_index(index)
+    held = INDEX.rows(conn, tile=TILE)
+    full = dict(held[0], name="full.dds", build_dir=str(tmp_path / "full"))
+    INDEX.upsert(conn, full)
+    conn.commit()
+    conn.close()
+    assert DRAPE_ROWS.forget(LAT, LON, store=store, index=index)
+    conn = INDEX.open_index(index)
+    assert [r["name"] for r in INDEX.rows(conn, tile=TILE)] == ["full.dds"]
+    conn.close()
+
+    def never(*_a, **_k):
+        raise AssertionError("fetched or converted for a gone square")
+
+    monkeypatch.setattr(IMG, "build_jpeg_ortho", never)
+    monkeypatch.setattr(IMG, "convert_texture", never)
+    try:
+        TierLander()(held[0], 1)
+    except SquareGone as error:
+        assert "is gone" in str(error)
+    else:
+        raise AssertionError("a gone square landed")
+
+
+def test_rows_of_drapes_given_back_earlier_are_pruned(tmp_path):
+    """#2193: rows left by a give-back before ``forget`` took them (their
+    rows folder gone) are deleted when a follow job opens; a live
+    drape's rows and a full tile's rows stay."""
+    pack = _pack(tmp_path)
+    index, store = str(tmp_path / "index.sqlite"), str(tmp_path / "store")
+    DRAPE_ROWS.register(str(pack), LAT, LON, index=index, store=store)
+    conn = INDEX.open_index(index)
+    live = INDEX.rows(conn, tile=TILE)
+    gone_dir = DRAPE_ROWS._rows_dir("+53-113", store)
+    INDEX.upsert(conn, dict(live[0], tile="+53-113", build_dir=gone_dir))
+    INDEX.upsert(conn, dict(live[0], tile="+54-113",
+                            build_dir=str(tmp_path / "missing_full_tile")))
+    conn.commit()
+    assert DRAPE_ROWS.prune_gone(conn, store=store) == 1
+    tiles = sorted({r["tile"] for r in INDEX.all_rows(conn)})
+    conn.close()
+    assert tiles == ["+52-113", "+54-113"]

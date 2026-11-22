@@ -215,3 +215,30 @@ def yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
              "ruling": head_of[v]}
             for v in forced]
     return sol_y, rep_y, recs, cs_y
+
+
+def released_once(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                  among: _t.AbstractSet[int],
+                  solve: _t.Callable[[ConstraintSet], tuple[Solution, DesignReport]]
+                  ) -> tuple[Solution, DesignReport, list[dict], ConstraintSet]:
+    """STAGE 2's pin yield in ONE solve (#2206; :func:`yield_pins` is stage
+    1's): the stage solved once with every yielding pin among ``among``
+    released as a design target at its own value; a pin it moves past
+    ``hard_tol_m`` is recorded as yielded, the rest hold within that
+    tolerance as targets.  No pin among ``among``: the stage as stated."""
+    d = design_law(law)
+    yield_heads = frozenset(getattr(d, "yielding_pin_rulings", ()) or ())
+    cands = sorted({p.v for p in cs.pins if ruling_head(p) in yield_heads and p.v in among})
+    if not cands:
+        sol, rep = solve(cs)
+        return sol, rep, [], cs
+    pinned = {p.v: float(p.z) for p in cs.pins if p.v in set(cands)}
+    head_of = {p.v: ruling_head(p) for p in cs.pins if p.v in set(cands)}
+    cs_t = release_pins(cs, cands, yield_heads)
+    sol, rep = solve(cs_t)
+    tol = float(d.hard_tol_m)
+    recs = [{"v": int(v), "xy": tuple(float(c) for c in planar.vertices[v].xy),
+             "pinned_m": round(pinned[v], 4), "z_m": round(float(sol.z[v]), 4),
+             "excess_m": round(float(sol.z[v]) - pinned[v], 4), "ruling": head_of[v]}
+            for v in cands if sol.z and abs(float(sol.z[v]) - pinned[v]) > tol]
+    return sol, rep, recs, cs_t

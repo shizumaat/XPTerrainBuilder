@@ -15,7 +15,6 @@ import time
 import traceback
 import typing as _t
 
-
 # ══════════════════════════════════════════════════════════════════════════
 # THE OBJECT STAGE AFTER THE MESH (RULINGS 2026-09-04i 04f-1;
 # THE SEAT RETIRED 2026-09-12s, spec §8)
@@ -76,7 +75,13 @@ def mesh_placement_sampler(mesh_path: str,
     ``MeshElevationSampler`` already built over ``bounds`` (a tile DSF's
     drawn triangles, ``guest_stage``) in place of reading ``mesh_path``."""
     import math
+
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
+    if sampler is None and mesh_path.lower().endswith(".dsf"):
+        # #2129: a tile whose .mesh is gone reads the DSF its build wrote
+        # (``guest_stage.own_ground``), as X-Plane draws it
+        from .guest_stage import _dsf_sampler
+        sampler = _dsf_sampler(mesh_path, bounds)
     if sampler is None:
         sampler = MeshElevationSampler(mesh_path, bounds)
 
@@ -304,6 +309,7 @@ def pack_dump(pack_root: str, lat: int, lon: int, *,
     import O4_Scenery_Packs as _SP
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+
     from . import dsf_reader as _DSFR
     from .post_mesh import _is_protected_scenery_root
 
@@ -333,6 +339,7 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport.file_hash import sha256_file
+
     from . import agp_reader as _agp
 
     pd = pack_dump(pack_root, lat, lon, read_only=read_only)
@@ -383,8 +390,8 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     import O4_File_Names as FNAMES
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.airport import dsf_write as _dw
-    from auto_patch_v2.model.placement import (BACKUP_SUFFIX, PlacementPlan,
-                                               Provenance)
+    from auto_patch_v2.model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
+
     from . import dsf_reader as _DSFR
     plan = PlacementPlan("", art.pack_name, pack_root, art.dsf_path,
                          art.dsf_path + BACKUP_SUFFIX,
@@ -504,15 +511,16 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     block an isolated share (§9a, ``isolated_seat``)."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
+    from auto_patch_v2.airport import deck_profile as _dprof
     from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import floor_deck_ends as _fde
+    from auto_patch_v2.airport import free_column as _fcol
     from auto_patch_v2.airport import ground_frame_riders as _gfr
     from auto_patch_v2.airport import placement_write as _pw
-    from auto_patch_v2.airport import free_column as _fcol
+    from auto_patch_v2.airport import split_bar as _sbar
     from auto_patch_v2.airport import touch_seat as _tseat
-    from auto_patch_v2.airport import deck_profile as _dprof
-    from auto_patch_v2.airport import floor_deck_ends as _fde
-    from . import dsf_reader as _DSFR
 
+    from . import dsf_reader as _DSFR
     from . import pack_copy as _copy
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
     # ``--pack-copy``: the write targets the clone, never the install
@@ -551,8 +559,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # fell through to ``other`` while ``tools/obj8_split_report.py``,
     # deriving them from the same file, classified both.  ONE derivation,
     # ``placement_plan.pads_rims_from_graded``, two callers.
-    from auto_patch_v2.airport import placement_plan as _pp
     from auto_patch_v2.airport import placement_boxes as _pb
+    from auto_patch_v2.airport import placement_plan as _pp
     pads, rims = (), ()
     decks: tuple = ()                                               # §49
     jetway_strips: tuple = ()          # jetway-strip spec §4 (C17), #31
@@ -622,6 +630,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # issue #1213: the plan below ran 25+ min at KMCI with no line at all —
     # the ONE time-gated heartbeat reads the stages' pulse (``units 12/41``)
     from auto_patch_v2.model import pulse as _pulse
+
     from . import progress as _progress
     _pulse.clear()
     _hb = _progress.Heartbeat(
@@ -734,6 +743,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             touch_seat=_tseat.law_of(law.tables.structures.placement),
             # #2144 P2: a deck touching buildings at two levels is warped
             deck_warp=_dprof.law_of(law.tables.structures),
+            # RULINGS 2026-11-19j: a placement split only past the ground bar
+            split_bar=_sbar.law_of(law.tables.structures.placement),
             # RULINGS 2026-11-18c: a floor frame's deck seated by its end lines
             floor_deck_ends=_fde.law_of(law.tables.structures))
     _pulse.clear()
@@ -762,17 +773,18 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
+    from auto_patch_v2.airport import pack_access as _pa
+    from auto_patch_v2.airport.backup_state import SUPERSEDED_INFIX as _BS_SUPERSEDED
+    from auto_patch_v2.airport.backup_state import UNRECOGNISED_INFIX as _BS_UNRECOGNISED
+    from auto_patch_v2.airport.backup_state import BackupUnproven
+
     from . import user_seat_stage as _hand
-    from auto_patch_v2.airport.backup_state import (BackupUnproven,
-                                                    SUPERSEDED_INFIX as
-                                                    _BS_SUPERSEDED,
-                                                    UNRECOGNISED_INFIX as
-                                                    _BS_UNRECOGNISED)
     # #1884: a body standing on a neighbour tile is written in that tile's
     # DSF of the pack (``tile_route``), in the SAME write as this one's
     # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
     # bridges the patch published, written in the same pack write
-    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key, patch_dir)
+    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key, patch_dir,
+                            read_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c))
     try:
         res = _pw.apply_routed(
             plan, files, _DSFR._dsftool_path() or "DSFTool",
@@ -784,8 +796,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key),
             gen_recipe=gen, guest_ground=_ground.mark)
-    except (BackupUnproven, TimeoutError) as exc:
-        # TimeoutError: another write of the pack held its lock (``pack_lock``)
+    except (BackupUnproven, TimeoutError, _pa.PackReadOnlyError) as exc:
+        # TimeoutError: another write of the pack held its lock (``pack_lock``);
+        # PackReadOnlyError: its folders are read-only (#2174), said at once
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
         # half-written against a DSF we may not touch is torn geometry.
@@ -816,6 +829,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     if res.dsf is not None:
         _hand.say_seated(plan_.icao, res.dsf)
     if gen is not None:
+        _generated_tile_line(gen, (tile.lat, tile.lon), plan_.icao)
         _generated_apt(gen, target_root, plan_.icao)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
@@ -860,6 +874,18 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     return out
 
 
+def _pack_writable_now(pack_root: str, tile) -> bool:
+    """The object stage may write ``pack_root``: not one it would write
+    (``adjust_stage.writes_pack``: absent, disabled, X-Plane's own — its
+    own refusals below name it), or one ``pack_readonly.gate`` lets
+    through (writable, or made writable by the user's answer)."""
+    from auto_patch_v2.airport import pack_readonly as _ro
+
+    from . import adjust_stage as _adjust
+    return (not _adjust.writes_pack(pack_root)
+            or _ro.gate(pack_root, tile.lat, tile.lon))
+
+
 def _generated_in(patch_dir: str, icao: str) -> bool:
     """Did the airport's patch publish a generated deck or road bridge
     (spec 2123: the graded surface's ``generated``)?"""
@@ -875,13 +901,14 @@ def _generated_in(patch_dir: str, icao: str) -> bool:
 
 
 def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str,
-                      patch_dir: str = ""):
+                      patch_dir: str = "", read_dump=None):
     """The airport's generated decks / road bridges as a write recipe
     (``generated_pack.recipe``), ``None`` for a companion plan or a patch
     that published none (the record's recipe is then kept as it is).
     #2140: an installed package's record of this very publication
     (``generated_record.installed_recipe``) is the recipe as it is: the
-    generator does not run."""
+    generator does not run.  ``read_dump(dsf path)``: the pack DSF's text
+    dump (the stage's cache), for the pack author's art on each deck (#2183)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import apt_flatten as _af
     from auto_patch_v2.airport import generated_pack as _gen
@@ -901,7 +928,7 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
         return rec
     try:
         rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law,
-                          resolve_library=_agp.resolve_library_path)
+                          resolve_library=_agp.resolve_library_path, read_dump=read_dump)
     except Exception as exc:                     # never fails the pack
         UI.vprint(0, f"  [v2 placement] {icao}: the generated decks / road bridges "
                      f"could not be made ({exc}); none written")
@@ -909,6 +936,23 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
     for note in rec.get("notes") or ():
         UI.vprint(1, f"  [v2 placement] {icao}: generated {note}")
     return rec
+
+
+def _generated_tile_line(rec, tile, icao: str) -> None:
+    """#2178: which of the generated objects / road chains this tile's DSF
+    carries (``generated_tile.for_tile``); one line, only for an airport
+    whose structures reach another tile."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import generated_tile as _gt
+    from auto_patch_v2.airport.split_guard import box_of_tile
+    mine, n = _gt.for_tile(rec, box_of_tile(tile))
+    if any(n.values()):
+        UI.vprint(1, f"  [v2 placement] {icao}: generated: {len(mine['decks'])} deck "
+                     f"object(s) and {len(mine['chains'])} road chain(s) in this tile's "
+                     f"DSF; {n['decks_other_tile']} deck object(s) and "
+                     f"{n['chains_other_tile']} road chain(s) are another tile's"
+                     + (f", {n['chains_clipped']} chain(s) clipped at the tile edge"
+                        if n["chains_clipped"] else ""))
 
 
 def _generated_apt(rec, target_root: str, icao: str) -> None:
@@ -928,7 +972,11 @@ def _generated_apt(rec, target_root: str, icao: str) -> None:
         UI.vprint(0, f"  [v2 placement] {icao}: the apt.dat could not be cut for the "
                      f"generated structures ({exc}); it is as it was")
         return
-    if state:
+    if state == "unchanged":
+        UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: already cut for the "
+                     f"{len(regions)} region(s) of the generated decks / road bridges "
+                     f"(written once per airport); nothing written")
+    elif state:
         UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: {len(regions)} region(s) cut "
                      f"for the generated decks / road bridges, {len(dropped)} line "
                      f"piece(s) dropped (redrawn on the decks); the original is kept as "
@@ -1030,12 +1078,17 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
     reuse, with no unpatched-airport restore, no re-seat of its own and no
     tile-wide adjust step (they are the build that asked's)."""
     import glob
+
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.law import Law
     from auto_patch_v2.model import rebake as _rb
-    from .post_mesh import (_is_protected_scenery_root, _mesh_is_newer_than_alt,
-                            object_anchor_worklist_path)
+
+    from .post_mesh import (
+        _is_protected_scenery_root,
+        _mesh_is_newer_than_alt,
+        object_anchor_worklist_path,
+    )
 
     counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
     # RULINGS 2026-10-12d, BEFORE every gate and every early return below:
@@ -1070,7 +1123,11 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
     # read and every other print, and its own line is ``vprint(2)`` — the
     # console at default verbosity carries NO ``[v2 rebake]`` line at all,
     # while ``-v2`` still names the switch for anyone debugging.
-    if not getattr(tile, "modify_custom_airports", True):
+    # PER AIRPORT since #2182 (``O4_Airport_Fit``): the stage stands down
+    # whole only when no airport of the tile fits; an airport whose own
+    # switch is off is skipped in the loop below, the others are placed.
+    import O4_Airport_Fit as AIRPORT_FIT
+    if not AIRPORT_FIT.any_fits(tile):
         UI.vprint(_STAND_DOWN_VERBOSITY,
                   "  [v2 rebake] modify_custom_airports is off — "
                   "placement stage skipped entirely (no pack is read, "
@@ -1104,8 +1161,14 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
         if not os.path.isfile(mesh_path):
-            UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
-            return counts
+            from . import guest_stage as _guests
+            dsf = _guests.own_ground(tile, plans)
+            if not dsf:
+                UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
+                return counts
+            UI.vprint(0, f"  [v2 rebake] mesh not found at {mesh_path}; the tile's "
+                         f"built DSF is its ground ({dsf})")
+            mesh_path = dsf
         if not _mesh_is_newer_than_alt(tile, mesh_path):
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
                          "placement SKIPPED; rebuild the mesh after the elevation step")
@@ -1176,8 +1239,10 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                 # boundary skip means the mesh was built WITHOUT the
                 # airport's patch, and placing (splitting, rewriting the
                 # pack DSF) against it seats objects on ground that is not
-                # there.  ONE admission test, the patch ingest's own.  An
-                # EDITED (manual) patch IS the airport's patch in this mesh
+                # there.  ONE admission test, the patch ingest's own.  A
+                # CUSTOM patch's airport is never placed: its pack is used
+                # unmodified (owner RULINGS 2026-11-18k).  An
+                # EDITED (``_edited``) patch IS the airport's patch in this mesh
                 # (owner RULINGS 2026-11-03e, #1637, superseding 2026-10-15d
                 # (5)): the pack is re-placed against the mesh just built —
                 # the sampler below reads the user's terrain — and the
@@ -1190,6 +1255,22 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                                  f"auto patch is not in this mesh ({not_applied})")
                     counts["airports_skipped_unapplied"] = \
                         counts.get("airports_skipped_unapplied", 0) + 1
+                    continue
+                if icao in _custom_patch_airports(patch_dir):
+                    # RULINGS 2026-11-18k: restored and named in
+                    # restore_unpatched_packs; nothing of it is placed
+                    UI.vprint(1, f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
+                    counts["airports_custom_patch"] = \
+                        counts.get("airports_custom_patch", 0) + 1
+                    continue
+                if not AIRPORT_FIT.fits(tile, icao):
+                    # #2182: this airport's own switch is off — its pack
+                    # is left as it is; the tile's other airports are not
+                    UI.vprint(_STAND_DOWN_VERBOSITY,
+                              f"  [v2 rebake] {icao}: modify_custom_airports "
+                              f"is off for this airport — not placed")
+                    counts["airports_fit_off"] = \
+                        counts.get("airports_fit_off", 0) + 1
                     continue
                 edited = _SELECTION.manual_patch_files_for(patch_dir, icao)
                 if edited:
@@ -1224,6 +1305,12 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                 # rewritten — and whether or not anything is placed
                 writes = bool(write_enabled and not measure_only
                               and _pack_copy.copy_dir() is None)
+                # #2174: A READ-ONLY PACK IS ASKED ABOUT, before any of
+                # its writes; Not now leaves it (and this airport) as is
+                if writes and not _pack_writable_now(plan_.pack_root, tile):
+                    counts["airports_read_only"] = \
+                        counts.get("airports_read_only", 0) + 1
+                    continue
                 art = _art_stage(plan_, tile, writes=writes,
                                  place=bool(plan_.units))
                 # #1360/#1916: ... and its adjustments — the old flat
@@ -1312,6 +1399,11 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                     written_packs.add(plan_.pack_root)
                     if reuse is None or reuse.reused == served:
                         ran_packs.add(plan_.pack_root)
+            except FileNotFoundError:
+                # a ground file (the .mesh) vanished mid-step (storage
+                # offload, #2129): fail the step so step_inputs reruns it,
+                # never a silently unplaced airport
+                raise
             except Exception as exc:
                 counts["airports_failed"] += 1
                 UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); "
@@ -1455,12 +1547,41 @@ def _outlines_key(outlines: _t.Sequence) -> str:
     return hashlib.sha256(repr(tuple(outlines)).encode()).hexdigest()[:16]
 
 
-def _pack_stand_down(tile) -> str:
-    """Why no pack file may be written by this build, or ``""`` — the
-    object stage's three switches, in one place for the unpatched-airport
-    restore (the placement loop below words its own lines)."""
+#: The one line a custom-patched airport's object stage says (owner
+#: RULINGS 2026-11-18k), after its ICAO.
+_CUSTOM_PATCH_LINE = ("custom patch in use — the airport's pack is used "
+                     "unmodified (as the patch's author designed it)")
+
+
+def _custom_patch_airports(patch_dir: str) -> dict:
+    """``{ICAO: [files]}`` of the airports a CUSTOM patch covers in
+    *patch_dir*: a manual patch that is not the patch editor's own
+    ``<ICAO>_edited.patch.osm`` (owner RULINGS 2026-11-18k).  Such an
+    airport's pack is used unmodified — the patch was likely designed for
+    it; an edited patch keeps 2026-11-03e (13), its objects re-placed.
+    Here, not in ``selection``: that module is in the patch code key."""
+    import O4_File_Names as FNAMES
+
+    out: dict = {}
+    if not os.path.isdir(patch_dir):
+        return out
+    for f in sorted(os.listdir(patch_dir)):
+        icao = FNAMES.patch_file_icao(f) if FNAMES.is_manual_patch_name(f) else None
+        if icao and f != FNAMES.edited_patch_name(icao):
+            out.setdefault(icao, []).append(f)
+    return out
+
+
+def _pack_stand_down(tile, icao: str | None = None) -> str:
+    """Why no pack file may be written by this build (for *icao*, or for
+    any airport of the tile), or ``""`` — the object stage's three
+    switches, in one place for the unpatched-airport restore (the
+    placement loop below words its own lines)."""
+    import O4_Airport_Fit as AIRPORT_FIT
+
     from .config import DSF_OBJECT_REANCHOR
-    if not getattr(tile, "modify_custom_airports", True):
+    if not (AIRPORT_FIT.fits(tile, icao) if icao
+            else AIRPORT_FIT.any_fits(tile)):
         return '"Modify custom airports" is off'
     if os.environ.get("O4_PACK_WRITES") == "measure_only":
         return "this is a lane build (O4_PACK_WRITES=measure_only)"
@@ -1474,8 +1595,10 @@ def _pack_stand_down(tile) -> str:
 
 def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     """AN AIRPORT LEFT WITHOUT A PATCH GETS ITS ORIGINAL PACK BACK (owner
-    RULINGS 2026-10-12d).  For every airport this tile is built without
-    (``O4_Unpatched_Airports.read``), every pack DSF of this tile an
+    RULINGS 2026-10-12d), AND SO DOES ONE A CUSTOM PATCH COVERS (2026-11-18k,
+    ``_custom_patch_airports``).  For every airport this tile is
+    built without (``O4_Unpatched_Airports.read``) or with a custom patch,
+    every pack DSF of this tile an
     earlier build re-seated for it is restored
     (``unpatched_pack.restore_airport``); a restore that cannot be done
     or proven is NAMED on that airport's record and in the log.
@@ -1490,23 +1613,30 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     import O4_UI_Utils as UI
     import O4_Unpatched_Airports as UNPATCHED
     from auto_patch_v2.airport import unpatched_pack as _up
-    from . import dsf_reader as _DSFR
     from tile_bundle import pack_dev as _dev
 
+    from . import dsf_reader as _DSFR
     from . import object_rebake as _OR
     from . import pack_copy as _copy
-    from .post_mesh import _is_protected_scenery_root
+    from .post_mesh import _is_protected_scenery_root, object_anchor_worklist_path
 
     counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
     try:
-        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)]
+        # RULINGS 2026-11-18k: a custom patch's airport gets its pack back
+        # unmodified too — the patch was likely designed for it
+        custom = set(_custom_patch_airports(
+            os.path.dirname(object_anchor_worklist_path(tile))))
+        import O4_Airport_Fit as AIRPORT_FIT
+        for icao in sorted(custom):     # silent when the box is off (#42)
+            UI.vprint(0 if AIRPORT_FIT.fits(tile, icao) else 2,
+                      f"  [v2 rebake] {icao}: {_CUSTOM_PATCH_LINE}")
+        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)] + sorted(custom)
         if not unpatched:
             return counts
         if scenery_dir is None:
             import O4_Config_Utils as CFG
             scenery_dir = getattr(CFG, "custom_scenery_dir", "") or ""
         tile_name = FNAMES.short_latlon(tile.lat, tile.lon)
-        stand_down = _pack_stand_down(tile)
         for pack in _OR.modified_packs(scenery_dir, tile_name):
             pack_root = pack["pack_path"]
             if _is_protected_scenery_root(pack_root) \
@@ -1518,6 +1648,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                         tile_name + ".dsf")
                 for icao in sorted(set(unpatched)
                                    & set(_up.seated_airports(dsf_path))):
+                    stand_down = _pack_stand_down(tile, icao)
                     if stand_down:
                         out = _up.Outcome(_up.UNPROVEN, dsf_path, reason=(
                             "it was not restored because " + stand_down))
@@ -1546,8 +1677,10 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                     elif out.state != _up.NONE:
                         kept = (f"; {', '.join(out.kept)} keep their placements"
                                 if out.kept else "")
-                        UI.vprint(0, f"  [v2 rebake] {icao}: left without a "
-                                     f"patch — pack {pack['pack_name']} "
+                        why = ("custom patch in use" if icao in custom
+                               else "left without a patch")
+                        UI.vprint(0, f"  [v2 rebake] {icao}: {why} — "
+                                     f"pack {pack['pack_name']} "
                                      f"{tile_name}.dsf is back to its original "
                                      f"for this airport ("
                                      f"{len(out.bodies_removed)} split "
@@ -1567,6 +1700,8 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                          f"longer carries this tile's "
                                          f"objects of the airport")
     except Exception as exc:
-        UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
+        import O4_Airport_Fit as AIRPORT_FIT  # silent when the box is off (#42)
+        UI.vprint(1 if AIRPORT_FIT.any_fits(tile) else _STAND_DOWN_VERBOSITY,
+                  f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())
     return counts

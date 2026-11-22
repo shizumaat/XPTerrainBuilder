@@ -151,7 +151,8 @@ def test_strip_mirrors_its_repeat_and_reaches_left_of_travel(tmp_path):
     _check_obj8(text)
     vts = [tuple(map(float, r.split()[1:9])) for r in text.splitlines() if r.startswith("VT")]
     vs = sorted({round(v[7], 6) for v in vts})
-    assert vs == [0.0, 0.33333, 1.0]                   # 0 -> 1 at 30 m -> 0 at 60 m -> 1/3
+    # 0 -> 1 at 30 m -> 0 at 60 m -> 1/3, stationed every metre between (lane lcross20)
+    assert {0.0, 0.33333, 1.0} <= set(vs) and min(vs) == 0.0 and max(vs) == 1.0
     left = [v for v in vts if v[6] == 0.25]
     assert all(v[0] == pytest.approx(-1.0) for v in left)   # travel north (-z): left is west
     assert "GLOBAL_no_shadow" in text and "ATTR_poly_os" not in text
@@ -224,7 +225,7 @@ def test_surface_pages_follow_xplanes_shades():
     assert deck_pavement.carried_surface(apt, ring, "taxi") == 1
 
 
-def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path):
+def test_recipe_draws_the_carried_surface_line_art_and_no_tire_marks_of_ours(tmp_path):
     root, look = _install(tmp_path)
     pub = _pub()
     pub["decks"][0]["route"] = [[17.0, 59.005], [17.01, 59.005]]
@@ -235,17 +236,57 @@ def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path)
     assert "ATTR_hard_deck asphalt" in slab and "ATTR_LOD 0 1200" in slab
     paint = objs[f"{gen.GENERATED_DIR}/deck_t_paint.obj"]
     assert "TEXTURE xp_taxilines.dds" in paint and "LIGHT_NAMED taxi_g " in paint
-    rubber = objs[f"{gen.GENERATED_DIR}/deck_t_rubber.obj"]
-    us = {float(r.split()[7]) for r in rubber.splitlines() if r.startswith("VT")}
-    assert us == {float(G.rubber_u0), float(G.rubber_u1)}
+    # #2183 (2): the author laid nothing (no pack DSF read): no film at all
+    assert sorted(objs) == [f"{gen.GENERATED_DIR}/deck_t.obj",
+                            f"{gen.GENERATED_DIR}/deck_t_paint.obj"]
     for text in objs.values():
         _check_obj8(text)
         # owner sim read 1.0.555: an OBJ is not draped -- no film decal,
         # weather-transparency or polygon offset (deck_objects._FILM_STEP_M)
         for row in ("DECAL_LIB", "WEATHER_TRANSPARENT", "ATTR_poly_os"):
             assert row not in text
-    # each film clear of the one under it at distance (cm, not mm)
-    assert float(G.paint_lift_m) - float(G.rubber_lift_m) >= 0.01 - 1e-9 <= float(G.rubber_lift_m)
+    # owner 2026-11-20T15:17Z: every overlay 1 mm over the top at most, on
+    # top by draw order (the slab, then layer group objects 1, then 2)
+    assert 0.0 < float(G.film_lift_m) <= 0.001 and 0.0 < float(G.paint_lift_m) <= 0.001
+    assert "ATTR_layer_group objects 2" in paint and "ATTR_layer_group" not in slab
     assert {f"{gen.GENERATED_DIR}/xp_a_wm.png", f"{gen.GENERATED_DIR}/xp_taxilines.dds"} \
         <= set(rec["links"])
     assert all(os.path.isabs(p) for p in rec["links"].values())
+
+
+def test_markings_lie_one_millimetre_over_the_slab_they_are_drawn_on():
+    """Owner 2026-11-20T15:17Z / 15:30Z (items 10, 12; KIAH 1.0.567: lines
+    not showing, markings floating): over a TWISTED top (a Coons patch with
+    four corners off one plane) every vertex of a 60 m line strip stands
+    over the slab's own top within 1 mm (+ the grid's chord), never under
+    it -- 1.0.567 drew the top as two planar triangles."""
+    from shapely.geometry import Point
+    ring = Polygon([(-20.0, 0.0), (20.0, 0.0), (20.0, -60.0), (-20.0, -60.0)])
+
+    def top(x, z):
+        return 0.002 * x * z / 10.0          # a saddle: 0.24 m off a plane at the corners
+    slab = deck_obj8_text(ring, top, thickness_m=1.0, texture="t.dds")
+    st = DeckStrip(((0.0, -1.0), (0.0, -59.0)), 0.15, 0.15, (0.0, 1.0), 10.0, 0.001)
+    paint = overlay_obj8_text(top, texture="l.dds", strips=[st])
+    vt = np.array([list(map(float, r.split()[1:4])) for r in slab.splitlines()
+                   if r.startswith("VT")])
+    idx = [int(i) for r in slab.splitlines() if r.startswith(("IDX10 ", "IDX "))
+           for i in r.split()[1:]]
+    n_top = int(next(r for r in slab.splitlines() if r.startswith("TRIS 0 ")).split()[2])
+    tris = [vt[idx[k:k + 3]] for k in range(0, n_top, 3)]
+
+    def slab_y(x, z):
+        for t in tris:
+            (xa, ya, za), (xb, yb, zb), (xc, yc, zc) = t
+            det = (xb - xa) * (zc - za) - (xc - xa) * (zb - za)
+            if abs(det) < 1e-12:
+                continue
+            b = ((x - xa) * (zc - za) - (xc - xa) * (z - za)) / det
+            c = ((xb - xa) * (z - za) - (x - xa) * (zb - za)) / det
+            if b >= -1e-9 and c >= -1e-9 and b + c <= 1 + 1e-9:
+                return ya + b * (yb - ya) + c * (yc - ya)
+        return None
+    pv = [list(map(float, r.split()[1:4])) for r in paint.splitlines() if r.startswith("VT")]
+    lifts = [y - s for x, y, z in pv if (s := slab_y(x, z)) is not None]
+    assert len(lifts) == len(pv) and Point(0.0, -30.0).within(ring)
+    assert min(lifts) > 0.0 and max(lifts) <= 0.0015

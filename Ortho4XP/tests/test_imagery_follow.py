@@ -47,6 +47,7 @@ import O4_XPlane_WebAPI as WEBAPI
 import pytest
 from o4_engine import imagery_follow as FOLLOW
 from o4_engine.events import ImageryFollowStatus
+from o4_engine.imagery_follow_land import SquareGone
 from O4_Imagery_Follow_Motion import MotionTracker
 from PIL import Image
 
@@ -531,6 +532,30 @@ def test_failures_mark_failed_and_offline_pauses(xplane, tmp_path):
     assert job.counts["failed"] >= FOLLOW.OFFLINE_AFTER
     assert any(e.reason.startswith("Offline") for e in events)
     assert job.counts["landed"] == 0
+    job.close()
+
+
+class GoneLander(FakeLander):
+    """Every square's folder is gone (#2193: its drape given back)."""
+
+    def __call__(self, row, tier):
+        with self.guard:
+            self.calls.append((row["name"], tier))
+        raise SquareGone(f"{row['name']}: its folder is gone")
+
+
+def test_a_gone_square_is_skipped_once_never_retried(xplane, tmp_path):
+    """#2193: a square whose folder is gone is asked once, marked failed
+    at once, and never counts as the network being offline."""
+    lander = GoneLander()
+    job, events, clock, _l, _t, index_path = _job(xplane, tmp_path,
+                                                  lander=lander)
+    job.open()
+    _fly(job, xplane, clock, REPLAY["pos"][:120])
+    names = [name for name, _tier in lander.calls]
+    assert names and len(names) == len(set(names))
+    assert {key.split("/")[-1] for key in job._failed} == set(names)
+    assert not any(e.reason.startswith("Offline") for e in events)
     job.close()
 
 

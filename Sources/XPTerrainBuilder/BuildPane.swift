@@ -104,7 +104,7 @@ struct BuildPane: View {
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
             await refreshCustomAirportPacks()
         }
-        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)") {
+        .task(id: "airports|\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)|\(buildModel.built.count)|\(buildModel.airportFitGeneration)") {
             await refreshAirportCard()
         }
         .task(id: imageryAuditKey) {
@@ -169,6 +169,23 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
+        }
+        // Once per custom patch (#2179; the Qt window's
+        // `_ask_custom_patch_notices`): the elevation it was built for.
+        .alert(O4CustomPatchText.title,
+               isPresented: Binding(
+                get: { !buildModel.customPatchNotices.isEmpty
+                    && buildModel.engineCapabilities.supports(O4EngineCapabilities.customPatchNotice) },
+                set: { _ in }),
+               presenting: buildModel.customPatchNotices.first) { _ in
+            Button(O4CustomPatchText.useAutoPatchTitle) {
+                buildModel.answerCustomPatchNotice(useAutoPatch: true)
+            }
+            Button(O4CustomPatchText.keepTitle, role: .cancel) {
+                buildModel.answerCustomPatchNotice(useAutoPatch: false)
+            }
+        } message: { pending in
+            Text(pending.notice.text)
         }
     }
 
@@ -239,7 +256,9 @@ struct BuildPane: View {
                          exportPackage: {
                              TilePackageModel.shared.startExport([active], build: buildModel)
                          },
-                         remove: { await buildModel.removeFromWorldPack(active) })
+                         remove: { await buildModel.removeFromWorldPack(active) },
+                         tilesWaiting: buildModel.worldTilesWaiting,
+                         reloadScenery: { buildModel.reloadScenery() })
             // The elevation the tile was built with, before Imagery (#2033;
             // the Qt pane: the same row): the build's record, else the
             // cfg's pinned file.
@@ -371,72 +390,21 @@ struct BuildPane: View {
                                     .truncationMode(.middle)
                                     .help(row.help)
                                 Spacer(minLength: 8)
-                                // #1360: the pack's 3D trees, undone on
-                                // their own (the Qt row's twin button)
-                                if row.forestCount > 0 {
-                                    Button {
-                                        buildModel.undoPackForests(packPath: row.packPath)
-                                    } label: {
-                                        Image(systemName: "leaf")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .disabled(buildModel.isBuilding)
-                                    .help(buildModel.isBuilding
-                                          ? "Wait for the current run — the engine may be rewriting these files"
-                                          : O4PackOldForestsCopy.undoHelp)
-                                }
-                                // #1707: Optimise pack, or its Undo (the
-                                // Qt row's twin button)
-                                Button {
-                                    buildModel.packOptimiseFromRow(
-                                        packPath: row.packPath,
-                                        undo: row.optimisedCount > 0, tile: active)
-                                } label: {
-                                    Image(systemName: row.optimisedCount > 0
-                                          ? "gauge.with.dots.needle.33percent"
-                                          : "gauge.with.dots.needle.67percent")
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .disabled(buildModel.isBuilding)
-                                .help(buildModel.isBuilding
-                                      ? "Wait for the current run — the engine may be rewriting these files"
-                                      : (row.optimisedCount > 0
-                                         ? O4PackOptimiseCopy.undoHelp
-                                         : O4PackOptimiseCopy.optimiseHelp))
-                                // owner 2026-11-15T13:12Z: Adjust… — change
-                                // what is hidden or optimised, beside Revert
-                                // (the Qt row's twin button)
-                                if buildModel.engineCapabilities.supports(O4EngineCapabilities.packAdjustEdit) {
-                                    Button {
-                                        buildModel.adjustPackFromRow(packPath: row.packPath, tile: active)
-                                    } label: {
-                                        Image(systemName: "slider.horizontal.3")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .disabled(buildModel.isBuilding)
-                                    .help(buildModel.isBuilding
-                                          ? "Wait for the current run — the engine may be rewriting these files"
-                                          : O4PackAdjustCopy.adjustHelp)
-                                }
-                                Button {
+                                PackRowButtons(buildModel: buildModel,
+                                               activity: buildModel.activity,
+                                               waits: buildModel.packWaits,
+                                               row: row, tile: active) {
                                     revertModifiedAirports(row)
-                                } label: {
-                                    Image(systemName: "arrow.uturn.backward.circle")
                                 }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .disabled(buildModel.isBuilding)
-                                .help(buildModel.isBuilding
-                                      ? "Wait for the current run — the engine may be rewriting these files"
-                                      : "Revert to default: restores \(row.packName)'s original object files from the backups the reseater kept")
                             }
                         }
                     }
                 }
             }
+            // Review this tile's overlapping-packs answers (#2180; the Qt
+            // pane: the same button): the question on every pair.
+            PackChoicesButton(buildModel: buildModel, waits: buildModel.packWaits,
+                              tile: active)
             Toggle("Installed in X-Plane", isOn: Binding(
                 get: { buildModel.isInstalled(active) },
                 set: { buildModel.setInstalled(active, $0) }
@@ -622,6 +590,7 @@ struct BuildPane: View {
         let tiles = Array(buildModel.selected)
         guard !tiles.isEmpty else {
             airportCard = nil
+            buildModel.airportsCard = nil
             airportCardError = nil
             libraryMatches = nil
             return
@@ -642,6 +611,7 @@ struct BuildPane: View {
             airportCard = nil
             airportCardError = nil
         }
+        buildModel.airportsCard = airportCard
         airportCardLoading = false
         libraryMatches = await buildModel.patchLibraryMatches(for: tiles)
     }
@@ -919,9 +889,15 @@ struct BuildPane: View {
         var optimisedCount: Int = 0
         /// Vendor defects the pack health check repaired (#1978).
         var repairedCount: Int = 0
+        /// Tiles whose builds wrote the pack: a run building one of them
+        /// holds the row's buttons (#2168).
+        var tiles: [String] = []
+        /// Left read-only by the user's Not now (#2174): not adjusted.
+        var readOnly = false
 
         /// The row's tooltip (the Qt row's twin text).
         var help: String {
+            if readOnly { return "\(packName) — \(O4PackReadOnlyCopy.rowStatus)" }
             var text = "\(packName) — \(objectCount) object file\(objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground"
             if repairedCount > 0 {
                 text += "; \(repairedCount) vendor defect\(repairedCount == 1 ? "" : "s") repaired (originals kept)"
@@ -963,7 +939,8 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount)]
+                    repairedCount: pack.repairedCount, tiles: pack.tiles,
+                    readOnly: pack.readOnly)]
             }
             return names.map { name in
                 ModifiedAirportRow(
@@ -972,7 +949,8 @@ struct BuildPane: View {
                     objectCount: pack.objectCount,
                     forestCount: pack.forestCount,
                     optimisedCount: pack.optimisedCount,
-                    repairedCount: pack.repairedCount)
+                    repairedCount: pack.repairedCount, tiles: pack.tiles,
+                    readOnly: pack.readOnly)
             }
         }
         .sorted { $0.label < $1.label }

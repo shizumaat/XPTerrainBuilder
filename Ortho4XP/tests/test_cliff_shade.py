@@ -176,3 +176,43 @@ def test_reader_falls_back_to_the_jpeg_and_never_fetches_when_told(
     monkeypatch.setattr(PHOTOS, "_jpeg_path",
                         lambda tile, attrs: str(tmp_path / "absent.jpg"))
     assert read(ATTRS) is None
+
+
+def _with_sun(monkeypatch, east, north):
+    import O4_Cliff_Sun as SUN
+    monkeypatch.setattr(SUN, "sun_direction",
+                        lambda *a: numpy.array((east, north), float))
+
+
+def test_dark_wall_facing_the_sun_is_rock_not_shadow(monkeypatch):
+    # the wall climbs eastward, so its face looks WEST; a sun in the west
+    # lights it, and its darkness is its material (LPPD 2026-11-18)
+    _with_sun(monkeypatch, -1.0, 0.0)
+    wall_x = WALL * CELL
+    extra, stats = _run(_photo(dark_x=(wall_x - 240, wall_x + CELL)))
+    assert extra is None
+    assert stats.rock_regions == [0]
+    assert stats.sun_azimuth == pytest.approx(270.0)
+    assert "dark rock" in stats.line()
+
+
+def test_dark_wall_turned_from_the_sun_is_still_its_shadow(monkeypatch):
+    _with_sun(monkeypatch, 1.0, 0.0)
+    wall_x = WALL * CELL
+    extra, stats = _run(_photo(dark_x=(wall_x - 240, wall_x + CELL)))
+    assert extra is not None and stats.rock_regions == []
+    assert extra[(XYZ[:, 0] > wall_x - 200) & (XYZ[:, 0] < wall_x - 40)
+                 ].min() == pytest.approx(1.0)
+
+
+def test_lit_wall_facing_the_sun_keeps_its_overlay(monkeypatch):
+    _with_sun(monkeypatch, -1.0, 0.0)
+    _extra, stats = _run(_photo())
+    assert stats.rock_regions == []
+
+
+def test_flat_plain_reads_no_sun():
+    wall_x = WALL * CELL
+    _extra, stats = _run(_photo(dark_x=(wall_x - 240, wall_x)))
+    assert not math.isfinite(stats.sun_azimuth)
+    assert "no sun" in stats.line()

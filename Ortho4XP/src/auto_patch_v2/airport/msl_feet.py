@@ -25,22 +25,35 @@ THE RULE'S LIMITS, each a witness in the geometry, none an airport:
   model apart.  Every row of the set takes ONE elevation — the one that
   centres the span of its feet's needs on the surface (the minimax: the
   worst foot is as far above as the worst below).
+* THE SETS OF ONE ANCHOR THAT MEET ARE ONE RIGID FRAME (owner RULINGS
+  2026-11-20l, KDFW): an author who places a whole airport at one
+  ``(lat, lon, heading)`` in sets by elevation authored their RELATIVE
+  elevations — a sky bridge of one set meets the terminals of two others.
+  Sets whose static geometry meets (a vertex within ``tol`` of a triangle
+  of the other, ``geom/point_triangle``) keep their authored offsets and
+  take ONE seat: the HIGHEST of their own votes (each set's vote is the
+  rule above; RULINGS 2026-11-20k "lifted no higher than its own highest
+  ground vote").  A set of the frame with no vote (its feet off the
+  sheet) rides it; a set that meets no other is seated alone.
 * GEOMETRY REACHING BELOW ITS ORIGIN (by more than ``tol``) keeps the
   on-ground conversion, and so does every row of its set: the author
   built that model around its origin (a skirt, a footing, a hillside
   building, a light mast's pole), and raising it onto its lowest vertex
-  would float everything above the buried part.  The witness holds only
-  where the origin stands IN the model's plan (#2071): an origin authored
-  as a shared datum metres away from the geometry (a hangar 191 m
-  off, on ground 5.5 m higher) says nothing about the ground under the
-  model, and the on-ground conversion would hang it at the datum's
-  ground — such a row is read like any other converted row.
+  would float everything above the buried part.  A set seated alone keeps
+  that guard whole; in a FRAME of several sets — the anchor shown to be a
+  shared datum — it is asked only of geometry AT the origin (20l): under
+  one of the member's static triangles (KDFW's 6.4 km layer holds its
+  anchor in its box with no triangle within 1 km of it).  An origin
+  authored as a datum away from the geometry says nothing about the
+  ground under the model (#2071).
+* A member with NO static solid (a lights file, an animated part) neither
+  guards nor seats: it rides its set's seat (20l).
 * A set at a footprint unit's pad (the surface at its origin IS the
   unit's datum) or in a DECK unit is the unit's to seat.
 * No graded face under its feet: the rows stay converted, X-Plane drapes
   them, and nothing is guessed.
 * A resource that does not resolve inside the pack (a stock library
-  object, an unreadable file): unchanged, counted.
+  object, an unreadable file): its set unchanged, counted.
 * A seat equal to the drape at the origin within ``drape_tol`` is left to
   the drape: a written row would only freeze it.
 """
@@ -54,8 +67,9 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
-           "origin_of_row", "feet_seats", "lifted_feet_seats", "LIFTED_FEET"]
+__all__ = ["static_vertices", "static_triangles", "lowest_feet", "origin_set_lifts",
+           "origin_key", "origin_of_row", "feet_seats",
+           "lifted_feet_seats", "LIFTED_FEET"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -173,23 +187,86 @@ def _on_unit_pad(unit_seats: _t.Sequence[tuple], lat: float, lon: float,
     return False
 
 
+class _Resource(_t.NamedTuple):
+    """One pack resource as the feet seat reads it."""
+    state: str                          #: RESOLVED / NO_SOLID / UNRESOLVED
+    feet: "np.ndarray | None"           #: its lowest static feet
+    below: bool                         #: reaches below its origin
+    guard: bool                         #: ... under a triangle over it
+    path: str
+
+
+RESOLVED, NO_SOLID, UNRESOLVED = "resolved", "no_solid", "unresolved"
+
+
+def static_triangles(g: _t.Any) -> "np.ndarray | None":
+    """``(n, 3, 3)`` authored ``(x, y, z)`` of an ``obj8.ObjGeometry``'s
+    STATIC solid triangles (the population of :func:`static_vertices`);
+    ``None`` when it has none."""
+    tris = g.solid
+    if g.animated.shape[0]:
+        tris = tris[~g.animated]
+    return g.vertices[tris] if tris.shape[0] else None
+
+
+def _guards_origin(tris: np.ndarray, tol_m: float) -> bool:
+    """THE GUARD'S WITNESS for the seat (owner Q54; #2071; RULINGS
+    2026-11-20l): the static geometry reaches more than ``tol_m`` below the
+    origin AND the origin stands under one of its static triangles (its
+    plan box grown by ``tol_m``)."""
+    if float(tris[:, :, 1].min()) >= -tol_m:
+        return False
+    x, z = tris[:, :, 0], tris[:, :, 2]
+    return bool(((x.min(1) - tol_m <= 0.0) & (x.max(1) + tol_m >= 0.0)
+                 & (z.min(1) - tol_m <= 0.0) & (z.max(1) + tol_m >= 0.0)).any())
+
+
+def _read_resource(phys: str, tol_m: float) -> _Resource:
+    from . import obj8 as _obj8
+    try:
+        tris = static_triangles(_obj8.parse_obj8(phys))
+    except (OSError, ValueError):
+        return _Resource(UNRESOLVED, None, False, False, phys)
+    if tris is None:
+        return _Resource(NO_SOLID, None, False, False, phys)
+    v = tris.reshape(-1, 3)
+    low = float(v[:, 1].min())
+    return _Resource(RESOLVED, np.unique(v[v[:, 1] <= low + tol_m], axis=0),
+                     low < -tol_m, _guards_origin(tris, tol_m), phys)
+
+
+def _resource_reader(pack_root: str, tol_m: float) -> _t.Callable[[str], _Resource]:
+    """``def resource -> _Resource``, memoised; UNRESOLVED where it does not
+    resolve inside the pack or cannot be read."""
+    memo: dict[str, _Resource] = {}
+
+    def read(res: str) -> _Resource:
+        if res not in memo:
+            phys = os.path.join(pack_root or "", res)
+            memo[res] = (_read_resource(phys, tol_m)
+                         if pack_root and os.path.isfile(phys)
+                         else _Resource(UNRESOLVED, None, False, False, phys))
+        return memo[res]
+    return read
+
+
 def _feet_reader(pack_root: str, tol_m: float
                  ) -> _t.Callable[[str], "np.ndarray | None"]:
     """``def path -> lowest feet`` of a pack resource, memoised; ``None``
-    where it does not resolve inside the pack or cannot be read."""
-    memo: dict[str, "np.ndarray | None"] = {}
-
-    def feet(res: str) -> "np.ndarray | None":
-        if res not in memo:
-            phys = os.path.join(pack_root or "", res)
-            memo[res] = (lowest_feet(phys, tol_m)
-                         if pack_root and os.path.isfile(phys) else None)
-        return memo[res]
-    return feet
+    where it does not resolve inside the pack, cannot be read or has no
+    static solid."""
+    read = _resource_reader(pack_root, tol_m)
+    return lambda res: read(res).feet
 
 
 def _bump(c: dict, key: str, n: int = 1) -> None:
     c[key] = c.get(key, 0) + n
+
+
+def _frame_of_row(p: _t.Any) -> tuple:
+    """One DSF row's ANCHOR: lat, lon and heading (RULINGS 2026-11-20l: the
+    sets of one anchor, by elevation, are one authored frame)."""
+    return origin_of_row(p)[:3]
 
 
 def feet_seats(dump: _t.Any, conversions: _t.Sequence[_t.Any], surface: Surface,
@@ -201,50 +278,145 @@ def feet_seats(dump: _t.Any, conversions: _t.Sequence[_t.Any], surface: Surface,
     docstring); every other conversion is returned as it was."""
     c = counts if counts is not None else {}
     rows = list(getattr(dump, "placements", ()) or ())
-    sets: dict[tuple, list] = {}
+    frames: dict[tuple, dict[tuple, list]] = {}
     for cv in conversions:
         if cv.kind_before == KIND_MSL and 0 <= cv.index < len(rows):
-            sets.setdefault(origin_of_row(rows[cv.index]), []).append(cv)
-    feet = _feet_reader(pack_root, tol_m)
+            p = rows[cv.index]
+            frames.setdefault(_frame_of_row(p), {}).setdefault(
+                origin_of_row(p), []).append(cv)
+    read = _resource_reader(pack_root, tol_m)
+    ctx = _SeatContext(rows, surface, unit_seats, tol_m, drape_tol_m, c)
 
     seats: list = []
-    for members in sets.values():
-        seats += _seat_set(members, [feet(m.resource) for m in members], rows,
-                           surface, unit_seats, tol_m, drape_tol_m, c)
+    for sets in frames.values():
+        groups = [(m, [read(x.resource) for x in m]) for m in sets.values()]
+        if len(groups) == 1:
+            seats += _seat_set(groups[0][0], groups[0][1], ctx)
+        else:
+            seats += _seat_frame(groups, ctx)
     _bump(c, "msl_feet_seated", len(seats))
     moved = {s.index for s in seats}
     return tuple(seats), tuple(cv for cv in conversions if cv.index not in moved)
 
 
-def _seat_set(members: list, feet: list, rows: list, surface: Surface,
-              unit_seats: _t.Sequence[tuple], tol_m: float, drape_tol_m: float,
-              c: dict) -> list:
+class _SeatContext(_t.NamedTuple):
+    rows: list
+    surface: Surface
+    unit_seats: _t.Sequence[tuple]
+    tol_m: float
+    drape_tol_m: float
+    counts: dict
+
+
+def _seat_set(members: list, res: list, ctx: _SeatContext) -> list:
     """The seats of ONE origin's rigid set: every member at the one
     elevation centring its feet's needs on the surface — or none."""
-    from ..model.placement import MslSeat
-    if any(f is None for f in feet):
-        _bump(c, "msl_feet_unresolved", len(members))
-        return []
-    if min(float(f[:, 1].min()) for f in feet) < -tol_m:
-        _bump(c, "msl_feet_below_origin", len(members))
-        return []
-    p = rows[members[0].index]
-    z0 = surface(float(p.lat), float(p.lon))
-    if _on_unit_pad(unit_seats, float(p.lat), float(p.lon), z0, tol_m):
-        _bump(c, "msl_feet_on_unit_pad", len(members))
-        return []
-    needs = _set_needs(members, feet, rows, surface, tol_m)
+    vote = _set_vote(members, res, ctx)
+    return [] if vote is None else _written(members, vote, ctx)
+
+
+def _set_vote(members: list, res: list, ctx: _SeatContext, *,
+              in_frame: bool = False) -> "float | None":
+    """The elevation ONE set's own feet ask for (the module docstring's
+    limits, each counted), or ``None``.  ``in_frame``: the set meets
+    another of its anchor's, and the guard is asked only AT the origin."""
+    c, n = ctx.counts, len(members)
+    if any(r.state == UNRESOLVED for r in res):
+        _bump(c, "msl_feet_unresolved", n)
+        return None
+    solid = [(m, r) for m, r in zip(members, res, strict=True) if r.state == RESOLVED]
+    if not solid:
+        _bump(c, "msl_feet_no_solid", n)
+        return None
+    if any((r.guard if in_frame else r.below) for _m, r in solid):
+        _bump(c, "msl_feet_below_origin", n)
+        return None
+    p = ctx.rows[members[0].index]
+    z0 = ctx.surface(float(p.lat), float(p.lon))
+    if _on_unit_pad(ctx.unit_seats, float(p.lat), float(p.lon), z0, ctx.tol_m):
+        _bump(c, "msl_feet_on_unit_pad", n)
+        return None
+    needs = _set_needs([m for m, _r in solid], [r.feet for _m, r in solid],
+                       ctx.rows, ctx.surface, ctx.tol_m)
     if not needs:
-        _bump(c, "msl_feet_off_sheet", len(members))
+        _bump(c, "msl_feet_off_sheet", n)
+        return None
+    return (min(needs) + max(needs)) / 2.0
+
+
+def _written(members: list, elev: float, ctx: _SeatContext) -> list:
+    """Every member of one set at ``elev`` — or none, where that is the
+    drape at the origin within ``drape_tol_m``."""
+    from ..model.placement import MslSeat
+    rows = ctx.rows
+    p = rows[members[0].index]
+    z0 = ctx.surface(float(p.lat), float(p.lon))
+    if z0 is not None and abs(elev - float(z0)) <= ctx.drape_tol_m:
+        _bump(ctx.counts, "msl_feet_left_to_the_drape", len(members))
         return []
-    elev = (min(needs) + max(needs)) / 2.0
-    if z0 is not None and abs(elev - float(z0)) <= drape_tol_m:
-        _bump(c, "msl_feet_left_to_the_drape", len(members))
-        return []
-    _bump(c, "msl_feet_sets")
+    _bump(ctx.counts, "msl_feet_sets")
     return [MslSeat(m.index, m.resource, float(rows[m.index].lon),
                     float(rows[m.index].lat), float(rows[m.index].heading_deg),
                     elev, "geometry_feet") for m in members]
+
+
+def _seat_frame(groups: list, ctx: _SeatContext) -> list:
+    """RULINGS 2026-11-20l: the sets of ONE anchor (``groups``: ``(members,
+    resources)`` per authored elevation).  Sets that meet are one rigid
+    frame seated at the highest of their votes, authored offsets kept; a
+    set that meets none (or is guarded AT its origin, or unreadable) is
+    seated alone by :func:`_seat_set`."""
+    z = [float(ctx.rows[m[0].index].elevation or 0.0) for m, _r in groups]
+    free = [i for i, (_m, r) in enumerate(groups)
+            if all(x.state != UNRESOLVED for x in r)
+            and any(x.state == RESOLVED for x in r)
+            and not any(x.guard for x in r)]
+    comps = _meeting(groups, z, free, ctx.tol_m)
+    comps += [[i] for i in range(len(groups)) if i not in free]
+    out: list = []
+    for comp in comps:
+        if len(comp) == 1:
+            out += _seat_set(groups[comp[0]][0], groups[comp[0]][1], ctx)
+            continue
+        votes = {i: _set_vote(*groups[i], ctx, in_frame=True) for i in comp}
+        deltas = [v - z[i] for i, v in votes.items() if v is not None]
+        if not deltas:
+            continue
+        _bump(ctx.counts, "msl_frames")
+        _bump(ctx.counts, "msl_frame_sets", len(comp))
+        for i in comp:
+            out += _written(groups[i][0], z[i] + max(deltas), ctx)
+    return out
+
+
+def _meeting(groups: list, z: list, free: list, tol_m: float) -> list[list[int]]:
+    """The sets of ``free`` joined where their static geometry, each at its
+    authored elevation, meets within ``tol_m`` (``geom/point_triangle``)."""
+    from ..geom.point_triangle import Soup, meshes_meet
+    from . import obj8 as _obj8
+    tris = {}
+    for i in free:
+        parts = []
+        for r in groups[i][1]:
+            if r.state == RESOLVED:
+                t = static_triangles(_obj8.parse_obj8(r.path)).copy()
+                t[:, :, 1] += z[i] - z[free[0]]
+                parts.append(t)
+        tris[i] = Soup(np.concatenate(parts))
+    root = {i: i for i in free}
+
+    def find(i: int) -> int:
+        while root[i] != i:
+            i = root[i]
+        return i
+    for k, a in enumerate(free):
+        for b in free[k + 1:]:
+            if find(a) != find(b) and meshes_meet(tris[a], tris[b], tol_m):
+                root[find(b)] = find(a)
+    comps: dict[int, list[int]] = {}
+    for i in free:
+        comps.setdefault(find(i), []).append(i)
+    return list(comps.values())
 
 
 def _set_needs(members: list, feet: list, rows: list, surface: Surface,

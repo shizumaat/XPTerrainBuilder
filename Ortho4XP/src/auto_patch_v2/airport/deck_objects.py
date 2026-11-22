@@ -14,8 +14,11 @@ lights all run along the taxiway, #2141 (1)); then:
 * the PAINT overlay: each dropped apt.dat line in X-Plane's own line art
   (``deck_line_art``), the expansion joints across the ends, and the
   named lights (``deck_paint.light_names``);
-* the RUBBER overlay: the rubber page's centre band, a strip along the
-  route;
+* the AUTHOR'S FILMS (#2183 (2), ``deck_author_art``): each draped page
+  the pack's author laid on the taxiway at both ends, one overlay in that
+  page's own art over the whole top -- nothing where the author laid
+  nothing; and the author's painted ``.lin`` lines inside the ring
+  (#2183 (3)) in their pages' own art;
 * the RUNWAY MARKINGS overlay of a deck over a row-100 runway
   (``deck_runway_marks``: the runway's marks that fall on the deck, in
   the marking atlas of X-Plane's page for the runway's surface).
@@ -38,6 +41,7 @@ from shapely.ops import transform
 from . import deck_paint as _paint
 from .deck_line_art import LinePage
 from .deck_obj8 import (
+    DeckDecal,
     DeckFrame,
     DeckLight,
     DeckLine,
@@ -48,7 +52,7 @@ from .deck_obj8 import (
 )
 from .deck_structure import Part
 
-__all__ = ["install_art", "deck_objects", "ring_polygon"]
+__all__ = ["install_art", "deck_objects", "ring_polygon", "Authored"]
 
 GENERATED_DIR = "objects/o4_generated"
 TEXTURE = "o4_deck_concrete.png"
@@ -65,14 +69,20 @@ _CENTRE_LIGHTS = frozenset((101, 107))
 #: pavement / marking decal) and ``WEATHER_TRANSPARENT`` only on DRAPED
 #: geometry (``ATTR_draped``; no non-draped default-scenery OBJ carries
 #: either).  So the overlays carry none of the three: each film stands
-#: ``[deck_gen] rubber_lift_m`` / ``paint_lift_m`` over the top, and a
-#: line's layers (a ``_b`` line's black border, then its colour) this far
-#: apart, so nothing coplanar fights at distance.
-_FILM_STEP_M = 0.01
+#: ``[deck_gen] film_lift_m`` / ``paint_lift_m`` (1 mm) over the top and
+#: draws over it by DRAW ORDER, never by height (owner 2026-11-20T15:17Z:
+#: "as close as possible to the pavement so they don't float, but still
+#: draw on top ... try only 1mm"; lane lcross20): the slab is in the depth
+#: buffer first (group ``objects``), the films after it (``ATTR_layer_group
+#: objects 1``), the paint, lines and marks last (``objects 2``), and a
+#: line's layers (a ``_b`` line's black border, then its colour) in one
+#: batch in that order, at one height -- this step between them is 0 (it
+#: was 0.01 m: 1.0.567's overlays floated 3-6 cm over the deck).
+_FILM_STEP_M = 0.0
 
 #: the films' draw order over the slab (``deck_obj8.overlay_obj8_text``
-#: ``layer``): the rubber first, then the paint and runway marks over it
-_RUBBER_LAYER, _PAINT_LAYER = 1, 2
+#: ``layer``): the author's pages first, then the paint and runway marks
+_FILM_LAYER, _PAINT_LAYER = 1, 2
 
 
 def ring_polygon(ring) -> Polygon:
@@ -104,11 +114,14 @@ def _chord(lines: _t.Sequence[_t.Sequence], R0: Polygon) -> "tuple[float, float]
 
 def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     """The placement frame: anchored at the ring's centroid, heading along
-    the taxiway it carries -- the longest dropped CENTRELINE across the
-    ring (``dropped``: the deck's dropped apt.dat lines), else the carried
-    route's chord, else end A's centroid to end B's -- signed end A to
-    end B, so the taxiway runs along ``-z`` (#2141 (1): X-Plane's slabs
-    and the tire marks then run along it)."""
+    the taxiway it carries -- the deck's own axis, else the carried route's
+    chord (RULINGS 2026-11-19s (8) (b): the axis is the taxi route's
+    direction at the crossing), else the longest dropped CENTRELINE across
+    the ring (``dropped``: the deck's dropped apt.dat lines), else end A's
+    centroid to end B's -- signed end A to end B, so the taxiway runs along
+    ``-z`` (#2141 (1): X-Plane's slabs and the tire marks then run along
+    it).  KBNA 1.0.566 ``o4gen_c944399b``: with no axis, a centreline
+    crossing its end (a junction there) turned it 90 deg."""
     c = ring_polygon(rec["ring"]).centroid
     f0 = DeckFrame(c.x, c.y, 0.0)
     (ax, az), (bx, bz) = (f0.to_local(*_mean(rec["seats_a"])),
@@ -117,7 +130,12 @@ def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     centre = [[f0.to_local(lo, la) for lo, la in d.points] for d in dropped
               if int(d.line or 0) in _CENTRE_TYPES or int(d.light or 0) in _CENTRE_LIGHTS]
     route = [[f0.to_local(lo, la) for lo, la in rec.get("route") or ()]]
-    d = _chord(centre, R0) or _chord(route, R0)
+    axis = [f0.to_local(lo, la) for lo, la in rec.get("axis") or ()]
+    # RULINGS 2026-11-19s (4) (b): the deck's own axis (its sides, along the
+    # taxiway it carries) first -- a dropped line crossing the deck turned
+    # KBNA's frame and its lip ran round every edge
+    d = ((axis[1][0] - axis[0][0], axis[1][1] - axis[0][1]) if len(axis) == 2 else None) \
+        or _chord(route, R0) or _chord(centre, R0)
     if d is not None and d[0] * (bx - ax) + d[1] * (bz - az) < 0.0:
         d = (-d[0], -d[1])
     dx, dz = d if d is not None else (bx - ax, bz - az)
@@ -126,9 +144,21 @@ def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
 
 
 def _top_fn(rec: _t.Mapping, frame: DeckFrame):
-    """``top_y(x, z)``: the deck's one plane in the object frame -- level
-    across the A->B line, ``top_a`` at end A rising to ``top_b`` at end
-    B, plus ``top_lift_m`` (the object's zero is the deck's zero)."""
+    """``top_y(x, z)``: the deck's top in the object frame, plus
+    ``top_lift_m`` over the deck's zero: the published SURFACE (RULINGS
+    2026-11-19s (1): the pavement stage 1 solved over the ring, a Coons
+    patch exact on every edge, ``geom/coons_patch``), else one plane --
+    level across the A->B line, ``top_a`` at end A rising to ``top_b``."""
+    sf = rec.get("surface")
+    if sf:
+        from ..geom.coons_patch import CoonsPatch
+        o = frame.to_local(*sf["o"])
+        ou, ow = frame.to_local(*sf["ou"]), frame.to_local(*sf["ow"])
+        patch = CoonsPatch(o, (ou[0] - o[0], ou[1] - o[1]), (ow[0] - o[0], ow[1] - o[1]),
+                           *(tuple((float(q), float(zz)) for q, zz in sf[k])
+                             for k in ("a", "b", "s0", "s1")))
+        zero, lift_s = float(rec["zero_m"]), float(rec.get("top_lift_m", 0.02))
+        return lambda x, z: patch.z(x, z) - zero + lift_s
     a = frame.to_local(*_mean(rec["seats_a"]))
     b = frame.to_local(*_mean(rec["seats_b"]))
     dx, dz = b[0] - a[0], b[1] - a[1]
@@ -143,14 +173,13 @@ def _top_fn(rec: _t.Mapping, frame: DeckFrame):
 
 class _Art(_t.NamedTuple):
     """What the install draws decks with: ``slab(page) -> PageArt | None``
-    (cached), the ``lines`` pages by apt.dat type, the ``rubber`` page,
-    ``links`` (pack path -> install file) filled as art is used,
+    (cached), the ``lines`` pages by apt.dat type, ``links`` (pack path ->
+    install file) filled as art is used,
     ``marks(page) -> marking atlas | None`` (cached: a runway page's marking
     art) and ``files`` (pack path -> bytes) filled as marking art is used."""
 
     slab: _t.Callable[[str], _t.Any]
     lines: dict
-    rubber: _t.Any
     links: dict
     marks: _t.Callable[[str], _t.Any]
     files: dict
@@ -179,9 +208,8 @@ def install_art(g, root: "str | None", resolve) -> _Art:
                 pol = None
             mcache[page] = _marks.read_atlas(pol)
         return mcache[page]
-    return _Art(slab, _lines.line_pages(str(g.line_lib), root, resolve) if root else {},
-               _skin.page_art(str(g.rubber_pol), root, resolve) if root else None, {},
-               marks, {})
+    return _Art(slab, _lines.line_pages(str(g.line_lib), root, resolve) if root else {}, {},
+                marks, {})
 
 
 def _link(art: _Art, path: str) -> str:
@@ -280,29 +308,48 @@ def _joints(R: Polygon, ends, g) -> list[tuple[tuple[float, float], ...]]:
     return out
 
 
-def _centreline(pieces: _t.Sequence[_Piece]) -> list:
-    """The longest dropped taxiway centreline on the deck (``(x, z)``
-    points), ``[]`` for none: the wheels run there, so the tire marks do."""
-    cl = [p.line for p in pieces if p.line_type in _CENTRE_TYPES or p.light in _CENTRE_LIGHTS]
-    return list(max(cl, key=lambda q: q.length).coords) if cl else []
+class Authored(_t.NamedTuple):
+    """The pack author's art a deck carries (``deck_author_art``):
+    ``films`` the pages on the taxiway at both ends (``deck_skin.PageArt``,
+    draw order), ``lines`` ``(LinePage, lon/lat points)`` the author's
+    painted lines inside the ring."""
+
+    films: tuple = ()
+    lines: tuple = ()
 
 
-def _rubber(R: Polygon, route: _t.Sequence, page, g) -> list[DeckStrip]:
-    """#2141 (2): the rubber page's centre band (``rubber_u0``-``u1``), a
-    strip along ``route`` (the painted centreline, else the carried
-    route) inside the deck, mirrored every repeat."""
+def _film(R: Polygon, page, lift: float) -> DeckDecal:
+    """A page laid over the whole top: the ring's triangles, the page's
+    art tiled at its ``SCALE`` in the deck frame."""
+    import shapely
     w, h = page.scale_m
-    u0, u1 = float(g.rubber_u0), float(g.rubber_u1)
-    half = (u1 - u0) * w / 2.0
     inner = R.buffer(-0.05)
-    line = LineString(route).intersection(inner) if len(route) >= 2 else None
-    if line is None or line.is_empty:
-        _x0, z0, _x1, z1 = R.bounds
-        line = LineString([(R.centroid.x, z1 + 1.0),
-                           (R.centroid.x, z0 - 1.0)]).intersection(inner)
-    return [DeckStrip(tuple(q.coords), half, half, (u0, u1), h, float(g.rubber_lift_m), True)
-            for q in getattr(line, "geoms", [line])
-            if q.geom_type == "LineString" and q.length > 1.0]
+    tris = []
+    for t in shapely.get_parts(shapely.constrained_delaunay_triangles(inner)):
+        if t.area > 1e-6:
+            tris.append(tuple((x, z, x / w, -z / h) for x, z in list(t.exterior.coords)[:3]))
+    return DeckDecal(tuple(tris), lift)
+
+
+def _author_lines(lines, R: Polygon, frame: DeckFrame, lift: float, stats: dict
+                  ) -> "dict[str, list[DeckStrip]]":
+    """The author's painted lines on the deck, ``{texture: strips}``: one
+    strip per layer of each line's own page (#2183 (3))."""
+    inner = R.buffer(-0.05)
+    out: dict[str, list[DeckStrip]] = {}
+    for page, pts in lines:
+        g = LineString([frame.to_local(lo, la) for lo, la in pts]).intersection(inner)
+        for q in getattr(g, "geoms", [g]):
+            if q.is_empty or q.geom_type != "LineString" or q.length < 0.2:
+                continue
+            for k, lay in enumerate(page.layers):
+                left, right = page.span_m(lay)
+                out.setdefault(page.texture, []).append(
+                    DeckStrip(tuple(q.coords), left, right,
+                              (lay[0] / page.tex_width, lay[2] / page.tex_width),
+                              page.scale_m[1], lift + _FILM_STEP_M * k))
+            stats["author_lines"] = stats.get("author_lines", 0) + 1
+    return out
 
 
 def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> "list[Part]":
@@ -312,6 +359,12 @@ def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> "list[
     floor = rec.get("floor_m")
     floor_y = (min(float(rec["top_a"]), float(rec["top_b"])) - float(floor)
                if floor is not None else None)
+    if rec.get("ground_m") is not None and rec.get("zero_m") is not None:
+        # every pier reaches the deepest solved ground under the deck, the
+        # rest buried (owner 2026-11-20T14:50Z; lane lcross20): a floor read
+        # off the planar estimate left them floating over a lidar trench
+        low = float(rec["ground_m"]) - float(rec["zero_m"])
+        floor_y = low if floor_y is None else min(floor_y, low)
     return structure_parts(R, ends, g, roads=roads, floor_y=floor_y)
 
 
@@ -332,26 +385,26 @@ def _slab_skin(rec: _t.Mapping, R: Polygon, route, art: _Art, g, surface_code
                     sum(xs) / len(xs))
 
 
-def _film_material(art: _Art, page, metalness: bool) -> list[str]:
+def _film_material(art: _Art, page) -> list[str]:
     """A film's material rows: its normal map only (:data:`_FILM_STEP_M`)."""
-    out = []
-    if page.normal:
-        out.append(f"TEXTURE_NORMAL {_link(art, page.normal)}")
-        if metalness:
-            out.append("NORMAL_METALNESS")
+    out = [f"TEXTURE_NORMAL {_link(art, page.normal)}"] if page.normal else []
     return out + ["GLOBAL_specular 1"]
 
 
 def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int | None" = None,
-                 runway=None) -> tuple[list[tuple[str, str]], dict]:
+                 runway=None, authored: "Authored | None" = None
+                 ) -> tuple[list[tuple[str, str]], dict]:
     """``([(pack path, OBJ8 text)], stats)`` of one deck (module doc):
     ``dropped`` its dropped apt.dat lines (``apt_flatten``), ``art`` the
     install's (:func:`install_art`), ``g`` the ``[deck_gen]`` law,
     ``surface_code`` the apt.dat surface it carries, ``runway`` the row-100
-    runway under it (``apt_dat.AptRunway``) or ``None``."""
+    runway under it (``apt_dat.AptRunway``) or ``None``, ``authored`` the
+    pack author's art on it (:class:`Authored`)."""
     frame = _deck_frame(rec, dropped)
     R = transform(lambda x, y, _z=None: frame.to_local(x, y), ring_polygon(rec["ring"]))
-    top_y = _top_fn(rec, frame)
+    from .deck_obj8 import surface_of
+    # the slab and every marking on it read ONE drawn top (lane lcross20)
+    top_y = surface_of(R, _top_fn(rec, frame))
     rel = str(rec["resource"])
     thick, lod = float(rec.get("thickness_m", 1.0)), (0.0, float(g.lod_m))
     comments = [f"{rec['object_id']} spec 2123 A2: zero {float(rec['zero_m']):.3f} m heading "
@@ -361,7 +414,8 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     route_xy = list(getattr(route_in, "coords", ())) if route_in is not None and \
         route_in.geom_type == "LineString" else []
     ends = [[frame.to_local(lo, la) for lo, la in rec[k]] for k in ("seats_a", "seats_b")]
-    stats = {"lines": 0, "unpainted": 0, "lights": 0, "parts": 0, "frame": frame}
+    stats = {"lines": 0, "unpainted": 0, "lights": 0, "parts": 0, "frame": frame,
+             "top_y": top_y}
     pieces = _pieces(dropped, R, frame)
     lights = _lights(pieces, float(g.light_spacing_m))
     stats["lights"] = len(lights)
@@ -381,27 +435,39 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     stats["slab"] = os.path.basename(art.links.get(f"{GENERATED_DIR}/{skin.texture}", ""))
     out = [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE, lod_m=lod,
                                 comments=comments, skin=skin, parts=parts, near_lod_m=near))]
-    paint = _paint_overlay(pieces, joints, lights, top_y, art, g, lod, comments, stats)
+    authored = authored or Authored()
+    films = [p for p in authored.films if p is not None]
+    stats["films"] = [os.path.basename(p.albedo) for p in films]
+    for k, page in enumerate(films):
+        out.append((rel[:-4] + f"_film{k}.obj",
+                    overlay_obj8_text(top_y, texture=_link(art, page.albedo),
+                                      decals=[_film(R, page, float(g.film_lift_m)
+                                                    + _FILM_STEP_M * k)],
+                                      lod_m=lod, comments=comments, layer=_FILM_LAYER,
+                                      material=_film_material(art, page))))
+    lift = max(float(g.paint_lift_m), float(g.film_lift_m) + _FILM_STEP_M * len(films))
+    paint = _paint_overlay(pieces, joints, lights, top_y, art, g, lod, comments, stats, lift)
     if paint:
         out.append((rel[:-4] + "_paint.obj", paint))
-    strips = _rubber(R, _centreline(pieces) or route_xy, art.rubber, g) \
-        if art.rubber is not None else []
-    marks = _runway_marks(runway, R, frame, top_y, art, g, lod, comments, stats) \
+    by_tex = _author_lines(authored.lines, R, frame, lift, stats)
+    for k, (tex, strips) in enumerate(sorted(by_tex.items())):
+        page = next(p for p, _pts in authored.lines if p.texture == tex)
+        out.append((rel[:-4] + f"_lines{k}.obj",
+                    overlay_obj8_text(top_y, texture=_link(art, tex), strips=strips,
+                                      lod_m=lod, comments=comments, layer=_PAINT_LAYER,
+                                      material=_film_material(art, page))))
+    marks = _runway_marks(runway, R, frame, top_y, art, g, lod, comments, stats, lift) \
         if runway is not None else ""
     if marks:
         out.append((rel[:-4] + "_marks.obj", marks))
-    if strips:
-        out.append((rel[:-4] + "_rubber.obj",
-                    overlay_obj8_text(top_y, texture=_link(art, art.rubber.albedo), strips=strips,
-                                      lod_m=lod, comments=comments, layer=_RUBBER_LAYER,
-                                      material=_film_material(art, art.rubber, True))))
     return out, stats
 
 
-def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, stats) -> str:
-    """The paint + lights overlay: X-Plane's line art where the install
-    has it (the joints in a ``_b`` line's black border), else the atlas."""
-    lift = float(g.paint_lift_m)
+def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, stats,
+                   lift: float) -> str:
+    """The paint + lights overlay, ``lift`` over the top: X-Plane's line
+    art where the install has it (the joints in a ``_b`` line's black
+    border), else the atlas."""
     if art.lines:
         strips = _art_strips(pieces, art.lines, lift, stats)
         black = next((p for t, p in sorted(art.lines.items()) if t > 50 and len(p.layers) > 1),
@@ -416,7 +482,7 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
         page = art.lines[min(art.lines)]
         return overlay_obj8_text(top_y, texture=_link(art, page.texture), strips=strips,
                                  lights=lights, lod_m=lod, comments=comments,
-                                 layer=_PAINT_LAYER, material=_film_material(art, page, False))
+                                 layer=_PAINT_LAYER, material=_film_material(art, page))
     lines = _atlas_lines(pieces, lift, stats) + [DeckLine(j, float(g.joint_m), "black", lift)
                                                  for j in joints]
     if not lines and not lights:
@@ -426,7 +492,7 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
 
 
 def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod, comments,
-                  stats: dict) -> str:
+                  stats: dict, lift: float) -> str:
     """The runway-markings overlay (``deck_runway_marks``): the marks of
     ``runway`` that fall on the deck, in the marking art of X-Plane's page
     for its surface; ``""`` when none falls or the install has no art."""
@@ -441,7 +507,7 @@ def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod
     length = math.hypot(e1[0] - e0[0], e1[1] - e0[1])
     marks = _rm.runway_marks(float(runway.width_m), length, (float(disp0), float(disp1)),
                              tuple(int(c) for c in runway.markings))
-    decals = _rm.deck_decals(marks, e0, e1, R, float(g.paint_lift_m))
+    decals = _rm.deck_decals(marks, e0, e1, R, lift)
     stats["runway_marks"] = len(decals)
     if not decals:
         return ""

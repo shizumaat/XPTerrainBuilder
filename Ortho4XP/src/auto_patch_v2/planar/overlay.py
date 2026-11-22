@@ -58,6 +58,7 @@ from .fill_bank import fill_bank_pieces
 from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
 from .agp_ground import agp_ground_pieces
 from .pit_bank import banked_floors, pit_bank_pieces
+from .deck_skirt import deck_skirt_pieces, is_deck_skirt_ref
 from .ground_chords import near_any, road_ground_densifier
 from ..model.planar import (ROAD_ROLES, is_agp_ground_ref, is_pit_bank_ref,
                             is_stack_apron_ref, is_stack_ground_ref)
@@ -300,7 +301,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                       level_b: float | None = None,
                       level_seeds: _t.Sequence = (),
                       shells: _t.Sequence = (),
-                      floors: _t.Sequence = ()) -> Arrangement:
+                      floors: _t.Sequence = (),
+                      decks: _t.Sequence = ()) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
     registries its passes mint (:attr:`Arrangement.registries`).
     ``level_b``: the airport's object-stated level-B depth
@@ -311,7 +313,8 @@ def build_arrangement(airport: Airport, classification: Classification,
     storey shells (``planar/storey_pad``), whose pads the block planner
     holds and splits at their storeys; ``floors`` the object floors
     (``airport/object_floor``), whose walled pits' open edges take a bank
-    (``planar/pit_bank``)."""
+    (``planar/pit_bank``); ``decks`` the hard decks, whose banks blend out
+    over the ground round them (``planar/deck_skirt``)."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -466,6 +469,21 @@ def build_arrangement(airport: Airport, classification: Classification,
             print(f"    [pit-bank] {sum(1 for r in regions if is_pit_bank_ref(r.ref))} "
                   f"piece(s) ({time.perf_counter() - _t_pb:.2f} s)"
                   + "".join(f"; {n}" for n in _pb_notes))
+        # #2141: the ground round a banked deck's corners, its bank blending
+        # out over it (``planar/deck_skirt``)
+        if decks:
+            _sk_notes: list[str] = []
+            for ref, g in deck_skirt_pieces(
+                    decks, regions,
+                    [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+                    law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+                    2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+                    law, notes=_sk_notes):
+                regions.append(Region("graded_strip", ref, g, None, None,
+                                      role_side(law, "graded_strip"), "zone"))
+            _n_sk = sum(1 for r in regions if is_deck_skirt_ref(r.ref))
+            if _n_sk:
+                print(f"    [deck-skirt] {_n_sk} piece(s)" + "".join(f"; {n}" for n in _sk_notes))
 
         # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
         # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line

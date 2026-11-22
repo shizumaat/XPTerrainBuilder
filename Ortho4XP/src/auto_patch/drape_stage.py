@@ -237,6 +237,29 @@ def terrain_paths(pack_root: str, paths: _t.Iterable[str] | None = None
     return paths
 
 
+def _edge_photos(pack_root: str, lat: int, lon: int, read_only: bool
+                 ) -> frozenset[str]:
+    """The photo paths the witness hides on the pack's DSFs of the eight
+    tiles around ``(lat, lon)`` (#2129: a photo grid cut by the tile edge
+    is one grid; the columns past the edge are too few to make a family of
+    their own, so the far tile reads none of it alone)."""
+    from auto_patch_v2.airport import pack_drapes as _pd
+
+    from .object_stage import pack_dump
+    out: set[str] = set()
+    for la in (lat - 1, lat, lat + 1):
+        for lo in (lon - 1, lon, lon + 1):
+            if (la, lo) == (lat, lon):
+                continue
+            pd = pack_dump(pack_root, la, lo, read_only=read_only)
+            if pd is None:
+                continue
+            areas, bounded, _apts = _airports(pack_root, la, lo)
+            out |= {m.path for m in _pd.draped_orthos(
+                pack_root, pd.dump_path, areas, bounded=bounded)}
+    return frozenset(out)
+
+
 def check_all(pack_root: str, lat: int, lon: int, *,
               read_only: bool, terrain: _t.Iterable[str] | None = None
               ) -> dict[str, PackDrapes]:
@@ -257,8 +280,9 @@ def check_all(pack_root: str, lat: int, lon: int, *,
     if pd is None:
         return {}
     areas, bounded, apts = _airports(pack_root, lat, lon)
-    found = {PHOTOS.key: _pd.draped_orthos(pack_root, pd.dump_path, areas,
-                                           bounded=bounded),
+    found = {PHOTOS.key: _pd.draped_orthos(
+                 pack_root, pd.dump_path, areas, bounded=bounded,
+                 shared=_edge_photos(pack_root, lat, lon, read_only)),
              GROUND.key: _pg.ground_sheets(pack_root, pd.dump_path, apts,
                                            areas),
              TERRAIN.key: _pt.terrain_objects(pd.dump_path,

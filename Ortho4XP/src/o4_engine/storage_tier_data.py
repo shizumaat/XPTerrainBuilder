@@ -40,6 +40,7 @@ import shutil
 import O4_File_Names as FNAMES
 
 from . import storage_tiers as TIERS
+from .storage import _last_used
 
 __all__ = ["MOVABLE_KINDS", "keep", "recall_tile"]
 
@@ -75,10 +76,6 @@ def _movable(kind: str, store_root: str, path: str) -> bool:
         from .storage_redundant import _custom_scenery_dir
         flyable.append(_custom_scenery_dir())
     return not any(_under(path, root) for root in flyable if root)
-
-
-def _last_used(st: os.stat_result) -> float:
-    return max(st.st_mtime, st.st_atime)
 
 
 def _tier_files(mount: str) -> list:

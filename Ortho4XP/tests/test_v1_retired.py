@@ -85,6 +85,8 @@ KEEP = frozenset({
     "auto_patch.overlap_stage",
     # ... and to disable the lower of two packs defining one airport (17s)
     "auto_patch.duplicate_stage",
+    # ... and to hide a lower pack's draped polygons inside a custom airport (19h)
+    "auto_patch.drape_overlap_stage",
     "auto_patch.forest_stage",
     # ... the ground a guest body stands on, and its re-seat (#2129)
     "auto_patch.guest_stage",

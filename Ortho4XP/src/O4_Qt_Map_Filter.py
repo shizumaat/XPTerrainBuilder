@@ -23,7 +23,7 @@ class FilterMenu(QMenu):
 
     def __init__(self, parent=None) -> None:
         super().__init__("Filter", parent)
-        self.setToolTip("Choose which airports and ortho tiles the map shows")
+        self.setToolTip(MAPFILTER.MENU_HELP)
         #: key -> its checkable action.
         self.items: Dict[str, QAction] = {}
         self.headers = []

@@ -52,6 +52,7 @@ from .events import (
     PackAdjust,
     GatewayAirports,
     PackOverlaps,
+    PackReadOnly,
     PackPackage,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
@@ -60,6 +61,7 @@ from .events import (
     TileState,
 )
 from . import step_clock as STEP_CLOCK
+from . import step_inputs as STEP_INPUTS
 from .slow_step import SlowStepWatch
 
 #: The queue rank of a tile whose batch named no class or deadline.
@@ -193,6 +195,36 @@ def _offer_gateway_airports(lat: int, lon: int) -> None:
 
     threading.Thread(target=work, daemon=True,
                      name="o4-gateway-check").start()
+
+
+def _offer_gateway_early(tiles) -> None:
+    """#2169 follow-up: before any patch is built, the run's tiles' Global
+    Airports airports that need the Gateway pack (``gateway_stage.
+    gateway_early``), each asked once per run — on a thread of its own,
+    so reading the feeds never holds up the run's first step."""
+    cells = [(int(t[0]), int(t[1])) for t in tiles]
+
+    def root_of(lat, lon):
+        from .xplane_root import xplane_root_for
+        try:
+            return xplane_root_for(lat, lon)
+        except Exception:
+            return None
+
+    def work():
+        from auto_patch import gateway_stage as _GW
+        _GW.gateway_early(cells, root_of)
+
+    threading.Thread(target=work, daemon=True,
+                     name="o4-gateway-early").start()
+
+
+def _gateway_line(tile, icaos) -> str:
+    """The log line of a tile built again for a Gateway install."""
+    return ("Tile %s: %s was installed from the Gateway during this run "
+            "after its patch was built against Global Airports; building "
+            "its vector step again to patch it against the Gateway pack."
+            % (FNAMES.short_latlon(*tile), ", ".join(icaos)))
 
 
 def _offer_pack_overlaps(lat: int, lon: int) -> None:
@@ -837,6 +869,9 @@ class EngineSession:
         # #2006; scanned_world, #2024).
         self._scanned = None
         self._building = False
+        #: the machine-ledger hold on the tile this process builds
+        #: (``O4_Machine_Memory.hold_tile``): no cleanup touches it
+        self._tile_hold = None
         # Build display state (moved from the Qt view): current step plus
         # the three legacy bar values plus the auto-patch fold.
         self._current_step = None          # (tile, key, base, width)
@@ -1205,6 +1240,10 @@ class EngineSession:
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
+        if not self._stepwise_run:
+            from auto_patch import gateway_stage as _GW
+            _GW.begin_run()
+            _offer_gateway_early(tiles)
         self._cancel_all = False
         self._cancelled_tiles = set()
         self._active_tile = None
@@ -1256,7 +1295,18 @@ class EngineSession:
                                      custom_build_dir)
         self._seed_work_queue(tiles, provider, zoomlevel, custom_build_dir,
                               plan)
-        threading.Thread(target=self._build_worker, daemon=True).start()
+
+        def _make_room_then_build():
+            # Room before the first tile (owner 2026-11-18T13:32Z,
+            # ``storage_room``); a worker child's step makes none.
+            if steps is None:
+                from . import storage_room
+                storage_room.before_run(tiles, provider, zoomlevel,
+                                        custom_build_dir,
+                                        (do_vector, do_imagery, do_overlays))
+            self._build_worker()
+
+        threading.Thread(target=_make_room_then_build, daemon=True).start()
         return True
 
     def _run_step(self, function, key, tile, plan):
@@ -1412,6 +1462,7 @@ class EngineSession:
                             missing_art=missing_art, overrides=overrides,
                             priority=priority):
                         self._note_overrides(tiles, overrides)
+                        _offer_gateway_early(tiles)
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -1424,6 +1475,7 @@ class EngineSession:
                         do_vector, do_imagery, do_overlays, overrides,
                         priority)
                     if appended:
+                        _offer_gateway_early(tiles)
                         return True
                     if appended == 0:
                         # A live run refused the whole batch: every tile
@@ -1532,16 +1584,45 @@ class EngineSession:
             if not into or tile in queued or tile not in self._run_items:
                 continue
             skips.pop(tile, None)
-            UI.vprint(0, "Tile %s: an airport crosses into %s, queued after "
-                         "its airports were chosen; building it again to "
-                         "patch it." % (FNAMES.short_latlon(*tile),
-                                        ", ".join(FNAMES.short_latlon(*c)
-                                                  for c in sorted(into))))
-            item = self._run_items[tile]
-            self._cancelled_tiles.discard(tile)
-            self.new_tile_attempt(tile)
-            self._work_queue.append(item)
-            self._eta_add_tiles([tile], *item[1:])
+            self._requeue_built_locked(
+                tile, "Tile %s: an airport crosses into %s, queued after "
+                      "its airports were chosen; building it again to "
+                      "patch it." % (FNAMES.short_latlon(*tile),
+                                     ", ".join(FNAMES.short_latlon(*c)
+                                               for c in sorted(into))))
+
+    def _requeue_built_locked(self, tile, line):
+        """Queue again *tile*, built or building in this in-process run,
+        saying *line*; False when it is queued already or not part of the
+        run.  Caller holds ``_work_queue_lock``."""
+        if (tile in {item[0] for item in self._work_queue}
+                or tile not in self._run_items):
+            return False
+        UI.vprint(0, line)
+        item = self._run_items[tile]
+        self._cancelled_tiles.discard(tile)
+        self.new_tile_attempt(tile)
+        self._work_queue.append(item)
+        self._eta_add_tiles([tile], *item[1:])
+        return True
+
+    def _gateway_repatch(self, tiles):
+        """#2169 (3): after a Gateway install, each of the live run's
+        *tiles* whose patch of the installed airport was built against
+        Global Airports (``gateway_stage.stale_patches``) runs its vector
+        step again in this run."""
+        from auto_patch import gateway_stage as _GW
+        for tile in tiles:
+            icaos = _GW.stale_patches(*tile)
+            if not icaos:
+                continue
+            run = self._parallel
+            if run is not None:
+                run.repatch(tile, icaos, _gateway_line(tile, icaos))
+                continue
+            with self._work_queue_lock:
+                if self._building:
+                    self._requeue_built_locked(tile, _gateway_line(tile, icaos))
 
     def _live_run_cells_locked(self):
         """The in-process run's queued and building tiles (caller holds
@@ -1695,9 +1776,34 @@ class EngineSession:
                                           attempt))
         return True
 
+    def _run_step_fed(self, step_fn, key, tile, plan):
+        """:meth:`_run_step`, a step failing for want of a cache file an
+        earlier step wrote rebuilding it instead (``step_inputs``, owner
+        2026-11-18T13:05Z); the failure it recorded is dropped then."""
+        mark = len(self._tile_failures)
+
+        def discard():
+            del self._tile_failures[mark:]
+        return STEP_INPUTS.run_fed(
+            lambda k: self._run_step(step_fn[k], k, tile, plan), tile, key,
+            lambda: _recall_from_tier(tile), discard)
+
+    def _hold_tile(self, tile):
+        """Hold ``tile`` on the machine ledger while this process builds it
+        (``None``: hold nothing); the previous tile's hold is released.
+        Every storage cleanup leaves a held tile alone (owner
+        2026-11-18T13:06Z: "not mid-build")."""
+        old, self._tile_hold = self._tile_hold, None
+        if old is not None:
+            old.release()
+        if tile is not None:
+            import O4_Machine_Memory as MEMORY
+            self._tile_hold = MEMORY.hold_tile(*tile)
+
     def _run_finished(self):
         """Bookkeeping shared by both run modes when a run ends."""
         self._building = False
+        self._hold_tile(None)
         self._current_step = None
         self._active_tile = None
         self._eta = None
@@ -1765,6 +1871,7 @@ class EngineSession:
                 self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
+            self._hold_tile((lat, lon))
             if not self._stepwise_run:
                 self.tile_logs.begin((lat, lon), FNAMES.build_dir(
                     lat, lon, custom_build_dir))
@@ -1775,6 +1882,15 @@ class EngineSession:
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
+                # RULINGS 2026-11-18l (#2172): a custom patch new to the
+                # tile turns "Fit custom airport buildings" off; the
+                # per-build switch below (the user's confirmed "on") wins
+                import O4_Custom_Patches as CUSTOM_PATCHES
+
+                try:
+                    CUSTOM_PATCHES.stand_down_new(tile)
+                except OSError as error:      # the record: never the build
+                    UI.vprint(1, "Custom patch record not written:", error)
                 overrides = self._tile_overrides.get((lat, lon))
                 if overrides:
                     tile.apply_build_overrides(overrides)
@@ -1831,7 +1947,7 @@ class EngineSession:
                         self._imagery_weights = _imagery_weights_for(
                             lat, lon, provider, zoomlevel, custom_build_dir)
                     step_t0 = time.time()
-                    result = self._run_step(step_fn[key], key, tile, plan)
+                    result = self._run_step_fed(step_fn, key, tile, plan)
                     step_seconds[key] = time.time() - step_t0
                     if result == 1 and not UI.red_flag:
                         # The step ENDED with its outputs on disk: its
@@ -1912,6 +2028,13 @@ class EngineSession:
                         self._requeue_boundary_skips(
                             self._live_run_cells_locked() - {(lat, lon)},
                             [(lat, lon)])
+                        # #2169 (3): a Gateway install this run that came
+                        # after this tile's patch was built
+                        from auto_patch import gateway_stage as _GW
+                        stale = _GW.stale_patches(lat, lon)
+                        if stale:
+                            self._requeue_built_locked(
+                                (lat, lon), _gateway_line((lat, lon), stale))
                     # #564: the airports this tile's MESH was built
                     # without, from the record the vector step published —
                     # a sidecar, because under the parallel orchestrator
@@ -2314,6 +2437,12 @@ class EngineSession:
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
 
+    def airport_phases(self, airport, phases):
+        """A finished airport build's stage clocks (``UI.airport_phases``,
+        #2206) for the record :meth:`_clock_airport` writes for it."""
+        from . import airport_time_model as ATM
+        ATM.note_phases(airport, phases)
+
     def _clock_airport(self, airport, fraction, status):
         """Feed the vector step's clock one airport report; a solved
         airport's measured seconds go to the airport time model, so the
@@ -2497,7 +2626,10 @@ class EngineSession:
                 root = xplane_root_for(la, lo) if la is not None else None
             except Exception:
                 root = None
-            _GW.gateway_choice(root, act, la, lo, items=picked, shown=seen)
+            done = _GW.gateway_choice(root, act, la, lo, items=picked,
+                                      shown=seen)
+            if (done or {}).get("state") == "installed":
+                self._gateway_repatch(sorted(self._live_run_cells()))
 
         threading.Thread(target=work, daemon=True,
                          name="o4-gateway-airports").start()
@@ -2508,12 +2640,16 @@ class EngineSession:
         (#2145): the ``PackOverlaps`` event (``UI.pack_overlaps`` hook)."""
         self._emit_known(PackOverlaps, fields)
 
-    def pack_overlaps(self, action="", lat=None, lon=None, items=None):
+    def pack_overlaps(self, action="", lat=None, lon=None, items=None,
+                      default=None):
         """THE USER'S ANSWER (capability ``pack_overlaps``, #2145):
         ``action`` is ``"choose"`` (``items``: ``{"key", "winner"}`` per
         pack pair; the losing pack's overlapping placements are hidden in
         its tile DSF), ``"undo"`` (forget the answers of ``items``' keys)
-        or ``"ask"`` (the tile's report).  Replies ``{"status":
+        or ``"ask"`` (the tile's report); ``default`` (capability
+        ``pack_overlaps_default``, #2190) sets the condensed answer for
+        all tiles (``"prefer_airports"`` / ``"keep_all"``; ``""`` clears
+        it; omitted leaves it).  Replies ``{"status":
         "started"}`` at once and completes with a ``PackOverlaps`` event
         (``overlap_stage.overlap_choice``)."""
         from auto_patch import overlap_stage as _OV
@@ -2529,10 +2665,32 @@ class EngineSession:
                 root = xplane_root_for(la, lo) if la is not None else None
             except Exception:
                 root = None
-            _OV.overlap_choice(root, act, picked, la, lo)
+            _OV.overlap_choice(root, act, picked, la, lo,
+                               None if default is None else str(default))
 
         threading.Thread(target=work, daemon=True,
                          name="o4-pack-overlaps").start()
+        return {"status": "started"}
+
+    def pack_readonly_event(self, **fields):
+        """A read-only pack, or an answer's outcome (#2174): the
+        ``PackReadOnly`` event (``UI.pack_readonly`` hook)."""
+        self._emit_known(PackReadOnly, fields)
+
+    def pack_readonly(self, pack_root="", action="", lat=None, lon=None):
+        """THE USER'S ANSWER (capability ``pack_readonly``, #2174):
+        ``action`` is ``"writable"`` (add the owner's write permission to
+        the pack inside Custom Scenery; a build waiting on it goes on),
+        ``"not_now"`` or ``"ask"``.  Never refused while a run writes the
+        pack — that run is the one waiting for this answer.  Replies
+        ``{"status": "started"}`` at once and completes with a
+        ``PackReadOnly`` event (``pack_readonly.choice``)."""
+        from auto_patch_v2.airport import pack_readonly as _RO
+        args = (str(pack_root or ""), str(action or ""),
+                None if lat is None else int(lat),
+                None if lon is None else int(lon))
+        threading.Thread(target=_RO.choice, args=args, daemon=True,
+                         name="o4-pack-readonly").start()
         return {"status": "started"}
 
     def _emit_known(self, cls, fields):
@@ -2573,12 +2731,20 @@ class EngineSession:
             lambda r, a, la, lo: _OS.optimise_choice(r, a, la, lo, steps=chosen),
             pack_root, action, lat, lon)
 
-    @staticmethod
-    def _pack_choice_worker(name, choice, pack_root, action, lat, lon):
+    def _pack_choice_worker(self, name, choice, pack_root, action, lat, lon):
         """``choice(root, action, lat, lon)`` on a worker thread
         — DSFTool never runs on the transport's read loop; the function
-        announces its own completion event."""
+        announces its own completion event.  A writing action on a pack a
+        live run is rewriting is refused with the reason on the console
+        (#2168): ``{"status": "refused", "reason": ...}``."""
+        from . import pack_busy
         root, act = str(pack_root or ""), str(action or "")
+        busy = (self.pack_busy_reason(root)
+                if act in pack_busy.WRITING_ACTIONS else "")
+        if busy:
+            self.log_warning("%s: not changed — %s."
+                             % (os.path.basename(root.rstrip("/")), busy))
+            return {"status": "refused", "reason": busy}
         la = None if lat is None else int(lat)
         lo = None if lon is None else int(lon)
 
@@ -2710,7 +2876,18 @@ class EngineSession:
         from auto_patch import object_rebake
         if not os.path.isdir(pack_path):
             raise ValueError("not a scenery pack folder: " + str(pack_path))
+        busy = self.pack_busy_reason(pack_path)
+        if busy:
+            raise ValueError(busy)
         return dict(object_rebake.restore_detail(pack_path))
+
+    def pack_busy_reason(self, pack_root):
+        """Why a pack-row action on ``pack_root`` must wait, or ``""``
+        (#2168): only a live run building a tile that writes the pack
+        (``pack_busy.busy_reason``); background jobs never block it."""
+        from . import pack_busy
+        return pack_busy.busy_reason(str(pack_root or ""),
+                                     self.building_tiles())
 
     # ------------------------------------------------------------------
     # Commands: provider account sign-in

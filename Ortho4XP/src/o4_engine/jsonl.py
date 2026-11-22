@@ -719,6 +719,36 @@ def _start_parent_death_watchdog(session: EngineSession) -> None:
                      name="o4-engine-parent-watchdog").start()
 
 
+def _is_build_worker() -> bool:
+    """Is this process a parallel build's worker child (``--engine-worker``,
+    ``parallel.tile_worker_command``)?  Its parent engine publishes and
+    tidies what it builds."""
+    return "--engine-worker" in sys.argv
+
+
+def _watch_app_session(session: "EngineSession") -> None:
+    """The app engine's after-run work, never a build worker's (#2247: a
+    worker's World sweep swapped the parent's staged drapes from another
+    process while the parent swapped them too, and cut a drape's
+    ``terrain`` folder short)."""
+    # A tile built with imagery on demand: indexed, its airport
+    # cores sharp, when the run ends (#1992 follow-up).
+    from .imagery_after_build import watch as _watch_built_tiles
+    _watch_built_tiles(session)
+    # ... and published into the World pack when there is one
+    # (flight manager / World spec §7.3).
+    from .world_publish import watch as _watch_world
+    _watch_world(session)
+    # Settings > Storage's scan measured in the background, shared and
+    # refreshed after each run (#2029).
+    from .storage_shared import watch as _watch_storage
+    _watch_storage(session)
+    # ... and what X-Plane does not read moved to a mounted storage
+    # tier after each run (RULINGS 2026-11-16c, #2103).
+    from .storage_offload import watch as _watch_offload
+    _watch_offload(session)
+
+
 def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     """Run the JSON-lines transport until ``stdin`` closes or ``shutdown``.
 
@@ -797,22 +827,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             for info in CFG_MIGRATIONS.migrate_global():
                 print("INFO: " + info, file=sys.stderr)
         session.subscribe(lambda event: write_obj(serialize_event(event)))
-        # A tile built with imagery on demand: indexed, its airport
-        # cores sharp, when the run ends (#1992 follow-up).
-        from .imagery_after_build import watch as _watch_built_tiles
-        _watch_built_tiles(session)
-        # ... and published into the World pack when there is one
-        # (flight manager / World spec §7.3).
-        from .world_publish import watch as _watch_world
-        _watch_world(session)
-        # Settings > Storage's scan measured in the background, shared and
-        # refreshed after each run (#2029).
-        from .storage_shared import watch as _watch_storage
-        _watch_storage(session)
-        # ... and what X-Plane does not read moved to a mounted storage
-        # tier after each run (RULINGS 2026-11-16c, #2103).
-        from .storage_offload import watch as _watch_offload
-        _watch_offload(session)
+        if not _is_build_worker():
+            _watch_app_session(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

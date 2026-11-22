@@ -334,7 +334,8 @@ def test_2032_a_held_placeholder_with_no_file_is_swapped_at_once(tmp_path):
     for la, lo in ((lat, lon + 1), (lat + 1, lon)):
         dsf = os.path.join(stage, WP.tile_name(la, lo), WP.dsf_relpath(la, lo))
         os.makedirs(os.path.dirname(dsf))
-        shutil.copyfile(os.path.join(FIXTURES, "full_ortho.dsf"), dsf)
+        with open(dsf, "wb") as h:  # a real tile naming no file (#2247)
+            h.write(DSFB.placeholder_bytes(la, lo, "a real tile"))
         for sub in ("terrain", "textures"):
             os.makedirs(os.path.join(stage, WP.tile_name(la, lo), sub,
                                      WP.tile_name(la, lo)))

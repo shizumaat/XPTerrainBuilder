@@ -65,7 +65,7 @@ __all__ = [
     "pack_dsfs", "pack_dsf_keys",
     "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
     "rewrite_dsf_text", "relayout_tile", "verify_tile",
-    "publish", "swap_staged", "swap_in", "swap_out", "nothing_held",
+    "IncompleteTile", "publish", "swap_staged", "swap_in", "swap_out", "nothing_held",
     "held_by_xplane", "ini_install",
     "ini_remove", "dsftool_path", "dsf_header",
 ]
@@ -519,6 +519,8 @@ def verify_tile(root: str, lat: int, lon: int) -> dict:
                 out["problems"].append(f"DSF def missing on disk: {ref}")
             else:
                 ters.append(ter)
+    for ref in _missing_defs(root, lat, lon, skip=("TERT",), data=data):
+        out["problems"].append(f"DSF def missing on disk: {ref}")
     for ter in ters:
         out["ters_checked"] += 1
         with open(ter, encoding="utf-8") as handle:
@@ -536,6 +538,44 @@ def verify_tile(root: str, lat: int, lon: int) -> dict:
                 out["problems"].append(f"{os.path.basename(ter)}: "
                                        f"missing {ref}")
     return out
+
+
+class IncompleteTile(OSError):
+    """A tile refused by :func:`swap_in`: a file its DSF names is not
+    there (``where`` ``staged``: the staged tile is short, so it can never
+    go in; ``pack``: the copy into the pack came out short).  ``missing``
+    the pack-relative names (#2247)."""
+
+    def __init__(self, tile: str, where: str, missing: list) -> None:
+        super().__init__(f"{tile}: {len(missing)} file(s) its DSF names "
+                         f"missing in the {where} copy: {missing[:3]}")
+        self.tile, self.where, self.missing = tile, where, list(missing)
+
+
+def _missing_defs(root: str, lat: int, lon: int, skip: tuple = (),
+                 data: bytes | None = None) -> list:
+    """The pack-relative definitions (``terrain/`` or ``textures/``: a
+    ``.ter``, a drape's ``.pol``) of the tile's DSF that are not files
+    under ``root``, in DSF order; tables in ``skip`` are not read.
+    ``data``: the DSF's bytes (default: the DSF under ``root``); an
+    unreadable DSF names nothing."""
+    import O4_DSF_Header as DSFH
+    if data is None:
+        data = DSFH.dsf_bytes(os.path.join(root, dsf_relpath(lat, lon)))
+    try:
+        tables = DSFB.definitions(data) if data else {}
+    except ValueError:
+        return []
+    return [ref for table, refs in tables.items() if table not in skip
+            for ref in refs if ref.startswith(("terrain/", "textures/"))
+            and not os.path.isfile(os.path.join(root, ref))]
+
+
+def _refuse_short(root: str, lat: int, lon: int, where: str,
+                  data: bytes | None = None) -> None:
+    missing = _missing_defs(root, lat, lon, data=data)
+    if missing:
+        raise IncompleteTile(tile_name(lat, lon), where, missing)
 
 
 def dsf_header(path: str) -> dict:
@@ -565,6 +605,10 @@ def _place_dir(staged: str, dest: str) -> None:
     if os.path.exists(incoming):
         shutil.rmtree(incoming)
     shutil.copytree(staged, incoming, copy_function=_link_or_copy)
+    short = sorted(set(os.listdir(staged)) - set(os.listdir(incoming)))
+    if short:                   # another writer cut it (#2247): keep dest
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise IncompleteTile(os.path.basename(dest), "pack", short)
     old = None
     if os.path.exists(dest):
         old = os.path.join(parent, f".{os.path.basename(dest)}.old")
@@ -586,14 +630,22 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     every old name (:func:`_merge_in`, for a loaded tile just before a
     reload).
 
+    Refused (:class:`IncompleteTile`, the pack's DSF untouched) when a
+    file the staged DSF names is not staged, or did not come into the
+    pack (#2247: X-Plane cancels a DSF that names a missing ``.pol``).
+
     A tile the user turned off (#2100) goes into its kept folder instead,
     which X-Plane never reads (``kept`` true in the reply): it is never
     published behind the user's back, and turning it on shows it."""
     kept = _kept_home(pack, lat, lon)
     if kept:
         return {**swap_in(kept, staged, lat, lon), "kept": True, "stale": []}
+    staged_dsf = os.path.join(staged, dsf_relpath(lat, lon))
+    with open(staged_dsf, "rb") as handle:
+        data = handle.read()
+    _refuse_short(staged, lat, lon, "staged", data)
     if merge:
-        return _merge_in(pack, staged, lat, lon)
+        return _merge_in(pack, staged, lat, lon, data)
     tile = tile_name(lat, lon)
     _share_folder(staged, pack)
     for sub in ("terrain", "textures"):
@@ -605,13 +657,15 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     partial = dest + ".partial"
     if os.path.exists(partial):
         os.remove(partial)
+    _refuse_short(pack, lat, lon, "pack", data)
     IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
-    _link_or_copy(os.path.join(staged, dsf_relpath(lat, lon)), partial)
+    _link_or_copy(staged_dsf, partial)
     os.replace(partial, dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder}
 
 
-def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
+def _merge_in(pack: str, staged: str, lat: int, lon: int,
+              data: bytes | None = None) -> dict:
     """Rule S5 (``swap_in(merge=True)``): put a staged tile over one
     X-Plane may have loaded, just before a scenery reload, without removing
     any name it may still open.  Each staged file is hard-linked in under
@@ -637,6 +691,7 @@ def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
     dest = os.path.join(pack, dsf_relpath(lat, lon))
     was_placeholder = is_placeholder(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    _refuse_short(pack, lat, lon, "pack", data)
     IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
     _replace_with_link(os.path.join(staged, dsf_relpath(lat, lon)), dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder,
@@ -713,7 +768,15 @@ def _stage_tile(build_dir: str, staging_root: str, lat: int, lon: int,
 
 
 def _swap_staged_tile(pack: str, staged: str, lat: int, lon: int) -> dict:
-    res = swap_in(pack, staged, lat, lon)
+    """:func:`swap_in`, the staging folder gone after; a staged tile that
+    is itself short is removed too (it can never go in: made again),
+    one whose copy came out short stays staged for the next try."""
+    try:
+        res = swap_in(pack, staged, lat, lon)
+    except IncompleteTile as error:
+        if error.where == "staged":
+            shutil.rmtree(staged, ignore_errors=True)
+        raise
     shutil.rmtree(staged, ignore_errors=True)
     return res
 
@@ -740,21 +803,25 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     if done["problems"]:
         shutil.rmtree(done["staged"], ignore_errors=True)
         return {**out, "state": "failed"}
-    if _kept_home(pack, lat, lon):
-        _swap_staged_tile(pack, done["staged"], lat, lon)
-        return {**out, "state": "kept"}
-    if loaded(lat, lon):
+    if loaded(lat, lon) and not _kept_home(pack, lat, lon):
         return {**out, "state": "staged"}
-    _swap_staged_tile(pack, done["staged"], lat, lon)
-    return {**out, "state": "swapped"}
+    try:
+        _swap_staged_tile(pack, done["staged"], lat, lon)
+    except IncompleteTile as error:
+        return {**out, "state": "failed", "problems": [str(error)]}
+    return {**out, "state": "kept" if _kept_home(pack, lat, lon)
+            else "swapped"}
 
 
 def swap_staged(pack: str, staging_root: str,
                 loaded: Callable[[int, int], bool] = lambda lat, lon: False,
-                only: "tuple[int, int] | None" = None) -> list:
+                only: "tuple[int, int] | None" = None,
+                refused: "list | None" = None) -> list:
     """Swap in every staged tile ``loaded`` now allows, or tile ``only``
     alone; the tile names swapped.  A staged tile the user turned off
-    goes into its kept folder at once and is not named (#2100)."""
+    goes into its kept folder at once and is not named (#2100).  A tile
+    :func:`swap_in` refuses is skipped and its :class:`IncompleteTile`
+    appended to ``refused`` (#2247)."""
     done = []
     try:
         names = sorted(os.listdir(staging_root))
@@ -770,10 +837,16 @@ def swap_staged(pack: str, staging_root: str,
         staged = os.path.join(staging_root, name)
         if not os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon))):
             continue
-        if _kept_home(pack, lat, lon):
+        kept = bool(_kept_home(pack, lat, lon))
+        if not kept and loaded(lat, lon):
+            continue
+        try:
             _swap_staged_tile(pack, staged, lat, lon)
-        elif not loaded(lat, lon):
-            _swap_staged_tile(pack, staged, lat, lon)
+        except IncompleteTile as error:
+            if refused is not None:
+                refused.append(error)
+            continue
+        if not kept:
             done.append(name)
     return done
 

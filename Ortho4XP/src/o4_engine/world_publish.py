@@ -58,8 +58,8 @@ import O4_World_Pack as WP
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "SWAP_LOCK", "add_core_point", "publishing", "watch",
-           "write_layout"]
+__all__ = ["LAYOUT_KEY", "SWAP_LOCK", "add_core_point", "log_refused",
+           "publishing", "watch", "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -232,13 +232,17 @@ def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
         return []
     pack = WORLD.pack_dir(scenery_dir)
     held = WP.held_by_xplane(pack, loaded or XOPEN.loading(pack))
+    refused: list = []
     with SWAP_LOCK:
         if only is None:
-            done = WP.swap_staged(pack, WORLD.staging_root(), held)
+            done = WP.swap_staged(pack, WORLD.staging_root(), held,
+                                  refused=refused)
         else:
             done = [name for tile in sorted(only) for name in
                     WP.swap_staged(pack, WORLD.staging_root(), held,
-                                   only=tile)]
+                                   only=tile, refused=refused)]
+    for error in refused:
+        log_refused(error)
     USE.settle(scenery_dir, loaded)
     for name in done:
         lat, lon = WP.parse_tile(name)
@@ -246,6 +250,14 @@ def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
         WORLD.write_log({"swap_in": name, "from": "staged"})
     SWEEP.note_swapped(scenery_dir, done)
     return done
+
+
+def log_refused(error: "WP.IncompleteTile") -> None:
+    """The World pack log line of a swap ``O4_World_Pack.swap_in``
+    refused: the pack kept its previous version of the tile (#2247)."""
+    WORLD.write_log({"swap_refused": error.tile, "where": error.where,
+                     "missing": len(error.missing),
+                     "first": error.missing[:3]})
 
 
 def watch(session: Any,

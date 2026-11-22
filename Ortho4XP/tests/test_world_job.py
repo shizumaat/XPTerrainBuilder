@@ -5,9 +5,9 @@ margin, S5 merge swap, S7 follow hold); flight manager / World spec
 from __future__ import annotations
 
 import os
-import shutil
 import time
 
+import O4_DSF_Binary as DSFB
 import O4_World_Pack as WP
 import pytest
 from o4_engine import imagery_follow as FOLLOW
@@ -195,7 +195,12 @@ def _stage(staging, lat, lon, names=("a.ter",), dsf=FIXTURE_DSF):
             h.write(name + "@" + os.path.basename(staging))
     dest = os.path.join(root, WP.dsf_relpath(lat, lon))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    shutil.copyfile(dsf, dest)
+    ter = next(n for n in names if n.endswith(".ter"))
+    with open(dsf, "rb") as h:          # #2247: it names only staged files
+        body = DSFB.rewrite(h.read(), defs=lambda table, ref: (
+            f"terrain/{tile}/{ter}" if ref.startswith("terrain/") else ref))
+    with open(dest, "wb") as h:
+        h.write(body)
     return root
 
 

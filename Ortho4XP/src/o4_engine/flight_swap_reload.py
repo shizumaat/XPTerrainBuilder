@@ -55,7 +55,13 @@ class MergeReload:
             staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
             if not os.path.isfile(os.path.join(staged, WP.dsf_relpath(lat, lon))):
                 continue
-            done = WP.swap_in(pack, staged, lat, lon, merge=True)
+            try:
+                done = WP.swap_in(pack, staged, lat, lon, merge=True)
+            except WP.IncompleteTile as error:  # #2247: the pack kept its tile
+                PUBLISH.log_refused(error)
+                if error.where == "staged":
+                    shutil.rmtree(staged, ignore_errors=True)
+                continue
             shutil.rmtree(staged, ignore_errors=True)
             PUBLISH._after_swap(self.scenery_dir, self.build_dir_of(lat, lon),
                                 lat, lon)

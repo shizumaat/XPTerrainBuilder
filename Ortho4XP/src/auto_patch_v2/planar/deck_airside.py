@@ -20,50 +20,18 @@ airport with a generated deck, on stage 1's map only.
 """
 from __future__ import annotations
 
-import contextlib
 import dataclasses as _dc
 import typing as _t
 
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+from ..model.deck_withheld import no_bridge_arm, withheld
+
 __all__ = ["withheld", "fill_rings", "drop_bores", "FILL_MARK", "no_bridge_arm"]
 
 #: the evidence mark of a ring's fill cell (and of every cell the ring cut)
 FILL_MARK = "deck_fill"
-
-#: THE NO-BRIDGE MEASUREMENT ARM (``tools/v2_solve_replay.py --no-bridge``,
-#: never a build): the full map withholds its generated decks too, so the
-#: whole build is the no-bridge solve the 19s bar is read against
-_ARM: list[list] = []
-
-
-@contextlib.contextmanager
-def no_bridge_arm() -> _t.Iterator[None]:
-    """Inside, the FULL map withholds its own generated decks (``_ARM``)."""
-    _ARM.append([])
-    try:
-        yield
-    finally:
-        _ARM.pop()
-
-
-def withheld(decks: _t.Sequence = ()) -> tuple:
-    """The full map's GENERATED decks while stage 1's map is derived
-    (``model/stage_one``: inside ``stage_one()`` under ``from_full``);
-    ``()`` on the full map -- but under :func:`no_bridge_arm` the full
-    map's own (``decks``, recorded for its stage 1)."""
-    from ..model.stage_one import deriving, full_map
-    from ..model.structures import is_generated
-    full = full_map()
-    if _ARM:
-        if full is None and decks:
-            _ARM[-1][:] = [d for d in decks if is_generated(d)]
-        return tuple(_ARM[-1])
-    if full is None or not deriving():
-        return ()
-    return tuple(d for d in getattr(full, "decks", ()) or () if is_generated(d))
-
 
 def _carried(cells, polys, ring: Polygon, air: _t.AbstractSet[str]):
     """The airside cell the ring carries most of (its overlap with the ring
@@ -88,8 +56,8 @@ def fill_rings(classification, decks: _t.Sequence, law, airport=None
     (``planar/route_lines``).  Unchanged with no deck."""
     if not decks or classification is None:
         return classification, []
-    from ..law.tables import rolled_on_roles
     from ..classify.roles import Cell
+    from ..law.tables import rolled_on_roles
     from .cell_knife import knife_cells
     from .deck_bridge import deck_polygon
     polys = []

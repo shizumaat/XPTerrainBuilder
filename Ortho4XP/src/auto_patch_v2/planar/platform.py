@@ -37,13 +37,13 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom.parts import nonempty_polygon_parts
 from ..law import Law
 from ..law.tables import frontage_roles
 from ..model.planar import STRIP_SUFFIX, block_ref, is_bank_ref
 from ..model.platform import Platform
 from ..model.registries import Registries
 from ..model.storey_shell import SHELL_VERDICT
-from ..geom.parts import nonempty_polygon_parts
 
 __all__ = ["platform_split", "Platform", "merge_platform_faces"]
 
@@ -238,7 +238,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     # at a datum — neither a planned unit nor a §4 conforming block; it
     # stays a §20 plate, contact-led, its target and 1 % ceiling on that
     # plane (``constraints/pad_relief.pad_slope_offsets``)
-    from .pad_base_slope import sloped_pads
+    from ..geom.pad_base_slope import sloped_pads
     sloped = frozenset(sloped_pads(
         [(str(r.ref), r.polygon) for r in pad_regions
          if isinstance(r.polygon, Polygon) and not is_bank_ref(r.ref)], airport, law))
@@ -347,10 +347,10 @@ def platform_split(base_regions, pad_regions, law: Law,
     # viaduct — flat groundside pads with their collars, minted after every
     # block is registered and after the ref pass above (it never renames
     # a ``<unit>/landing<k>``)
-    from .landing import LOT_ROLES, landing_regions
-    from .fill_road import road_strips as _strips
     from ..law.tables import is_structure_role as _is_structure
     from ..law.tables import role_side as _side
+    from .fill_road import road_strips as _strips
+    from .landing import LOT_ROLES, landing_regions
 
     def _road_strips(base, law_, roles=None):
         return _strips(base, [r.polygon for r in base if r.polygon is not None
@@ -376,9 +376,9 @@ def platform_split(base_regions, pad_regions, law: Law,
     # its own one-storey step gets a second, LOWER level along it, tied to
     # the block's datum (``planar/low_level``); after the landings, which
     # clear the registry it is recorded in
+    from ..law.tables import is_structure_role
     from .low_level import low_level_split
     from .reach_after_pads import BEYOND
-    from ..law.tables import is_structure_role
     out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg,
                           storey_lots=[(r.polygon, float(storey[str(r.ref)]))
                                        for r in base_regions if storey

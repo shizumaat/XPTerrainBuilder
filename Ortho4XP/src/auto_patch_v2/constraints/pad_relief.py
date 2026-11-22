@@ -92,11 +92,11 @@ from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 from ..geom import exact
+from ..geom.pad_base_slope import SlopeField, sloped_pads
 from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
-from ..planar.pad_base_slope import SlopeField, sloped_pads
 
 __all__ = ["relief_radius_m", "pad_relief_offsets", "pad_slope_offsets",
            "pad_slope_pair_caps"]
@@ -144,10 +144,10 @@ def _otherwise_levelled(planar: PlanarMap, law: Law) -> set[int]:
 def _sloped_groups(planar: PlanarMap, law: Law, airport: Airport | None
                    ) -> dict[str, tuple[SlopeField, set[int]]]:
     """``{pad ref: (its authored plane, every vertex of the ref)}`` over the
-    pads ``planar/pad_base_slope.sloped_pads`` reads as sloped — the ONE
+    pads ``geom/pad_base_slope.sloped_pads`` reads as sloped — the ONE
     grouping :func:`pad_slope_offsets` and :func:`pad_slope_pair_caps`
     read."""
-    from .pads import _pad_polys                       # one derivation
+    from .pads import _pad_polys  # one derivation
     if (airport is None or not getattr(airport, "clusters", None)
             or float(law.tables.structures.base_profile.sloped_pad_rms_m) <= 0.0):
         return {}
@@ -166,7 +166,7 @@ def pad_slope_offsets(planar: PlanarMap, law: Law, airport: Airport | None
     """THE SLOPED BASE'S PLANE (owner RULINGS 2026-11-19o (1); #2184):
     ``vertex -> metres the pad's authored base plane stands there above
     its value at the member's origin``, over EVERY vertex of a pad
-    ``planar/pad_base_slope.sloped_pads`` reads as sloped — its rim shared
+    ``geom/pad_base_slope.sloped_pads`` reads as sloped — its rim shared
     with the pavement included.
 
     UNLIKE the per-foot relief below this IS one plane, so it is no demand
@@ -235,7 +235,7 @@ def _foot_offsets(planar: PlanarMap, law: Law, airport: Airport
     groups = getattr(airport, "groups", None)
     if radius <= 0.0 or groups is None or not getattr(groups, "groups", ()):
         return {}
-    from .pads import _pad_polys, _pavement_geoms      # one derivation of both
+    from .pads import _pad_polys, _pavement_geoms  # one derivation of both
     pads = _pad_polys(planar, law)
     if not pads:
         return {}

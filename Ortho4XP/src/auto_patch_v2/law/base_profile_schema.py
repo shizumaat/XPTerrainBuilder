@@ -62,7 +62,7 @@ class BaseProfileLaw:
     #: KASE cut-slope staircase reads 17 %).
     sloped_max: float = 0.08
     #: owner RULINGS 2026-11-19o (1): a SLOPED base is a PLANE the pad
-    #: takes (``planar/pad_base_slope``) only where its contact fit's rms
+    #: takes (``geom/pad_base_slope``) only where its contact fit's rms
     #: residual is within this (metres) — the 12y pavement visibility bar
     #: (0.05 m).  Over it the contact set is uneven ground geometry, not an
     #: authored plane, and the pad keeps the flat target (09c).  MEASURED

@@ -32,8 +32,8 @@ import dataclasses as _dc
 import typing as _t
 
 from ..geom.coons_patch import CoonsPatch, edge_profiles
-from ..geom.exact import hypot
 from ..geom.deck_frame import deck_frame as _deck_frame
+from ..geom.exact import hypot
 from .edge_floor import DECK_FLOOR
 
 __all__ = ["floor_follow_rewrite"]
@@ -95,7 +95,7 @@ def _patch(db, stage1, pm, levels) -> "tuple[CoonsPatch | None, int]":
     """``(the deck's top, the samples read)`` (module doc): stage 1's levels
     along its ring, else the full map's (no stage-1 map: the end lines'
     stations alone)."""
-    from ..planar.deck_bridge import deck_polygon
+    from ..geom.walled_trench import deck_polygon
     fr = _deck_frame(db)
     if fr is None:
         return None, 0
@@ -155,12 +155,12 @@ def floor_follow_rewrite(pm, cs, levels: _t.Mapping[int, float], stage1=None, la
     from shapely.geometry import Point
     from shapely.prepared import prep
 
+    from ..geom.walled_trench import deck_polygon
     from ..model.structures import is_generated
-    from ..planar.deck_bridge import deck_polygon
     rep: dict = {"decks": 0, "pins": 0, "max_drop_m": 0.0, "fixed": 0, "freed": 0,
                  "floor": {}, "top_low": {}, "ring_off": {}, "samples": {}}
     decks = [d for d in getattr(pm, "decks", ()) or () if is_generated(d)]
-    from ..planar.deck_airside import withheld
+    from ..model.deck_withheld import withheld
     held = list(withheld())          # the no-bridge arm's (``deck_airside``)
     if not decks and not held:
         return cs, _StageTwo(rep)
@@ -269,7 +269,7 @@ def _zone_pins(pm, decks, stage1, law, air, levels, low, fixed: dict) -> None:
     from shapely.ops import unary_union
     from shapely.prepared import prep
 
-    from ..planar.deck_bridge import deck_polygon
+    from ..geom.walled_trench import deck_polygon
     cap = float(law.tables.structures.tunnel.ramp_max_grade) if law is not None else 0.0
     parts = []
     for d in decks:

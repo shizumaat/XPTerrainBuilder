@@ -871,7 +871,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.overlay",
         "auto_patch_v2.planar.overpass_deck",
         "auto_patch_v2.planar.pack_reads",
-        "auto_patch_v2.planar.pad_base_slope",
+        "auto_patch_v2.geom.pad_base_slope",
         "auto_patch_v2.planar.pad_blocks",
         "auto_patch_v2.planar.pad_cut",
         "auto_patch_v2.planar.pad_fill",
@@ -2822,7 +2822,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.landing
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
-    planar.pack_reads planar.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pack_reads geom.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
     planar.pad_sliver planar.pad_terrace planar.passage_court planar.plate_bays planar.platform
     planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
@@ -3047,7 +3047,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.landing
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
-    planar.pack_reads planar.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pack_reads geom.pad_base_slope planar.pad_blocks planar.pad_cut planar.pad_fill
     planar.pad_sliver planar.pad_terrace planar.passage_court planar.plate_bays planar.platform
     planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
@@ -3485,7 +3485,7 @@ ENTRY_MODULES["emit"] = ("auto_patch_v2.pipeline.emit_stage",)
 ENTRY_MODULES["verify"] = ("auto_patch_v2.pipeline.verify_stage",)
 
 # MERGE test-565 (2026-11-19): constraints/__init__ -> walled_floor and
-# planar.pad_base_slope -> airport.obj8_grade widened these closures.
+# geom.pad_base_slope -> airport.obj8_grade widened these closures.
 _GROWN: dict[str, str] = {
     'classify': """
     geom.plate_cells geom.route_over_pad geom.sunk_cluster model.deck_piece
@@ -3526,12 +3526,13 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
     planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
-    planar.object_corridor planar.pad_base_slope planar.pad_blocks planar.passage_court
+    planar.object_corridor geom.pad_base_slope planar.pad_blocks planar.passage_court
     planar.road_yield planar.split_level_pit planar.station_level planar.storey_floor
     planar.storey_pad planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth
@@ -3554,12 +3555,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -3649,12 +3651,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -3744,12 +3747,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -3839,12 +3843,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -3901,7 +3906,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.taxi_centerlines': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -3952,7 +3957,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.triangle_planes': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4003,7 +4008,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.taxi_box': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4054,7 +4059,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.junction_mesh': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4105,7 +4110,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.apron_within_shape': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4156,7 +4161,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.steep_apron_plane': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4207,7 +4212,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.door_pad_level': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4258,7 +4263,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.apron_edge_portions': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4309,7 +4314,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.road_ramp': """
     airport airport.access_road airport.adapted_riders airport.agp_deck_ends
@@ -4393,12 +4398,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -4488,12 +4494,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -4585,7 +4592,8 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -4680,12 +4688,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -4775,12 +4784,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -4837,7 +4847,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.junction_raw_transverse': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4888,7 +4898,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.no_step_pairs': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4939,7 +4949,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.no_step_rate': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -4990,7 +5000,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.reach_bands': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5041,7 +5051,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.pad_flats': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5092,7 +5102,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.pad_frontage_level': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5143,7 +5153,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.pad_fronting_level': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5194,7 +5204,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.pad_slope_ceiling': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5245,7 +5255,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.platform_collar': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5296,7 +5306,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.block_strip': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5347,7 +5357,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.platform_plane': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5398,7 +5408,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.landing_level': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5449,7 +5459,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.shell_datum': """
     airport airport.access_road airport.adapted_riders airport.agp_deck_ends
@@ -5534,12 +5544,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -5629,12 +5640,13 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
     planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
-    planar.object_corridor planar.pad_base_slope planar.pad_blocks planar.passage_court
+    planar.object_corridor geom.pad_base_slope planar.pad_blocks planar.passage_court
     planar.road_yield planar.split_level_pit planar.station_level planar.storey_floor
     planar.storey_pad planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth
@@ -5691,7 +5703,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.frontage_hold': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5742,7 +5754,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.frontage_near_miss': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5793,7 +5805,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.groundside_frontage_level': """
     airport airport.adapted_riders airport.airside_deck_seat airport.airside_floor
@@ -5844,7 +5856,7 @@ _GROWN: dict[str, str] = {
     geom.plate_cells geom.route_over_pad geom.shape_class geom.sunk_cluster
     geom.terrain_deck geom.vector model.deck_piece model.floor_ground model.free_bridge
     model.placement model.pulse model.rebake model.wall_reach model.walled_plate planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'constraints.eat_anchor_rect': """
     airport airport.access_road airport.adapted_riders airport.agp_deck_ends
@@ -5928,12 +5940,13 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
     planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
-    planar.object_corridor planar.pad_base_slope planar.pad_blocks planar.passage_court
+    planar.object_corridor geom.pad_base_slope planar.pad_blocks planar.passage_court
     planar.road_yield planar.split_level_pit planar.station_level planar.storey_floor
     planar.storey_pad planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth
@@ -6024,12 +6037,13 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
     planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
-    planar.object_corridor planar.pad_base_slope planar.pad_blocks planar.passage_court
+    planar.object_corridor geom.pad_base_slope planar.pad_blocks planar.passage_court
     planar.road_yield planar.split_level_pit planar.station_level planar.storey_floor
     planar.storey_pad planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth
@@ -6120,12 +6134,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -6216,12 +6231,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -6312,12 +6328,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -6410,7 +6427,8 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6506,7 +6524,8 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6602,7 +6621,8 @@ _GROWN: dict[str, str] = {
     planar.channel_stretch planar.channel_strip planar.channel_witness
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
     planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
@@ -6630,12 +6650,13 @@ _GROWN: dict[str, str] = {
     planar.channel_geometry planar.channel_ramp planar.channel_stretch
     planar.channel_strip planar.channel_witness planar.covered_cut planar.covered_ground
     planar.cut_runout planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs
-    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines
     planar.deck_walls planar.door_ramps planar.end_witness planar.entrance_skirt
     planar.fill_riser planar.group_low planar.group_up planar.landing_runout
     planar.level_depth planar.level_regions planar.level_underside planar.lidar_road
     planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
-    planar.mouth_opening planar.object_corridor planar.pad_base_slope planar.pad_blocks
+    planar.mouth_opening planar.object_corridor geom.pad_base_slope planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.structure_approach
     planar.structure_deck planar.structure_fence planar.structure_geometry
@@ -6645,7 +6666,7 @@ _GROWN: dict[str, str] = {
     """,
     'jetway_strip': """
     geom.plate_cells geom.route_over_pad geom.sunk_cluster model.deck_piece planar
-    planar.pad_base_slope
+    geom.pad_base_slope
     """,
     'solve': """
     geom.plate_cells geom.route_over_pad geom.sunk_cluster model.deck_piece
@@ -6663,7 +6684,7 @@ _GROWN: dict[str, str] = {
     """,
     'emit': """
     geom.plate_cells geom.route_over_pad geom.sunk_cluster model.deck_piece
-    pipeline.road_deck planar.deck_gen_cover planar.deck_gen_pairs planar.pad_base_slope
+    pipeline.road_deck planar.deck_gen_cover planar.deck_gen_pairs geom.pad_base_slope
     """,
     'verify': """
     airport.bore_ground airport.bridge_ground airport.deck_roof airport.footed_portal
@@ -6680,12 +6701,13 @@ _GROWN: dict[str, str] = {
     planar.channel_ramp planar.channel_stretch planar.channel_strip
     planar.channel_witness planar.covered_cut planar.covered_ground planar.cut_runout
     planar.deck_bridge planar.deck_gen_cover planar.deck_gen_pairs planar.deck_generated
-    planar.deck_pack_cover planar.deck_route planar.deck_span_cut planar.route_lines planar.deck_walls
+    planar.deck_pack_cover planar.deck_route planar.deck_span_cut
+    planar.route_lines planar.deck_walls
     planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
     planar.group_low planar.group_up planar.landing_runout planar.level_depth
     planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
     planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
-    planar.object_corridor planar.pad_base_slope planar.pad_blocks planar.passage_court
+    planar.object_corridor geom.pad_base_slope planar.pad_blocks planar.passage_court
     planar.road_yield planar.split_level_pit planar.station_level planar.storey_floor
     planar.storey_pad planar.structure_approach planar.structure_deck
     planar.structure_fence planar.structure_geometry planar.structure_mouth
@@ -6766,3 +6788,27 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
 # level floor (planar/portal_level), read by planar/structures
 for _stage in ("planar", "solve", "late_cut", "late_solve"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("planar.portal_level")}))
+
+# lci573 (2026-11-21): the walled trench's plan geometry moved into geom
+# (geom/walled_trench) so constraints/walled_floor reads it without
+# importing planar; every stage reading the deck cut or the floor rows
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if {"auto_patch_v2.planar.deck_bridge", "auto_patch_v2.planar.deck_walls",
+            "auto_patch_v2.constraints.walled_floor"} & set(_mods_of):
+        CODE_MODULES[_stage] = tuple(sorted({*_mods_of, *_mods("geom.walled_trench")}))
+# the generated decks stage 1 withholds moved into model/deck_withheld (read
+# by planar/deck_airside and constraints/deck_floor_follow), the member
+# placement matrix into geom/place_matrix (read by airport/obj8_grade and
+# geom/pad_base_slope): constraints import no planar
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.planar.deck_airside" in _mods_of \
+            or "auto_patch_v2.constraints.deck_floor_follow" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("model.deck_withheld")}))
+    if "auto_patch_v2.airport.obj8_grade" in _mods_of \
+            or "auto_patch_v2.geom.pad_base_slope" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.place_matrix")}))
+# metres per degree moved into geom/deg_metres (model/frame re-exports it),
+# read by geom/pad_base_slope
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if {"auto_patch_v2.model.frame", "auto_patch_v2.geom.pad_base_slope"} & set(_mods_of):
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.deg_metres")}))

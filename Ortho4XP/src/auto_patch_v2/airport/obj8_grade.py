@@ -24,6 +24,7 @@ import typing as _t
 import numpy as np
 from shapely.ops import unary_union
 
+from ..geom.place_matrix import place_matrix as _place_matrix
 from . import frame_entry as _fe
 from .obj8_clip import _clip_both, _clip_component
 
@@ -800,21 +801,6 @@ def _part_row(row) -> "tuple[BaseProfile, tuple[float, float, float], float | No
                 None if hdg is None else float(hdg))
     prof, off = row[0], row[1]
     return (prof, (float(off[0]), float(off[1]), float(off[2])), None)
-
-
-def _place_matrix(dx: float, dz: float, heading_deg: "float | None"
-                  ) -> tuple[float, float, float, float, float, float]:
-    """The ``[a, b, d, e, xoff, yoff]`` taking one member's AUTHORED
-    ``(x, z)`` into the unit frame — ``obj8.placement_affine``'s matrix
-    for a placed member, and a pure TRANSLATION for ``heading_deg`` None
-    (the dry roll-up, :func:`_part_row`).  The matrix is BUILT here and
-    APPLIED by ``airport/frame_entry.enter``, which §51 (2) makes the one
-    site that puts a placement affine on a polygon."""
-    if heading_deg is None:
-        return (1.0, 0.0, 0.0, 1.0, dx, dz)
-    h = math.radians(heading_deg)
-    sn, cs = math.sin(h), math.cos(h)
-    return (cs, -sn, -sn, -cs, dx, dz)
 
 
 def _place_all(polys: "_t.Sequence", dx: float, dz: float,

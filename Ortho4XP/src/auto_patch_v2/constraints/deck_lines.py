@@ -73,9 +73,9 @@ def _rim_seats(planar: PlanarMap, law: Law, decks) -> dict[int, tuple[list, list
     (:func:`end_lines`).  MEASURED KORD I-190: the ring's own stations
     seated on the rim and the pit edge."""
     from ..geom import exact
+    from ..geom.walled_trench import rim_end_stations
     from ..law.tables import is_structure_role
     from ..model.platform import stage_air_vertices
-    from ..planar.deck_bridge import rim_end_stations
     from .geometry import nearest_vertex_fn
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     gap = float(law.tables.structures.tunnel.wall_gap_m)

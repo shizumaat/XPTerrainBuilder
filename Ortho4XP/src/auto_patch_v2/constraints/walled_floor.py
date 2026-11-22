@@ -44,8 +44,8 @@ _INSET_M = 0.05
 def _pieces(es, gap: float) -> list:
     """``(deck, seat, depth)`` of each WALLED pack piece among one object's
     end lines ``es``, its seat the mean of its two end lines' seats."""
+    from ..geom.walled_trench import _walled_trench
     from ..model.structures import is_generated
-    from ..planar.deck_bridge import _walled_trench
     from .edge_floor import _mean_terms
     by: dict[int, list] = {}
     for e in es:
@@ -68,9 +68,8 @@ def walled_floor_rows(planar: PlanarMap, law: Law, lines, skip: _t.Callable[[int
     from shapely.prepared import prep
 
     from ..geom.wall_lines import inner_faces, project_span
+    from ..geom.walled_trench import _walled_trench, open_stretch, wall_strip
     from ..law.tables import is_structure_role
-    from ..planar.deck_bridge import _walled_trench, open_stretch
-    from ..planar.deck_walls import wall_strip
     from .edge_floor import DECK_FLOOR, seat_pair, sloped_floor_rows
     gap = float(law.tables.structures.tunnel.wall_gap_m)
     rows: list[Row] = []
@@ -133,9 +132,9 @@ def release_wall_ramps(rows: list[Row], planar: PlanarMap, law: Law,
     from shapely.ops import unary_union
     from shapely.prepared import prep
 
+    from ..geom.walled_trench import _walled_trench
     from ..model.constraints import Band, Linear, Pin
     from ..model.structures import is_generated
-    from ..planar.deck_bridge import _walled_trench
     gap = float(law.tables.structures.tunnel.wall_gap_m)
     decks = [d for d in getattr(planar, "decks", ()) or () if not is_generated(d)]
     rims = []

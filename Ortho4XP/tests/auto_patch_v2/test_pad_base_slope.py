@@ -1,5 +1,5 @@
 """THE PAD UNDER A SLOPED BASE (owner RULINGS 2026-11-19o (1); #2184):
-``planar/pad_base_slope`` + its readers.
+``geom/pad_base_slope`` + its readers.
 
 THE CONSUMER CENSUS (RULINGS 2026-08-30l) — every pass that reads a pad's
 LEVEL or TARGET, and what 19o (1) does to it.  Each row names a symbol the
@@ -12,15 +12,15 @@ import math
 import types
 
 import pytest
+from auto_patch_v2.geom import pad_base_slope as PBS
 from auto_patch_v2.law import Law
-from auto_patch_v2.planar import pad_base_slope as PBS
 from shapely.geometry import Polygon
 
 #: (module, symbol, what it reads, 19o (1) ruling)
 CENSUS = [
     ("auto_patch_v2.airport.obj8_grade", "base_profile",
      "the member's authored bottom: FLAT / STEPPED / SLOPED / FEET", "UNCHANGED (the read)"),
-    ("auto_patch_v2.planar.pad_base_slope", "sloped_pads",
+    ("auto_patch_v2.geom.pad_base_slope", "sloped_pads",
      "SLOPED + rms <= sloped_pad_rms_m -> the plane, per pad", "NEW: the one derivation"),
     ("auto_patch_v2.planar.platform", "platform_split",
      "which pads are HELD flat at a datum (unit / §4 conforming)",

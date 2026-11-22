@@ -25,9 +25,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from shapely.geometry import Polygon
 
 from ..geom.wall_lines import inner_faces, project_span
+from ..geom.walled_trench import wall_strip
 
 __all__ = ["wall_faces", "inner_faces", "wall_strip"]
 
@@ -135,11 +135,3 @@ def _wall_segments(cache, frame, bottom_y: float, top_y: float) -> tuple[list, l
             flats.append(tuple(_to_frame(q.xy, q.heading_deg, float(p[0]), float(p[2]))
                                for p in (a[k], b[k], c[k])))
     return out, flats
-
-
-def wall_strip(r: tuple[float, float], n: tuple[float, float], u0: float, u1: float,
-               s0: float, s1: float) -> Polygon:
-    """The plan rectangle ``u0 <= u <= u1``, ``s0 <= s <= s1``."""
-    def at(s: float, u: float) -> tuple[float, float]:
-        return (r[0] * s + n[0] * u, r[1] * s + n[1] * u)
-    return Polygon([at(s0, u0), at(s1, u0), at(s1, u1), at(s0, u1)])

@@ -159,8 +159,8 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     polys = {ref: unary_union([_poly(planar, f.ring) for f in fs]) for ref, fs in pads.items()}
     # owner RULINGS 2026-11-19o (1): a building AUTHORED to its slope is no
     # building on a slope — its pad takes the authored plane
-    # (``planar/pad_base_slope``), never one level
-    from ..planar.pad_base_slope import sloped_pads
+    # (``geom/pad_base_slope``), never one level
+    from ..geom.pad_base_slope import sloped_pads
     sloped = sloped_pads(list(polys.items()), airport, law)
     out: list[DoorPad] = []
     for ref, fs in sorted(pads.items()):

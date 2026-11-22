@@ -112,7 +112,7 @@ def _deck_floors(decks, tops, law) -> tuple[dict, dict]:
     from shapely.geometry import Point
     from shapely.prepared import prep
 
-    from ..planar.deck_bridge import deck_polygon
+    from ..geom.walled_trench import deck_polygon
     slab = float(law.tables.structures.deck_gen.thickness_m)
     probe = float(law.tables.structures.deck_gen.level_probe_m)
     rings = {d.object_id: prep(deck_polygon(d)) for d in decks}
@@ -387,8 +387,8 @@ def carve_levels(pm, decks, tops: _t.Mapping[str, _t.Any], air: _t.AbstractSet[i
     from shapely.ops import unary_union
     from shapely.prepared import prep
 
+    from ..geom.walled_trench import deck_polygon
     from ..model.deck_bank import bank_past_m
-    from ..planar.deck_bridge import deck_polygon
     profs, rep, floors = _profiles(decks, tops, law)
     if not profs:
         return {}, rep

@@ -79,6 +79,7 @@ from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..geom.wall_lines import project_span, stretch_pair
+from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim_end_stations
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
@@ -93,18 +94,6 @@ __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
-
-
-def deck_polygon(db: DeckBridge) -> Polygon:
-    """The deck piece's outline as a valid polygon (the model holds no
-    shapely: ``model/structures.DeckBridge``)."""
-    return _ring_polygon(tuple(tuple(p) for p in db.ring))
-
-
-@functools.lru_cache(maxsize=4096)
-def _ring_polygon(ring: tuple) -> Polygon:
-    p = Polygon(ring)
-    return p if p.is_valid else p.buffer(0.0)
 
 
 def with_cuts(decks: _t.Sequence[DeckBridge], tunnels) -> tuple[DeckBridge, ...]:
@@ -449,35 +438,6 @@ def _walled_zero(objs: list[DeckBridge], airport, step: float, gap: float,
                  f"{step:g} m outside its walled rim, {objs[0].deck_z:.2f} -> {z:.2f} "
                  f"(walled frames W3)")
     return [_dc.replace(db, deck_z=z) for db in objs]
-
-
-def rim_end_stations(db: DeckBridge, step: float, gap: float
-                     ) -> "tuple[tuple[XY, ...], tuple[XY, ...]] | None":
-    """W3 (walled-multibridge-frames spec): the end-line stations ``(A, B)``
-    of a WALLED piece moved across the road to one ``step`` past the larger
-    of its ring and its rim (the K2 wall pair less / plus ``gap``) -- the
-    pavement the taxiway drives onto the deck from, never the rim or the pit
-    -- or ``None`` for a piece with no wall pair.  The pre-solve zero
-    (:func:`_walled_zero`) and the planar seats (``constraints/deck_lines.
-    end_lines``) read the same stations."""
-    if _walled_trench(db, gap) is None:
-        return None
-    r, n, faces = db.walls[:3]
-    floor = db.walls[3] if len(db.walls) > 3 else ()
-    u_lo, u_hi = project_span(db.ring, n)
-    s_lo, s_hi = project_span(db.ring, r)
-    mid = 0.5 * (u_lo + u_hi)
-    ua, ub = inner_faces(faces, s_lo, s_hi, mid, (u_lo, u_hi), floor)
-    lo, hi = min(u_lo, ua - gap) - step, max(u_hi, ub + gap) + step
-
-    def moved(st) -> tuple[XY, ...]:
-        out = []
-        for x, y in st:
-            u = x * n[0] + y * n[1]
-            du = (lo if u < mid else hi) - u
-            out.append((x + du * n[0], y + du * n[1]))
-        return tuple(out)
-    return moved(db.seats_a), moved(db.seats_b)
 
 
 def _beyond_stretches(objs: list[DeckBridge], gap: float,
@@ -1088,75 +1048,6 @@ def _lane_strip(db: DeckBridge, band: tuple[float, float], big: float) -> Polygo
     lo, hi = max(band[0], -big), min(band[1], big)
     return Polygon([(r[0] * s + n[0] * u, r[1] * s + n[1] * u)
                     for s, u in ((-big, lo), (big, lo), (big, hi), (-big, hi))])
-
-
-def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = None
-                  ) -> "tuple[Polygon, Polygon] | None":
-    """``(floor, rim)`` of a WALLED deck (``planar/deck_walls``; RULINGS
-    2026-10-30f (3)): the floor is the strip between the walls' inner faces
-    under the deck — and, toward ``other`` deck over the same road, along
-    the open stretch to it, between that stretch's own inner faces — and
-    the rim the same strip ``inset`` wider (behind the walls), inside the
-    deck's ring under it.  ``None`` where either side of the deck has no
-    wall: the 30b bank stands there.
-
-    #2157 R2: a wall line outside the ring's own reach across the road is
-    not this deck's wall (a frame's wall under another span of the same
-    object), and the floor never leaves the ring's reach across the road
-    but along the open stretch to ``other`` (MEASURED KRDU obj140: the W
-    span took the E span's wall 436 m away and floored the at-grade
-    taxiway between them)."""
-    if not db.walls:
-        return None
-    r, n, faces = db.walls[:3]
-    floor = db.walls[3] if len(db.walls) > 3 else ()   # K2: the frame's floor
-    u_lo, u_hi = project_span(db.ring, n)
-    s_lo, s_hi = project_span(db.ring, r)
-    ua, ub = inner_faces(faces, s_lo, s_hi, 0.5 * (u_lo + u_hi), (u_lo, u_hi), floor)
-    if ua is None or ub is None:
-        return None
-    floors = [wall_strip(r, n, max(ua, u_lo), min(ub, u_hi), s_lo, s_hi)]
-    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(deck_polygon(db))]
-    for (va, vb), (g0, g1) in getattr(db, "beyond", ()) or ():
-        floors.append(wall_strip(r, n, va, vb, g0, g1))     # W7b: past its ends
-        rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))
-    got = open_stretch(db, other, (ua, ub)) if other is not None else None
-    if got is not None:
-        (va, vb), (g0, g1) = got
-        floors.append(wall_strip(r, n, va, vb, g0, g1))
-        rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))
-    return unary_union(floors), unary_union(rims)
-
-
-def open_stretch(db: DeckBridge, other: DeckBridge, pair: tuple[float, float]
-                 ) -> "tuple[tuple[float, float], tuple[float, float]] | None":
-    """``((u_a, u_b), (s0, s1))``: the wall pair across the road and the
-    stretch along it of the OPEN STRETCH between walled ``db`` (its own
-    pair ``pair``) and ``other`` deck over the same road
-    (:func:`_walled_trench`), or ``None`` where they do not stand apart or
-    the stretch has no wall pair.  A side no single line covers reads the
-    two spans' own lines (``geom/wall_lines.stretch_pair``: a skewed wall,
-    or the frame's floor running on between them)."""
-    r, n, faces = db.walls[:3]
-    floor = db.walls[3] if len(db.walls) > 3 else ()
-    u_lo, u_hi = project_span(db.ring, n)
-    s_lo, s_hi = project_span(db.ring, r)
-    o_lo, o_hi = project_span(other.ring, r)
-    g0, g1 = (s_hi, o_lo) if o_lo >= s_hi else (o_hi, s_lo)
-    if g1 <= g0:
-        return None
-    va, vb = inner_faces(faces, g0, g1, 0.5 * (u_lo + u_hi), (u_lo, u_hi), floor)
-    if (va is None or vb is None) and other.walls:
-        ou_lo, ou_hi = project_span(other.ring, n)
-        os_lo, os_hi = project_span(other.ring, r)
-        oa, ob = inner_faces(faces, os_lo, os_hi, 0.5 * (ou_lo + ou_hi), (ou_lo, ou_hi),
-                             floor)
-        if oa is not None and ob is not None:
-            sa, sb = stretch_pair(faces, g0, g1, pair, (oa, ob), floor)
-            va, vb = (sa if va is None else va), (sb if vb is None else vb)
-    if va is None or vb is None or va >= vb:
-        return None
-    return (va, vb), (g0, g1)
 
 
 def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:

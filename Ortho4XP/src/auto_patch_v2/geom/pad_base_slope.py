@@ -76,8 +76,8 @@ def _member_field(member: _t.Any, to_xy: _t.Callable, cap: float) -> SlopeField 
     """The member's authored base plane in the frame ``to_xy(lon, lat)``,
     its magnitude capped at ``cap`` (direction kept); ``None`` for a
     member whose profile carries no gradient."""
-    from ..airport.obj8_grade import _place_matrix
-    from ..model.frame import m_per_deg_exact
+    from .deg_metres import m_per_deg_exact
+    from .place_matrix import place_matrix as _place_matrix
     bp = getattr(member, "base_profile", None) or {}
     sl = bp.get("slope") or (0.0, 0.0)
     a, b, d, e, _xo, _yo = _place_matrix(0.0, 0.0, float(member.heading_deg))

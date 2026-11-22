@@ -54,6 +54,8 @@ EXPECT = {
     "--gap-free": {"replay/classify", "replay/planar"},
     # lane lkbna15 (#2112/#2134): named sources re-roled before the map
     "--hand-role": {"replay/classify", "replay/planar"},
+    # RULINGS 2026-11-19s: generated decks withheld where the map is built
+    "--no-bridge": {"replay/classify", "replay/planar"},
 }
 
 #: every other option of the tool, DECIDED not to be an arm: a mode

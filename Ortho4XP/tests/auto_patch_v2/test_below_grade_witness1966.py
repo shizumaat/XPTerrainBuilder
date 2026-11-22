@@ -80,7 +80,9 @@ def test_a_bridge_deck_at_the_ground_still_bridges_the_road_under_it(tmp_path):
     round the deck — a bridge."""
     from test_deck_bridge1671 import _deck
     got, notes = _decks(tmp_path, _deck(tmp_path), _Dem(z=106.0), 6.0)
-    assert len(got) == 1 and not notes
+    # the walled deck's W3 zero record (planar/deck_bridge._walled_zero) is
+    # a record, never a refusal: no other note
+    assert len(got) == 1 and not [n for n in notes if "(walled frames W3)" not in n]
 
 
 def test_a_taxiway_across_a_deck_is_its_own_witness(tmp_path):

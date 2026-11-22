@@ -1,5 +1,10 @@
 [
  {
+  "path": "Ortho4XP/src/auto_patch_v2/geom/walled_trench.py",
+  "name": "ring_polygon",
+  "reason": "moved down from planar.deck_bridge for the layering gate (Beta 8 landing); the old home re-exports it and its readers import it there"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/planar/deck_takeover.py",
   "name": "hidden_ids",
   "reason": "the one hidden set (RULINGS 20v, #2215): full_hidden and without_hidden read it in-module; public as the seam test_deck_takeover pins"

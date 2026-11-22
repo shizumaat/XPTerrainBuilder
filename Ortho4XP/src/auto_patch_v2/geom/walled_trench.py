@@ -74,7 +74,8 @@ def _walled_trench(db, inset: float, other: "_t.Any" = None
     if ua is None or ub is None:
         return None
     floors = [wall_strip(r, n, max(ua, u_lo), min(ub, u_hi), s_lo, s_hi)]
-    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi).intersection(ring_polygon(db.ring))]
+    rims = [wall_strip(r, n, ua - inset, ub + inset, s_lo, s_hi)
+            .intersection(ring_polygon(db.ring))]
     for (va, vb), (g0, g1) in getattr(db, "beyond", ()) or ():
         floors.append(wall_strip(r, n, va, vb, g0, g1))     # W7b: past its ends
         rims.append(wall_strip(r, n, va - inset, vb + inset, g0, g1))

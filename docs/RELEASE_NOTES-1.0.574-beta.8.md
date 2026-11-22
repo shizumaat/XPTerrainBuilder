@@ -1,11 +1,11 @@
-# XPTerrainBuilder 1.0.573-beta.8
+# XPTerrainBuilder 1.0.574-beta.8
 
 **Beta 8 — a prerelease for outside testers.** Beta 8 brings **dynamic scenery
 loading**: the app keeps one World scenery pack, builds tiles with light
 placeholder imagery, and fetches full-detail photos around your aircraft as
 you fly. What needs testing most is a real flight with it switched on, from
 planning to landing. Read *Known issues* first, and the
-[testing guide](https://github.com/shizumaat/XPTerrainBuilder/blob/v1.0.573-beta.8/docs/TESTING-GUIDE.md)
+[testing guide](https://github.com/shizumaat/XPTerrainBuilder/blob/v1.0.574-beta.8/docs/TESTING-GUIDE.md)
 for a first build, step by step.
 
 ## What this is
@@ -173,6 +173,7 @@ KDEN, KBNA, OTHH, LOWS, NZWN, OMDB, LGAV, LPPD, KMCO, KRDU and KBUF.
   the region to the slower OSM server for a week #2201
 - The storage budget is saved at once and its slider stays live #2162
 - The app asks for write access only to a pack folder a build edits #2198
+- A World tile is never installed with files missing, and building tiles while flying can no longer leave a photo-drape tile incomplete (X-Plane's "missing library" alert) #2247
 
 ## Known issues (planned for Beta 9)
 
@@ -194,6 +195,7 @@ KDEN, KBNA, OTHH, LOWS, NZWN, OMDB, LGAV, LPPD, KMCO, KRDU and KBUF.
   server, and the ETA can climb while a large extract downloads #2234 #2218
 - With world-wide packs such as AEP or simHeaven, the overlap prompt appears on
   every build; the Favorite star can be slow to change #2227 #2228
+- The Fly map can mark squares "Reload scenery to see" that X-Plane already shows sharp #2246
 
 ## Reporting problems
 

@@ -516,6 +516,9 @@ EXCEPTION_CODES = {
     # o4_engine.imagery_after_build: a core landing the user stopped is
     # counted "skipped" by the follow job, never a build failure
     "_Stopped": UNMAPPED,
+    # O4_World_Pack (#2247): a short tile swap_in refuses is logged by the
+    # publish / staged sweep and the pack keeps its tile — never a build failure
+    "IncompleteTile": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
     "ElevationLinkBroken": "elevation_link_broken",

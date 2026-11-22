@@ -62,7 +62,7 @@ def _old_version(world_dir):
 def test_loading_reads_the_tile_files_x_plane_holds_open(tmp_path):
     pack = str(tmp_path / "pack")
     textures = os.path.realpath(os.path.join(pack, "textures", "+45+007"))
-    held = XOPEN.loading(pack, paths=lambda: {textures + "/a.dds"})
+    held = XOPEN.loading(pack, paths=lambda: {os.path.join(textures, "a.dds")})
     assert held(45, 7) is True and held(45, 8) is False
     dsf = os.path.realpath(os.path.join(pack, WP.dsf_relpath(45, 8)))
     held = XOPEN.loading(pack, paths=lambda: {dsf})

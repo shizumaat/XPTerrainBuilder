@@ -23,15 +23,12 @@ import dataclasses as _dc
 import typing as _t
 
 from ..model.planar import face_vertex_set
+from .stage_one_map import _items
 
 __all__ = ["VIEW_FIELDS", "withheld_vertices", "withheld_view", "dissolved_levels"]
 
 #: the PlanarMap fields a withheld view replaces
 VIEW_FIELDS = ("faces", "edges", "vertices")
-
-
-def _items(vertices):
-    return vertices.items() if isinstance(vertices, dict) else enumerate(vertices)
 
 
 def withheld_vertices(pm, faces: _t.AbstractSet[int]) -> frozenset[int]:

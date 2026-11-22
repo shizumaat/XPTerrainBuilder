@@ -10,7 +10,6 @@ from __future__ import annotations
 import types
 
 import pytest
-
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.pipeline.road_deck import road_deck_records

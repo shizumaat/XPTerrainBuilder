@@ -547,8 +547,8 @@ def _road_spans(gen, carves, airport, law, spans=None) -> list[tuple]:
     the taxiway deck's id)`` of every generated ROAD deck spanning a
     generated deck's cut (``geom/road_span``, as ``pipeline/road_deck``
     draws it); riders aside (the deck carries them)."""
-    from ..geom.road_span import DeckSpan, span_to_cut
     from ..geom.deck_frame import deck_frame
+    from ..geom.road_span import DeckSpan, span_to_cut
     if spans is None:
         spans = [DeckSpan(d.object_id, tuple(d.ring), [tuple(p.coords) for p in
                                                        carves[d.object_id].paths], fr)
@@ -604,8 +604,8 @@ def _landings(gen, carves, airport, law):
     reads the trench bank under it (MEASURED KPHX 1.0.567: the road decks'
     far ends ran down the bank, their end point inside a bank face)."""
 
-    from ..geom.road_span import DeckSpan
     from ..geom.deck_frame import deck_frame
+    from ..geom.road_span import DeckSpan
     depth = float(law.tables.structures.deck_gen.end_landing_m)
     parts, spans = [], []
     for d in gen:

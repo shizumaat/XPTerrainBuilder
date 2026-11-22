@@ -9,10 +9,9 @@ import math
 import types
 
 import pytest
-from shapely.geometry import Polygon
-
 from auto_patch_v2.geom.coons_patch import CoonsPatch, edge_profiles
 from auto_patch_v2.geom.coons_patch import _profile_at as profile_at
+from shapely.geometry import Polygon
 
 
 def _patch():

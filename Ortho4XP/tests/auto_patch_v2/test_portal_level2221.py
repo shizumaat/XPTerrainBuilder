@@ -4,10 +4,9 @@ its mouth's floor, and the floor stays level under it to its footprint's
 outer end (``planar/portal_level``)."""
 from __future__ import annotations
 
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.airport.portal_objects import Portal
 from auto_patch_v2.planar.portal_level import level_to_s, off_road
+from shapely.geometry import LineString, box
 from test_portal_objects1343 import LAW
 
 
@@ -32,7 +31,8 @@ def test_an_at_grade_mouth_states_no_floor_of_its_own(tmp_path):
     arch's soffit: ``airport/portal_floor`` reads no floor from it."""
     import dataclasses
 
-    from test_portal_floor1949 import _at, _box, _pin as _floor_pin, _read, _write
+    from test_portal_floor1949 import _at, _box, _read, _write
+    from test_portal_floor1949 import _pin as _floor_pin
     o = _at(_write(tmp_path / "tunnel.obj", [_box(-7.0, 0.0, 0.5, 20.0, 6.0),
                                              _box(6.5, 0.0, 0.5, 20.0, 6.0),
                                              _box(-7.0, 0.0, 14.0, 20.0, 0.3, y0=5.7),

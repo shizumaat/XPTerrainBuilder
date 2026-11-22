@@ -71,7 +71,8 @@ def _along(pts, route, ring) -> bool:
         return False
     c = ring.centroid
     k = math.cos(math.radians(c.y))
-    to_m = lambda g: scale(g, xfact=111320.0 * k, yfact=110540.0, origin=(c.x, c.y))
+    def to_m(g):
+        return scale(g, xfact=111320.0 * k, yfact=110540.0, origin=(c.x, c.y))
     piece = to_m(LineString(pts).intersection(ring))
     if piece.is_empty or piece.length <= 0.0:
         return False

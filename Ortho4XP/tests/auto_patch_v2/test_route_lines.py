@@ -4,13 +4,12 @@ its route's centreline (``airport/deck_route_paint``) -- owner
 2026-11-21T16:00Z, KRDU taxiway E."""
 import types
 
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.airport.apt_edit import Dropped
 from auto_patch_v2.airport.deck_route_paint import route_centreline
 from auto_patch_v2.classify.roles import Classification, CutLine
 from auto_patch_v2.model.airport import TaxiEdge, TaxiNode
 from auto_patch_v2.planar.route_lines import with_route_lines
+from shapely.geometry import LineString, box
 
 
 def _airport():

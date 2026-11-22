@@ -332,7 +332,8 @@ def test_a_giant_shared_anchor_plate_never_hides_the_terminal(monkeypatch):
     terms = [_placement(f"t{k}", f"{110 + k}.obj") for k in range(100)]
     tower = _placement("tw", "tower.obj")
     tops = {"p220": box(-150.0, -88.0, 163.0, 88.0)}
-    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    def rect(x0, y0, x1, y1):
+        return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     plans = {"p220": rect(-150.0, -88.0, 163.0, 88.0), "p221": rect(0.0, -10.0, 10.0, 10.0),
              "tw": rect(1.0, -2.0, 9.0, 2.0)}
     plans.update({f"t{k}": rect(20.0 + 10 * (k % 10), -80.0 + 10 * (k // 10),
@@ -369,12 +370,14 @@ def test_a_frame_takeover_hides_only_what_rides_its_bridges(monkeypatch):
     """A frame's co-placed members far from its bridges (a shared anchor's
     buildings) stay drawn; its deck placement, a bed under its bridges and
     its lights on an anchor no stranger shares go (``_frame_members``)."""
-    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    def rect(x0, y0, x1, y1):
+        return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     plans = {"o": rect(0.0, -20.0, 70.0, 20.0), "bed": rect(2.0, -15.0, 68.0, 15.0),
              "far": rect(300.0, 300.0, 400.0, 400.0)}
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
     monkeypatch.setattr(dt, "_body_top", lambda *a: None)
-    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(0.0, 0.0))
+    def P(i):
+        return types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(0.0, 0.0))
     fr = (_deck(0.0), _deck(60.0))
     law = load_default()
     got = dt._frame_members(fr, [P("o"), P("bed"), P("luz")], [], None, law)
@@ -404,12 +407,14 @@ def test_a_combined_frame_one_span_of_which_our_deck_takes_is_dropped_whole(monk
     goes (no piece kept, not the raised middle), its riders with it, a
     terminal on the anchor stays; the span no deck of ours takes is named."""
     law = load_default()
-    rect = lambda x0, y0, x1, y1: ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    def rect(x0, y0, x1, y1):
+        return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     plans = {"o140": rect(0.0, -20.0, 70.0, 20.0), "o141": rect(2.0, -18.0, 68.0, 18.0),
              "t": rect(300.0, 300.0, 400.0, 400.0)}
     monkeypatch.setattr(dt, "_plan", lambda o, *_a: plans.get(str(o.id)))
     monkeypatch.setattr(dt, "_body_top", lambda *a: None)
-    P = lambda i: types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(50.0, 0.0))
+    def P(i):
+        return types.SimpleNamespace(id=i, path=f"{i}.obj", xy=(50.0, 0.0))
     a = dataclasses.replace(_span_piece(0.0, 10.0), members=("o140", "o141", "t"))
     b = dataclasses.replace(_span_piece(60.0, 70.0), members=("o140", "o141", "t"))
     out, notes = dt._span_bands((a, b, _gen(0.0)), [P("o140"), P("o141"), P("t")], None, law,
@@ -442,7 +447,8 @@ def test_a_span_band_left_under_our_deck_is_counted():
 def test_crossings_one_road_part_is_no_linemerge_error(monkeypatch):
     """#2220 (CYYZ 1.0.571): a single road part under a deck unions to a bare
     LineString, which shapely's linemerge refuses; it counts as one road."""
-    from shapely import LineString, Polygon
     from auto_patch_v2.planar import deck_takeover as dt
-    monkeypatch.setattr(dt, "deck_polygon", lambda db: Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]))
+    from shapely import LineString, Polygon
+    monkeypatch.setattr(dt, "deck_polygon",
+                        lambda db: Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]))
     assert dt._crossings(object(), [LineString([(-5, 5), (15, 5)])]) == 1

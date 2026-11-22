@@ -6,11 +6,10 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import Polygon
-
 from auto_patch_v2.classify.pad_sunk import SUNK_KEY, _authored_top_m, hold_sunk_cells
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
+from shapely.geometry import Polygon
 
 
 def _rect(x0, y0, x1, y1):

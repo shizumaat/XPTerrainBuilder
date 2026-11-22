@@ -26,22 +26,25 @@ runs every process at nice 15 otherwise, which flattens the priorities).
 """
 from __future__ import annotations
 
-# The console is UTF-8 before anything prints (#171, #125): ONE derivation
-# site, ``src/O4_Console_Encoding.py`` (twin: ``tests/test_console_encoding.py``).
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
-_o4console.configure_console_streams()
-
 import argparse
 import json
 import os
+
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py`` (twin: ``tests/test_console_encoding.py``).
+import os as _o4os  # noqa: E401,E402
 import statistics
 import subprocess
 import sys
+import sys as _o4sys
 import threading
 import time
+
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -187,7 +190,7 @@ def main(argv=None) -> int:
     pid = engine.process.pid
     probes = [(round(at - series["started"], 1), round(1000 * lag, 1))
               for at, lag in zip(engine.sent_at.get("slow_step_choice", ()),
-                                 engine.latency.get("slow_step_choice", ()))]
+                                 engine.latency.get("slow_step_choice", ()), strict=False)]
     print(json.dumps({
         "tiles": tiles, "wall_s": round(series["wall"], 1),
         "run_done": series["run_done"],

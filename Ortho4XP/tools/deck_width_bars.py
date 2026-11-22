@@ -19,9 +19,8 @@ import typing as _t
 
 def width_rows(pm, airport, law) -> list[dict]:
     """One row per generated deck (module doc)."""
-    from shapely.geometry import LineString, Polygon
-
     from auto_patch_v2.planar.deck_generated import is_generated
+    from shapely.geometry import LineString, Polygon
     tsa = dict(law.tables.structures.deck_gen.tsa_by_letter_m)
     to_ll = airport.frame.transformers()[1]
     nodes = getattr(airport, "taxi_nodes", {}) or {}

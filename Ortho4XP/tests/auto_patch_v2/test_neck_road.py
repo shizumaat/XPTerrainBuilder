@@ -1,11 +1,10 @@
 """A neck's road leg beyond its taxi routes' territory is the road
 (``classify/neck_road``; owner sim read 2026-11-19, a fuel-farm loop road
 read as a taxi junction)."""
-from shapely.geometry import Point, box
-from shapely.ops import unary_union
-
 from auto_patch_v2.classify import load_rules
 from auto_patch_v2.classify.neck_road import road_beyond_routes
+from shapely.geometry import Point, box
+from shapely.ops import unary_union
 
 RULES = load_rules()
 TERRITORY = box(0, 0, 60, 60)

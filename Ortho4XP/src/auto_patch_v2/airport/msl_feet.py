@@ -392,8 +392,8 @@ def _seat_frame(groups: list, ctx: _SeatContext) -> list:
 def _meeting(groups: list, z: list, free: list, tol_m: float) -> list[list[int]]:
     """The sets of ``free`` joined where their static geometry, each at its
     authored elevation, meets within ``tol_m`` (``geom/point_triangle``)."""
-    from . import obj8 as _obj8
     from ..geom.point_triangle import Soup, meshes_meet
+    from . import obj8 as _obj8
     tris = {}
     for i in free:
         parts = []

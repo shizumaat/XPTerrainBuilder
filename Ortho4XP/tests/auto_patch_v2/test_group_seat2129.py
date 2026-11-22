@@ -14,13 +14,12 @@ from __future__ import annotations
 import dataclasses as dc
 import types
 
-from test_objtilt162 import BAND_M, CAP_DEG, TOL_M, _M, _U, _body, _feet, _surface
-from test_touch_seat2110 import _World, _zero
-
 from auto_patch_v2.airport import placement_seat_tilt as PST
 from auto_patch_v2.airport import tilt_float as TF
 from auto_patch_v2.airport import touch_seat as TS
 from auto_patch_v2.airport.placement_record import Split
+from test_objtilt162 import _M, _U, BAND_M, CAP_DEG, TOL_M, _body, _feet, _surface
+from test_touch_seat2110 import _World, _zero
 
 LAW = TS._TouchLaw(touch_m=0.1, tol_m=0.05, min_share=0.10, walled_m=2.5, contact_tol_m=0.3)
 

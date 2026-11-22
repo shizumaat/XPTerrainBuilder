@@ -10,7 +10,6 @@ import types
 
 import numpy as np
 import pytest
-
 from auto_patch_v2.geom.carve_profile import PathFrame, floor_profile, lateral, ramp_lengths
 
 CAP, RATE = 0.10, 0.01 / 3.0
@@ -125,9 +124,8 @@ def test_carve_levels_the_cut_and_never_an_airside_vertex():
 
 
 def test_a_path_follows_its_mapped_road_and_runs_straight_on_past_its_end():
-    from shapely.geometry import LineString
-
     from auto_patch_v2.planar.deck_carve import _extended, _road_lines
+    from shapely.geometry import LineString
     # the covered piece runs east; the mapped road bends north-east past it
     ways = [types.SimpleNamespace(points=((-50.0, 0.0), (50.0, 0.0)), tags={"highway": "primary"}),
             types.SimpleNamespace(points=((50.0, 0.0), (90.0, 30.0)), tags={"highway": "primary"})]
@@ -208,11 +206,10 @@ def test_the_ramp_owns_its_floor_over_a_corridor_that_lowered_its_ground():
 
 
 def test_cut_cells_are_noded_along_every_ring():
-    from shapely.geometry import Polygon
-
     from auto_patch_v2.classify.roles import Cell
     from auto_patch_v2.law import Law
     from auto_patch_v2.planar.deck_carve import RING_NODE_M, _ring_dense
+    from shapely.geometry import Polygon
     law = Law.load()
     ring = Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])
     # a corridor crossing the ring's side with no vertex on it

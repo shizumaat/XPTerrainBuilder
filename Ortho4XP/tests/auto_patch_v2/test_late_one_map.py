@@ -15,8 +15,8 @@ from __future__ import annotations
 import dataclasses as dc
 
 from auto_patch_v2.pipeline.late_stage import _junior_faces, run_last_stages
-from auto_patch_v2.pipeline.prefix import Deriver
 from auto_patch_v2.pipeline.late_view import withheld_vertices, withheld_view
+from auto_patch_v2.pipeline.prefix import Deriver
 from auto_patch_v2.pipeline.stage_one_map import gap_free
 from auto_patch_v2.solve import Options, solve_design
 from tests.auto_patch_v2.test_backhalf_end_to_end import _two_pass_world

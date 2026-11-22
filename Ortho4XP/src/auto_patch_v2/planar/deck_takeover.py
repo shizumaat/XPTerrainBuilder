@@ -761,10 +761,10 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
 def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], law) -> list:
     """THE HIDE GUARD (owner 2026-11-20T22:39Z): the decks of ``out`` hide
     at most ``[deck_gen] hide_max_share`` of the pack's placements
-    ``objects`` (never fewer than ``hide_floor_count``); past it every deck keeps only the bridge ``bodies`` it
-    took (a frame's deck placements, a body over a crossing; their mates
-    stay drawn) and the
-    note says so -- a read to check, never half the airport hidden."""
+    ``objects`` (never fewer than ``hide_floor_count``); past it every deck
+    keeps only the bridge ``bodies`` it took (a frame's deck placements, a
+    body over a crossing; their mates stay drawn) and the note says so -- a
+    read to check, never half the airport hidden."""
     n = len(objects or ())
     ids = {h[0] for d in out for h in getattr(d, "hides", ()) or ()}
     cap = float(law.tables.structures.deck_gen.hide_max_share) * n
@@ -938,7 +938,7 @@ def _span_bands(decks: _t.Sequence[DeckBridge], objects, cache, law, to_ll=None
                      f"multi-bridge object, span(s) "
                      + ", ".join(f"{d0.span_cut[2][k][0]:.0f}-{d0.span_cut[2][k][1]:.0f} m"
                                  for k in sorted(ks))
-                     + f" taken by our deck(s) "
+                     + " taken by our deck(s) "
                      + ", ".join(sorted({decks[over[i]].object_id for i in mine if i in over}))
                      + ": the whole object is HIDDEN with " + g.object_id
                      + " (owner 2026-11-20T23:53Z)"
@@ -994,7 +994,7 @@ def _under_defects(decks: tuple, gen, a_min: float, to_ll) -> tuple:
     if to_ll is None:
         return decks
     out = list(decks)
-    for i, d in enumerate(decks):
+    for d in decks:
         # a span band (18i): the pack's overhead decks pass over, never on it
         if is_generated(d) or not getattr(d, "span_cut", ()):
             continue

@@ -266,8 +266,8 @@ def mostly_under_grade(ev: "PadEvidence", sunk_m: float) -> "bool | None":
     rows = tuple(getattr(ev, "rows", ()) or ())
     if not tops or len(tops) != len(rows):
         return None
-    sunk = sum(r[3] for r, t in zip(rows, tops) if float(t) <= -float(sunk_m))
-    rest = sum(r[3] for r, t in zip(rows, tops) if float(t) > -float(sunk_m))
+    sunk = sum(r[3] for r, t in zip(rows, tops, strict=True) if float(t) <= -float(sunk_m))
+    rest = sum(r[3] for r, t in zip(rows, tops, strict=True) if float(t) > -float(sunk_m))
     return sunk > rest
 
 

@@ -44,10 +44,10 @@ import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 import O4_Imagery_Utils as IMG
 import O4_XPlane_WebAPI as WEBAPI
-from o4_engine.imagery_follow_land import SquareGone
 import pytest
 from o4_engine import imagery_follow as FOLLOW
 from o4_engine.events import ImageryFollowStatus
+from o4_engine.imagery_follow_land import SquareGone
 from O4_Imagery_Follow_Motion import MotionTracker
 from PIL import Image
 

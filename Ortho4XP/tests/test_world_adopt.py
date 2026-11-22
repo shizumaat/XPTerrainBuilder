@@ -385,7 +385,7 @@ def test_2224_a_rebuilt_tile_is_read_again(tmp_path, monkeypatch):
     build = tmp_path / "rebuilt"
     (build / "terrain").mkdir(parents=True)
     (build / "Ortho4XP_+45+007.cfg").write_text(
-        "imprint_masks_to_dds=True\nzone_list=[]\n", encoding="utf-8")
+        "imprint_masks_to_dds=True\nzone_list=[]\n", encoding="utf-8", newline="\n")
     dsf = build / WP.dsf_relpath(45, 7)
     dsf.parent.mkdir(parents=True)
     dsf.write_bytes(b"old")
@@ -406,7 +406,7 @@ def test_2224_a_rebuilt_tile_is_read_again(tmp_path, monkeypatch):
     assert lander._tile(row) is lander._tile(row)           # read once
     (build / "terrain" / "a.ter").write_text(
         "BASE_TEX_NOWRAP ../textures/23456_34112_BI16.dds\n"
-        "BORDER_TEX ../textures/23456_34112_ZL16.png\n", encoding="utf-8")
+        "BORDER_TEX ../textures/23456_34112_ZL16.png\n", encoding="utf-8", newline="\n")
     dsf.write_bytes(b"rebuilt")
     os.utime(dsf, (dsf.stat().st_mtime + 5,) * 2)
     assert lander._tile(row).imprint_masks_to_dds is False

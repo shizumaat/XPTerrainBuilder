@@ -472,19 +472,19 @@ def test_2224_a_reload_alias_in_the_build_folder_publishes(tmp_path):
     os.rename(os.path.join(build, "textures", "21040_21648_BI16.dds"), tex)
     for name in os.listdir(os.path.join(build, "terrain")):
         path = os.path.join(build, "terrain", name)
-        text = open(path).read().replace("21040_21648_BI16", "23456_34112_BI16")
-        open(path, "w").write(text)
+        text = open(path, encoding="utf-8").read().replace("21040_21648_BI16", "23456_34112_BI16")
+        open(path, "w", encoding="utf-8", newline="\n").write(text)
     assert ALIAS.renew(tex, os.path.join(build, "terrain"), now=1.0)
     assert ALIAS.renew(tex, os.path.join(build, "terrain"), now=2.0)
     ters = [os.path.join(build, "terrain", n)
             for n in os.listdir(os.path.join(build, "terrain"))]
-    assert all(ALIAS.ALIAS_DIR in open(t).read() for t in ters)
+    assert all(ALIAS.ALIAS_DIR in open(t, encoding="utf-8").read() for t in ters)
     pack = str(tmp_path / "pack")
     WP.write_placeholder(pack, lat, lon)
     res = WP.publish(pack, build, lat, lon, staging_root=str(tmp_path / "s"))
     assert res["state"] == "swapped" and not res["problems"], res
     for name in os.listdir(os.path.join(pack, "terrain", "+45+007")):
-        text = open(os.path.join(pack, "terrain", "+45+007", name)).read()
+        text = open(os.path.join(pack, "terrain", "+45+007", name), encoding="utf-8").read()
         assert ALIAS.ALIAS_DIR not in text
         assert "../../textures/+45+007/23456_34112_BI16.dds" in text
     assert WP.rewrite_ter(

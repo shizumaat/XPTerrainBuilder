@@ -26,6 +26,8 @@ import typing as _t
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
+__all__ = ["OVER", "TOUCH", "RouteWitness"]
+
 #: what :meth:`RouteWitness.read` answers
 OVER = "over"
 TOUCH = "touch"

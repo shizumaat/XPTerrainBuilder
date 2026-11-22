@@ -31,7 +31,7 @@ def test_a_hidden_bridge_takes_its_own_drapes(tmp_path):
     obj.write_text("I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 6\n"
                    "VT -100 0 -500 0 1 0 0 0\nVT 100 0 -500 0 1 0 0 0\n"
                    "VT 100 0 500 0 1 0 0 0\nVT -100 0 500 0 1 0 0 0\n"
-                   "IDX10 0 1 2 0 2 3 0 0 0 0\nTRIS 0 6\n", encoding="ascii")
+                   "IDX10 0 1 2 0 2 3 0 0 0 0\nTRIS 0 6\n", encoding="ascii", newline="\n")
     rows = deck_companions.placements(DUMP)
     assert rows == {"obj/bridge.obj": [(17.005, 59.005, 0.0)]}
     plan = deck_companions.plan_box(str(obj), 17.005, 59.005, 0.0)

@@ -211,7 +211,12 @@ def test_a_flight_hold_stops_the_job_and_its_own_request_goes_first(
     assert got.count == 1, "the flight's request is admitted"
     got.release()
     time.sleep(0.45)                     # the hold lapses by itself
-    assert _wait(lambda: len(server.paths()) == 4 * 16 * 16), "it resumes"
+    resumed_from = len(server.paths())
+    assert _wait(lambda: len(server.paths()) > resumed_from), "it resumes"
+    # ~1,000 real loopback GETs: ~17 s on an idle machine, past 30 s on a
+    # loaded CI runner (run 45270210136), so the drain gets its own clock
+    assert _wait(lambda: len(server.paths()) == 4 * 16 * 16, 180), \
+        "it finishes the job"
 
 
 def test_stop_leaves_no_temporaries(tile, server):

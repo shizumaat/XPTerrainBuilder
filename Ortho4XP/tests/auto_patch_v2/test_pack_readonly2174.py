@@ -120,6 +120,26 @@ def test_make_writable_lets_the_paused_write_go_on(pack, monkeypatch):
     assert mode == 0o755
 
 
+def test_a_writer_that_passes_mid_answer_leaves_no_stale_entry(pack, monkeypatch):
+    """CI run 45270210136: the paused writer saw the folders writable and
+    forgot the pack BEFORE Make writable recorded its answer, which then
+    outlived it.  A slow answer widens that window to certain."""
+    root, _events = pack
+    monkeypatch.setattr(UI, "engine_session", object())
+    monkeypatch.setattr(RO, "POLL_SECONDS", 0.02)
+    real = PA.make_writable
+
+    def slow(pack_root):
+        changed = real(pack_root)
+        time.sleep(0.4)                  # the writer polls through this
+        return changed
+    monkeypatch.setattr(PA, "make_writable", slow)
+    t = _answer_later(root, "writable", delay=0.1)
+    assert RO.gate(root, 41, -87) is True
+    t.join()
+    assert RO._entry(root) == {}
+
+
 def test_not_now_leaves_the_pack_and_lists_its_row(pack, monkeypatch):
     root, events = pack
     monkeypatch.setattr(UI, "engine_session", object())

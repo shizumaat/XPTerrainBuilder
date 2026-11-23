@@ -2207,7 +2207,10 @@ def _keep_ci_shard(config, items) -> None:
     one unit and stays whole; the groups are dealt round-robin among
     themselves and the ungrouped items among themselves, so the heavy
     airports and each file's tests spread evenly over the shards."""
-    shard = _shard_of(os.environ.get(SHARD_ENV, ""))
+    # Read once and taken out of the environment: the pytest runs a test
+    # spawns (test_xdist_qt_guard) must collect their own whole target,
+    # not this shard of it.  Under xdist this is each worker's own copy.
+    shard = _shard_of(os.environ.pop(SHARD_ENV, ""))
     if shard is None:
         return
     k, n = shard

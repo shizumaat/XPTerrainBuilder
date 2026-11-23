@@ -277,8 +277,8 @@ class FrontCache:
 
     # ── the digests ─────────────────────────────────────────────────
     def airport_digest(self, airport: _t.Any, **named: str) -> str:
-        """One digest of ``airport``: each field pickled CANONICALLY
-        (:func:`stage_cache.canonical_digest`, memoised by value identity),
+        """One digest of ``airport``: each field digested BY VALUE
+        (:func:`stage_cache.value_digest`, memoised by value identity),
         the DEM left to its witness, the partition by its reading digest and
         its connectors; ``named`` overrides a field by a digest already in
         hand (a stage output's; ``None`` is ignored).  ``""`` while the
@@ -312,7 +312,7 @@ class FrontCache:
         got = self._field_digests.get(name)
         if got is not None and got[0] is value:
             return got[1]
-        d = _store.canonical_digest(value)
+        d = _store.value_digest(value)
         self._field_digests[name] = (value, d)
         return d
 
@@ -333,7 +333,7 @@ class FrontCache:
         if not self.active:
             return None
         t = time.perf_counter()
-        d = _store.canonical_digest(value)
+        d = _store.value_digest(value)
         self._clock("digest_s", t)
         return d
 
@@ -369,9 +369,25 @@ class FrontCache:
         got = self._serve(stage, key, path, rep, recipe)
         if got is not None:
             return got[0]
+        self._note_miss(stage, rep)
         out = fn(self.stage_law())
         blob = self._record(stage, key, path, recipe, out, rep)
         return _pickle.loads(blob) if as_served and blob is not None else out
+
+    def _note_miss(self, stage: str, rep: dict) -> None:
+        """A miss names the first recipe field that differs from a record of
+        this stage on disk (#2205; headers only), in the report and the log."""
+        def age(row: tuple) -> float:
+            try:
+                return os.path.getmtime(os.path.join(self.folder, row[0]))
+            except OSError:
+                return 0.0
+        rows = [r for r in self.why_miss(stage) if r[1]]
+        if rows:
+            field = max(rows, key=age)[1]          # the newest record's
+            rep["why_miss"] = field
+            print(f"[{self.icao}] stage cache: {stage} rebuilt, "
+                  f"first difference {field}", flush=True)
 
     def _serve(self, stage: str, key: str, path: str, rep: dict,
                recipe: dict) -> tuple[_t.Any] | None:

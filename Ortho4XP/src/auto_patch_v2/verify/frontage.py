@@ -20,6 +20,7 @@ from shapely.strtree import STRtree
 
 from ..law.tables import role_cap
 from .frame import Patch, Row, noise_m, row
+from .nearest import FirstNearest
 
 __all__ = ["frontage_near_miss"]
 
@@ -40,6 +41,8 @@ def frontage_near_miss(p: Patch) -> list[Row]:
     pad_ids = {vid for sh in pads for vid in sh.vertex_ids}
     tree = STRtree(ppolys)
     out: list[Row] = []
+    #: #2206 item 1: each witness ring's nearest-vertex reader, built once
+    nearest: dict[tuple, FirstNearest] = {}
     for sh in soft:
         spoly = Polygon(sh.xy)
         if spoly.is_empty:
@@ -65,8 +68,9 @@ def frontage_near_miss(p: Patch) -> list[Row]:
                     x, y = sh.xy[e]
                     d = float(ppoly.distance(Point(x, y)))
                     wit = _witnesses(p, pad, x, y)
-                    j = min(wit, key=lambda v: (p.xy[v][0] - x) ** 2
-                            + (p.xy[v][1] - y) ** 2)
+                    if wit not in nearest:
+                        nearest[wit] = FirstNearest(wit, lambda v: p.xy[v])
+                    j = wit[nearest[wit].index(x, y)]
                     de = abs(sh.z[e] - p.z[j])
                     if de <= budget * d + noise_m(law, sh.role):
                         continue

@@ -64,6 +64,8 @@ def external_tool_keyword_arguments():
 
 ################################################################################
 def progress_bar(nbr, percentage, message=None):
+    if thread_is_quiet():                  # a thread that only asks
+        return
     if engine_session is not None:
         try:
             engine_session.legacy_progress(nbr, int(percentage))

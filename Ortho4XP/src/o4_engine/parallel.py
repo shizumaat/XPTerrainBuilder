@@ -774,9 +774,12 @@ class _WorkerChild:
         # from the step key — that is also what makes the release
         # crash-safe (the pool's reaping path releases this same field).
         self.step_class = None
-        # True while this child's vector step holds an imagery token lent
-        # to its background orthophoto prefetch (#1002).
+        # True while this child's tile holds an imagery token lent to its
+        # imagery job (#1002, #2254).
         self.prefetch_token = False
+        # True from the vector step until the imagery step adopts the
+        # tile's imagery job or it reports: it may still take a token.
+        self.imagery_job_open = False
         # While the step only waits (step_class is step_parking's
         # WAITING_CLASS): the class it returns to and its memory booking.
         self.parked_class = None
@@ -1504,6 +1507,7 @@ class ParallelBuildRun:
                 if step_parking.pool_full_locked(self):
                     break
                 self._start_new_tile_locked(child)
+        self._lend_imagery_tokens_locked()
         step_parking.retire_surplus_locked(self)
 
     def _grow_past_parked(self):
@@ -1987,13 +1991,20 @@ class ParallelBuildRun:
         arguments = dict(self._tile_arguments[child.tile],
                          boundary_batch=self._boundary_batch_locked(
                              child.tile))
-        prefetch = self._may_prefetch_locked(child.tile, step_key)
-        if prefetch:
-            arguments = dict(arguments, prefetch=True)
+        opens_job = (step_key == "vector"
+                     and "imagery" in self._programs.get(child.tile, ()))
+        prefetch = (opens_job and not getattr(child, "prefetch_token", False)
+                    and self._may_prefetch_locked(child.tile, step_key))
+        if opens_job:
+            arguments = dict(arguments, prefetch=True, token_lent=prefetch)
         if child.start_step(step_key, arguments):
             if prefetch:
                 self._class_active["imagery"] += 1
                 child.prefetch_token = True
+            if opens_job:
+                child.imagery_job_open = True
+            elif step_key == "imagery":        # this step adopts the job
+                self._close_imagery_job_locked(child)
             self._step_started_at[(child.tile, step_key)] = time.time()
             if step_key == "vector":
                 self._vector_batches[child.tile] = frozenset(
@@ -2060,8 +2071,35 @@ class ParallelBuildRun:
         return (self._class_active["imagery"]
                 < self._class_limits["imagery"])
 
+    def _lend_imagery_tokens_locked(self):
+        """Lend a freed imagery token to a tile whose job still waits for
+        one, the tile nearest its imagery step first (#2254).  The token
+        is counted here, the one owner; the job returns it when it drains
+        or is adopted."""
+        waiting = sorted(
+            (child for child in self._children
+             if getattr(child, "imagery_job_open", False)
+             and not getattr(child, "prefetch_token", False)
+             and child.tile is not None and not child.retired
+             and not child.cancelling),
+            key=lambda child: -self._next_step_index.get(child.tile, 0))
+        for child in waiting:
+            if (self._class_active["imagery"]
+                    >= self._class_limits["imagery"]):
+                return
+            if child.send({"cmd": "imagery_token", "lat": child.tile[0],
+                           "lon": child.tile[1]}):
+                self._class_active["imagery"] += 1
+                child.prefetch_token = True
+
+    def _close_imagery_job_locked(self, child):
+        """The tile left this child: its job can take no token, and one it
+        holds comes back."""
+        child.imagery_job_open = False
+        self._release_prefetch_token_locked(child)
+
     def _release_prefetch_token_locked(self, child):
-        """Return the imagery token lent to a vector step's prefetch."""
+        """Return the imagery token lent to a tile's imagery job."""
         if not getattr(child, "prefetch_token", False):
             return False
         child.prefetch_token = False
@@ -2147,9 +2185,19 @@ class ParallelBuildRun:
         self._swap_class_locked(child, IMAGERY_TAIL_CLASS)
         return True
 
+    def _imagery_job_done_locked(self, child, payload):
+        """The tile's imagery job gave up its token.  A report about a tile
+        this child no longer carries changes nothing."""
+        tile = child.tile
+        if tile is None or (payload.get("lat"), payload.get("lon")) != tuple(
+                tile[:2]):
+            return False
+        child.imagery_job_open = False
+        return self._release_prefetch_token_locked(child)
+
     def _release_step_resources_locked(self, child):
-        """Return a finished/aborted step's class and memory budget."""
-        self._release_prefetch_token_locked(child)
+        """Return a finished/aborted step's class and memory budget.  An
+        imagery token lent to the tile's job outlives the step (#2254)."""
         step_key = child.running_step
         if step_key is None:
             return
@@ -2436,11 +2484,14 @@ class ParallelBuildRun:
             # The imagery step's download queue drained: hand the imagery
             # token back so a queued tile can download, and let the DDS
             # conversion tail run under compute (spec §A.2).
-            # A vector step's background prefetch reports the same way
-            # (#1002): its lent token comes back.
             with self._lock:
-                if (self._release_prefetch_token_locked(child)
-                        or self._note_imagery_downloads_done_locked(child)):
+                if self._note_imagery_downloads_done_locked(child):
+                    self._dispatch_locked()
+            return
+        if event_name == "ImageryJobDone":
+            # The tile's imagery job has no more use for its token (#2254).
+            with self._lock:
+                if self._imagery_job_done_locked(child, payload):
                     self._dispatch_locked()
             return
         if event_name == "StepWaiting":
@@ -2657,6 +2708,8 @@ class ParallelBuildRun:
                             self.tile_log_line(finished, line)
                     if (rerun or stale) and self._last_ok.get(finished):
                         self._readmit_locked(finished)
+            if child.tile is None:
+                self._close_imagery_job_locked(child)
             self._dispatch_locked()
         if stopped is not None:
             self._report_released_stop(*stopped)
@@ -2779,6 +2832,7 @@ class ParallelBuildRun:
                 self._errors += 1
                 self._last_ok[crashed_tile] = False
                 respawn = bool(self._queue) and not self._cancel_all
+            self._close_imagery_job_locked(child)
             self._dispatch_locked()
         if stopped_tile is not None:
             lat, lon = stopped_tile

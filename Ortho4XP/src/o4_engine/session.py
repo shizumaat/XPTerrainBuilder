@@ -45,6 +45,7 @@ from .events import (
     AutoPatchBegin, AutoPatchFailed, AutoPatchProgress, BuildDone,
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
+    ImageryJobDone,
     Log,
     MemoryWait,
     PackMissingArt,
@@ -911,6 +912,8 @@ class EngineSession:
         # per-tile total line is the parent orchestrator's to print.
         self._stepwise_run = False
         self._prefetch_imagery = False     # see build(prefetch=...)
+        self._imagery_token_lent = True    # ... and its token came with it
+        self._next_token_lent = True
         # Each tile build's own log and record row in its build folder
         # (#1226).  Opened by whichever process orchestrates the tile —
         # this worker in-process, the parallel run in the parent — and
@@ -1151,7 +1154,7 @@ class EngineSession:
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
               boundary_batch=None, missing_art=None, prefetch=None,
-              overrides=None, deadline=None, klass=None):
+              overrides=None, deadline=None, klass=None, token_lent=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -1170,11 +1173,12 @@ class EngineSession:
         leaves such a pack as it is; ``None`` (the default) names the pack
         with a ``PackMissingArt`` event and leaves it, so the user is asked.
 
-        ``prefetch`` (#1002): whether the vector step downloads the
-        tile's likely orthophotos in the background
-        (``O4_Imagery_Prefetch``).  ``None`` lets an in-process run
-        prefetch; a step-wise worker child prefetches only when its
-        parent lent it an imagery token (``True``).
+        ``prefetch`` (#1002, #2254): whether the vector step opens the
+        tile's imagery job (``O4_Imagery_Prefetch``).  ``None`` lets an
+        in-process run do so; a step-wise worker child does when its
+        parent says so (``True``).  ``token_lent``: that parent's imagery
+        token came with the command; ``False``, one may come later (the
+        ``imagery_token`` command).
 
         ``overrides`` (protocol 1.17, #818): this batch's per-build
         switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
@@ -1214,6 +1218,7 @@ class EngineSession:
                 boundary_batch if boundary_batch is not None else tiles)
         except Exception:                                # pragma: no cover
             pass
+        self._next_token_lent = token_lent is not False
         self._building = True
         try:
             return self._start_run(
@@ -1242,6 +1247,7 @@ class EngineSession:
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
+        self._imagery_token_lent = self._next_token_lent
         if not self._stepwise_run:
             from auto_patch import gateway_stage as _GW
             _GW.begin_run()
@@ -1338,24 +1344,40 @@ class EngineSession:
             UI.is_working = False
 
     def _run_step_body(self, function, key, tile, plan):
-        """The vector step downloads the tile's likely orthophotos
-        alongside it when this run prefetches (#1002) — in a run that
-        builds imagery, or in a worker child its parent lent an imagery
-        token (whose plan is the one step).
-
-        THE AIRPORT'S OWN PHOTOS (#1359, owner RULINGS 2026-10-26y): the
-        vector step is handed ``tile.airport_imagery_fetch``.  Where the
-        prefetch runs, it is the prefetch's own :meth:`~O4_Imagery_Prefetch.
-        Prefetch.fetch_airports`: the downloads ride the SAME imagery token
-        (the remote-server cap the imagery step obeys), which comes back
-        only once the queue has drained AND the airport fetch has run.
-        Where it does not (a worker child its parent lent no token, or a run
-        that builds no imagery), the fetch downloads nothing and reads the
-        airport photos already cached."""
+        """One step, with the tile's imagery job (#1002, #2254): the vector
+        step opens it when this run builds imagery, it downloads through
+        the following steps, and the imagery step adopts it.  A failed or
+        stopped step ends it."""
         _recall_from_tier(tile)
-        if key != "vector":
-            return function(tile)
-        self._apply_pack_packages(tile)
+        import O4_Imagery_Prefetch as PREFETCH
+        if key == "imagery":
+            PREFETCH.adopt_job(tile)
+        elif key == "vector":
+            self._apply_pack_packages(tile)
+            self._open_imagery_job(tile, plan)
+        try:
+            result = function(tile)
+        except BaseException:
+            PREFETCH.end_job(tile)
+            raise
+        if key == "imagery":
+            PREFETCH.end_job(tile, used=(
+                getattr(tile, "imagery_textures_asked", None)
+                if result else None))
+        elif not result or UI.red_flag:
+            PREFETCH.end_job(tile)
+        elif key == "vector":
+            PREFETCH.vector_ended(tile)
+        return result
+
+    def _open_imagery_job(self, tile, plan):
+        """Hand the vector step ``tile.airport_imagery_fetch`` (#1359, owner
+        RULINGS 2026-10-26y).  Where this run fetches imagery ahead it is
+        the job's :meth:`~O4_Imagery_Prefetch.Prefetch.fetch_airports`,
+        which rides the job's imagery token; where it does not (a worker
+        child in a build without imagery, or a run that builds none) the
+        fetch downloads nothing and reads the airport photos already
+        cached."""
         import functools
 
         import O4_Imagery_Prefetch as PREFETCH
@@ -1363,15 +1385,31 @@ class EngineSession:
                 step == "imagery" for step, _, _ in plan)):
             tile.airport_imagery_fetch = functools.partial(
                 PREFETCH.fetch_airport_imagery, tile, download=False)
-            return function(tile)
+            return
 
-        def downloads_done(downloaded, failed):
-            self.imagery_downloads_done(tile.lat, tile.lon, downloaded,
-                                        failed)
+        def job_done(downloaded, failed):
+            self._imagery_job_done(tile.lat, tile.lon, downloaded, failed)
 
-        with PREFETCH.alongside(tile, on_done=downloads_done) as prefetch:
-            tile.airport_imagery_fetch = prefetch.fetch_airports
-            return function(tile)
+        job = PREFETCH.open_job(tile, on_done=job_done,
+                                token=self._imagery_token_lent)
+        tile.airport_imagery_fetch = job.fetch_airports
+
+    def imagery_token(self, lat, lon):
+        """A parent run lends this worker's imagery job a token that freed
+        up after its vector step began (#2254).  A job that can no longer
+        use it hands it straight back."""
+        import O4_Imagery_Prefetch as PREFETCH
+        if not PREFETCH.grant_token(lat, lon):
+            self._imagery_job_done(lat, lon, 0, 0)
+        return True
+
+    def _imagery_job_done(self, lat, lon, downloaded, failed):
+        """Hand a job's imagery token back to the parent run that lent it
+        (a run in this process has none to return)."""
+        if os.environ.get(SLOTS.ENV_BUILD_WORKER):
+            self._emit(ImageryJobDone(lat=int(lat), lon=int(lon),
+                                      downloaded=int(downloaded or 0),
+                                      failed=int(failed or 0)))
 
     def _apply_pack_packages(self, tile):
         """RULINGS 2026-11-11m (4): before the vector step reads the

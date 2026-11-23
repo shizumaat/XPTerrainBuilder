@@ -1231,6 +1231,8 @@ def _recorded_commands_under_gate(monkeypatch, tmp_path, gate, tiles,
         # "id" is a per-child counter — an artefact of which worker
         # happened to take the tile, never of the work requested.
         command.pop("id", None)
+        # Whether an imagery token was free then: WHEN the job downloads.
+        command.pop("token_lent", None)
         per_tile.setdefault(tuple(command["tiles"][0]), []).append(command)
     return per_tile
 

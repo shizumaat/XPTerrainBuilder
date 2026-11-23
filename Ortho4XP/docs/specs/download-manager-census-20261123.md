@@ -95,4 +95,8 @@ The table above describes the base sha. This round changed only the following.
 | Finding 2 (a live `.tmp` deleted after 30 s) | removed with `_another_downloader_active` |
 | Waits on another tile's download, an Overpass backoff or a contended `hold_file_lock` | the step holds no slot (`src/O4_Step_Wait.py`, `src/o4_engine/step_parking.py`) |
 
+## Status after round limg1
+
+Imagery downloads no longer belong to a build step. `O4_Imagery_Prefetch.open_job` starts one job per tile with the vector step; it takes the parent's imagery token when one frees (`imagery_token`, returned by `ImageryJobDone`), runs through solve, mesh and masks, and the imagery step adopts it. A first build names its textures with `O4_Imagery_Plan.predicted_textures`. Transfers still go through row 5's `net:` classes, so a flight hold pre-empts them. Row 5 is not migrated onto `O4_Download_Manager.fetch`: the job is the caller a thin `ensure(resource, needed_by, priority)` would replace.
+
 Next, in order: Overpass layers, base DEM cells, elevation insets, imagery. Each moves onto `O4_Download_Manager.fetch` with its own key; none was migrated this round.

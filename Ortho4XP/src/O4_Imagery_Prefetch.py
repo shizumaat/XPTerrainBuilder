@@ -9,25 +9,35 @@ level's and the same for every imagery source, so that list, re-keyed to
 the source this build uses, is the best pre-mesh guess at what the
 imagery step will download (plan: docs/findings/imagery-prefetch-plan-622.md).
 
-:func:`candidates` derives that list; :func:`alongside` downloads it in
-the background for as long as the vector step runs, and stops when the
-step ends.  DOWNLOADS ONLY: an orthophoto lands in the imagery cache
-exactly where the imagery step looks for it; no conversion runs here
-(the DDS conversion needs the colour-harmonization field and the masks).
-The imagery step is unchanged: it finds the prefetched orthophotos in the
-cache and downloads only the rest, so its download count, its bar share
-(#653) and the measured rate count only what IT downloaded.
+:func:`candidates` derives that list.  A tile never built has none, so
+:func:`_first_build_plan` names the set from the tile, its zoom and its water
+(``O4_Imagery_Plan``) once those are on disk.
 
-Bounds: one orthophoto in flight at a time (:data:`TEXTURES_IN_FLIGHT`),
-which is one texture's part requests — the same per-provider load one
-imagery-step download makes — so the solve keeps the processor.  Stop
-(``UI.red_flag``) ends it after the orthophoto in flight; what arrived
-stays (orthophotos are cache, not scenery: the #598 stop rule).  Only a
-WHOLE orthophoto is kept — a part the provider did not answer leaves no
-file, so the imagery step downloads that texture itself.
+ONE JOB PER TILE, independent of the build step (#2254, owner
+2026-11-23T16:52Z).  :func:`open_job` starts it with the vector step; it
+keeps downloading through the solve, the mesh and the masks, and the imagery
+step adopts it (:func:`adopt_job`).  A worker child may start it without an
+imagery token: the parent lends one the moment the imagery class has room
+(:func:`grant_token`), and the job hands it back when it drains or is
+adopted.  The parent's class count stays the only owner of those tokens,
+and each request still takes a slot of its server's ``net:`` class, so a
+flight's imagery goes first (``O4_Machine_Slots.hold_net_for_flight``).
 
-A first build (no live terrain folder), a changed base zoom, the
-``default_xplane`` texture mode and a combined source prefetch nothing.
+DOWNLOADS ONLY: an orthophoto lands in the imagery cache exactly where the
+imagery step looks for it; no conversion runs here (the DDS conversion
+needs the colour-harmonization field and the masks).  The imagery step is
+unchanged: it finds what arrived and downloads only the rest, joining an
+orthophoto still in flight on its file lock, so nothing is requested twice.
+Its download count, its bar share (#653) and the measured rate count only
+what IT downloaded.
+
+Bounds: the imagery step's own orthophotos at once
+(:func:`airport_download_slots`).  Stop (``UI.red_flag``) ends the job after
+the orthophoto in flight; what arrived stays (orthophotos are cache, not
+scenery: the #598 stop rule).  Only a WHOLE orthophoto is kept -- a part the
+provider did not answer leaves no file, so the imagery step downloads that
+texture itself.  The ``default_xplane`` texture mode and a combined source
+fetch nothing ahead.
 
 THE AIRPORT'S OWN PHOTOS COME FIRST (#1359; owner RULINGS 2026-10-26y:
 "the patch waits for the airport's own photos, so the same inputs always
@@ -51,27 +61,31 @@ from __future__ import annotations
 import contextlib
 import os
 import threading
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Imagery_Plan as PLAN
 import O4_Step_Wait as STEP_WAIT
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
-__all__ = ["candidates", "Prefetch", "alongside", "TEXTURES_IN_FLIGHT",
+__all__ = ["candidates", "Prefetch", "open_job",
+           "grant_token", "adopt_job", "end_job", "vector_ended",
            "fetch_airport_imagery", "cached_airport_imagery", "AIRPORT_MARGIN_M",
            "airport_download_slots"]
 
-#: Orthophotos downloaded at once by a prefetch (each is one texture's
-#: part requests, at the provider's own ``max_threads``).
-TEXTURES_IN_FLIGHT = 1
-
-#: How long the end of the vector step waits for the orthophoto in flight.
-#: The prefetch starts nothing new once told to stop; a provider request
-#: that outlives this is abandoned to its daemon thread.
+#: How long a job told to stop waits for the orthophoto in flight.  It
+#: starts nothing new; a provider request that outlives this is abandoned
+#: to its daemon thread.
 STOP_WAIT_SECONDS = 120.0
+#: ... and how long a Stop waits: a part request ends at the flag, so this
+#: only covers an orthophoto being written.
+USER_STOP_WAIT_SECONDS = 15.0
+#: How often the plan looks for the layers it reads.
+PLAN_RETRY_SECONDS = 2.0
 
 # A texture's 16x16 grid block must lie within this many degrees of the
 # tile for a parsed (provider, zoom) split to be believed.
@@ -221,6 +235,45 @@ def download_orthophoto(tile, texture):
             require_complete=True)
 
 
+def _fetch_for_imagery_step(tile, texture):
+    """One WHOLE orthophoto where the imagery step will look for it (a
+    placeholder build reads a coarser tier, #1992); 1 or 0."""
+    import O4_Imagery_Utils as IMG
+
+    (folder, name, drop) = IMG.imagery_step_source(tile, *texture)
+    path = os.path.join(folder, name)
+    with _DOWNLOAD_LOCKS_GUARD:
+        lock = _DOWNLOAD_LOCKS.setdefault(path, threading.Lock())
+    with lock:
+        if os.path.exists(path):
+            return 1
+        return IMG.download_orthophoto_once(
+            folder, name, *texture, require_complete=True, drop=drop)
+
+
+def _still_missing(tile, texture, imagery):
+    if _texture_is_built(tile, texture):
+        return False
+    (folder, name, _drop) = imagery.imagery_step_source(tile, *texture)
+    return not os.path.exists(os.path.join(folder, name))
+
+
+def _first_build_plan(tile, imagery=None, predict=PLAN.predicted_textures):
+    """What a build with no usable last texture list will use: ``[]`` when
+    :func:`candidates` can answer, ``None`` until the layers the prediction
+    reads are on disk."""
+    live = _live_textures(tile)
+    if live and (Counter(t[2] for t in live).most_common(1)[0][0]
+                 == int(getattr(tile, "default_zl", 0) or 0)):
+        return []
+    found = predict(tile)
+    if found is None:
+        return None
+    if imagery is None:
+        import O4_Imagery_Utils as imagery
+    return [t for t in found if _still_missing(tile, t, imagery)]
+
+
 def airport_textures(tile, dico_airports, imagery=None, ortho_dico=None):
     """``{airport: [texture]}``: the plain-source textures this build will
     texture each airport (and :data:`AIRPORT_MARGIN_M` around its
@@ -325,47 +378,127 @@ def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures
 
 
 class Prefetch:
-    """One tile's background orthophoto downloads (see the module)."""
+    """One tile's orthophoto job, from the vector step until the imagery
+    step adopts it (see the module).  ``token``: the job holds an imagery
+    token now; without one it waits for :meth:`grant_token`.  ``plan`` adds
+    textures once it can name them (:func:`_first_build_plan`)."""
 
-    def __init__(self, tile, textures, fetch=None, on_done=None):
+    def __init__(self, tile, textures, fetch=None, on_done=None, plan=None,
+                 token=True, slots=None):
         self.tile = tile
         self.textures = list(textures)
         self.downloaded = 0
         self.failed = 0
-        self._fetch = fetch or download_orthophoto
+        self.fetched = set()
+        self._fetch = fetch or _fetch_for_imagery_step
+        self._airport_fetch = fetch or download_orthophoto
         self._on_done = on_done
+        self._plan = plan
+        self._token = bool(token)
+        self._slots = slots
         self._stop = threading.Event()
+        self._vector_ended = threading.Event()
+        # the airports file is whole: the airport fetch ran, or none comes
+        self._airports_known = threading.Event()
         self._threads = []
         self._lock = threading.Lock()
         self._pending = list(reversed(self.textures))
+        self._queued = set(self.textures)
         self._running = 0
+        self._plan_open = plan is not None
+        self._plan_started = False
+        self._reported = False
         # #1359 (26y): the vector step's airport fetch rides this token, so
         # the report (which hands the token back) waits for the queue to
-        # drain AND for the airport fetch, or for the step's end (stop)
-        self._drained = False
+        # drain AND for the airport fetch, or for the vector step's end
         self._airports_pending = True
         # the background starts no orthophoto while the airport fetch runs
         # (#2082): the patch never waits behind a non-airport photo
         self._airport_fetches = 0
         self._airports_idle = threading.Condition(self._lock)
 
+    @property
+    def open(self):
+        """Can this job still take a token and download?"""
+        return not self._stop.is_set() and not self._reported
+
     def start(self):
-        """Begin the downloads; with nothing to fetch, the queue is drained
-        at once (the report still waits for the airport fetch)."""
-        if not self.textures:
-            self._drained = True
-            self._maybe_finish()
-            return self
-        UI.vprint(1, "    * Downloading", len(self.textures),
-                  "orthophotos the last build of this tile used, while "
-                  "the patch builds.")
-        workers = max(1, min(TEXTURES_IN_FLIGHT, len(self.textures)))
-        self._running = workers
-        for _ in range(workers):
+        """Begin the downloads if the job holds a token."""
+        if self._token:
+            self._begin()
+        return self
+
+    def _begin(self):
+        if self.textures and not self._threads:
+            UI.vprint(1, "    * Downloading", len(self.textures),
+                      "orthophotos the last build of this tile used, while "
+                      "the tile builds.")
+        self._start_plan()
+        self._start_workers()
+        self._maybe_finish()
+
+    def grant_token(self):
+        """The parent lent a token; False when this job can no longer use
+        it, and the caller hands it straight back."""
+        with self._lock:
+            if self._stop.is_set() or self._reported:
+                return False
+            self._token = True
+        self._begin()
+        return True
+
+    def _start_plan(self):
+        with self._lock:
+            if self._plan is None or self._plan_started:
+                return
+            self._plan_started = True
+        threading.Thread(target=self._plan_loop, daemon=True).start()
+
+    def _plan_loop(self):
+        """Ask the plan until it answers or the vector step has ended (its
+        layers are on disk by then, or will not be)."""
+        found = []
+        self._airports_known.wait()
+        try:
+            while not self._stop.is_set():
+                last_try = self._vector_ended.is_set()
+                with UI.quiet_thread():
+                    answer = self._plan(self.tile)
+                if answer is not None:
+                    found = answer
+                    break
+                if last_try:
+                    break
+                self._vector_ended.wait(PLAN_RETRY_SECONDS)
+        except Exception as error:
+            UI.vprint(1, "    Imagery plan skipped:", error)
+        self._extend(found)
+        with self._lock:
+            self._plan_open = False
+        self._start_workers()
+        self._maybe_finish()
+
+    def _extend(self, textures):
+        with self._lock:
+            added = [t for t in textures if t not in self._queued]
+            self._queued.update(added)
+            self.textures.extend(added)
+            self._pending[:0] = list(reversed(added))
+        if added:
+            UI.vprint(1, "    * Downloading", len(added), "orthophotos this "
+                      "tile will use, while it builds.")
+
+    def _start_workers(self):
+        slots = max(1, int(self._slots or airport_download_slots()))
+        with self._lock:
+            if self._stop.is_set() or not self._token:
+                return
+            count = max(0, min(slots - self._running, len(self._pending)))
+            self._running += count
+        for _ in range(count):
             thread = threading.Thread(target=self._work, daemon=True)
             self._threads.append(thread)
             thread.start()
-        return self
 
     def _next(self):
         with self._lock:
@@ -374,6 +507,14 @@ class Prefetch:
             if self._stop.is_set() or UI.red_flag or not self._pending:
                 return None
             return self._pending.pop()
+
+    def _note_result(self, texture, ok):
+        with self._lock:
+            if ok:
+                self.downloaded += 1
+                self.fetched.add(tuple(texture))
+            else:
+                self.failed += 1
 
     def _work(self):
         try:
@@ -386,41 +527,35 @@ class Prefetch:
                 except Exception as error:
                     UI.vprint(1, "    Prefetch of", texture, "failed:", error)
                     ok = 0
-                with self._lock:
-                    if ok:
-                        self.downloaded += 1
-                    else:
-                        self.failed += 1
+                self._note_result(texture, ok)
         finally:
-            self._worker_ended()
-
-    def _worker_ended(self):
-        with self._lock:
-            self._running -= 1
-            last = self._running == 0
-            if last:
-                self._drained = True
-        if last:
+            with self._lock:
+                self._running -= 1
             self._maybe_finish()
 
     def _maybe_finish(self):
-        """Report once the queue has drained and the airport fetch ran."""
+        """Report once nothing is queued, running or still to be named."""
         with self._lock:
-            ready = self._drained and not self._airports_pending
+            ready = (self._token and not self._running and not self._pending
+                     and not self._plan_open and not self._airports_pending
+                     and not self._airport_fetches)
         if ready:
             self._finish()
 
     def fetch_airports(self, dico_airports, find=airport_textures):
-        """The vector step's airport fetch (26y) UNDER THIS PREFETCH'S
-        TOKEN: :func:`fetch_airport_imagery` with this prefetch's fetcher,
-        its downloads counted in the report; then the report may go."""
-        def counted(tile, texture):
-            ok = self._fetch(tile, texture)
+        """The vector step's airport fetch (26y).  UNDER THIS JOB'S TOKEN:
+        :func:`fetch_airport_imagery` with its fetcher, the downloads
+        counted in the report.  With no token yet it reads the cache."""
+        if not self._token:
             with self._lock:
-                if ok:
-                    self.downloaded += 1
-                else:
-                    self.failed += 1
+                self._airports_pending = False
+            self._airports_known.set()
+            return fetch_airport_imagery(self.tile, dico_airports, find=find,
+                                         download=False)
+
+        def counted(tile, texture):
+            ok = self._airport_fetch(tile, texture)
+            self._note_result(texture, ok)
             return ok
         with self._lock:
             self._airport_fetches += 1
@@ -431,59 +566,135 @@ class Prefetch:
                 self._airport_fetches -= 1
                 self._airports_idle.notify_all()
                 self._airports_pending = False
+            self._airports_known.set()
             self._maybe_finish()
 
+    def vector_ended(self):
+        """The vector step is over: no airport fetch comes, and the plan's
+        layers are on disk.  The job itself goes on."""
+        self._vector_ended.set()
+        self._airports_known.set()
+        with self._lock:
+            self._airports_pending = False
+            self._airports_idle.notify_all()
+        self._maybe_finish()
+
     def _finish(self):
-        """Report once: the queue drained, was stopped or never started."""
+        """Report once, to whoever lent the token (no token, no report)."""
         with self._lock:
             callback, self._on_done = self._on_done, None
-        if callback is not None:
+            self._reported = True
+            held = self._token
+        if callback is not None and held:
             try:
                 callback(self.downloaded, self.failed)
             except Exception:
                 pass
 
     def stop(self, wait_seconds=STOP_WAIT_SECONDS):
-        """Start nothing new; wait for the orthophoto in flight."""
+        """Start nothing new, wait up to ``wait_seconds`` for what is in
+        flight, and hand the token back.  With 0 the imagery step takes
+        over: it joins an orthophoto in flight on its file lock."""
         self._stop.set()
+        self._vector_ended.set()
+        self._airports_known.set()
         with self._lock:
-            self._airports_pending = False       # the step ended: no fetch comes
+            self._airports_pending = False
+            self._plan_open = False
             self._airports_idle.notify_all()
-        for thread in self._threads:
-            thread.join(wait_seconds)
-        if any(thread.is_alive() for thread in self._threads):
-            # Abandoned in flight: a report arriving later could be read
-            # as another step's signal, and the step's end already
-            # returned everything the prefetch held.
-            with self._lock:
-                self._on_done = None
+        if wait_seconds:
+            deadline = time.monotonic() + wait_seconds
+            for thread in list(self._threads):
+                thread.join(max(0.0, deadline - time.monotonic()))
         if self.textures:
             UI.vprint(1, "    * Prefetched", self.downloaded, "of",
                       len(self.textures), "orthophotos",
                       "(%d failed)." % self.failed if self.failed else ".")
-        if not self._threads or self._drained:
-            self._finish()
+        self._finish()
+
+    def report_unused(self, used):
+        """Say how many orthophotos fetched ahead the build did not use;
+        the count."""
+        unused = PLAN.unused(self.fetched, used)
+        if self.fetched:
+            UI.vprint(1, "    * Fetched ahead:", len(self.fetched),
+                      "orthophotos,", len(unused), "not used by this build.")
+        return len(unused)
 
 
-@contextlib.contextmanager
-def alongside(tile, on_done=None, fetch=None, find=candidates):
-    """Prefetch the tile's orthophotos for the duration of the block.
+#: this process's open job per tile
+_JOBS: dict = {}
+_JOBS_GUARD = threading.Lock()
 
-    ``on_done(downloaded, failed)`` is called exactly once, when the
-    queue drains, the prefetch is stopped, or there is nothing to fetch
-    (the parent orchestrator releases the imagery token it lent the
-    prefetch there).  Never raises out of the prefetch itself."""
+
+def _job_key(tile):
+    return (int(tile.lat), int(tile.lon))
+
+
+def open_job(tile, on_done=None, token=True, fetch=None, find=candidates,
+             plan=_first_build_plan, slots=None):
+    """The tile's job, started now, or the one already open (a tile sent
+    back to its vector step).  Another tile's job left here ends: a worker
+    process builds one tile at a time.  Never raises for the scan."""
+    key = _job_key(tile)
+    with _JOBS_GUARD:
+        job = _JOBS.get(key)
+        others = [k for k in _JOBS if k != key]
+        ended = [_JOBS.pop(k) for k in others]
+    for other in ended:
+        other.stop(0)
+    if job is not None and job.open:
+        if token:
+            job.grant_token()
+        return job
     try:
         textures = find(tile)
     except Exception as error:
         UI.vprint(1, "    Imagery prefetch skipped:", error)
         textures = []
-    prefetch = Prefetch(tile, textures, fetch=fetch, on_done=on_done)
-    prefetch.start()
-    try:
-        yield prefetch
-    finally:
-        prefetch.stop()
+    job = Prefetch(tile, textures, fetch=fetch, on_done=on_done, plan=plan,
+                   token=token, slots=slots)
+    with _JOBS_GUARD:
+        _JOBS[key] = job
+    return job.start()
+
+
+def grant_token(lat, lon):
+    """Hand tile ``(lat, lon)``'s job the token its parent lent; False when
+    no open job can use it."""
+    with _JOBS_GUARD:
+        job = _JOBS.get((int(lat), int(lon)))
+    return job.grant_token() if job is not None else False
+
+
+def vector_ended(tile):
+    """The tile's vector step ended well; its job carries on."""
+    with _JOBS_GUARD:
+        job = _JOBS.get(_job_key(tile))
+    if job is not None:
+        job.vector_ended()
+
+
+def adopt_job(tile):
+    """The imagery step starts: the job stops taking new orthophotos and
+    returns its token; the step downloads what is left."""
+    with _JOBS_GUARD:
+        job = _JOBS.get(_job_key(tile))
+    if job is not None:
+        job.stop(0)
+
+
+def end_job(tile, used=None):
+    """The tile's job is over (its imagery step ended, a step failed, or
+    Stop).  ``used``: the textures the imagery step asked for, reported
+    against what was fetched ahead."""
+    with _JOBS_GUARD:
+        job = _JOBS.pop(_job_key(tile), None)
+    if job is None:
+        return
+    job.stop(USER_STOP_WAIT_SECONDS if UI.red_flag else 0)
+    if used is not None:
+        job.report_unused(used)
 
 
 def cached_airport_imagery(tile, icao):

@@ -2175,6 +2175,58 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             item.add_marker(skip_marker)
 
+    _keep_ci_shard(config, items)
+
+
+#: ``k/N`` (1-based): run only shard ``k`` of ``N`` of what was collected
+#: (CI's engine suite outgrew one 50-minute step on Linux and Windows,
+#: run 45270210136).  Unset: everything, as before.
+SHARD_ENV = "O4_TEST_SHARD"
+
+
+def _shard_of(value: str) -> "tuple[int, int] | None":
+    """``(k, N)`` from ``"k/N"`` with ``1 <= k <= N``; None when unset.
+    A malformed value is a usage error, never a silent full or empty run."""
+    if not value.strip():
+        return None
+    try:
+        k, n = (int(part) for part in value.split("/"))
+    except ValueError:
+        raise pytest.UsageError(f"{SHARD_ENV}={value!r}: expected k/N") from None
+    if not 1 <= k <= n:
+        raise pytest.UsageError(f"{SHARD_ENV}={value!r}: expected 1 <= k <= N")
+    return k, n
+
+
+def _keep_ci_shard(config, items) -> None:
+    """Deselect every item outside :data:`SHARD_ENV`'s shard.
+
+    The N shards are disjoint and their union is the collection, on any
+    one platform: each process derives the same split from the same
+    collection order.  An ``xdist_group`` (an airport's shared build) is
+    one unit and stays whole; the groups are dealt round-robin among
+    themselves and the ungrouped items among themselves, so the heavy
+    airports and each file's tests spread evenly over the shards."""
+    shard = _shard_of(os.environ.get(SHARD_ENV, ""))
+    if shard is None:
+        return
+    k, n = shard
+    groups: dict = {}
+    singles = 0
+    kept, dropped = [], []
+    for item in items:
+        marker = item.get_closest_marker("xdist_group")
+        if marker is not None:
+            name = marker.args[0] if marker.args else marker.kwargs.get("name")
+            index = groups.setdefault(name, len(groups))
+        else:
+            index = singles
+            singles += 1
+        (kept if index % n == k - 1 else dropped).append(item)
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = kept
+
 
 @pytest.fixture()
 def timing_runs():

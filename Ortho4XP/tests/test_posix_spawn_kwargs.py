@@ -83,10 +83,7 @@ _PATH_ARGV = {
 
 #: Bare-name launches that still fork, each in a file another lane holds.
 #: Fixing one makes its line stale, and the guard then asks to delete it.
-_BARE_NAME_OPEN = {
-    "auto_patch_v2/airport/pool_memory.py:_resident_kib":
-        "bare ps; pass the argv to the helper (#2259)",
-}
+_BARE_NAME_OPEN: dict[str, str] = {}
 
 #: Launchers outside ``subprocess`` that fork or shell out.
 _OTHER_LAUNCHERS = ("system", "popen", "fork", "forkpty", "spawnv", "spawnvp")

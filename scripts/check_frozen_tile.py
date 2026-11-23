@@ -2443,8 +2443,8 @@ def main(argv):
                              "BuildDone ok=false — never a 0 m tile")
     parser.add_argument("--deadline", type=int, default=300,
                         help="seconds for the TILE pass (default 300)")
-    parser.add_argument("--airport-deadline", type=int, default=300,
-                        help="seconds for the AIRPORT pass (default 300)")
+    parser.add_argument("--airport-deadline", type=int, default=600,
+                        help="seconds for the AIRPORT pass (default 600)")
     parser.add_argument("--logs", default="frozen-tile-logs",
                         help="directory for the JSONL + stderr logs")
     # Per-PASS defaults, resolved below: the tile pass's (0, 0) is open

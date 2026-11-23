@@ -102,12 +102,15 @@ def test_threads_opening_the_first_session_at_once_share_one(monkeypatch):
 def test_take_queues_until_a_holder_releases(session):
     session(1)
     first = SLOTS.try_take(1)
-    waited = []
-    threading.Timer(0.3, first.release).start()
-    t0 = time.monotonic()
+    waited, released = [], threading.Event()
+
+    def release():
+        released.set()                   # before the slot comes free
+        first.release()
+    threading.Timer(0.3, release).start()
     with SLOTS.take(1, poll_s=0.05, on_wait=lambda: waited.append(1)) as got:
-        assert got.count == 1
-    assert waited == [1] and time.monotonic() - t0 >= 0.25
+        assert got.count == 1 and released.is_set()
+    assert waited == [1]
 
 
 def test_take_never_asks_for_more_than_the_capacity(session):
@@ -144,6 +147,12 @@ def derived_budget():
 
 
 def test_a_pool_takes_what_is_free_and_gives_it_back(session, derived_budget):
+    # The executor's first queue forks this process's resource tracker; until
+    # that child execs it shares the slots' flocks, so a release right after
+    # reads "held" (#2248).  Started first, it never forks with a slot held.
+    if os.name == "posix":
+        from multiprocessing import resource_tracker
+        resource_tracker.ensure_running()
     session(3)
     wp = POOL.WorkPool(workers=8)
     try:

@@ -22,6 +22,7 @@ import pytest  # noqa: E402
 import O4_UI_Utils as UI  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine import jsonl  # noqa: E402
+from o4_engine import session as SESSION  # noqa: E402
 from o4_engine.session import EngineSession  # noqa: E402
 
 from test_engine_session import install_stub_pipeline  # noqa: E402
@@ -143,9 +144,19 @@ def test_every_command_gets_one_reply(tmp_path):
     assert isinstance(replies[1]["result"], dict) and replies[1]["result"]
 
 
+def _only_step_driven_events(monkeypatch):
+    """No clock-driven event: the heartbeat thread and the ETA cadence add
+    RunEta / TileClocks / StepProgress by elapsed time, so a build slower
+    than ``ETA_EMIT_SECONDS`` had a longer transcript (#2248).  The events
+    each step forces stay."""
+    monkeypatch.setattr(SESSION, "ETA_EMIT_SECONDS", float("inf"))
+    monkeypatch.setattr(EngineSession, "_start_eta_heartbeat", lambda self: None)
+
+
 def test_golden_transcript_single_tile_build(monkeypatch, tmp_path):
     """Golden shape (event-type sequence + key fields, volatile fields
     ignored) for a stubbed one-tile vector/mesh/masks build."""
+    _only_step_driven_events(monkeypatch)
     objects = _run_transport_build(monkeypatch, tmp_path, do_imagery=False)
     events = [o for o in objects if "event" in o]
     event_types = [o["event"] for o in events]
@@ -195,6 +206,7 @@ def test_transport_matches_direct_subscription(monkeypatch, tmp_path):
     """Spec §8.2 drift guard: the same stubbed build serialized from a direct
     subscription and read off the pipe must be identical apart from the
     handshake and wall-clock fields."""
+    _only_step_driven_events(monkeypatch)
     # Two builds of one tile in one folder: each step's record counts when
     # it ends (#838), so the second would reuse the first's steps.
     monkeypatch.setenv("O4_STEP_REUSE", "0")

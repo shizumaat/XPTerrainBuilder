@@ -126,6 +126,36 @@ OSM_CACHE_SUFFIXES = (
 )
 
 
+#: What the engine logs when it reaches for a server these passes must
+#: never need.  One of them in a pass's log FAILS the pass (#2249): a
+#: release depends only on the bundle under test.
+OFFLINE_BREACH_MARKERS = (
+    "Downloading OSM data for",                 # Overpass
+    "Refreshing the Geofabrik region index",    # the extract index
+)
+
+
+def _offline_breaches(log_text):
+    """One failure line per :data:`OFFLINE_BREACH_MARKERS` entry the log
+    carries."""
+    return ["the offline pass reached for the network (%r in its log): a "
+            "cache suffix or tag schema changed, update OSM_CACHE_SUFFIXES "
+            "/ _cache_schemas" % marker
+            for marker in OFFLINE_BREACH_MARKERS if marker in log_text]
+
+
+def _seed_extract_index(data_root):
+    """A fresh, empty Geofabrik region index.  The engine's maintenance
+    thread starts before its config is read, so ``osm_regional_extracts=
+    False`` does not stop its index refresh; a fresh index leaves it
+    nothing to ask (#2249)."""
+    store = os.path.join(data_root, "OSM_data", "_regional_extracts")
+    os.makedirs(store, exist_ok=True)
+    with open(os.path.join(store, "index-v1.json"), "w", encoding="utf-8",
+              newline="\n") as handle:
+        json.dump({"type": "FeatureCollection", "features": []}, handle)
+
+
 def _signed(value: int, width: int) -> str:
     """FNAMES's own spelling: a signed decimal zero-padded AFTER the sign
     (``str.zfill``), e.g. 0 -> "+00" at width 3, -5 -> "-05"."""
@@ -270,6 +300,7 @@ def _write_fixture(root: str, repo_root: str, lat: int, lon: int) -> str:
     _write_hgt(dem)
     _write_osm_seeds(os.path.join(data_root, "OSM_data"), lat, lon,
                      _cache_schemas(repo_root))
+    _seed_extract_index(data_root)
     with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8") as handle:
         handle.write(CONFIG % {"dem": dem})
@@ -464,6 +495,7 @@ def _write_airport_fixture(root, repo_root):
     shutil.copytree(os.path.join(fixture, "Custom Scenery"),
                     os.path.join(xplane_root, "Custom Scenery"))
 
+    _seed_extract_index(data_root)
     with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8") as handle:
         handle.write(AIRPORT_CONFIG % {
@@ -737,7 +769,8 @@ def run(binary, repo_root, log_dir, lat, lon, deadline, keep):
         }
         stream, elapsed, failures = _drive(
             binary, work, data_root, command, jsonl_log, stderr_log,
-            deadline, "tile %s" % _short_latlon(lat, lon))
+            deadline, "tile %s" % _short_latlon(lat, lon),
+            hostile_proj=not _is_source_entry(binary))
 
         # ``<build dir>/Earth nav data/<block>/<tile>.dsf`` (FNAMES
         # long_latlon is itself a two-level path), and only the ACTIVATED
@@ -779,13 +812,7 @@ def run(binary, repo_root, log_dir, lat, lon, deadline, keep):
                     "the .hgt reader or the data root is broken"
                     % altitudes.group(2))
 
-        # Not a failure, but it means this check silently became a
-        # network build: the seeded caches went stale.
-        if "Downloading OSM data for" in stderr_text:
-            print("   WARNING: the build attempted an Overpass download — a "
-                  "cache suffix or tag schema changed; update "
-                  "OSM_CACHE_SUFFIXES / _cache_schemas in "
-                  "scripts/check_frozen_tile.py.")
+        failures.extend(_offline_breaches(stderr_text))
 
         print("   frozen tile build finished in %.0f s" % elapsed)
     finally:
@@ -856,7 +883,8 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
             deadline, "airport %s on tile %s"
             % (AIRPORT_ICAO, _short_latlon(AIRPORT_LAT, AIRPORT_LON)),
             tolerated=lambda text: VERIFY_DEFECT_MARKER in text,
-            extra_env=_xplat_env(xplat_dump, quantise_m))
+            extra_env=_xplat_env(xplat_dump, quantise_m),
+            hostile_proj=not _is_source_entry(binary))
 
         # ---- the auto-patch protocol events ---------------------------
         # AutoPatchBegin/Progress are emitted by the engine even though
@@ -1037,9 +1065,7 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
                   "verify residual on a fixture airport is a law/fixture "
                   "matter, tracked in the lane report, not a release gate)")
 
-        if "Downloading OSM data for" in stderr_text:
-            print("   WARNING: the airport pass attempted an Overpass "
-                  "download — a cache suffix or tag schema changed.")
+        failures.extend(_offline_breaches(stderr_text))
 
         # ---- THE CROSS-PLATFORM DUMP ---------------------------------
         # The fixture is thrown away at the end of this call, so anything
@@ -1594,6 +1620,11 @@ FULL_TILE_DERIVED_CLASSES = (
 _URL = re.compile(r"https?://([A-Za-z0-9._\-]+(?::\d+)?)")
 
 
+def _is_source_entry(binary):
+    """Is ``binary`` the source ``Ortho4XP.py`` rather than a bundle?"""
+    return binary.lower().endswith(".py")
+
+
 def _engine_argv(binary, engine_python=None):
     """The child's argv: ``[<binary>, --engine-jsonl]`` for a frozen
     bundle, with the interpreter in front for a SOURCE entry.
@@ -1603,7 +1634,7 @@ def _engine_argv(binary, engine_python=None):
     is what PyInstaller freezes) — so one driver covers both arms and
     neither gets its own private recipe.
     """
-    if binary.lower().endswith(".py"):
+    if _is_source_entry(binary):
         return [engine_python or sys.executable, binary, "--engine-jsonl"]
     return [binary, "--engine-jsonl"]
 

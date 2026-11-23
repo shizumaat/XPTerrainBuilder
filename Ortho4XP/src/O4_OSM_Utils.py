@@ -10,6 +10,7 @@ import requests
 import numpy
 from shapely import geometry, ops
 import O4_Cfg_Module_Values as MODULE_VALUES
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
@@ -475,7 +476,12 @@ def OSM_queries_to_OSM_layer(
     bbox_margin_degrees=0.0,
 ):
     if cached_suffix:
-        with _osm_cache_lock(FNAMES.osm_cached(lat, lon, cached_suffix)):
+        cache_lock = _osm_cache_lock(FNAMES.osm_cached(lat, lon, cached_suffix))
+        if not cache_lock.acquire(blocking=False):
+            # Another thread of this step is fetching this very layer.
+            with STEP_WAIT.joining():
+                cache_lock.acquire()
+        try:
             return _OSM_queries_to_OSM_layer_serialized(
                 queries,
                 osm_layer,
@@ -487,6 +493,8 @@ def OSM_queries_to_OSM_layer(
                 cache_schema,
                 bbox_margin_degrees,
             )
+        finally:
+            cache_lock.release()
     return _OSM_queries_to_OSM_layer_serialized(
         queries,
         osm_layer,
@@ -1223,17 +1231,19 @@ def get_overpass_data(query, bbox, request_description="",
             )
         failed_server_keys.add(current_server_key)
         # Sleep in one-second slices so the GUI stop button stays
-        # responsive during a long backoff wait.
-        for _ in range(wait_seconds):
-            if UI.red_flag:
-                return 0
-            if alternative_source is not None:
-                produced_bytes = _alternative_source_bytes(
-                    alternative_source, alternative_source_poll_state
-                )
-                if produced_bytes is not None:
-                    return _leave_overpass_queue_with(produced_bytes)
-            time.sleep(1)
+        # responsive during a long backoff wait.  A backoff is no work:
+        # the step's slots are free for other tiles meanwhile (#2254).
+        with STEP_WAIT.waiting():
+            for _ in range(wait_seconds):
+                if UI.red_flag:
+                    return 0
+                if alternative_source is not None:
+                    produced_bytes = _alternative_source_bytes(
+                        alternative_source, alternative_source_poll_state
+                    )
+                    if produced_bytes is not None:
+                        return _leave_overpass_queue_with(produced_bytes)
+                time.sleep(1)
     return 0
 
 

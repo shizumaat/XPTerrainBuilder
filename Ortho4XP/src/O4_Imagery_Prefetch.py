@@ -56,6 +56,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Step_Wait as STEP_WAIT
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
@@ -310,7 +311,9 @@ def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures
             UI.vprint(1, "    Airport orthophoto", texture, "failed:", error)
     if missing:
         workers = max(1, min(int(slots or airport_download_slots()), len(missing)))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        # The step only waits on these downloads: they run under the
+        # imagery token and the server's class, its own slots are free.
+        with STEP_WAIT.waiting(), ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(one, missing))   # all done before the patch builds
     out = {}
     for name, ts in wanted.items():

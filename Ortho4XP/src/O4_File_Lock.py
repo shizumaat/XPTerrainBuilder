@@ -43,6 +43,7 @@ import threading
 import time
 from typing import Iterator
 
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 
 # A lock file whose modification time is older than this many seconds is
@@ -98,7 +99,7 @@ def _host() -> str:
     return (socket.gethostname() or "unknown").replace(" ", "_")
 
 
-def _process_is_running(process_id: int) -> bool:
+def process_is_running(process_id: int) -> bool:
     """True unless ``process_id`` is certainly gone from this machine (an
     unanswerable probe reads as running: the hour rule still reaps it)."""
     if process_id <= 0:
@@ -149,7 +150,7 @@ def _holder_is_dead(identity) -> bool:
     if process_id == os.getpid():
         return False
     try:
-        return not _process_is_running(process_id)
+        return not process_is_running(process_id)
     except Exception:
         return False
 
@@ -281,10 +282,24 @@ def _release(lock_path: str) -> None:
 
 
 def _acquire(lock_path: str, deadline: float, denied_raises: bool = False) -> bool:
-    """:func:`hold_file_lock`'s acquisition loop: True once held, False
-    when it proceeds without the lock.  A contended wait is noted for
-    :func:`lock_waits` while it lasts.  ``denied_raises``: a lock file
-    that cannot be created at all re-raises the error at once."""
+    """:func:`hold_file_lock`'s acquisition: one attempt, then the wait,
+    during which the step holds no scheduler slot (``O4_Step_Wait``)."""
+    try:
+        lock_file_descriptor = os.open(
+            lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        with STEP_WAIT.waiting():    # the loop judges any other refusal
+            return _acquire_waiting(lock_path, deadline, denied_raises)
+    _write_holder_identity(lock_file_descriptor)
+    return True
+
+
+def _acquire_waiting(lock_path: str, deadline: float,
+                     denied_raises: bool) -> bool:
+    """The acquisition loop: True once held, False when it proceeds
+    without the lock.  A contended wait is noted for :func:`lock_waits`
+    while it lasts.  ``denied_raises``: a lock file that cannot be created
+    at all re-raises the error at once."""
     announced_stale_break = False
     while True:
         try:

@@ -520,6 +520,20 @@ class ImageryDownloadsDone(EngineEvent):
 
 
 @dataclass(frozen=True)
+class StepWaiting(EngineEvent):
+    """A worker's step only waits (``waiting``), or works again: another
+    tile's download, a retry backoff, a cache lock (#2254).  A scheduling
+    signal between a worker and its orchestrator, which frees or retakes
+    the step's class token (``o4_engine.step_parking``); it is not in
+    ``parallel._FORWARDED_EVENT_TYPES``, so no front end receives it.
+    """
+
+    lat: int = 0
+    lon: int = 0
+    waiting: bool = False
+
+
+@dataclass(frozen=True)
 class BuildDone(EngineEvent):
     """One tile finished (ok or not).
 

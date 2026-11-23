@@ -11,6 +11,7 @@ from shapely.strtree import STRtree
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
 import O4_Patch_Rebase as PATCH_REBASE
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
@@ -1285,7 +1286,8 @@ def start_background_osm_prefetch(tile):
             )
 
     _osm_prefetch_thread = threading.Thread(
-        target=download_missing_layer_caches, daemon=True)
+        target=STEP_WAIT.step_thread(download_missing_layer_caches),
+        daemon=True)
     _osm_prefetch_thread.start()
 
 
@@ -1295,7 +1297,8 @@ def wait_for_background_osm_prefetch():
     race the prefetch on the same cache file."""
     global _osm_prefetch_thread
     if _osm_prefetch_thread is not None:
-        _osm_prefetch_thread.join()
+        with STEP_WAIT.joining():
+            _osm_prefetch_thread.join()
         _osm_prefetch_thread = None
 
 

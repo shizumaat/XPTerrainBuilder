@@ -30,6 +30,7 @@ import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
 import O4_Patch_Fast_Path as FASTPATH
 import O4_Step_Reuse as REUSE
+import O4_Step_Wait as STEP_WAIT
 import O4_Tile_Build_Log as TILELOG
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
@@ -62,6 +63,7 @@ from .events import (
 )
 from . import step_clock as STEP_CLOCK
 from . import step_inputs as STEP_INPUTS
+from . import step_parking
 from .slow_step import SlowStepWatch
 
 #: The queue rank of a tile whose batch named no class or deadline.
@@ -1327,7 +1329,11 @@ class EngineSession:
             with SLOTS.step(give_up=lambda: UI.red_flag,
                             gb=_step_reservation_gigabytes(key, tile),
                             what="tile %s step" % key):
-                return self._run_step_body(function, key, tile, plan)
+                # ... and gives it back while the step only waits (#2254).
+                parking = step_parking.ChildParking(self._emit, tile.lat,
+                                                    tile.lon)
+                with STEP_WAIT.step_scope(parking.park, parking.resume):
+                    return self._run_step_body(function, key, tile, plan)
         finally:
             UI.is_working = False
 

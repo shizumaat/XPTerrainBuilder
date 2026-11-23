@@ -186,6 +186,24 @@ def test_skirt_readings_read_ahead_equal_the_serial_readings(world, monkeypatch)
     assert W.read_skirts_ahead(O.ResourceCache(THICK), LAW, paths) == 0
 
 
+def test_skirt_worker_reads_the_parents_parse(world, monkeypatch):
+    """#2206: a skirt task carries the parent's geometry; the worker
+    answers the same reading without opening the file again."""
+    here = O.ResourceCache(THICK)
+    path = next(o.resolved for o in world.objs
+                if here.geometry(o.resolved) is not None
+                and here.y_range(o.resolved)[0] < -1e-9)
+    want = repr(S.below_zero_reading(here, path, LAW))
+    geom = here.geometry(path)
+
+    def no_read(*_a, **_k):
+        raise AssertionError("the worker parsed the file again")
+
+    monkeypatch.setattr(O, "parse_obj8", no_read)
+    got = W.skirt_reading(W.setup(LAW, THICK, 0.0), (path, geom))
+    assert repr(got) == want
+
+
 def test_part_readings_derived_ahead_equal_the_placing(world, serial):
     cache = O.ResourceCache(THICK)
     members, lines, scat = [], set(), set()

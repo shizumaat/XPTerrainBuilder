@@ -289,7 +289,13 @@ def build_evidence(airport: Airport, rules: Rules,
     ground under the building keeps its design surface (owner RULINGS
     2026-09-10ag).  Without one every pad stands as 09c/10y leave it —
     the classify-only tools (``pipeline/__main__ explain``) pass theirs
-    so no tool reads a different pad set from the build."""
+    so no tool reads a different pad set from the build.  A caller with
+    a law and no cache gets ONE here: both ``_pads`` passes share it, so
+    the pack is read once (#2206)."""
+    if law is not None and cache is None:
+        from ..airport import frame_entry as _fe, obj8 as _obj8
+        cache = _obj8.ResourceCache(
+            law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
     runway_polys = [(rw, runway_rectangle(rw)) for rw in airport.runways]
     runway_union = unary_union([p for _r, p in runway_polys]) if runway_polys \
         else Polygon()

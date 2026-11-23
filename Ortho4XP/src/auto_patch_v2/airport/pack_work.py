@@ -141,12 +141,16 @@ def read_resources_ahead(pool: WorkPool | None, cache: _obj8.ResourceCache,
 SKIRT_POOL_MIN = 24
 
 
-def skirt_reading(state: PackWorker, path: str):
+def skirt_reading(state: PackWorker, task: tuple):
     """``skirt.below_zero_reading`` of one resource, in a worker — or
     ``None`` where it raises: the serial reader derives it and raises in
-    its own place (:func:`resource_reads`' rule)."""
+    its own place (:func:`resource_reads`' rule).  ``task = (path, geom)``
+    carries the parent's parse, so the file is not read again (#2206)."""
+    path, geom = task
     try:
-        return _skirt.below_zero_reading(state.cache_for(path), path, state.law)
+        cache = state.cache_for(path)
+        cache._geom[path] = geom
+        return _skirt.below_zero_reading(cache, path, state.law)
     except Exception:
         return None
 
@@ -162,6 +166,7 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
     were read ahead; 0 when no pool answers (the serial reader derives
     them in its own place, the same record)."""
     todo: list[str] = []
+    geoms: list = []
     for path in dict.fromkeys(paths):
         if path in cache.skirt or ("skirt", path) in cache.pre:
             continue
@@ -169,6 +174,7 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
         if g is None or g.solid.shape[0] == 0 or not (cache.y_range(path)[0] < -1e-9):
             continue
         todo.append(path)
+        geoms.append(g)
     if len(todo) < SKIRT_POOL_MIN:
         return 0
     own = pool is None
@@ -177,7 +183,8 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
     try:
         if not pool.parallel:
             return 0
-        got = pool.try_map(skirt_reading, todo, weights=[_weight(p) for p in todo],
+        got = pool.try_map(skirt_reading, list(zip(todo, geoms, strict=True)),
+                           weights=[_weight(p) for p in todo],
                            what="skirt readings", unit="resources")
     finally:
         if own:

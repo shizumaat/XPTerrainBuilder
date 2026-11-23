@@ -30,9 +30,10 @@ disk before any composite exists).  Then:
 Either way the patch is meshed as authored (the 19b re-base and band are
 retired, RULINGS 2026-11-23d).  Only an airport that uses its custom patch
 "As made" is asked (``O4_Custom_Patch_Use``); one on "Our auto patch" keeps
-its insets like any auto-patched airport.  Decisions are disk-state driven (patch files, cached insets, the
-base raster), so the vector step, the mesh step, the frame check and a
-pool child all derive the same list; a process keeps them in a memo keyed
+its insets like any auto-patched airport.  Decisions are disk-state
+driven (patch files, cached insets, the base raster), so the vector
+step, the mesh step, the frame check and a pool child all derive the
+same list; a process keeps them in a memo keyed
 by that state.  The working-grid ballot still counts every cached inset,
 so the tile's posting -- and every other airport's raster -- is unchanged.
 """

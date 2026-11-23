@@ -90,7 +90,7 @@ def test_reference_is_the_authoring_dem():
 def test_auto_and_edited_patches_record_no_source(tmp_path, name):
     tile = SimpleNamespace(build_dir=str(tmp_path / "build"), lat=39,
                            lon=-107)
-    (tmp_path / name).write_text(patch_text(dem_a), encoding="utf-8")
+    (tmp_path / name).write_text(patch_text(dem_a), encoding="utf-8", newline="")
     R.remember_source(tile, str(tmp_path), name)
     assert not (tmp_path / "build" / R.SOURCES_RECORD).exists()
 
@@ -101,12 +101,13 @@ def test_a_custom_patch_records_its_source_and_is_never_rewritten(
                            lon=-107)
     path = tmp_path / "KXXX.patch.osm"
     text = patch_text(dem_a)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
     monkeypatch.setattr(R, "_ground_record", lambda *_a: None)
     monkeypatch.setattr(R, "_sources",
                         lambda _t: {R.BUILD_SOURCE: dem_b, "A": dem_a})
     R.remember_source(tile, str(tmp_path), "KXXX.patch.osm")
-    record = json.loads((tmp_path / "build" / R.SOURCES_RECORD).read_text())
+    record = json.loads((tmp_path / "build" / R.SOURCES_RECORD).read_text(
+        encoding="utf-8"))
     assert record["KXXX.patch.osm"]["source"] == "A"
     assert path.read_text(encoding="utf-8") == text
     assert not (tmp_path / "build" / "custom_patch_rebase").exists()

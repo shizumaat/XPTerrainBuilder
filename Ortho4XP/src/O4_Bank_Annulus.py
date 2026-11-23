@@ -152,9 +152,10 @@ def bank_annulus_polygon(tile):
     A ``bank_foot`` way is one RING of the banked region: a ring inside
     an even number of other foot rings is an EXTERIOR, inside an odd
     number a HOLE (grass enclosed by pavement, and an island of pavement
-    inside that grass), applied from the outermost in (:func:`_nested`), and the annulus is ``banked -
-    design_coverage``.  Any error in that classification leaves vertices
-    to the harmonic extension, never the other way round.
+    inside that grass), applied from the outermost in (:func:`_nested`),
+    and the annulus is ``banked - design_coverage``.  Any error in that
+    classification leaves vertices to the harmonic extension, never the
+    other way round.
     """
     from shapely import geometry, ops
 

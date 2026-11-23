@@ -518,7 +518,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     if dsfid == "7z":
         UI.vprint(2, "     The original DSF is a 7z archive, uncompressing...")
         os.replace(tmp_file, tmp_file + ".7z")
-        subprocess.run([OVL.unzip_cmd, "e", f"-o{FNAMES.Tmp_dir}", f"{tmp_file}.7z"], **UI.external_tool_keyword_arguments())
+        command = [OVL.unzip_cmd, "e", f"-o{FNAMES.Tmp_dir}", f"{tmp_file}.7z"]
+        subprocess.run(command, **UI.external_tool_keyword_arguments(command))
         os.remove(tmp_file + '.7z')
     file_len = os.path.getsize(tmp_file)
     f = open(tmp_file, "rb")

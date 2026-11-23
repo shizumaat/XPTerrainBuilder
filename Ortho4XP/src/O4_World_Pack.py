@@ -126,8 +126,10 @@ def placeholder_text(lat: int, lon: int) -> str:
 
 
 def _dsftool(tool: str, *args: str, timeout: float = 600) -> str:
+    # close_fds=False: posix_spawn, never fork (#2259); ``tool`` is a path.
     done = subprocess.run([tool, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=timeout)
+                          encoding="utf-8", errors="replace", timeout=timeout,
+                          close_fds=False)
     if done.returncode != 0:
         raise RuntimeError(f"DSFTool {' '.join(args[:1])} failed "
                            f"(exit {done.returncode}): {done.stdout[-400:]}"

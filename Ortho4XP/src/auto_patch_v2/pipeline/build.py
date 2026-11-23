@@ -746,6 +746,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     derive, _ahead = _s1_box.get("derive"), _s1_box.get("ahead")
     if derive is None or derive.airport is not airport:
         if _ahead is not None:
+            _ahead.refused = _ahead.refused or "the main pass changed the airport"
             _ahead.close()
         derive, _ahead = Deriver(
             airport, law, inputs, pack, cache=fc, common=_fc_in,
@@ -1004,7 +1005,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                     airport_digest=_em_in.get("airport"),
                                     icao=icao, pm=pm, law=law, airport=airport,
                                     report=report, wall=wall, pool_out=_vpool, out=out)
+    # #2206 step 0: the stage cache's tail (its writes and stage report)
+    t = time.perf_counter()
     report["cache"] = fc.finish()
+    wall["cache_finish"] = time.perf_counter() - t
+    # #2206 step 0: every prefix run's step walls (the main pass, stage 1's
+    # ribbon-free run, the late derives) and the stage-1 run ahead's record
+    report["prefix_clocks"] = {
+        "main": {k: round(float(v), 3) for k, v in pre.wall.items()},
+        "runs": list(derive.clocks),
+        "stage_one_ahead": None if _s1_box.get("ahead") is None
+        else _s1_box["ahead"].clock()}
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build
     wall["unclocked"] = wall["total"] - _staged

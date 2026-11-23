@@ -456,7 +456,9 @@ class Deriver:
     last run's :class:`PrefixRecord`.  With the build's ``cache`` (and its
     ``common`` inputs) every run goes through the records, keyed by its
     own classification, and is reported as ``<stage>@prefix<n>`` (spec
-    §4b.3); with none it runs plainly."""
+    §4b.3); with none it runs plainly.  ``clocks``: one record per prefix
+    run, here or installed from a worker (:meth:`note_clock`; #2206 step
+    0, the build's ``report.json["prefix_clocks"]``)."""
 
     def __init__(self, airport, law, inputs, pack: PackRead, cache=None,
                  common: _t.Mapping[str, _t.Any] | None = None, **kw: _t.Any) -> None:
@@ -464,6 +466,7 @@ class Deriver:
         self.cache, self.common = cache, common
         self.runs = 0
         self.last: PrefixRecord | None = None
+        self.clocks: list[dict[str, _t.Any]] = []
 
     def __call__(self, cl, cl_digest: str | None = None) -> tuple:
         """``cl_digest``: ``cl``'s digest as the BUILD's process computed
@@ -483,4 +486,14 @@ class Deriver:
         finally:
             if self.cache is not None:
                 self.cache.tag = ""
+        self.note_clock("here")
         return self.last.derived()
+
+    def note_clock(self, where: str) -> None:
+        """Record ``last``'s step walls as run ``runs`` (``where``: ``"here"``
+        or ``"worker"``) — a clock, never in a digest."""
+        wall = dict(getattr(self.last, "wall", None) or {})
+        self.clocks.append({"run": self.runs, "where": where,
+                            "what": str(self.kw.get("heartbeat") or ""),
+                            "total_s": round(sum(wall.values()), 3),
+                            "wall_s": {k: round(float(v), 3) for k, v in wall.items()}})

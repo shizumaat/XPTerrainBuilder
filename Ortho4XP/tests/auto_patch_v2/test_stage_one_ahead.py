@@ -91,7 +91,8 @@ def _arm(ahead: bool, root=None, bind=None) -> dict:
                                pre.pm.registries, full=pre.pm, split=a.split)
         a.close()
     return {"s1": s1, "runs": derive.runs, "last": derive.last, "lines": lines,
-            "outcome": None if a is None else a.outcome, "states": _states(fc.finish())}
+            "outcome": None if a is None else a.outcome, "states": _states(fc.finish()),
+            "clock": None if a is None else a.clock(), "clocks": derive.clocks}
 
 
 def _same(a: dict, b: dict) -> None:
@@ -104,11 +105,25 @@ def _same(a: dict, b: dict) -> None:
     assert a["last"].airport.flat_site == b["last"].airport.flat_site
 
 
+def _clocked(arm: dict, outcome: str, where: str, started: str) -> None:
+    """#2206 step 0: the run ahead's record and the derive's one prefix
+    clock (``report.json["prefix_clocks"]``)."""
+    c = arm["clock"]
+    assert c["outcome"] == outcome and c["started"] == started, c
+    for k in ("worker_s", "ready_s", "waited_s"):     # a refused run is never taken
+        assert (c[k] is not None) == (outcome == "hit"), c
+    assert [(r["run"], r["where"]) for r in arm["clocks"]] == [(1, where)]
+    assert "planar" in arm["clocks"][0]["wall_s"]
+
+
 def test_a_hit_is_the_serial_derive(two_cores):
     ahead = _arm(True)
     assert ahead["outcome"] == "hit", ahead["lines"]
     assert any("run ahead beside the main pass" in ln for ln in ahead["lines"])
-    _same(ahead, _arm(False))
+    _clocked(ahead, "hit", "worker", "after channels")
+    serial = _arm(False)
+    assert [(r["run"], r["where"]) for r in serial["clocks"]] == [(1, "here")]
+    _same(ahead, serial)
 
 
 def test_a_moved_deck_refuses_the_workers_run(two_cores):
@@ -117,6 +132,7 @@ def test_a_moved_deck_refuses_the_workers_run(two_cores):
     ahead = _arm(True, bind=lambda pm: dc.replace(pm, decks=("moved",)))
     assert ahead["outcome"] == "miss", ahead["lines"]
     assert any("moved a deck" in ln for ln in ahead["lines"])
+    _clocked(ahead, "miss", "here", "after channels")
     _same(ahead, _arm(False))
 
 
@@ -159,13 +175,15 @@ def _early_arm(bind=None) -> dict:
                            pre.pm.registries, full=pre.pm, split=a.split)
     a.close()
     return {"s1": s1, "runs": derive.runs, "last": derive.last, "lines": lines,
-            "outcome": a.outcome, "states": _states(fc.finish())}
+            "outcome": a.outcome, "states": _states(fc.finish()),
+            "clock": a.clock(), "clocks": derive.clocks}
 
 
 def test_started_at_classify_end_a_hit_is_the_serial_derive(two_cores):
     ahead = _early_arm()
     assert ahead["outcome"] == "hit", ahead["lines"]
     assert any("from classify's end" in ln for ln in ahead["lines"])
+    _clocked(ahead, "hit", "worker", "early")
     _same(ahead, _arm(False))
 
 

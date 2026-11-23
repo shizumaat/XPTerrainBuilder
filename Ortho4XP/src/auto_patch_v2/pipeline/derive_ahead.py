@@ -163,6 +163,7 @@ def install(derive, res: _t.Mapping[str, _t.Any]) -> tuple:
     rec = _dc.replace(res["record"], airport=airport)
     derive.runs += 1
     derive.last = _dc.replace(rec, hold=hold_pass(rec.pm, derive.law, airport))
+    derive.note_clock("worker")
     if derive.cache is not None and derive.cache.active:
         derive.cache.report["stages"].update(res["stages"])
     return derive.last.derived()

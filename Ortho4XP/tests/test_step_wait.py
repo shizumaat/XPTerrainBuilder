@@ -195,6 +195,10 @@ def test_a_waiting_process_gives_its_machine_slot_to_another(
 
 # -- the orchestrator ------------------------------------------------------
 
+#: free memory the orchestrator tests see, whatever the machine has
+FREE_MEMORY_GB = 128.0
+
+
 class _Child:
     def __init__(self):
         self.tile = None
@@ -231,6 +235,9 @@ def run(tmp_path, monkeypatch):
     monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
     monkeypatch.setenv(parallel.OSM_CLASS_LIMIT_ENVIRONMENT_KEY, "2")
     monkeypatch.setattr(PU, "machine_core_count", lambda: 16)
+    # the machine's real free memory would hold the steps on a small runner
+    monkeypatch.setattr(PU, "machine_available_memory_gigabytes",
+                        lambda: FREE_MEMORY_GB)
     tiles = [(10, 10), (11, 11), (12, 12), (13, 13)]
     build = parallel.ParallelBuildRun(
         SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),

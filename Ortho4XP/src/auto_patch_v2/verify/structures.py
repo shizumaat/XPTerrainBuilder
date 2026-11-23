@@ -24,13 +24,13 @@ from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
 from ..model.structures import deck_z_on_faces
 from .runway_witness import published_status
+from .frame import Patch, Row, Shape, row
+from .nearest import FirstNearest
+from ..geom.union_find import find_root
 
 #: The corridor ring's own identity spacing (1 m), in DEGREES — the
 #: published corridor is lon/lat and the tolerance travels with it.
 _RING_TOL_DEG = 1.0 / 111320.0
-from .frame import Patch, Row, Shape, row
-from .nearest import FirstNearest
-from ..geom.union_find import find_root
 
 __all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_mouth_canonical",
            "tunnel_deck_clearance", "basin_floor_at_declaration", "structure_rim_gap",

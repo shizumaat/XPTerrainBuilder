@@ -58,7 +58,6 @@ airports this build patches (#2082).
 
 from __future__ import annotations
 
-import contextlib
 import os
 import threading
 import time

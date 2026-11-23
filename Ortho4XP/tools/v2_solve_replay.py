@@ -2889,8 +2889,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                                     method=method, strips=strips, **_kw)
     else:
-        sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
-                                method=method, strips=strips, **_kw)
+        with _solve_clocks() as _clk:
+            sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
+                                    method=method, strips=strips, **_kw)
+        _say_solve_clocks(icao, _clk)
     # spec §3b: the solve's side channels are RECORD fields — the arm's own,
     # whatever an instrument re-solves later in this run
     hard_conflict = (_lrep["hard_conflict"] if late_from is not None
@@ -3228,6 +3230,27 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
                             first=(trace, sol, rep))
     res["wall_s"] = round(time.perf_counter() - t, 1)
     return res
+
+
+def _solve_clocks():
+    """The build's stage-solve clock collector (#2206 6a, ``model/clocks``);
+    a tree that predates it collects nothing."""
+    try:
+        from auto_patch_v2.model.clocks import collecting
+    except ImportError:
+        import contextlib
+        return contextlib.nullcontext([])
+    return collecting()
+
+
+def _say_solve_clocks(icao: str, recs: list) -> None:
+    """One line per stage-solve label: solves, widest columns, the parts."""
+    if not recs:
+        return
+    from auto_patch_v2.model.clocks import PARTS, summary
+    for label, s in summary(recs).items():
+        print(f"[{icao}] solve clock {label}: {s['solves']} solve(s), {s['columns']} columns, "
+              + ", ".join(f"{p[:-2]} {s[p]:.2f}" for p in PARTS) + f", total {s['total_s']:.2f} s")
 
 
 def _design_value(v: str):

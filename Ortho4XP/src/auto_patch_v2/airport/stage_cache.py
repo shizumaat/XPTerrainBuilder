@@ -54,7 +54,7 @@ import zlib
 
 from ..geom import grid_pickle as _grid_pickle  # noqa: F401  (#1092: records carry the grid)
 
-__all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest",
+__all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest", "value_digest",
            "content_digest", "key_of", "entry_path", "encode", "write", "read_header", "read",
            "touch", "touch_many", "sweep", "peek", "first_difference", "why_miss", "Refused"]
 
@@ -117,6 +117,18 @@ def content_digest(obj: _t.Any) -> str:
     p.fast = True
     p.dump(obj)
     return hashlib.sha256(buf.getvalue()).hexdigest()
+
+
+def value_digest(obj: _t.Any) -> str:
+    """The digest of a product whose VALUE names it across runs (#2205): a
+    served partition and a computed one are equal but share objects
+    differently, and :func:`canonical_digest`'s pickle memo writes that
+    sharing.  :func:`content_digest`, or for a product too deep or cyclic
+    for it, :func:`canonical_digest` (at worst a miss, never a wrong hit)."""
+    try:
+        return content_digest(obj)
+    except (RecursionError, ValueError):
+        return canonical_digest(obj)
 
 
 def key_of(stage: str, recipe: _t.Mapping[str, _t.Any]) -> str:

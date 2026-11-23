@@ -80,13 +80,14 @@ def _mapped_road(ref: str, evid: _t.Mapping) -> bool:
     return ref.startswith("route")
 
 
-def _beside_road(evid: _t.Mapping, roads, narrow: float):
+def _beside_road(evid: _t.Mapping, roads, narrow: float, memo: dict):
     """The ground a 10l arm road or a road strip source is a road on:
     within one road width (``apron.arm_road_max_width_m``) of a road
     centreline beyond its own width — ``neck.road_arms``' own "beside"
     reach.  ``None`` for any other strip.  A strip source with no road
     mapped beside it carries no road route (21e): all of it may be
-    shoulder."""
+    shoulder.  ``memo`` holds one buffer per reach: it is of the airport's
+    whole road network, the classify stage's dearest operation (#2206)."""
     if evid.get("arm_road"):
         own = float(evid.get("neck_width_m", narrow))
     elif evid.get("kind") == "strip":
@@ -95,7 +96,18 @@ def _beside_road(evid: _t.Mapping, roads, narrow: float):
         return None
     if roads is None:
         return None
-    return _valid(roads.buffer(narrow + own))
+    reach = narrow + own
+    if reach not in memo:
+        memo[reach] = _valid(roads.buffer(reach))
+    return memo[reach]
+
+
+def _own_ground(face, evid: _t.Mapping, roads, narrow: float, memo: dict):
+    """``face`` with a 10l road's own ground left out (an L-shaped neck's
+    road leg is not the depth of its taxiway leg)."""
+    road_here = _beside_road(evid, roads, narrow, memo)
+    return face if road_here is None else \
+        unary_union(polygon_parts(face.difference(road_here)))
 
 
 def _segment_band(edge, depth: float):
@@ -154,9 +166,10 @@ def join_taxi_shoulders(final: list[list], taxi_family: tuple[str, ...],
         return stats
     roads = unary_union(list(road_lines)) if road_lines else None
     axis_tree = STRtree(axes)
+    road_memo: dict = {}
     for _ in range(len(final)):
         if not _join_round(final, taxi_family, axes, axis_tree, rules,
-                           holds_startup, roads, stats):
+                           holds_startup, roads, road_memo, stats):
             break
     return stats
 
@@ -175,7 +188,7 @@ def _valid(geom):
 
 
 def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
-                roads, stats) -> int:
+                roads, road_memo, stats) -> int:
     """One pass of the join over ``final``; returns the strips joined."""
     import math
     need = rules.corridor.runway_shoulder_shared_m
@@ -197,8 +210,8 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
         if role not in SHOULDER_HOSTS or _mapped_road(ref, evid) or holds_startup(face):
             out.append(row)
             continue
-        road_here = _beside_road(evid, roads, narrow)
         face = _valid(face)
+        own = None      # read only for a strip with a qualifying edge
         best = None
         for j in taxi_tree.query(face.buffer(tol)):
             host = taxi[int(j)]
@@ -226,14 +239,13 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
             if par is None or run < need:
                 continue
             # NARROW: the strip's mean depth off the edge, a 10l road's own
-            # ground left out (an L-shaped neck's road leg is not the
-            # depth of its taxiway leg); the shoulder is the strip in the
+            # ground left out; the shoulder is the strip in the
             # edge's flat-capped band, so it stops where the taxi cell stops
             # (polygonal parts only: a difference can come back a
             # GeometryCollection, whose intersection GEOS reads as its
             # lines — #2223 KBIL lost 3,809 m2 of shoulder to it)
-            own = face if road_here is None else \
-                unary_union(polygon_parts(face.difference(road_here)))
+            if own is None:
+                own = _own_ground(face, evid, roads, narrow, road_memo)
             if own.is_empty:
                 continue
             depth = own.area / run

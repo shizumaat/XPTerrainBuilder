@@ -1,5 +1,6 @@
 import contextlib
 import os
+import shutil
 import sys
 import threading
 import time
@@ -38,7 +39,7 @@ def subprocess_env():
     return env
 
 
-def external_tool_keyword_arguments():
+def external_tool_keyword_arguments(command=None):
     """Keyword arguments for every external build-tool launch
     (Triangle4XP, DDSTool, gdal_translate, gdalwarp, 7z, ...).
 
@@ -58,8 +59,21 @@ def external_tool_keyword_arguments():
     non-inheritable by default (PEP 446).  ``posix_spawn`` is only taken
     when ``cwd`` is None and standard streams are not low file
     descriptors -- true for every pipeline tool call.
+
+    CPython also refuses ``posix_spawn`` for a bare program name (it tests
+    ``os.path.dirname(executable)``), so ``ps`` or ``7z`` from PATH forked
+    despite ``close_fds=False`` (issue #2259).  Pass the argv as ``command``:
+    a bare name is resolved here into ``executable``, and argv[0] stays as
+    written.  A name PATH does not hold is left alone, so the launch raises
+    the usual ``FileNotFoundError``.  Windows has no fork and is untouched.
     """
-    return {"env": subprocess_env(), "close_fds": False}
+    env = subprocess_env()
+    arguments = {"env": env, "close_fds": False}
+    if command and sys.platform != "win32" and not os.path.dirname(command[0]):
+        resolved = shutil.which(command[0], path=env.get("PATH"))
+        if resolved:
+            arguments["executable"] = resolved
+    return arguments
 
 
 ################################################################################

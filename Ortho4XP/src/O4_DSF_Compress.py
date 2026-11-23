@@ -86,7 +86,7 @@ def compress(source: str, dest: str, *, threads: int = 2) -> None:
                os.path.abspath(source)]       # 7z stores the bare name
     try:
         done = subprocess.run(command, capture_output=True, check=False,
-                              **UI.external_tool_keyword_arguments())
+                              **UI.external_tool_keyword_arguments(command))
         if done.returncode != 0:
             raise CompressError(
                 f"7-Zip exited {done.returncode} on {source}: "
@@ -104,7 +104,7 @@ def _unpack_with_tool(source: str, scratch: str) -> bytes:
     command = [_seven_zip(), "e", "-y", "-bd", f"-o{os.path.abspath(scratch)}",
                "--", os.path.abspath(source)]
     done = subprocess.run(command, capture_output=True, check=False,
-                          **UI.external_tool_keyword_arguments())
+                          **UI.external_tool_keyword_arguments(command))
     if done.returncode != 0:
         raise CompressError(f"7-Zip exited {done.returncode} unpacking "
                             f"{source}: "

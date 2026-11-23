@@ -38,8 +38,13 @@ def reveal_command(path: str, platform: str | None = None) -> list:
     return ["xdg-open", path]
 
 
+def _launch(command: list) -> None:
+    import O4_UI_Utils as UI
+    subprocess.Popen(command, **UI.external_tool_keyword_arguments(command))
+
+
 def reveal(path: str, platform: str | None = None,
-           launch=subprocess.Popen) -> None:
+           launch=_launch) -> None:
     """Start the file manager on ``path`` (a folder, or a file selected in
     its folder) without waiting for it.  Raises ``OSError`` when it is
     gone or the launcher is missing."""

@@ -171,13 +171,13 @@ def _read_process_table() -> list:
     if sys.platform == "win32":
         return []
     try:
-        # close_fds=False keeps CPython on posix_spawn (the GDAL/PROJ
-        # atfork crash class, O4_Parallel_Utils).
+        import O4_UI_Utils as UI
+        command = ["ps", "-A", "-o", "pid=,ppid=,rss=,comm="]
         output = subprocess.run(
-            ["ps", "-A", "-o", "pid=,ppid=,rss=,comm="],
+            command,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=10.0, check=False, close_fds=False).stdout
+            encoding="utf-8", errors="replace", timeout=10.0, check=False,
+            **UI.external_tool_keyword_arguments(command)).stdout
     except Exception:
         return []
     rows = []

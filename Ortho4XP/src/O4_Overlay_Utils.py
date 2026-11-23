@@ -317,10 +317,10 @@ def _extract_overlay(lat, lon, source, workdir, say=None):
         # Its output is captured: a child writing to the engine's own
         # stdout would land inside the app's protocol stream (jsonl.serve
         # repoints sys.stdout only, never the inherited descriptor).
-        done = subprocess.run([seven_zip, "e", "-y", f"-o{workdir}",
-                               f"{copy}.7z"], stdout=subprocess.PIPE,
+        command = [seven_zip, "e", "-y", f"-o{workdir}", f"{copy}.7z"]
+        done = subprocess.run(command, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT,
-                              **UI.external_tool_keyword_arguments())
+                              **UI.external_tool_keyword_arguments(command))
         for line in (done.stdout or b"").decode("utf-8", "replace").splitlines():
             say(2, "     " + line)
         os.remove(copy + ".7z")

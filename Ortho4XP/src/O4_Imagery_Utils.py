@@ -3065,7 +3065,7 @@ def _run_converter(conv_cmd):
     """One subprocess conversion attempt; ``True`` when the converter succeeded."""
     return not subprocess.call(
         conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-        **UI.external_tool_keyword_arguments())
+        **UI.external_tool_keyword_arguments(conv_cmd))
 
 
 def _dds_tool_cmd(source_path, dxt5, dds_partial):
@@ -3379,7 +3379,7 @@ def convert_texture(
             erase_tmp_tif = True
             if subprocess.call(
                 geotag_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                **UI.external_tool_keyword_arguments()
+                **UI.external_tool_keyword_arguments(geotag_cmd)
             ):
                 UI.vprint(
                     1,

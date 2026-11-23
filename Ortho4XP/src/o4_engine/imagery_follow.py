@@ -101,6 +101,7 @@ from O4_Imagery_Follow_Motion import MotionTracker
 from . import imagery_follow_drape as DRAPE_ROWS
 from .imagery_follow_ahead import PageAhead
 from .imagery_follow_ahead import merge as merge_ahead
+from .imagery_follow_core import DepartureCore, waiting_status
 from .imagery_follow_house import ROWS_EVERY_S, SWEEP_EVERY_S, FollowHouse
 from .imagery_follow_land import SquareGone
 
@@ -243,6 +244,7 @@ class FollowJob:
         self.rescan: threading.Thread | None = None
         self._focus = None                      # a plan's place, to take
         self._focus_guard = threading.Lock()
+        self._departure: DepartureCore | None = None  # the plan's (#2256)
         self.cap_bytes = cap_bytes
         self.house: FollowHouse | None = None
         self._seq = 0                           # landings recorded
@@ -444,6 +446,7 @@ class FollowJob:
         self._harvest(now)
         self._house_work(now)
         self._take_focus(now)
+        self._count_departure(now)
         rec = self.reader.read()
         if rec is None:
             # a plan's departure needs no camera: its core goes on
@@ -515,6 +518,7 @@ class FollowJob:
             return
         import O4_File_Names as FNAMES
         lat, lon, tiles = focus
+        self._departure = DepartureCore(lat, lon, now)
         indexed = set(self._tiles)
         missing = [t for t in tiles
                    if FNAMES.short_latlon(t[1], t[2]) not in indexed]
@@ -528,6 +532,32 @@ class FollowJob:
             is_local=getattr(self.lander, "local", None), tiles=self._tiles)
         self._log({"spawn": "plan", "core": len(episode.wants),
                    "local": len(episode.local), "rescanned": len(missing)})
+
+    def departure_status(self, lat: float, lon: float, tiles=()) -> dict:
+        """The count of the flight departure ``(lat, lon)``'s core
+        (``imagery_follow_core``); a job not focused on it (started after
+        the plan) is focused now."""
+        core = self._departure
+        if core is not None and core.is_at(lat, lon):
+            return dict(core.status)
+        with self._focus_guard:
+            pending = self._focus
+        if pending is None or pending[:2] != (float(lat), float(lon)):
+            self.focus(lat, lon, tiles)
+        return waiting_status(float(lat), float(lon))
+
+    def _count_departure(self, now: float) -> None:
+        """Recount the departure core; while it is open, downloads outside
+        this job wait (``O4_Machine_Slots.hold_net_for_flight``)."""
+        core = self._departure
+        if core is None:
+            return
+        core.update(self._rows, self._tiles, self._failed, now, self._fetch_s,
+                    self.slots.slots, offline=now < self._offline_until,
+                    held=self.state == "paused"
+                    and self.reason != OFFLINE_REASON)
+        if core.holds_network(now):
+            MACHINE_SLOTS.hold_net_for_flight()
 
     def _held(self):
         """``True`` when every tile is held, else the names of the tiles
@@ -797,6 +827,12 @@ class FollowJob:
             self.counts["late"] += 1
         was = PLAN.tier_of_width(row["tier_px"])
         row.update(state="upgraded", tier_px=facts["tier_px"])
+        # a reread since dispatch replaced the row: the plan reads this one
+        # (#2256: the old tier stayed in it and the square was fetched again)
+        current = self._rows.get(key)
+        if current is not None and current is not row:
+            was = PLAN.tier_of_width(current["tier_px"])
+            current.update(state="upgraded", tier_px=facts["tier_px"])
         if PLAN.tier_of_width(row["tier_px"]) == _FINEST and was != _FINEST:
             self._sharp += 1
         self._seq += 1
@@ -826,7 +862,8 @@ class FollowJob:
         gone = isinstance(error, SquareGone)   # #2193: no retry lands it
         count = self._failures[key] = (
             MAX_FAILURES if gone else self._failures.get(key, 0) + 1)
-        self._fail_streak += not gone           # not a network failure
+        # neither is a missing file (#2256: three read as "Offline")
+        self._fail_streak += not (gone or isinstance(error, FileNotFoundError))
         self.counts["failed"] += 1
         state = "failed" if count >= MAX_FAILURES else (
             "upgraded" if PLAN.tier_of_width(row["tier_px"]) > 0 else "low")

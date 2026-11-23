@@ -677,7 +677,7 @@ class FlightManager:
         known = {k: facts[k] for k in (
             "world_installed", "world_seen", "xplane_running", "budget_fits",
             "budget_detail", "network_ok", "all_on_disk", "prefetch_done",
-            "network_detail")
+            "network_detail", "departure_core")
             if facts.get(k) is not None}
         self.items = SCHEDULE.readiness_items(SCHEDULE.Facts(
             jobs=tuple(jobs), slots=self.slots(), flight_slots=self.flight_slots,
@@ -695,6 +695,9 @@ class FlightManager:
         self.reason = next((i.detail for i in self.items
                             if i.state in ("blocked", "failed") and i.detail),
                            "")
+        if not self.reason and self.record.state == "preparing":
+            self.reason = next((i.detail for i in self.items
+                                if i.key == "core" and i.state != "done"), "")
         late = sum(1 for j in self.jobs if j.state == "late")
         if late and not self.reason:
             self.reason = ("Building is behind: %d tile(s) ahead will show "
@@ -711,6 +714,9 @@ class FlightManager:
             return None                     # the pilot's answer first
         waited = [i for i in self.items if i.key in SCHEDULE.READY_KEYS]
         if any(i.state in ("blocked", "failed") for i in waited):
+            return None
+        # a row still running with no figure is not "Ready" (#2256)
+        if any(i.state != "done" and i.eta_s is None for i in waited):
             return None
         wait = SCHEDULE.departure_countdown(jobs, self.parked_slots)
         if wait is None:

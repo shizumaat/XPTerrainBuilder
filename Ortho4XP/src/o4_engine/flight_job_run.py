@@ -191,8 +191,10 @@ class _Facts:
 
     def __init__(self, scenery_dir: str, jobs, flight_s: float,
                  prefetch: Callable[[int, int], None] = prefetch_tile,
-                 on_disk: Callable[[Any], bool] = _on_disk) -> None:
+                 on_disk: Callable[[Any], bool] = _on_disk,
+                 core: Callable[[], Optional[dict]] = lambda: None) -> None:
         self.scenery_dir = scenery_dir
+        self.core = core
         self.values: Dict[str, Any] = {}
         self._at = -1e18
         tiles = sorted({j.tile for j in jobs})
@@ -248,7 +250,7 @@ class _Facts:
             else:
                 threading.Thread(target=self._reread, daemon=True,
                                  name="o4-flight-facts").start()
-        return dict(self.values)
+        return dict(self.values, departure_core=self.core())
 
     def _reread(self) -> None:
         with contextlib.suppress(Exception):
@@ -282,6 +284,25 @@ def _reloader(scenery_dir: str, build_dir_of, port=None):
         return {tile: r.t_s for tile, r in
                 WORLD._witness(scenery_dir)[0].items()}
     return MergeReload(scenery_dir, build_dir_of, send, witness)
+
+
+def _departure_core(manager, session) -> Callable[[], Optional[dict]]:
+    """The follow job's count of the departure core, asked for while the
+    flight prepares (#2256); it focuses a job that started after the plan."""
+    import O4_Flight_Plan as FP
+
+    from .imagery_commands import departure_core
+    held: Dict[str, Optional[dict]] = {"last": None}
+
+    def read() -> Optional[dict]:
+        if manager.record.state != "preparing":
+            return held["last"]
+        first = manager.departure
+        tile = FP.tile_of(first.lat, first.lon)
+        held["last"] = departure_core(
+            first.lat, first.lon, [(session.tile_build_dir(*tile), *tile)])
+        return held["last"]
+    return read
 
 
 def status_event(fields: dict):
@@ -334,7 +355,8 @@ class _Runner:
             choices=ADOPTED.ChoiceBook(ADOPTED.choices_path()),
             patched_of=ADOPTED.airport_patched_reader(scenery_dir))
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
-                                    self.manager.times[-1])
+                                    self.manager.times[-1],
+                                    core=_departure_core(self.manager, session))
         _share_slots(self.manager)
         _core_points(self.manager)
         self.route_key = _route_imagery(self.manager, scenery_dir)

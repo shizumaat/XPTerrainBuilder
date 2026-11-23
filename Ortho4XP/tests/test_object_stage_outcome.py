@@ -48,9 +48,9 @@ def broken_plan(tmp_path, monkeypatch):
     patch_dir = tmp_path / "Patches" / "zOrtho4XP_+30+031"
     patch_dir.mkdir(parents=True)
     (patch_dir / "o4_v2_rebake_HECA.json").write_text("{not json at all",
-                                                     encoding="utf-8")
+                                                     encoding="utf-8", newline="")
     mesh = tmp_path / "mesh.mes"
-    mesh.write_text("", encoding="utf-8")
+    mesh.write_text("", encoding="utf-8", newline="")
     monkeypatch.setattr(post_mesh, "object_anchor_worklist_path",
                         lambda _t: str(patch_dir / "worklist.json"))
     monkeypatch.setattr(post_mesh, "_mesh_is_newer_than_alt",

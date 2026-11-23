@@ -158,7 +158,6 @@ enum SettingsLayout {
             // asked, not a property of a tile (spec §C.4, RULINGS 18a).
             SettingItem("auto_patch_boundary", "What if an airport crosses a tile edge?", .app, summary: "Its ground shape needs the elevation of the tile next door too."),
             SettingItem("modify_custom_airports", "Fit custom airport buildings to the new ground", .tile, summary: "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
-            SettingItem("rebase_custom_patches", "Move custom airport ground shapes onto this build's elevation?", .tile, summary: "Moves a ground shape made for other elevation data onto this build's ground, as drawn."),
             SettingItem("airport_elevation_insets", "High-resolution airport elevation", .tile, summary: "Downloads meter-class elevation for the airports where it exists."),
             SettingItem("airport_elevation_level", "How detailed should airport elevation be?", .tile, summary: "Auto takes the finest available, down to 0.5 m."),
             SettingItem("approach_rings", "Add finer elevation on the approaches?", .tile, summary: "10 m out to 10 km around each airport with high-resolution elevation, then 30 m to 20 km."),

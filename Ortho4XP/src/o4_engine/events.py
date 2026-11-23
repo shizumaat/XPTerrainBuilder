@@ -90,7 +90,9 @@ from typing import Any, Optional
 # ("dem"); ``pending`` while a source loads off the read loop.
 # Within 1.14 (2026-10-26, additive, #1229): ``custom_patches`` and
 # ``use_auto_patch`` — commands and replies only; an older engine refuses
-# them and the app draws no band.
+# them and the app draws no band.  (``use_auto_patch`` was withdrawn
+# 2026-11-23 for ``custom_patch_use``, capability flag of the same name,
+# #2179: the app is built with its engine.)
 # Within 1.14 (2026-10-26, additive, #1326): ``TileState`` and
 # ``StepProgress`` carry ``attempt``, the tile's admission number in this
 # session, so a front end tells a stopped attempt's late news from the
@@ -253,6 +255,7 @@ CAPABILITIES: tuple = (
     "custom_patch_notice",          # 2026-11-19, #2179 notices + custom_patch_notice_seen
     "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
     "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
+    "custom_patch_use",             # 2026-11-23, #2179 custom_patch_use + pickers (airports rows)
 )
 
 
@@ -1239,7 +1242,12 @@ class BuildAirportsReady(EngineEvent):
     ``fit_airports`` (#2182, capability ``airport_fit``): the switch PER
     AIRPORT, one row per airport whose pack may be fitted —
     ``{"icao", "tile": [lat, lon], "fit": bool, "custom_patch": bool,
-    "confirm": str}``; the ``set_airport_fit`` command changes one.  ``request``
+    "confirm": str}``; the ``set_airport_fit`` command changes one.
+    ``custom_patch_use`` (#2179, capability ``custom_patch_use``): one
+    picker row per airport of the tiles with a hand-made custom patch —
+    ``{"icao", "tile": [lat, lon], "files": [str], "use": "as_made" |
+    "auto_patch", "chosen": bool, "warning": str}``; the
+    ``custom_patch_use`` command changes one.  ``request``
     is the ``id`` of the command it answers; ``error`` the failure text.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
@@ -1254,6 +1262,7 @@ class BuildAirportsReady(EngineEvent):
     fit_buildings: Any = None
     fit_confirm: str = ""
     fit_airports: list = field(default_factory=list)
+    custom_patch_use: list = field(default_factory=list)
     error: str = ""
 
 

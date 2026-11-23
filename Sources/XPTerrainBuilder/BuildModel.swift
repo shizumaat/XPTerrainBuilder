@@ -341,6 +341,9 @@ final class BuildModel: ObservableObject {
     /// patch" row. The engine owns the rule (`custom_patches`,
     /// O4_Custom_Patches.py).
     @Published private(set) var customPatchTiles: [TileCoord: [String]] = [:]
+    /// How each airport with a hand-made custom patch uses it, per tile
+    /// (#2179): the tile pane's pickers.
+    @Published private(set) var customPatchUses: [TileCoord: [O4CustomPatchUse]] = [:]
     /// Custom-patch elevation notices waiting to be shown, one at a time
     /// (#2179; the tile pane's `CustomPatchNoticeAlert`).
     @Published var customPatchNotices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
@@ -699,46 +702,57 @@ final class BuildModel: ObservableObject {
         Task { [weak self] in
             guard let reply = try? await client.customPatches() else { return }
             var found: [TileCoord: [String]] = [:]
+            var uses: [TileCoord: [O4CustomPatchUse]] = [:]
             var notices: [(tile: TileCoord, notice: O4CustomPatchNotice)] = []
             for row in reply.tiles where !row.files.isEmpty {
                 let coord = TileCoord(lat: row.lat, lon: row.lon)
                 found[coord] = row.files
+                if !row.airports.isEmpty { uses[coord] = row.airports }
                 notices += row.notices.map { (tile: coord, notice: $0) }
             }
             self?.customPatchTiles = found
+            self?.customPatchUses = uses
             if self?.customPatchNotices.isEmpty ?? false { self?.customPatchNotices = notices }
         }
     }
 
     /// The custom-patch notice answered (#2179): remembered by the engine
-    /// either way; "Use auto patch" then sets that airport's patch aside.
+    /// either way; "Use our auto patch" then switches that airport to it.
     func answerCustomPatchNotice(useAutoPatch: Bool) {
         guard let first = customPatchNotices.first else { return }
         customPatchNotices.removeFirst()
         guard let client else { return }
         Task { [weak self] in
             try? await client.customPatchNoticeSeen(tile: first.tile.key, file: first.notice.file)
-            if useAutoPatch { self?.useAutoPatch(for: first.tile, icao: first.notice.icao) }
+            if useAutoPatch {
+                self?.setCustomPatchUse(tile: first.tile, icao: first.notice.icao,
+                                        to: O4CustomPatchUse.autoPatch)
+            }
         }
     }
 
-    /// "Use auto patch" in the tile pane (#1229): the engine renames the
-    /// tile's custom patches to `….disabled` — never deletes them — so the
-    /// next build auto-patches those airports.
-    func useAutoPatch(for coord: TileCoord, icao: String = "") {
+    /// Whether the engine offers the per-airport custom-patch picker (#2179).
+    var supportsCustomPatchUse: Bool {
+        engineCapabilities.supports(O4EngineCapabilities.customPatchUse)
+    }
+
+    /// The custom-patch picker (#2179, RULINGS 2026-11-23d/f): `icao` in
+    /// `coord` uses its patch "As made" or by "Our auto patch" from the
+    /// next build on. Waits only for its own tile (#1922). The tile pane
+    /// and the Build box's card are asked again once the engine wrote it.
+    func setCustomPatchUse(tile coord: TileCoord, icao: String, to use: String) {
         connectIfNeeded()
-        guard let client, !tileInRun(coord) else { return }
+        guard let client, supportsCustomPatchUse, !tileInRun(coord) else { return }
         Task { [weak self] in
             do {
-                let reply = try await client.useAutoPatch(tile: coord.key, icao: icao)
-                for path in reply.setAside {
-                    self?.console.append(
-                        "Tile \(coord.key): set the custom patch aside as \((path as NSString).lastPathComponent); the next build uses the auto patch.")
-                }
+                let row = try await client.customPatchUse(tile: coord.key, icao: icao, use: use)
+                self?.console.append(
+                    "Tile \(coord.key): \(row.icao) uses its custom patch: \(O4CustomPatchText.title(of: row.use)), from the next build on.")
             } catch {
                 self?.engineError = error.localizedDescription
             }
             self?.refreshCustomPatchTiles()
+            self?.airportFitGeneration += 1
         }
     }
 

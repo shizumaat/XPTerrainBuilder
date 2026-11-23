@@ -51,6 +51,7 @@ struct BuildAirportsCard: View {
                 }
                 if showingGradeInfo { caption(Self.gradeSentence) }
                 airportList
+                customPatchUseList
                 LibraryMatchList(matches: libraryMatches)
                 Divider()
                 HStack(spacing: 4) {
@@ -174,6 +175,22 @@ struct BuildAirportsCard: View {
         } else if card == nil, !fallbackPacks.isEmpty {
             caption(fallbackPacks.joined(separator: ", "))
             caption(Self.backupNote)
+        }
+    }
+
+    /// How each airport with a custom patch uses it (#2179, RULINGS
+    /// 2026-11-23d/f): "As made" (the default, with its warning) or "Our
+    /// auto patch", kept for that airport's later builds.
+    @ViewBuilder private var customPatchUseList: some View {
+        if let card, !card.customPatchUse.isEmpty, buildModel.supportsCustomPatchUse {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(card.customPatchUse) { row in
+                    CustomPatchUsePicker(buildModel: buildModel,
+                                         activity: buildModel.activity,
+                                         row: row)
+                }
+            }
+            .padding(.leading, 18)
         }
     }
 

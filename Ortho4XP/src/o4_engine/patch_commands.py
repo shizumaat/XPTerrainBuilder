@@ -1,8 +1,9 @@
 """The patch editor's engine commands (spec patch-editor-20261015 §2,
 protocol 1.12): ``patch_list``, ``patch_load``, ``patch_save``,
-``patch_revert``; and the custom-patch commands of #1229 (owner RULINGS
-2026-10-26c): ``custom_patches`` (the map band, the tile info line) and
-``use_auto_patch`` (sets a tile's custom patches aside, never deletes).
+``patch_revert``; and the custom-patch commands of #1229 / #2179 (owner
+RULINGS 2026-10-26c, 2026-11-23d/f): ``custom_patches`` (the map band, the
+tile info rows) and ``custom_patch_use`` (how one airport uses its custom
+patch: as made or our auto patch; nothing is renamed).
 
 Plain synchronous functions registered in ``o4_engine.jsonl``, like
 ``failure_report`` (the reads ``patch_list`` / ``patch_load`` /
@@ -31,7 +32,7 @@ from . import patch_file as PF
 
 __all__ = ["patch_list", "patch_load", "patch_staleness", "patch_save",
            "patch_revert",
-           "custom_patches", "use_auto_patch", "custom_patch_notice_seen",
+           "custom_patches", "custom_patch_use", "custom_patch_notice_seen",
            "law_identity"]
 
 
@@ -219,20 +220,25 @@ def patch_revert(tile: str, icao: str) -> dict:
 
 def custom_patches() -> dict:
     """ENGINE COMMAND ``custom_patches``: every tile of the data root with a
-    custom patch, ``{"tiles": [{"lat", "lon", "files", "notices"}]}`` —
-    the map's band, the tile info's "Custom patch" line (#1229) and the
+    custom patch, ``{"tiles": [{"lat", "lon", "files", "notices",
+    "airports"}]}`` — the map's band, the tile info's "Custom patch" rows
+    (#1229; ``airports``: one picker row per airport, capability
+    ``custom_patch_use``, ``O4_Custom_Patches.airport_uses``) and the
     once-per-patch elevation notice (#2179, capability
-    ``custom_patch_notice``: ``O4_Custom_Patches.elevation_notices``)."""
+    ``custom_patch_notice``)."""
     return {"tiles": CUSTOM.custom_patch_tiles()}
 
 
-def use_auto_patch(tile: str, icao: str = "") -> dict:
-    """ENGINE COMMAND ``use_auto_patch``: set aside *tile*'s custom patches
-    (only *icao*'s when given) as ``….disabled`` so the next build
-    auto-patches those airports; never deletes (#1229).  A tile with no
-    custom patch is refused with the user's sentence."""
+def custom_patch_use(tile: str, icao: str, use: str) -> dict:
+    """ENGINE COMMAND ``custom_patch_use`` (#2179, RULINGS 2026-11-23d/f,
+    capability ``custom_patch_use``): *icao* in *tile* uses its custom
+    patch *use* — ``"as_made"``, ``"auto_patch"`` or ``"default"`` (as
+    made) — from the next build on.  Replies the airport's picker row
+    (``O4_Custom_Patches.airport_uses``).  An airport with no custom patch
+    in the tile, or an unknown mode, is refused with the user's
+    sentence."""
     lat, lon = _tile(tile)
-    return {"set_aside": CUSTOM.use_auto_patch(lat, lon, icao or None)}
+    return CUSTOM.set_use(lat, lon, str(icao), str(use))
 
 
 def custom_patch_notice_seen(tile: str, file: str) -> dict:

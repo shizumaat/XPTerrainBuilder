@@ -10,7 +10,8 @@ from shapely.strtree import STRtree
 
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
-import O4_Patch_Rebase as PATCH_REBASE
+import O4_Custom_Patch_Use as CUSTOM_USE
+import O4_Custom_Patch_Source as PATCH_SOURCE
 import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
@@ -70,6 +71,31 @@ def _custom_patch_label(path):
                   "not carry the fixes since; open the airport's auto patch "
                   "in the editor again to pick them up)" % (made, running))
     return label
+
+
+def _say_custom_patch_use(patch_dir, manual_icaos):
+    """One verbosity-0 line per airport with a manual patch: an edited
+    patch is used; a custom one is used as made, or kept while our auto
+    patch builds the airport (#2179, RULINGS 2026-11-23d/f)."""
+    customs = CUSTOM_USE.custom_files(patch_dir)
+    for icao in sorted(set(i for i in manual_icaos if i) | set(customs)):
+        files = [f + _custom_patch_label(os.path.join(patch_dir, f))
+                 for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
+        mode = CUSTOM_USE.use_of(patch_dir, icao)[0]
+        if icao in customs and mode == CUSTOM_USE.AUTO_PATCH:
+            UI.vprint(0, "   %s: our auto patch is used; your custom patch "
+                      "%s is kept, not applied." % (icao,
+                                                   ", ".join(customs[icao])))
+        elif icao in customs:
+            UI.vprint(0, "   %s: custom patch %s used as made, on the "
+                      "elevation it was made for. Higher-resolution "
+                      "elevation is available here but requires our auto "
+                      "patch: choose \"Our auto patch\" for %s in the Build "
+                      "box or the tile info." % (
+                          icao, ", ".join(files) or "(custom)", icao))
+        else:
+            UI.vprint(0, "   %s: using the patch %s — the airport is not "
+                      "auto-patched." % (icao, ", ".join(files)))
 
 
 ################################################################################
@@ -4200,7 +4226,11 @@ def include_patches(vector_map, tile):
     all_patch_files = [
         f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"
     ]
-    manual_patches = [f for f in all_patch_files if "_auto.patch.osm" not in f]
+    # The manual patches this build APPLIES (#2179, RULINGS 2026-11-23d):
+    # a custom patch whose airport uses "Our auto patch" is kept on disk
+    # but is not a patch of this build (``O4_Custom_Patch_Use``, the one
+    # reader every other decider asks too).
+    manual_patches = CUSTOM_USE.applied_manual_files(patch_dir)
     auto_patches = [f for f in all_patch_files if "_auto.patch.osm" in f]
     # Track which ICAO codes are covered by manual patches
     manual_icao_codes = {FNAMES.patch_file_icao(f) for f in manual_patches}
@@ -4217,24 +4247,10 @@ def include_patches(vector_map, tile):
         for candidate in (getattr(tile, "auto_patch_selection", None) or ())
         if candidate.disposition == "boundary_skipped"
     }
-    # SAID AT VERBOSITY 0, ONCE PER AIRPORT, whether or not an auto patch
-    # file exists (#1229; lane ``othhjunction``, #13/#15): the owner's
-    # build-350 OTHH read was on a JOSM-saved ``OTHH.patch.osm`` that
-    # silently replaced the auto patch.  A custom patch is always honoured
-    # — this line is how the user learns the airport is not auto-patched.
-    # A5 (spec patch-editor-20261015 §1.3): a file the patch editor wrote
-    # is LABELLED (user-edited).
-    for icao in sorted(i for i in manual_icao_codes if i):
-        manual = [
-            f + _custom_patch_label(os.path.join(patch_dir, f))
-            for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
-        UI.vprint(
-            0,
-            "   %s: using the CUSTOM patch %s — the airport is not "
-            "auto-patched. To use the auto patch, choose \"Use auto "
-            "patch\" in the tile info (it sets the custom file aside, "
-            "never deletes it)." % (icao, ", ".join(manual) or "(custom)"),
-        )
+    # SAID AT VERBOSITY 0, ONCE PER AIRPORT (#1229; lane ``othhjunction``,
+    # #13/#15; #2179): how each airport with a custom patch is built — as
+    # made, or by our auto patch with the custom file kept.
+    _say_custom_patch_use(patch_dir, manual_icao_codes)
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:
@@ -4269,10 +4285,13 @@ def include_patches(vector_map, tile):
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()
         try:
-            # A custom patch authored over another elevation source is
-            # read from its re-based copy (RULINGS 2026-11-19b, #2173).
+            # A custom patch is meshed as authored (#2179: the 19b re-base
+            # and band are retired); the source it was made for is
+            # recorded for the apps' notice.
+            if not is_auto:
+                PATCH_SOURCE.remember_source(tile, patch_dir, pfile_name)
             patch_layer.update_dicosm(
-                PATCH_REBASE.mesh_path(tile, patch_dir, pfile_name),
+                os.path.join(patch_dir, pfile_name),
                 input_tags=None,
                 target_tags=None,
             )

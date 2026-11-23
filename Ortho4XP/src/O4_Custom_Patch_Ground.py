@@ -9,7 +9,7 @@ patch, we use the matching elevation source for the area around that
 airport", and every auto-patched airport on the same tile keeps its lidar.
 
 For each airport of the tile using its custom patch, :func:`grounds` finds
-the patch's REFERENCE by the 19b fit (``O4_Patch_Rebase._pick_reference``:
+the patch's REFERENCE by the 19b fit (``O4_Custom_Patch_Source._pick_reference``:
 the smallest median |patch - source| over the patch's height points, among
 the base raster and each of the airport's OWN cached insets, read from
 disk before any composite exists).  Then:
@@ -27,9 +27,10 @@ disk before any composite exists).  Then:
 * reference = one of its own insets: the lidar stays (the patch was made
   on it).
 
-Either way the patch is meshed as authored: ``O4_Patch_Rebase.mesh_path``
-neither re-bases it nor adds the blend band for an airport :func:`grounds`
-names.  Decisions are disk-state driven (patch files, cached insets, the
+Either way the patch is meshed as authored (the 19b re-base and band are
+retired, RULINGS 2026-11-23d).  Only an airport that uses its custom patch
+"As made" is asked (``O4_Custom_Patch_Use``); one on "Our auto patch" keeps
+its insets like any auto-patched airport.  Decisions are disk-state driven (patch files, cached insets, the
 base raster), so the vector step, the mesh step, the frame check and a
 pool child all derive the same list; a process keeps them in a memo keyed
 by that state.  The working-grid ballot still counts every cached inset,
@@ -58,24 +59,20 @@ _MEMO: dict = {}
 
 
 def _custom_files(lat, lon):
-    """``{ICAO: [path]}`` of the tile's custom patches.  An airport that
-    also carries the patch editor's ``_edited`` patch is left out: that one
-    was made on this build's own elevation."""
+    """``{ICAO: [path]}`` of the tile's custom patches used "As made"
+    (``O4_Custom_Patch_Use``, #2179: an airport on "Our auto patch" keeps
+    its lidar).  An airport that also carries the patch editor's
+    ``_edited`` patch is left out: that one was made on this build's own
+    elevation."""
+    import O4_Custom_Patch_Use as CUSTOM_USE
+
     directory = FNAMES.patch_dir(lat, lon)
-    try:
-        names = sorted(os.listdir(directory))
-    except OSError:
-        return {}
-    out, edited = {}, set()
-    for name in names:
-        icao = FNAMES.patch_file_icao(name)
-        if not icao or not FNAMES.is_manual_patch_name(name):
-            continue
-        if name == FNAMES.edited_patch_name(icao):
-            edited.add(icao)
-        elif os.path.isfile(os.path.join(directory, name)):
-            out.setdefault(icao, []).append(os.path.join(directory, name))
-    return {icao: paths for icao, paths in out.items() if icao not in edited}
+    edited = {FNAMES.patch_file_icao(name)
+              for name in CUSTOM_USE.applied_manual_files(directory)
+              if name == FNAMES.edited_patch_name(FNAMES.patch_file_icao(name))}
+    return {icao: [os.path.join(directory, name) for name in names]
+            for (icao, names) in CUSTOM_USE.as_made_files(directory).items()
+            if icao not in edited}
 
 
 def _own_insets(tile, icao):
@@ -117,7 +114,7 @@ def _key(tile, files):
 def _height_points(paths):
     """The 19b reader's ``(nodes, pads, ramps)`` over every file of one
     airport, node ids prefixed by file so two files never share one."""
-    import O4_Patch_Rebase as REBASE
+    import O4_Custom_Patch_Source as REBASE
 
     nodes, pads, ramps = {}, [], []
     for k, path in enumerate(paths):
@@ -135,7 +132,7 @@ def _sources(tile, insets):
     """``{name: sampler}``: the base raster as a plain build reads it, and
     each of the airport's own insets (NaN outside its data)."""
     import O4_DEM_Utils as DEM
-    import O4_Patch_Rebase as REBASE
+    import O4_Custom_Patch_Source as REBASE
 
     dem = DEM.DEM(tile.lat, tile.lon, ";".join([_base_token(tile)] + insets),
                   getattr(tile, "fill_nodata", None) or "to zero",
@@ -168,7 +165,7 @@ def _decide(tile, icao, paths, insets):
     the reference is the base raster), ``area`` (:func:`_area`)."""
     import O4_Airport_Elevation_Insets as INSETS
     import O4_DEM_Utils as DEM
-    import O4_Patch_Rebase as REBASE
+    import O4_Custom_Patch_Source as REBASE
 
     insets = [p for p in insets if not INSETS._declined_on_read(p)]
     nodes, pads, ramps = _height_points(paths)

@@ -205,8 +205,8 @@ def patch_add_shape(tile: str, icao: str, corners: _t.Sequence[_t.Sequence],
     side = ("a tunnel ramp" if (tags or {}).get("role") == PR.RAMP_ROLE
             else "a %g m square" % SQUARE_SIDE_M)
     message = (f"Started {icao}'s custom patch {name} with {side}. The next build of "
-               f"tile {tile} uses it instead of an auto patch (\"Use auto patch\" in the "
-               f"tile info sets it aside)." if created else
+               f"tile {tile} uses it instead of an auto patch (\"Revert to auto\" in the "
+               f"patch editor sets it aside)." if created else
                f"Added {side} to {icao}'s patch, saved as {name}. Rebuild tile {tile} "
                f"to see it in X-Plane.")
     return {"path": saved["path"], "way_id": doc.ways[-1].id, "created": created,

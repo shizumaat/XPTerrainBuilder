@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
 import O4_Custom_Patch_Ground as GROUND  # noqa: E402
 import O4_DEM_Utils as DEM  # noqa: E402
-import O4_Patch_Rebase as R  # noqa: E402
 
 LAT, LON = 39, -107
 LAT0, LON0 = LAT + 0.5, LON + 0.5
@@ -66,7 +65,7 @@ def tile(tmp_path, monkeypatch):
                         lambda t, insets: {BASE: base, LIDAR: lidar})
     return SimpleNamespace(lat=LAT, lon=LON, custom_dem="",
                            build_dir=str(tmp_path / "build"),
-                           rebase_custom_patches=True, patch_dir=patch_dir)
+                           patch_dir=patch_dir)
 
 
 def _write(tile, name, text):
@@ -138,18 +137,17 @@ def test_the_coverage_warning_is_silent_for_a_left_out_airport(
     assert INSETS.warn_if_inset_does_not_cover_airport(tile, "KCCC", 0.0)
 
 
-def test_the_patch_is_meshed_as_authored(tile):
-    """No re-base, no band: ``mesh_path`` hands the user's own file and
-    drops a copy an earlier build wrote."""
+def test_an_airport_on_our_auto_patch_keeps_its_insets(tile):
+    """#2179 (RULINGS 2026-11-23d): only an airport that uses its custom
+    patch "As made" stands on the patch's elevation; "Our auto patch"
+    keeps the lidar like any auto-patched airport."""
+    import O4_Custom_Patch_Use as USE
+
     _write(tile, "KAAA.patch.osm", patch_text(2000.0))
-    stale = os.path.join(tile.build_dir, "custom_patch_rebase",
-                         "KAAA.patch.osm")
-    os.makedirs(os.path.dirname(stale))
-    open(stale, "w", encoding="utf-8", newline="").close()
-    path = R.mesh_path(tile, str(tile.patch_dir), "KAAA.patch.osm")
-    assert path == str(tile.patch_dir / "KAAA.patch.osm")
-    assert not os.path.exists(stale)
-    assert R.read_path(tile, str(tile.patch_dir), "KAAA.patch.osm") == path
+    USE.set_use(str(tile.patch_dir), "KAAA", USE.AUTO_PATCH)
+    assert GROUND.grounds(tile) == {} and GROUND.left_out(tile) == {}
+    USE.set_use(str(tile.patch_dir), "KAAA", "default")
+    assert GROUND.left_out(tile).keys() == {"KAAA"}
 
 
 def test_rings_leave_the_airport_out_and_cut_the_others_back(

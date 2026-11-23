@@ -12,6 +12,9 @@ one wording.  Under the packs, one switch PER AIRPORT whose pack may be
 fitted (#2182, owner 2026-11-19T14:15Z): kept for that airport's later
 builds (``o4_engine.build_airports.set_airport_fit``), asking first
 when it turns on an airport with a custom patch (RULINGS 2026-11-18l).
+Under the airport list, one picker per airport with a custom patch (#2179,
+RULINGS 2026-11-23d/f): "As made" or "Our auto patch"
+(``O4_Qt_Custom_Patch_Use``; the Mac card's ``customPatchUseList``).
 "Library patches" under the airport list is the patch library's match
 list (#1699 phase 2, ``O4_Qt_Patch_Library.LibraryMatchList``; the Mac
 card's ``LibraryMatchList``).
@@ -20,6 +23,7 @@ card's ``LibraryMatchList``).
 import threading
 
 import O4_Glossary as GLOSSARY
+import O4_Qt_Custom_Patch_Use as QTCUSTOMUSE
 import O4_Qt_Patch_Library as PATCHLIB
 from O4_Qt_Widgets import never_widen, wrap_and_never_widen
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -172,6 +176,9 @@ class AirportsCard(QGroupBox):
         self._fit_airports_layout.setContentsMargins(18, 0, 0, 0)
         self._fit_airports_layout.setSpacing(1)
         self.fit_airport_checks = {}
+        self.custom_patch_use = QTCUSTOMUSE.CustomPatchUseList(
+            self._custom_patch_use_chosen, indent=18)
+        self.custom_patch_use.setVisible(False)
         self.library_match_list = PATCHLIB.LibraryMatchList()
         # The explanations sit behind a small "i" (owner 2026-10-27; the
         # Mac card's infoButton): the card shows switches and lists.
@@ -180,6 +187,7 @@ class AirportsCard(QGroupBox):
         for widget in (self._row(self.chk_grade, self.grade_info),
                        self.grade_text,
                        self.airports_toggle, self.airports_text,
+                       self.custom_patch_use,
                        self.library_match_list,
                        self._row(self.chk_fit, self.fit_info),
                        self.fit_text, self.packs_text,
@@ -303,6 +311,7 @@ class AirportsCard(QGroupBox):
             return                            # a newer selection asks
         (self.card, self._error, self._loading) = (card, error, False)
         self._fill_fit_airports()
+        self.custom_patch_use.set_rows((card or {}).get("custom_patch_use"))
         self.refresh_switches()           # the card's fitting default
         changed = getattr(self, "on_card_changed", None)
         if changed is not None:
@@ -348,6 +357,24 @@ class AirportsCard(QGroupBox):
         if self.card is not None and rows:
             self.card["fit_buildings"] = any(r.get("fit") for r in rows)
         self.refresh_switches()
+
+    # ── the custom-patch pickers (#2179) ───────────────────────────────
+    def _custom_patch_use_chosen(self, row, mode):
+        """One airport uses its custom patch *mode* from the next build on
+        (``O4_Custom_Patches.set_use``); the card is asked again."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        (lat, lon) = row["tile"]
+        try:
+            CUSTOM_PATCHES.set_use(lat, lon, row["icao"], mode)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, CUSTOM_PATCHES.CUSTOM_PATCH_TITLE,
+                                str(error))
+        changed = getattr(self, "on_custom_patch_use", None)
+        if changed is not None:
+            changed((lat, lon))
+        if self._pending:
+            self.request(*self._pending)
 
     # ── the words ──────────────────────────────────────────────────────
     def fit_disabled_reason(self):

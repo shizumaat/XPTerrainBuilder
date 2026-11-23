@@ -81,6 +81,32 @@ struct BuildAirportsTests {
         #expect(O4EngineCapabilities.airportFit == "airport_fit")
     }
 
+    /// #2179: the custom-patch picker rows (capability `custom_patch_use`);
+    /// an older engine's card has none.
+    @Test func decodesTheCustomPatchPickers() throws {
+        let event = O4JSON.from([
+            "event": "BuildAirportsReady", "airports": [], "packs": [],
+            "total_s": [0, 0],
+            "custom_patch_use": [
+                ["icao": "KASE", "tile": [39, -107], "files": ["KASE.patch.osm"],
+                 "use": "as_made", "chosen": false,
+                 "warning": "Higher-resolution elevation is available for this airport, but it requires our auto patch."],
+                ["icao": "KEGE", "tile": [39, -107], "files": ["KEGE.patch.osm"],
+                 "use": "auto_patch", "chosen": true, "warning": ""],
+            ],
+        ] as [String: Any])
+        let card = try O4BuildAirports.decode(event).get()
+        #expect(card.customPatchUse.map(\.icao) == ["KASE", "KEGE"])
+        #expect(card.customPatchUse[0].use == O4CustomPatchUse.asMade && !card.customPatchUse[0].chosen)
+        #expect(card.customPatchUse[0].warning == O4CustomPatchText.asMadeWarning)
+        #expect(card.customPatchUse[1].use == O4CustomPatchUse.autoPatch && card.customPatchUse[1].warning.isEmpty)
+        #expect(card.customPatchUse[0].tile == O4TileRef(lat: 39, lon: -107))
+        let old = try O4BuildAirports.decode(O4JSON.from(
+            ["event": "BuildAirportsReady"] as [String: Any])).get()
+        #expect(old.customPatchUse.isEmpty)
+        #expect(O4EngineCapabilities.customPatchUse == "custom_patch_use")
+    }
+
     @Test func anErrorIsAFailure() {
         let event = O4JSON.from(["event": "BuildAirportsReady", "error": "no CIFP"] as [String: Any])
         guard case .failure(let error) = O4BuildAirports.decode(event) else {

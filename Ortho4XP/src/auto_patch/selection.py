@@ -431,16 +431,15 @@ def boundary_skipper(home_lat: int, home_lon: int, *, is_cold,
 # ══════════════════════════════════════════════════════════════════════
 def manual_patch_files_for(patch_dir, icao):
     """The manual ``<ICAO>[_x].patch.osm`` files in *patch_dir* that cover
-    *icao* — the same prefix rule ``include_patches`` and the selector
-    apply (the part before the first ``_``)."""
+    *icao* AND that the build applies — the same prefix rule
+    ``include_patches`` and the selector apply (the part before the first
+    ``_``); a custom patch whose airport uses "Our auto patch" is not one
+    (``O4_Custom_Patch_Use.applied_manual_files``, #2179)."""
+    import O4_Custom_Patch_Use as CUSTOM_USE
     import O4_File_Names as FNAMES
 
-    if not os.path.isdir(patch_dir):
-        return []
-    return sorted(
-        f for f in os.listdir(patch_dir)
-        if FNAMES.is_manual_patch_name(f)
-        and FNAMES.patch_file_icao(f) == icao.upper())
+    return [f for f in CUSTOM_USE.applied_manual_files(patch_dir)
+            if FNAMES.patch_file_icao(f) == icao.upper()]
 
 
 def auto_patch_not_applied(tile, icao, patch_dir=None, *, edited_ok=False):

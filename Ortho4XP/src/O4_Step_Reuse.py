@@ -425,6 +425,13 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
         inputs["insets"] = _content(_CONTENT_KEYS["insets"](tile, osm_files))
         inputs["terrain_cut"] = _terrain_cut(tile)
         inputs["inset_cifp"] = _content(_inset_cifp_files(tile))
+        # #2179: how each airport uses its custom patch decides which
+        # patches the mesh applies.  Keyed only when a choice is recorded,
+        # so a tile without one keeps its earlier record.
+        import O4_Custom_Patch_Use as CUSTOM_USE
+        use = CUSTOM_USE.read(FNAMES.patch_dir(tile.lat, tile.lon))
+        if use:
+            inputs["custom_patch_use"] = use
     return inputs
 
 

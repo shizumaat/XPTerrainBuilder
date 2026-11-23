@@ -2672,6 +2672,14 @@ def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
                 til_x_left, til_y_top, zoomlevel, provider_code))
 
 
+def imagery_step_source(tile, til_x_left, til_y_top, zoomlevel, provider_code):
+    """``(folder, file name, drop)`` of the JPEG the imagery step reads for
+    this texture, and the tier it fetches it at (#2254)."""
+    (folder, name) = _source_jpeg_location(
+        tile, til_x_left, til_y_top, zoomlevel, provider_code)
+    return (folder, name, _placeholder_drop(tile, provider_code))
+
+
 def collect_color_statistics_for_harmonization(
     tile, til_x_left, til_y_top, zoomlevel, provider_code
 ):

@@ -185,6 +185,16 @@ def focus_imagery_follow(lat: float, lon: float, tiles=()) -> bool:
         return True
 
 
+def departure_core(lat: float, lon: float, tiles=()) -> Optional[dict]:
+    """The running follow job's count of a flight's departure core
+    (``FollowJob.departure_status``, #2256); ``None`` when no job runs."""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+    if job is None or not job.running:
+        return None
+    return job.departure_status(lat, lon, tiles)
+
+
 def stop_imagery_follow() -> Dict[str, Any]:
     """The command: stop the job (fetches in flight finish first); its
     counts, or ``{"status": "idle"}`` when none runs."""

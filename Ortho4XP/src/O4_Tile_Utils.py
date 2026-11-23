@@ -61,6 +61,8 @@ def download_textures(
     # budget (#1236, IMG.host_request_limit)
     IMG.textures_in_parallel = worker_count
 
+    # what this step uses, against what was fetched ahead (#2254)
+    asked = tile.imagery_textures_asked = set()
     progress_lock = threading.Lock()
     progress_state = {"done": 0, "pending": 0, "failed": 0}
     attempts = defaultdict(int)
@@ -94,6 +96,7 @@ def download_textures(
             return 0
 
         attrs = tuple(attrs)
+        asked.add(attrs[:4])
         with progress_lock:
             progress_state["pending"] += 1
             _update_progress_locked()

@@ -59,7 +59,6 @@ class _StreamStoppedMidway:
 @pytest.fixture
 def stop_during_download(store, monkeypatch):  # noqa: F811
     monkeypatch.setattr(UI, "red_flag", False)
-    monkeypatch.setattr(EXTRACTS, "FOREGROUND_POLL_SECONDS", 0.01)
     monkeypatch.setattr(EXTRACTS, "foreground_download_enabled",
                         lambda: True)
     monkeypatch.setattr(

@@ -11,6 +11,7 @@ from shapely.strtree import STRtree
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
 import O4_Patch_Rebase as PATCH_REBASE
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
@@ -1285,7 +1286,8 @@ def start_background_osm_prefetch(tile):
             )
 
     _osm_prefetch_thread = threading.Thread(
-        target=download_missing_layer_caches, daemon=True)
+        target=STEP_WAIT.step_thread(download_missing_layer_caches),
+        daemon=True)
     _osm_prefetch_thread.start()
 
 
@@ -1295,7 +1297,8 @@ def wait_for_background_osm_prefetch():
     race the prefetch on the same cache file."""
     global _osm_prefetch_thread
     if _osm_prefetch_thread is not None:
-        _osm_prefetch_thread.join()
+        with STEP_WAIT.joining():
+            _osm_prefetch_thread.join()
         _osm_prefetch_thread = None
 
 
@@ -3076,6 +3079,22 @@ def cached_water_multipolygon(tile):
     — when nothing is on disk: "no data" and "no water" are different
     answers.
     """
+    water_layer = _cached_water_layer(tile)
+    if water_layer is None:
+        return None
+    try:
+        (area, _tidal) = OSM.OSM_to_MultiPolygon(
+            water_layer, tile.lat, tile.lon,
+            lambda pol, osmid, dicosmtags: water_polygon_is_tidal(
+                osmid, dicosmtags))
+    except Exception:                                      # pragma: no cover
+        return None
+    return VECT.ensure_MultiPolygon(area)
+
+
+def _cached_water_layer(tile):
+    """The ``water`` OSM layer ``include_water`` reads, from disk only;
+    ``None`` when it is not there."""
     custom_water = FNAMES.custom_water(tile.lat, tile.lon)
     custom_water_dir = FNAMES.custom_water_dir(tile.lat, tile.lon)
     water_layer = OSM.OSM_layer()
@@ -3102,14 +3121,34 @@ def cached_water_multipolygon(tile):
                 WATER_TAGS_OF_INTEREST, cached_suffix="water",
                 cache_schema=WATER_CACHE_TAG_SCHEMA):
             return None
+    return water_layer
+
+
+def cached_masked_water(tile):
+    """The water the mesh masks and shows no photo through: the sea plus
+    the lakes :func:`_large_lake_filter` sends to it, tile-relative, from
+    data ALREADY ON DISK (a possibly empty polygon).  ``None`` when a layer
+    is not there yet or cannot be read: unknown is not dry."""
+    custom = (os.path.isfile(FNAMES.custom_coastline(tile.lat, tile.lon))
+              or os.path.isdir(FNAMES.custom_coastline_dir(tile.lat, tile.lon)))
+    if not custom and not os.path.isfile(
+            FNAMES.osm_cached(tile.lat, tile.lon, "coastline")):
+        return None
+    water_layer = _cached_water_layer(tile)
+    if water_layer is None:
+        return None
     try:
-        (area, _tidal) = OSM.OSM_to_MultiPolygon(
-            water_layer, tile.lat, tile.lon,
-            lambda pol, osmid, dicosmtags: water_polygon_is_tidal(
-                osmid, dicosmtags))
+        (_kept, large_lakes) = OSM.OSM_to_MultiPolygon(
+            water_layer, tile.lat, tile.lon, _large_lake_filter(tile))
+        (coastline, custom_source) = cached_coastline_multilinestring(tile)
+        parts = [large_lakes]
+        if coastline is not None:
+            parts.append(sea_area_from_coastline(
+                coastline, tile.lat, tile.lon, custom_source))
+        return VECT.ensure_MultiPolygon(ops.unary_union(
+            [part.buffer(0) for part in parts if not part.is_empty]))
     except Exception:                                      # pragma: no cover
         return None
-    return VECT.ensure_MultiPolygon(area)
 
 
 def cached_tile_water(tile):
@@ -3383,16 +3422,9 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
 
 
 ################################################################################
-def include_water(vector_map, tile, patches_area=None, graded_area=None):
-    """Encode the tile's inland water.
-
-    ``patches_area`` is the patch pavement union from
-    ``include_patches`` (via ``include_airports``), threaded here for the
-    inland limb of the seawall (see ``SEAWALL_MARKER``): a patch ring
-    that borders a lake, a river or a dock gets the same outward
-    breakline the coastline limb gets in ``include_sea``, at the level
-    the water rings themselves are draped on.
-    """
+def _large_lake_filter(tile):
+    """The test ``OSM_to_MultiPolygon`` splits the water with: a lake too
+    large to keep its imagery is masked like the sea (``SEA_EQUIV``)."""
     large_lake_threshold = (
         tile.max_area * 1e6 / (GEO.lat_to_m * GEO.lon_to_m(tile.lat + 0.5))
     )
@@ -3440,6 +3472,20 @@ def include_water(vector_map, tile, patches_area=None, graded_area=None):
                 "km^2.",
             )
             return True
+    return filter_large_lakes
+
+
+def include_water(vector_map, tile, patches_area=None, graded_area=None):
+    """Encode the tile's inland water.
+
+    ``patches_area`` is the patch pavement union from
+    ``include_patches`` (via ``include_airports``), threaded here for the
+    inland limb of the seawall (see ``SEAWALL_MARKER``): a patch ring
+    that borders a lake, a river or a dock gets the same outward
+    breakline the coastline limb gets in ``include_sea``, at the level
+    the water rings themselves are draped on.
+    """
+    filter_large_lakes = _large_lake_filter(tile)
 
     UI.vprint(0, "-> Dealing with inland water")
     wait_for_background_osm_prefetch()

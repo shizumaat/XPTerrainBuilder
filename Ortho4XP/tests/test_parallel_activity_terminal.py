@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import O4_Activity_Order as ACTORDER
 import pytest
 from o4_engine import parallel
+from o4_engine import session as SESSION
 from o4_engine.events import BuildDone, RunDone, StepProgress, TileState
 from o4_engine.session import EngineSession
 
@@ -52,6 +53,15 @@ def wide_machine(monkeypatch, tmp_path):
                         lambda: 64.0)
     monkeypatch.setattr(parallel, "tile_worker_command",
                         lambda: [sys.executable, STUB_WORKER])
+    # These tiles are diagonal neighbours: each enqueue would judge them
+    # against this machine's real CIFP and apt.dat, and RunDone waits for
+    # that judgement (over 30 s on a loaded machine).  Not what this twin
+    # is about, and no test may read the owner's X-Plane.
+    monkeypatch.setattr(parallel.BOUNDARY, "airports_skipped_into",
+                        lambda *args: [])
+    monkeypatch.setattr(SESSION, "_offer_gateway_early", lambda tiles: None)
+    monkeypatch.setattr(parallel, "_offer_gateway_airports", lambda *a: None)
+    monkeypatch.setattr(parallel, "_offer_pack_overlaps", lambda *a: None)
 
 
 def _run_five_tiles():

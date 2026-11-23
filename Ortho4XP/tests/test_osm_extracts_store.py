@@ -598,7 +598,6 @@ class TestForegroundDownload:
         import O4_UI_Utils as UI
 
         monkeypatch.setattr(UI, "red_flag", False)
-        monkeypatch.setattr(EXTRACTS, "FOREGROUND_POLL_SECONDS", 0.01)
         monkeypatch.setitem(
             sys.modules, "O4_OSM_Extract_Filter",
             types.SimpleNamespace(
@@ -652,20 +651,25 @@ class TestForegroundDownload:
     def test_waits_for_live_concurrent_downloader(self, monkeypatch):
         import threading
 
-        def _must_not_download(region_id, url, foreground=False):
+        import O4_Download_Manager as DOWNLOADS
+        import O4_Machine_Slots as SLOTS
+
+        def _must_not_request(*_args, **_kwargs):
             raise AssertionError(
-                "a live concurrent download must be awaited, not raced")
-        monkeypatch.setattr(EXTRACTS, "_download_extract",
-                            _must_not_download)
-        # A FRESH sibling .tmp = another process is streaming this region.
-        concurrent_tmp = EXTRACTS._region_file("portugal") + ".tmp-9999-1"
-        with open(concurrent_tmp, "wb") as tmp_file:
-            tmp_file.write(b"partial")
+                "a live concurrent download must be joined, not raced")
+        monkeypatch.setattr(EXTRACTS.requests, "get", _must_not_request)
+        monkeypatch.setattr(DOWNLOADS, "POLL_SECONDS", 0.01)
+        # Another process's flight: its lock is held.
+        resource = EXTRACTS._extract_resource("portugal", "https://x.invalid/p")
+        stem = DOWNLOADS._state_stem(resource)
+        os.makedirs(os.path.dirname(stem), exist_ok=True)
+        flight = SLOTS.try_os_lock(stem + ".lock")
 
         def _finish_download():
             time.sleep(0.05)
             with open(EXTRACTS._region_file("portugal"), "wb") as pbf:
                 pbf.write(_PBF_HEADER)
+            SLOTS.release_os_lock(flight)
         finisher = threading.Thread(target=_finish_download)
         finisher.start()
         try:
@@ -675,20 +679,36 @@ class TestForegroundDownload:
             finisher.join()
         assert result == self.SENTINEL
 
-    def test_stale_tmp_is_ignored_removed_and_download_proceeds(
+    def test_dead_downloaders_tmp_is_removed_and_download_proceeds(
             self, monkeypatch):
-        calls = []
-        monkeypatch.setattr(EXTRACTS, "_download_extract",
-                            self._fake_successful_downloader(calls))
-        stale_tmp = EXTRACTS._region_file("portugal") + ".tmp-1234-5"
+        import subprocess
+
+        class _Response:
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, _chunk_bytes):
+                yield _PBF_HEADER
+        monkeypatch.setattr(EXTRACTS.requests, "get",
+                            lambda *a, **k: _Response())
+        finished = subprocess.run([sys.executable, "-c",
+                                   "import os; print(os.getpid())"],
+                                  capture_output=True, text=True, check=True)
+        stale_tmp = "%s.tmp-%d-5" % (EXTRACTS._region_file("portugal"),
+                                     int(finished.stdout))
         with open(stale_tmp, "wb") as tmp_file:
             tmp_file.write(b"crashed download residue")
-        stale_by = EXTRACTS.CONCURRENT_TMP_FRESH_SECONDS + 60
-        os.utime(stale_tmp, (time.time() - stale_by, time.time() - stale_by))
         result = EXTRACTS.osm_xml_from_local_extracts(
             ['way["building"]'], self.BBOX)
         assert result == self.SENTINEL
-        assert calls == [("portugal", True)]
         assert not os.path.exists(stale_tmp)
 
 

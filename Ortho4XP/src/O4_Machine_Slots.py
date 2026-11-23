@@ -98,11 +98,12 @@ else:
 
 __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
-           "ensure_session", "has_net_priority", "hold_class", "lend",
+           "ensure_session", "has_net_priority", "hold_class", "lend", "lend_step",
+           "release_os_lock", "retake_step", "try_os_lock",
            "background_priority", "lower_priority", "machine_verdict",
            "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
            "memory_admits", "net_class", "note_memory_wait",
-           "net_priority", "session_capacity",
+           "hold_net_for_flight", "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
@@ -290,12 +291,20 @@ class Held:
 
 
 def _lock(path: str):
-    """An open descriptor holding ``path``'s lock, or ``None`` when another
-    process (or another descriptor of this one) holds it."""
+    """:func:`try_os_lock`, with an unopenable file read as "held"."""
     try:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        return try_os_lock(path)
     except OSError:
         return None
+
+
+def try_os_lock(path: str):
+    """An open descriptor holding ``path``'s OS lock, or ``None`` when
+    another process (or another descriptor of this one) holds it.  The
+    system drops the lock when the holder exits, however it exits.  An
+    ``OSError`` means the file cannot be opened at all (a read-only or
+    missing folder): no wait would ever end that."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         if sys.platform == "win32":
             _oslock.locking(fd, _oslock.LK_NBLCK, 1)
@@ -318,6 +327,10 @@ def _unlock(fd) -> None:
         os.close(fd)                       # closing releases a flock
     except OSError:
         pass
+
+
+#: gives back a lock :func:`try_os_lock` took
+release_os_lock = _unlock
 
 
 def try_take(n: int, gb: "float | None" = None, what: str = "") -> Held:
@@ -445,17 +458,31 @@ def lend():
     processes it starts (each takes its own), and take it again after —
     a tile holding its slot while its airports queue for one would
     deadlock a full session."""
-    held = _STEP[0] if _STEP else None
-    if held is None or not held.count:
-        yield
-        return
-    held.release()
+    held = lend_step()
     try:
         yield
     finally:
-        again = take(1, gb=held.gb, what="this step")
-        held._fds, again._fds = again._fds, []     # the step owns it again
-        held._reservation, again._reservation = again._reservation, None
+        retake_step(held)
+
+
+def lend_step() -> "Held | None":
+    """Give this process's step slot back; the :class:`Held` to pass to
+    :func:`retake_step`, or ``None`` when no slot is held."""
+    held = _STEP[0] if _STEP else None
+    if held is None or not held.count:
+        return None
+    held.release()
+    return held
+
+
+def retake_step(held: "Held | None", *, give_up=None) -> None:
+    """Take the slot :func:`lend_step` gave back, waiting for a free one.
+    ``give_up()`` true ends the wait: the step goes on holding none."""
+    if held is None:
+        return
+    again = take(1, gb=held.gb, what="this step", give_up=give_up)
+    held._fds, again._fds = again._fds, []         # the step owns it again
+    held._reservation, again._reservation = again._reservation, None
 
 
 #: the longest a :func:`take_class` waits before it goes on without a slot
@@ -490,6 +517,11 @@ DEMAND_TTL_S = 0.5
 #: a mark this old is a dead process's: removed by the next reader
 _DEMAND_STALE_S = 60.0
 
+#: seconds one :func:`hold_net_for_flight` stands (a dead follow job's
+#: hold lapses by itself)
+FLIGHT_HOLD_TTL_S = 3.0
+_FLIGHT_HOLD = "flight-net-hold"
+
 _PRIORITY = threading.local()
 
 
@@ -521,6 +553,29 @@ def carry_net_priority(task):
         with net_priority():
             return task(*args, **kwargs)
     return run
+
+
+def hold_net_for_flight() -> None:
+    """For :data:`FLIGHT_HOLD_TTL_S`, no request outside
+    :func:`net_priority` takes a slot of any ``net:`` class, on any server
+    (#2256: a flight's departure core goes before background builds).  The
+    follow job renews it each tick while the core is open."""
+    mark = os.path.join(ensure_session()[0], _FLIGHT_HOLD)
+    try:
+        with open(mark, "a", encoding="utf-8", newline=""):
+            pass
+        os.utime(mark)
+    except OSError:
+        pass
+
+
+def _flight_hold_live() -> bool:
+    try:
+        age = time.time() - os.stat(
+            os.path.join(ensure_session()[0], _FLIGHT_HOLD)).st_mtime
+    except OSError:
+        return False
+    return age < FLIGHT_HOLD_TTL_S
 
 
 def _demand_dir(path: str) -> str:
@@ -575,7 +630,8 @@ def try_take_class(name: str, n: int = 1, limit: int = 1,
     if priority is None:
         priority = has_net_priority()
     path = _class_dir(name)
-    if not priority and _demand_live(path):
+    if not priority and (_demand_live(path) or (
+            name.startswith("net:") and _flight_hold_live())):
         return Held([])
     fds: list = []
     start = (os.getpid() + threading.get_ident()) % limit

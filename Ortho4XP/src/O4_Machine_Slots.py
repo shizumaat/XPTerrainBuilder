@@ -102,7 +102,7 @@ __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "background_priority", "lower_priority", "machine_verdict",
            "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
            "memory_admits", "net_class", "note_memory_wait",
-           "net_priority", "session_capacity",
+           "hold_net_for_flight", "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
@@ -490,6 +490,11 @@ DEMAND_TTL_S = 0.5
 #: a mark this old is a dead process's: removed by the next reader
 _DEMAND_STALE_S = 60.0
 
+#: seconds one :func:`hold_net_for_flight` stands (a dead follow job's
+#: hold lapses by itself)
+FLIGHT_HOLD_TTL_S = 3.0
+_FLIGHT_HOLD = "flight-net-hold"
+
 _PRIORITY = threading.local()
 
 
@@ -521,6 +526,29 @@ def carry_net_priority(task):
         with net_priority():
             return task(*args, **kwargs)
     return run
+
+
+def hold_net_for_flight() -> None:
+    """For :data:`FLIGHT_HOLD_TTL_S`, no request outside
+    :func:`net_priority` takes a slot of any ``net:`` class, on any server
+    (#2256: a flight's departure core goes before background builds).  The
+    follow job renews it each tick while the core is open."""
+    mark = os.path.join(ensure_session()[0], _FLIGHT_HOLD)
+    try:
+        with open(mark, "a", encoding="utf-8", newline=""):
+            pass
+        os.utime(mark)
+    except OSError:
+        pass
+
+
+def _flight_hold_live() -> bool:
+    try:
+        age = time.time() - os.stat(
+            os.path.join(ensure_session()[0], _FLIGHT_HOLD)).st_mtime
+    except OSError:
+        return False
+    return age < FLIGHT_HOLD_TTL_S
 
 
 def _demand_dir(path: str) -> str:
@@ -575,7 +603,8 @@ def try_take_class(name: str, n: int = 1, limit: int = 1,
     if priority is None:
         priority = has_net_priority()
     path = _class_dir(name)
-    if not priority and _demand_live(path):
+    if not priority and (_demand_live(path) or (
+            name.startswith("net:") and _flight_hold_live())):
         return Held([])
     fds: list = []
     start = (os.getpid() + threading.get_ident()) % limit

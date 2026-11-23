@@ -137,6 +137,7 @@ READINESS_LABELS = {
     "prefetch": "Map data and elevation",
     "departure": "Departure airport",
     "first_window": "Scenery around the departure",
+    "core": "Sharp imagery at the departure",
     "route": "Route built ahead in time",
     "destination": "Destination airport",
     "alternate": "Alternate airport",

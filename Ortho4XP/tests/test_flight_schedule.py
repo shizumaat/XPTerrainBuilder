@@ -155,7 +155,7 @@ def test_readiness_all_done():
     rows = _rows(jobs=jobs, world_installed=True, budget_fits=True, network_ok=True,
                  prefetch_done=True)
     assert [k for k in rows] == ["world", "budget", "network", "prefetch", "departure",
-                                 "first_window", "route", "destination", "loaded"]
+                                 "first_window", "core", "route", "destination", "loaded"]
     assert {i.state for i in rows.values()} == {"done"}
     assert rows["destination"].detail == "Ready 95 min before it loads"
 

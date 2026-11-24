@@ -1,103 +1,107 @@
-"""ONE FILL-REDUCING COLUMN ORDER PER SOLVE STAGE (#1270, lane ``lsplu``).
+"""ONE FILL-REDUCING ORDERING PER QP (#1270, lane ``lsplu``).
 
 Every try of :func:`~.design_qp.solve_one_sided` factorises a matrix of the
 same size and NEARLY the same pattern — the always-on rows' normal matrix,
 the round's active one-sided rows, ``λ`` on the diagonal, the per-body
 border of ``linear._bordered`` — and ``linear._factor`` let SuperLU order
-every one of them afresh (``MMD_AT_PLUS_A``).  That ordering was about
-40 % of each factorisation (KBUF: 6.5 → 3.9 ms at n 4,601, 14.1 → 8.4 ms at
-n 14,145), and an order taken on one round's pattern costs every other
-round of the stage about 1-3 % more fill (the active set moves a few
-hundred entries of the pattern; the border placed last, +3 %).
+every one of them afresh (``MMD_AT_PLUS_A``).  That minimum-degree ordering
+is most of each factorisation: HECA stage 2 (n 42,662 bordered, 2.0 M
+entries) 159 ms per try, 89 ms in a held order; KBUF 6.5 → 3.9 ms at
+n 4,601.  The active set moves a few hundred entries of the pattern from
+round to round, and an order taken on one round costs the QP's other
+rounds about 1 % more fill (KBUF).
 
-So the stage orders ONCE (:class:`ColumnOrder`, from the pattern of its
-first QP's first active set) and every QP of the stage runs in the ORDERED
-COLUMNS: ``A0``, ``A1`` and ``U`` have their column indices relabelled
-(:func:`relabelled` — each row keeps its entries in their stored order, so
-every product, residual and normal matrix holds the SAME values in the same
-summation order, only relabelled), and each try factorises its matrix as
-it stands (:func:`factor_in_order`: ``NATURAL`` order, ``panel_size`` 1,
-another 25 % off these matrices).  The border's rows come last, where the
-relabelling leaves them.
+:class:`FillOrder` therefore orders ONCE per QP: its first round factorises
+as before and OFFERS SuperLU's column order; the QP COMMITS it between
+rounds (never inside one, so a round's concurrent tries read the same
+state); every later round lays its matrix out in that order once
+(:meth:`FillOrder.layout`, both index permutations by two O(nnz)
+transposes) and each try gathers its values into it and factorises in the
+order it has (``NATURAL``; ``panel_size`` 1, a further 25 % off these
+matrices).  The order is the QP's OWN: a stage's later QPs carry other
+active sets (HECA stage 2: an order held from the stage's first QP cost
+the second 64 % more fill), and the border's rows stay where SuperLU put
+them (placed last: +28 % fill at HECA).
 
-NOT byte-identical: the factors are the same algebra in another summation
-order, so a solve moves at rounding level (KBUF's 19 QP calls: 11 return
-the identical iterate, the rest move ≤ 1e-10 m) and a QP may take another
-path by a try.  RULINGS 2026-11-23e/24e are the bar this was measured
-against.
+Products, residuals and normal matrices are untouched; only the
+factorisation's summation order changes, so a solve moves at rounding level
+(KBUF, KRDU, HECA: patch bodies byte-identical).  NOT exact by
+construction: RULINGS 2026-11-23e/24e are the bar this is measured against.
 """
 from __future__ import annotations
+
+import threading
 
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import splu
 
-__all__ = ["ColumnOrder", "relabelled", "factor_in_order"]
+from .linear import _factor
+
+__all__ = ["FillOrder"]
 
 
-class ColumnOrder:
-    """A stage's column order: ``q[i]`` is the original column at position
-    ``i``; ``at[j]`` the position of original column ``j``."""
+class _Permuted:
+    """``M⁻¹ r`` by the factorisation of ``M[q][:, q]``."""
+
+    def __init__(self, lu, q: np.ndarray) -> None:
+        self.lu, self.q = lu, q
+
+    def solve(self, r: np.ndarray) -> np.ndarray:
+        y = self.lu.solve(np.asarray(r)[self.q])
+        out = np.empty_like(y)
+        out[self.q] = y
+        return out
+
+
+class FillOrder:
+    """One QP's column order (module docstring): ``q[i]`` is the original
+    column at position ``i``."""
 
     def __init__(self) -> None:
         self.q: np.ndarray | None = None
-        self.at: np.ndarray | None = None
-        #: the relabelled matrices by their source's identity (the source
-        #: held, so an identity is never reused): a stage hands every QP the
-        #: same ``A0``/``A1``/``U`` until it rescales one
-        self._held: dict[int, tuple] = {}
+        self._offer: np.ndarray | None = None
+        self._lock = threading.Lock()
 
-    def holds(self, n: int) -> bool:
-        """An order over ``n`` columns is taken."""
-        return self.q is not None and self.q.size == n
+    def commit(self) -> None:
+        """Between rounds: the first order offered becomes THE order."""
+        if self.q is None and self._offer is not None:
+            self.q = self._offer
 
-    def take(self, A0: sp.csr_matrix, A1: sp.csr_matrix, sel: np.ndarray) -> None:
-        """Order by the pattern of ``[A0; A1[sel]]ᵀ[A0; A1[sel]]`` (a minimum
-        degree order of it, SuperLU's own)."""
-        n = int(A0.shape[1])
-        self._held.clear()
-        S = sp.vstack([A0, A1[sel]], format="csr")
-        S = sp.csr_matrix((np.ones(S.nnz), S.indices, S.indptr), shape=S.shape)
-        # the pattern, made diagonally dominant so the ordering pass's own
-        # factorisation pivots on the diagonal
-        N = (S.T @ S).tocsc()
-        N = (N + float(N.shape[0] * (1 + S.shape[0])) * sp.identity(n, format="csc")).tocsc()
-        lu = splu(N, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.1,
-                  options={"SymmetricMode": True})
-        self.q = np.argsort(lu.perm_c)
-        self.at = np.empty(n, dtype=np.int64)
-        self.at[self.q] = np.arange(n)
-
-    def relabel(self, A: sp.csr_matrix | None, sort: bool = False) -> sp.csr_matrix | None:
-        """:func:`relabelled` by this order, once per source matrix."""
-        if A is None:
+    def layout(self, M: sp.csc_matrix) -> tuple | None:
+        """``M[q][:, q]``'s CSC structure and, per entry, where its value
+        sits in ``M.data`` (``None`` while no order is committed or ``M`` is
+        another size): the columns gathered in order, the rows renamed, and
+        two transposes (counting sorts) leave every column's rows sorted."""
+        q = self.q
+        n = int(M.shape[0])
+        if q is None or q.size != n:
             return None
-        got = self._held.get(id(A))
-        if got is None or got[0] is not A:
-            got = (A, relabelled(A, self.at, sort))
-            self._held = {k: v for k, v in self._held.items() if v[0] is not A}
-            self._held[id(A)] = got
-        return got[1]
+        at = np.empty(n, dtype=np.int64)
+        at[q] = np.arange(n)
+        lens = np.diff(M.indptr)[q]
+        ptr = np.zeros(n + 1, dtype=np.int64)
+        np.cumsum(lens, out=ptr[1:])
+        nnz = int(ptr[-1])
+        src = np.repeat(M.indptr[q].astype(np.int64) - ptr[:-1], lens) + np.arange(nnz)
+        idx_t = np.int64 if max(n, nnz) >= np.iinfo(np.int32).max else np.int32
+        C = sp.csc_matrix((src.astype(np.float64) + 1.0, at[M.indices[src]].astype(idx_t),
+                           ptr.astype(idx_t)), shape=M.shape)
+        P = C.tocsr().tocsc()
+        return P.indices, P.indptr, P.data.astype(np.int64) - 1
 
-
-def relabelled(A: sp.csr_matrix | None, at: np.ndarray, sort: bool = False
-               ) -> sp.csr_matrix | None:
-    """``A`` with column ``j`` renamed ``at[j]``: each row's entries stay in
-    their stored order (so ``A @ x[q]`` is ``A @ x`` term for term) unless
-    ``sort`` (the per-body rows: ``linear._bordered`` lays out a canonical
-    matrix directly, so its row sums move at rounding level)."""
-    if A is None:
-        return None
-    A = A.tocsr()
-    out = sp.csr_matrix((A.data.copy() if sort else A.data,
-                         at[A.indices].astype(A.indices.dtype), A.indptr), shape=A.shape)
-    if sort:
-        out.sort_indices()
-    return out
-
-
-def factor_in_order(M: sp.csc_matrix):
-    """The ordered columns' factorisation: SuperLU in the order the matrix
-    already has (``linear._factor``'s symmetric mode and pivot threshold)."""
-    return splu(M, permc_spec="NATURAL", diag_pivot_thresh=0.1, panel_size=1,
-                options={"SymmetricMode": True})
+    def factor(self, M: sp.csc_matrix, layout: tuple | None = None):
+        """``linear._factor(M)`` while no order is committed (offering its
+        order); after, the factorisation of ``M`` in the order
+        (``layout``: :meth:`layout` of ``M``'s structure when held)."""
+        q = self.q
+        if q is None or q.size != M.shape[0]:
+            lu = _factor(M)
+            with self._lock:
+                if self._offer is None:
+                    self._offer = np.argsort(lu.perm_c)
+            return lu
+        idx, ptr, src = self.layout(M) if layout is None else layout
+        Mp = sp.csc_matrix((M.data[src], idx, ptr), shape=M.shape)
+        return _Permuted(splu(Mp, permc_spec="NATURAL", diag_pivot_thresh=0.1, panel_size=1,
+                              options={"SymmetricMode": True}), q)

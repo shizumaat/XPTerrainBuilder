@@ -60,6 +60,8 @@
    "cover_approach_ft",
    "cover_zl",
    "water_tech",
+   "water_imagery",
+   "water_imagery_alpha",
    "dsf_bathymetry",
    "ratio_bathy",
    "ratio_water",
@@ -1246,6 +1248,34 @@
    "name": "global_use_masks_for_inland",
    "type": "bool"
   },
+  "global_water_imagery": {
+   "default": "mask",
+   "hint": "Where the photo meets X-Plane 12 water. On top (the default) lays the photo over the water and fades it out through a mask image toward deep water. Under draws the photo beneath the water instead, so X-Plane's own water colours it with depth: in every lake and river, and at sea only where the water is shallow enough for the photo to show today; deep sea stays plain X-Plane water. Under needs X-Plane 12 water (water_tech XP12) and writes no mask images.",
+   "name": "global_water_imagery",
+   "type": "str",
+   "valueLabels": {
+    "mask": "On top of the water, faded out by a mask",
+    "under": "Under the water, as the sea and lake floor (test)"
+   },
+   "values": [
+    "mask",
+    "under"
+   ]
+  },
+  "global_water_imagery_alpha": {
+   "default": "opaque",
+   "hint": "Only used when the photo is under the water. Solid keeps the photo whole and lets X-Plane's water darken it with depth. Fades out stores the shoreline-and-depth fade in the photo itself (twice the file size for those squares). How X-Plane reads that fade under its water is not documented, so compare both in the sim.",
+   "name": "global_water_imagery_alpha",
+   "type": "str",
+   "valueLabels": {
+    "depth": "Photo fades out with depth",
+    "opaque": "Solid photo - the water alone fades it"
+   },
+   "values": [
+    "opaque",
+    "depth"
+   ]
+  },
   "global_water_simplification": {
    "default": 0.0,
    "hint": "In case the OSM data for water areas would become too large, this parameter (in meter) can be used for node simplification.",
@@ -1852,6 +1882,34 @@
     "1",
     "2",
     "3"
+   ]
+  },
+  "water_imagery": {
+   "default": "mask",
+   "hint": "Where the photo meets X-Plane 12 water. On top (the default) lays the photo over the water and fades it out through a mask image toward deep water. Under draws the photo beneath the water instead, so X-Plane's own water colours it with depth: in every lake and river, and at sea only where the water is shallow enough for the photo to show today; deep sea stays plain X-Plane water. Under needs X-Plane 12 water (water_tech XP12) and writes no mask images.",
+   "name": "water_imagery",
+   "type": "str",
+   "valueLabels": {
+    "mask": "On top of the water, faded out by a mask",
+    "under": "Under the water, as the sea and lake floor (test)"
+   },
+   "values": [
+    "mask",
+    "under"
+   ]
+  },
+  "water_imagery_alpha": {
+   "default": "opaque",
+   "hint": "Only used when the photo is under the water. Solid keeps the photo whole and lets X-Plane's water darken it with depth. Fades out stores the shoreline-and-depth fade in the photo itself (twice the file size for those squares). How X-Plane reads that fade under its water is not documented, so compare both in the sim.",
+   "name": "water_imagery_alpha",
+   "type": "str",
+   "valueLabels": {
+    "depth": "Photo fades out with depth",
+    "opaque": "Solid photo - the water alone fades it"
+   },
+   "values": [
+    "opaque",
+    "depth"
    ]
   },
   "water_simplification": {

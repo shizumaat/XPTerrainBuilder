@@ -1034,6 +1034,44 @@ cfg_tile_vars = {
         "values": ("XP12", "XP11 + bathy"),
         "hint": "Water tech type. XP12 uses a new (partly in construction) rendering tech, XP11 + bathy uses a more traditionnal blend. Both allows for 3D water.",
     },
+    # RULINGS 2026-11-24f: the photo under the water, beside today's mask,
+    # for the owner to compare in the sim (O4_Water_Imagery).
+    "water_imagery": {
+        "type": str,
+        "default": "mask",
+        "values": ["mask", "under"],
+        "value_labels": {
+            "mask": "On top of the water, faded out by a mask",
+            "under": "Under the water, as the sea and lake floor (test)",
+        },
+        "hint": (
+            "Where the photo meets X-Plane 12 water. On top (the default) "
+            "lays the photo over the water and fades it out through a "
+            "mask image toward deep water. Under draws the photo beneath "
+            "the water instead, so X-Plane's own water colours it with "
+            "depth: in every lake and river, and at sea only where the "
+            "water is shallow enough for the photo to show today; deep "
+            "sea stays plain X-Plane water. Under needs X-Plane 12 water "
+            "(water_tech XP12) and writes no mask images."
+        ),
+    },
+    "water_imagery_alpha": {
+        "type": str,
+        "default": "opaque",
+        "values": ["opaque", "depth"],
+        "value_labels": {
+            "opaque": "Solid photo - the water alone fades it",
+            "depth": "Photo fades out with depth",
+        },
+        "hint": (
+            "Only used when the photo is under the water. Solid keeps "
+            "the photo whole and lets X-Plane's water darken it with "
+            "depth. Fades out stores the shoreline-and-depth fade in the "
+            "photo itself (twice the file size for those squares). How "
+            "X-Plane reads that fade under its water is not documented, "
+            "so compare both in the sim."
+        ),
+    },
     "dsf_bathymetry": {
         "type": str,
         "default": "auto",
@@ -1277,6 +1315,8 @@ list_dsf_vars = [
     "cover_approach_ft",
     "cover_zl",
     "water_tech",
+    "water_imagery",
+    "water_imagery_alpha",
     "dsf_bathymetry",
     "ratio_bathy",
     "ratio_water",

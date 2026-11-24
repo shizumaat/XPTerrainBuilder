@@ -180,6 +180,8 @@ enum SettingsLayout {
         ]),
         SettingCategory(key: "water", title: "Water & Coastlines", icon: "drop", items: [
             SettingItem("water_tech", "Which water should X-Plane draw?", .tile, summary: "XP12 uses X-Plane 12's water; XP11 + bathy blends the older way."),
+            SettingItem("water_imagery", "Should the photo lie on top of the water or under it?", .tile, summary: "Under shows the photo as the floor of lakes, rivers and shallow sea."),
+            SettingItem("water_imagery_alpha", "Under the water, should the photo fade with depth?", .tile, summary: "Only for a photo under the water; compare both in the sim."),
             SettingItem("ratio_water", "How much photo should show through lakes and rivers?", .tile, summary: "0 is plain X-Plane water, 1 is the photo only."),
             SettingItem("masking_mode", "What should the shoreline look like?", .tile, summary: "How the land fades into the sea."),
             SettingItem("coastal_foam_edge", "Draw a wavy shoreline with a foam band?", .tile, summary: "Replaces the straight land-to-water fade with a more natural edge."),

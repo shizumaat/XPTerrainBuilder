@@ -4757,7 +4757,9 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
         # waiting here while other builds hold it (the vector step lends
         # it back while its airports build, as in the app).
         with SLOTS.step(gb=_step_ledger_gigabytes(name, tile),
-                        what=f"tile {tile.lat:+03d}{tile.lon:+04d} step {name}",
+                        what=(f"tile {tile.lat:+03d}{tile.lon:+04d} step {name}"
+                              if hasattr(tile, "lat") and hasattr(tile, "lon")
+                              else f"step {name}"),
                         give_up=lambda: UI.red_flag):
             result = step(tile)
         dt = round(time.time() - t0, 1)

@@ -909,6 +909,14 @@ def background_thread():
             pass
 
 
+def _quietly(call, *args) -> None:
+    """Run a best-effort priority restore; an unprivileged raise is ignored."""
+    try:
+        call(*args)
+    except (OSError, AttributeError, ValueError):
+        pass
+
+
 def lower_this_thread():
     """Run THIS thread in the background band (:func:`background_thread`)
     until the callable it returns is called.  Never raises."""
@@ -918,14 +926,14 @@ def lower_this_thread():
             k32 = ctypes.windll.kernel32
             me = k32.GetCurrentThread()
             k32.SetThreadPriority(me, 0x00010000)      # BACKGROUND_BEGIN
-            return lambda: k32.SetThreadPriority(me, 0x00020000)
+            return lambda: _quietly(k32.SetThreadPriority, me, 0x00020000)
         if hasattr(os, "PRIO_DARWIN_THREAD"):
             os.setpriority(os.PRIO_DARWIN_THREAD, 0, os.PRIO_DARWIN_BG)
-            return lambda: os.setpriority(os.PRIO_DARWIN_THREAD, 0, 0)
+            return lambda: _quietly(os.setpriority, os.PRIO_DARWIN_THREAD, 0, 0)
         tid = threading.get_native_id()
         before = os.getpriority(os.PRIO_PROCESS, tid)
         os.setpriority(os.PRIO_PROCESS, tid, 19)       # Linux: per thread
-        return lambda: os.setpriority(os.PRIO_PROCESS, tid, before)
+        return lambda: _quietly(os.setpriority, os.PRIO_PROCESS, tid, before)
     except Exception:
         return lambda: None
 

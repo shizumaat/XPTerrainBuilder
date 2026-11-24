@@ -110,7 +110,7 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
     seen_bboxes = []
 
     def _fake_query(queries, bbox, layer, tags_of_interest=None,
-                    cached_file_name=""):
+                    cached_file_name="", request_description=""):
         seen_bboxes.append(bbox)
         # level-5 road classes and the airport rail classes must all be
         # in the query set

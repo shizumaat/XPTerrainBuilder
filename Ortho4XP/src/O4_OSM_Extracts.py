@@ -264,16 +264,17 @@ PARENT_FALLBACK_MAX_AREA = 1500.0
 
 
 def _parent_cover(bbox_polygon) -> Optional[tuple]:
-    """(region_id, pbf_url, area) of the smallest parent region, within
-    the cap, whose polygon holds every land post of the box; ``None``
-    when the land is not known or no lawful parent holds it."""
+    """(region_id, pbf_url, area, basis) of the smallest parent region,
+    within the cap, whose polygon holds every land post of the box —
+    or, while the box's land is not known (#2234: no elevation on disk
+    yet), the whole box; ``None`` when the box holds no land or no
+    lawful parent holds it."""
     import O4_Land_Witness as LAND
     import shapely
 
     land = LAND.land_points(bbox_polygon)
-    if land is None or not land[0].size:
+    if land is not None and not land[0].size:
         return None
-    (lons, lats) = land
     candidates = sorted(
         (region_geometry.area, region_id, pbf_url, region_geometry)
         for (region_id, pbf_url, region_geometry) in _parent_regions()
@@ -283,8 +284,46 @@ def _parent_cover(bbox_polygon) -> Optional[tuple]:
         holder = region_geometry.intersection(
             bbox_polygon.buffer(2 * _COVERAGE_BUFFER_DEGREES)
         ).buffer(_COVERAGE_BUFFER_DEGREES)
-        if shapely.contains_xy(holder, lons, lats).all():
-            return (region_id, pbf_url, area)
+        if land is None:
+            if holder.contains(bbox_polygon):
+                return (region_id, pbf_url, area, "all of it")
+        elif shapely.contains_xy(holder, *land).all():
+            return (region_id, pbf_url, area, "all of its land")
+    return None
+
+
+def _parent_cover_reason(parent, lead: str) -> str:
+    return (f"{lead}; {parent[0]} is the smallest parent region holding"
+            f" {parent[3]} ({parent[2]:.0f} deg2, cap"
+            f" {PARENT_FALLBACK_MAX_AREA:.0f})")
+
+
+def _cover_beyond_leaves(bounding_box, bbox_polygon) -> Optional[list]:
+    """The cover of a box no leaf extract reaches: the smallest lawful
+    parent holding it, or NO region (an empty answer) when the box
+    holds no land; ``None`` (Overpass) when neither can be shown."""
+    import O4_Land_Witness as LAND
+
+    parent = _parent_cover(bbox_polygon)
+    if parent is not None:
+        _log_cover_reason(
+            bounding_box,
+            _parent_cover_reason(parent, "no leaf extract reaches it"),
+            verdict="uses a parent regional extract")
+        return [(parent[0], parent[1])]
+    land = LAND.holds_land(bbox_polygon)
+    if land is False:
+        _log_cover_reason(
+            bounding_box,
+            "no regional extract reaches it and elevation shows it holds"
+            " no land", verdict="is served as an empty answer")
+        return []
+    _log_cover_reason(
+        bounding_box,
+        "no regional extract reaches it"
+        + (" and no lawful parent region holds its land" if land else
+           ", no parent region holds it and no cached elevation shows"
+           " it is sea"))
     return None
 
 
@@ -314,6 +353,10 @@ def _log_cover_reason(bounding_box, reason: str,
 
 def covering_regions(bounding_box) -> Optional[list]:
     """[(region_id, pbf_url)] of leaves covering the bbox, or ``None``.
+
+    An EMPTY list means the box lies beyond every leaf, no parent holds
+    it and the land witness shows it holds no land: it is served as an
+    empty answer, never from Overpass (RULINGS 2026-11-24h).
 
     ``bounding_box`` is (lat_min, lon_min, lat_max, lon_max).  ``None``
     means the tile is not extract-servable: no index yet, or the
@@ -353,8 +396,7 @@ def covering_regions(bounding_box) -> Optional[list]:
             if region_geometry.intersects(bbox_polygon)
         ]
         if not intersecting:
-            _log_cover_reason(bounding_box, "no regional extract reaches it")
-            return None
+            return _cover_beyond_leaves(bounding_box, bbox_polygon)
         # All coverage arithmetic happens inside the bbox neighbourhood,
         # so clip once: region polygons carry whole coastlines the
         # repeated buffer/difference calls below must not chew through.
@@ -407,14 +449,16 @@ def covering_regions(bounding_box) -> Optional[list]:
             # land witness (#1731) says that remainder holds no land.
             land = LAND.holds_land(uncovered)
             share = round(100 * uncovered.area / bbox_polygon.area)
-            parent = _parent_cover(bbox_polygon) if land else None
+            parent = (_parent_cover(bbox_polygon) if land is not False
+                      else None)
             if parent is not None:
                 _log_cover_reason(
                     bounding_box,
-                    f"{share}% of it lies outside every leaf extract and"
-                    f" holds land; {parent[0]} is the smallest parent"
-                    f" region holding all of its land ({parent[2]:.0f}"
-                    f" deg2, cap {PARENT_FALLBACK_MAX_AREA:.0f})",
+                    _parent_cover_reason(
+                        parent,
+                        f"{share}% of it lies outside every leaf extract"
+                        + (" and holds land" if land else
+                           " and no cached elevation shows it is sea")),
                     verdict="uses a parent regional extract")
                 return [(parent[0], parent[1])]
             if land is not False:
@@ -602,12 +646,22 @@ def osm_xml_from_local_extracts(statements, bounding_box,
                 # it in-band once — a few MB, negligible next to any
                 # extract — so the very first build is extract-served.
                 box_regions = covering_regions(box)
+            if (box_regions is None and _leaf_regions() is not None
+                    and foreground_download_enabled() and not UI.red_flag
+                    and _fetch_witness_elevation(box)):
+                box_regions = covering_regions(box)
             if box_regions is None:
                 return None
             for region in box_regions:
                 if region[0] not in region_ids_seen:
                     region_ids_seen.add(region[0])
                     regions.append(region)
+        if not regions:
+            # Every box lies beyond the extracts and holds no land: the
+            # answer Overpass gives for open sea.
+            import O4_OSM_Extract_Filter as FILTER
+
+            return FILTER.filter_extracts_to_osm_xml([], statements, boxes)
         missing = _stored_regions_missing(regions)
         if missing and foreground_download_enabled() and not UI.red_flag:
             # Owner ruling 2026-07-18: acquire the extract NOW rather
@@ -654,6 +708,15 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             "(" + str(error) + "); using Overpass.",
         )
         return None
+
+
+def _fetch_witness_elevation(box) -> bool:
+    """Fetch the elevation the land witness lacks for ``box`` (#2234),
+    so the cover can be decided offline instead of on Overpass."""
+    import O4_Land_Witness as LAND
+
+    with STEP_WAIT.waiting():
+        return LAND.fetch_elevation(box)
 
 
 def _filter_stored_extracts(regions, boxes, statements,

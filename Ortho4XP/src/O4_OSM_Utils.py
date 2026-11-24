@@ -1225,7 +1225,8 @@ def get_overpass_data(query, bbox, request_description="",
     # extracts; public Overpass is the last resort, and each use says so.
     UI.lvprint(1, "    OVERPASS (last resort): layer",
                request_description or "unnamed", "box",
-               tuple(round(float(v), 4) for v in bbox) if bbox else bbox)
+               bbox if isinstance(bbox, str) or not bbox
+               else tuple(round(float(v), 4) for v in bbox))
     # Seed the throttle with the current time so the first poll only fires
     # after one interval: the caller already tried the alternative source
     # immediately before falling through to here, so re-polling it at t=0

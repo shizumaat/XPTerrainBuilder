@@ -281,7 +281,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch.provenance_tools",
     "auto_patch.selection",
     "auto_patch.slot_gated_pool",
-    "auto_patch.start_order",
     "auto_patch.terrain_cut_stage",
     "auto_patch_v2",
     "auto_patch_v2.airport",
@@ -1218,6 +1217,9 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Imagery_Regions",
         "O4_Imagery_Regions_Table",
         "O4_Imagery_Utils",
+        # the provider's seams under shallow water: convert_texture
+        "O4_Imagery_Water_Lines",
+        "O4_Imagery_Water_Seams",
         "O4_Mask_Utils",
         "O4_Mask_Water_Squares",
         "O4_Mesh_IO",

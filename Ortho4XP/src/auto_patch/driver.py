@@ -1373,7 +1373,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
     worker each, or serially — and return their status records."""
     from . import config as _cfg
     from . import slot_gated_pool as _GATED
-    from .start_order import longest_first
+    from o4_engine.airport_time_model import longest_first
     results: list[dict] = []
     if _cfg.PARALLEL_AIRPORTS and len(tasks) > 1:
         import concurrent.futures as _cf

@@ -2,7 +2,7 @@
 lvector): only the start order moves, never the task list."""
 from __future__ import annotations
 
-from auto_patch import start_order as S
+from o4_engine import airport_time_model as S
 from o4_engine import airport_time_model as M
 
 

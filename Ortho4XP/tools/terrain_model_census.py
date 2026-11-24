@@ -221,8 +221,8 @@ def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
     if m is None:
         return {"verdict": "no DEM match" if datum is not None or not shape.small
                 else "not msl"}
-    rec = {"verdict": "terrain shell" if shape.small else "terrain model", **{k: (round(v, 3) if isinstance(v, float) else v)
-                                          for k, v in m.items()}}
+    rec = {"verdict": "terrain shell" if shape.small else "terrain model",
+           **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items()}}
     rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
     if water is not None:
         ri, rj = np.nonzero(TM.outer_rim(shape.grid.covered))

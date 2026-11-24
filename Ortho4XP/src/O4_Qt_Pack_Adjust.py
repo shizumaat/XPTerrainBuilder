@@ -23,8 +23,8 @@ rows, ticked as the pack is now, and the "Optimise pack" steps
 **Apply** sends ``action="change"`` with ``items``, ``shown`` and
 ``steps`` (and ``objects``: the terrain row lists every terrain object
 the last build recognised, each ticked when the row hides it -- the
-per-object override of #2272, path -> hidden); **Cancel** sends nothing.  A row the tile's mesh reads
-(``rebuild``: the terrain objects) says so (:data:`REBUILD_NOTE`), and
+per-object override of #2272, path -> hidden); **Cancel** sends nothing.
+A row the tile's mesh reads (``rebuild``: the terrain objects) says so (:data:`REBUILD_NOTE`), and
 while its tick differs from how the pack is, Apply reads
 :data:`APPLY_REBUILD_BUTTON` — the window rebuilds the tile when the
 engine's outcome says ``rebuild`` (during a run: :data:`REBUILD_QUEUED`,

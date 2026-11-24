@@ -256,7 +256,7 @@ CAPABILITIES: tuple = (
     "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
     "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
     "custom_patch_use",             # 2026-11-23, #2179 custom_patch_use + pickers (airports rows)
-    "pack_terrain_objects",         # 2026-11-24, #2272 Adjust… terrain row objects + pack_adjust objects
+    "pack_terrain_objects",         # 2026-11-24, #2272 Adjust… terrain row objects
 )
 
 

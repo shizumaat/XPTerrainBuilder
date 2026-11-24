@@ -269,6 +269,19 @@ depths, shallow lake margins keep imagery and deep centres stay at
 untouched. Sim-side depth lighting for inland water comes from the DSF
 raster (section 5), not the mask.
 
+Amended 2026-11-24 (owner 13:52Z, the Ria Formosa at LPFR; lane
+linland): the coarse source's alpha had been zeroed off SEA pixels and
+squares with inland water but no sea skipped every depth alpha — scope of
+#2265 and #1981, never a ruling. Now inland water takes the same ramp and
+top wherever a source measures it: the fine band where it reads water
+(as above, now also in inland-only squares), the coarse raster over each
+inland water body (connected on its 8x-decimated grid within the padded
+square) that the source reads at or below 0 m somewhere — a tidal lagoon
+or estuary. A lake or river above sea level reads as land and keeps its
+mask. Every depth ramp (fine, coarse, mapped fallback; sea and inland)
+tops out at the tile setting `shallow_water_opacity` (default 0.85, owner
+14:08Z); the coarse source's former fixed 0.85 ceiling is that setting.
+
 ### 4.4 Mapped shallow-water fallback (`osm_shallow_water_fallback`, default True)
 
 Where `ensure_bathymetry_band` returns nothing for the masks (no fine

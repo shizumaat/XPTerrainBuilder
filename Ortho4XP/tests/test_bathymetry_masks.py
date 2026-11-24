@@ -152,7 +152,8 @@ def test_build_bathymetry_arrays_depth_ramp_numerics(tmp_path):
     _write_banded_geotiff(raster_path, window)
 
     tile = types.SimpleNamespace(
-        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH
+        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH,
+        shallow_water_opacity=1.0,
     )
     (land_array, water_alpha) = MASK.build_bathymetry_arrays(
         til_x, til_y, tile, raster_path
@@ -198,6 +199,25 @@ def test_build_bathymetry_arrays_depth_ramp_numerics(tmp_path):
     assert numpy.all(_alpha_band(0.20, 0.30) == 0)
 
 
+def test_shallow_water_opacity_sets_the_ramp_top(tmp_path):
+    """The waterline's alpha is ``255 * shallow_water_opacity``: 0.85 by
+    default (owner 2026-11-24T14:08Z), the tile's value when it names one."""
+    (til_x, til_y) = GEO.wgs84_to_orthogrid(21.35, -159.5, MASK_ZL)
+    window = _mask_square_window(til_x, til_y, MASK_ZL)
+    raster_path = str(tmp_path / "band.tif")
+    _write_banded_geotiff(raster_path, window)
+    (lonmin, _latmin, lonmax, _latmax) = window
+    fraction = ((_column_longitudes(window, 6144) - lonmin)
+                / (lonmax - lonmin))[1024 : 4096 + 1024]
+    waterline = (fraction > 0.43) & (fraction < 0.47)
+    for (extra, top) in (({}, 217), ({"shallow_water_opacity": 0.5}, 128)):
+        tile = types.SimpleNamespace(
+            mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH, **extra)
+        alpha = MASK.build_bathymetry_arrays(
+            til_x, til_y, tile, raster_path)[1]
+        assert numpy.all(alpha[:, waterline] == top)
+
+
 def test_build_bathymetry_arrays_returns_none_off_coverage(tmp_path):
     """A window with no overlap onto the band returns (None, None) rather
     than raising — the guard the build_mask early-return relies on."""
@@ -234,7 +254,8 @@ def test_coverage_edge_feather_smooths_shallow_data_edge(tmp_path):
     _write_banded_geotiff(raster_path, window, bands=[(0.30, 0.60, -0.5)])
 
     tile = types.SimpleNamespace(
-        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH
+        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH,
+        shallow_water_opacity=1.0,
     )
     (_land_array, water_alpha) = MASK.build_bathymetry_arrays(
         til_x, til_y, tile, raster_path
@@ -279,7 +300,8 @@ def test_intertidal_strip_up_to_land_threshold_is_opaque(tmp_path):
     )
 
     tile = types.SimpleNamespace(
-        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH
+        mask_zl=MASK_ZL, reef_visibility_depth=REEF_DEPTH,
+        shallow_water_opacity=1.0,
     )
     (land_array, water_alpha) = MASK.build_bathymetry_arrays(
         til_x, til_y, tile, raster_path

@@ -399,8 +399,12 @@ def test_an_equal_output_is_named_alike_whatever_it_shares():
     assert blob_a != blob_b and name_a == name_b
 
 
+def _answer(o):
+    return o["answer"]
+
+
 def test_a_view_leaves_a_stage_clock_out_of_its_name():
-    view = lambda o: o["answer"]
+    view = _answer
     assert (SC.encode({"answer": [1, 2], "wall_s": 0.1}, view)[1]
             == SC.encode({"answer": [1, 2], "wall_s": 9.9}, view)[1])
     assert (SC.encode({"answer": [1, 2], "wall_s": 0.1}, view)[1]

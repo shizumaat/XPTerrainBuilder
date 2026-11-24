@@ -80,6 +80,7 @@ import scipy.sparse as sp
 import highspy  # noqa: F401
 
 from .linear import RowBlocks, _linear_solve, _objective
+from .round_normal import Prefix, RoundNormal
 
 __all__ = ["SOLVERS", "DEFAULT_SOLVER", "QPResult", "solve_one_sided"]
 
@@ -119,6 +120,10 @@ _ROUNDS_MAX = 400
 #: Measured HECA stage 1: 842 linear solves over 475 rounds (1.77 per
 #: round).  1 is the sequential loop.
 _SPECULATE = 2
+#: THREADS FOR A ROUND'S NORMAL PRODUCT (#1270, ``solve/round_normal``): the
+#: round's ``SᵀS`` is taken once, its row blocks on this many threads, and
+#: shared by the round's tries — the same arrays the per-try product made
+_NORMAL_WORKERS = 4
 
 
 class QPResult(_t.NamedTuple):
@@ -200,17 +205,44 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         a1x_of.clear()       # the next products are the next round's
         return sel
 
+    def stack(sel: np.ndarray) -> tuple[list, list]:
+        """The always-on rows over the active rows at their own weights."""
+        blocks: list = [A0]
+        rhs: list = [b0]
+        if sel.size:
+            blocks.append(sp.diags(sw[sel]) @ A1[sel])
+            rhs.append(sw[sel] * bb[sel])
+        return blocks, rhs
+
+    #: #1270: a warm ``normal`` try reads its round's shared ``SᵀS``
+    #: (``solve/round_normal``) — ``dense`` stacks ``U`` after the λ rows,
+    #: so it keeps the per-try product
+    shared = method == "normal" and (U is None or low_rank != "dense")
+    Uk = U if U is not None and int(U.shape[0]) else None
+    norm_pool = ThreadPoolExecutor(_NORMAL_WORKERS) if shared and _NORMAL_WORKERS > 1 else None
+    this_round: dict = {}
+
+    def round_normal(sel: np.ndarray) -> None:
+        """The round's normal matrix, before its tries."""
+        if not shared:
+            return
+        if "pre" not in this_round:
+            this_round["pre"] = Prefix(A0, b0, A0T, norm_pool, _NORMAL_WORKERS)
+        W = (sp.diags(sw[sel]) @ A1[sel]).tocsr() if sel.size else \
+            sp.csr_matrix((0, nc))
+        this_round["rn"] = RoundNormal(this_round["pre"], W, sw[sel] * bb[sel], Uk,
+                                       low_rank, norm_pool, _NORMAL_WORKERS)
+
     def step(x: np.ndarray | None, lam: float,
              sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """The active set's own subproblem, PROXIMAL at ``x`` (``sel`` its
         active rows when the caller already read them off ``x``)."""
         if sel is None:
             sel = active(x)
-        blocks: list = [A0]
-        rhs: list = [b0]
-        if sel.size:
-            blocks.append(sp.diags(sw[sel]) @ A1[sel])
-            rhs.append(sw[sel] * bb[sel])
+        rn = this_round.get("rn")
+        if rn is not None and x is not None and lam > 0.0:
+            return rn.solve(x, lam, None if Uk is None else c), int(sel.size)
+        blocks, rhs = stack(sel)
         if x is not None and lam > 0.0:
             root = float(np.sqrt(lam))
             blocks.append(root * eye)
@@ -238,7 +270,9 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         return xt_, nact_, F(xt_)
     try:
         for rnd in range(1, _ROUNDS_MAX + 1):
-            took, lam, xt, ft, nact, read = _round(x, f, lam, tried, active(x), pool)
+            sel = active(x)
+            round_normal(sel)
+            took, lam, xt, ft, nact, read = _round(x, f, lam, tried, sel, pool)
             solves += read
             if not took:
                 # No damped step of the SAME subproblem decreases a convex C¹
@@ -258,6 +292,9 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
+        if norm_pool is not None:
+            norm_pool.shutdown(wait=True)
+        this_round.clear()
     try:
         g_end = float(np.linalg.norm(grad(x)))
     finally:

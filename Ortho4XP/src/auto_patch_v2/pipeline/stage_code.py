@@ -2847,7 +2847,8 @@ CODE_MODULES["solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
+    solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -3074,7 +3075,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
+    solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -3251,7 +3253,8 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
-    solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed verify.roads
+    solve.project_strip solve.round_normal solve.rows solve.runway_first solve.wall_cut
+    solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
     airport.riser_wall

@@ -510,17 +510,19 @@ def _stream(url, temporary, stop, watch, open_stream):
 
 def write_body(response, path: str,
                should_stop: Optional[Callable[[], bool]] = None,
-               watcher: Optional[Watcher] = None):
+               watcher: Optional[Watcher] = None,
+               chunk_bytes: int = CHUNK_BYTES):
     """Stream a ``stream=True`` response's body to ``path``, looking at
-    Stop between chunks: ``(READY or STOPPED, bytes written)``.  A body
-    shorter than the length the server named raises ``OSError``."""
+    Stop between chunks of ``chunk_bytes``: ``(READY or STOPPED, bytes
+    written)``.  A body shorter than the length the server named raises
+    ``OSError``; what the watcher raises ends the transfer with it."""
     stop = should_stop or _never
     watch = watcher or Watcher()
     total = _content_length(response)
     watch.started(total)
     received = 0
     with open(path, "wb") as output:
-        for chunk in response.iter_content(CHUNK_BYTES):
+        for chunk in response.iter_content(chunk_bytes):
             if stop():
                 return (STOPPED, received)
             output.write(chunk)

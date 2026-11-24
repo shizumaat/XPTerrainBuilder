@@ -49,7 +49,8 @@ _coarser: set = set()
 
 def begin(key: str, total_units: int,
           predicted_seconds: Optional[float] = None, *, what: str = "",
-          why: str = "", reason: str = "", coarser: bool = False) -> None:
+          why: str = "", reason: str = "", coarser: bool = False,
+          coarser_label: str = "") -> None:
     """Register an active phase of ``total_units`` similar work units.
 
     ``predicted_seconds`` (optional) prices the whole phase until the
@@ -57,7 +58,9 @@ def begin(key: str, total_units: int,
     cannot be paced.  ``what`` / ``why`` are the phase's plain words for
     the slow-step alert (``what`` may name ``{done}`` and ``{total}``),
     ``reason`` its short reason code, and ``coarser`` whether it can
-    finish its remaining units on coarser data.
+    finish its remaining units on coarser data -- or on another source:
+    ``coarser_label`` is then the answer's own button words (the base
+    download's "Use FABDEM instead", #2211).
     """
     try:
         if total_units <= 0:
@@ -69,7 +72,8 @@ def begin(key: str, total_units: int,
                 now, 0, int(total_units),
                 float(predicted_seconds) if predicted_seconds else None,
                 {"what": str(what), "why": str(why), "reason": str(reason),
-                 "coarser": bool(coarser)},
+                 "coarser": bool(coarser),
+                 "coarser_label": str(coarser_label)},
                 now,
             ]
     except Exception:
@@ -114,8 +118,8 @@ def _remaining(entry, now) -> Optional[float]:
 def slowest_phase() -> Optional[dict]:
     """The active phase with words that has the most time left (#1351).
 
-    ``{"key", "what", "why", "reason", "coarser", "done", "total",
-    "seconds_per_unit", "remaining"}`` — ``what`` with its ``{done}`` /
+    ``{"key", "what", "why", "reason", "coarser", "coarser_label",
+    "done", "total", "seconds_per_unit", "remaining"}`` — ``what`` with its ``{done}`` /
     ``{total}`` filled, ``seconds_per_unit`` / ``remaining`` ``None``
     before the first unit is done, ``coarser`` false once asked.
     ``None`` when no active phase said what it is.
@@ -135,6 +139,7 @@ def slowest_phase() -> Optional[dict]:
                     "why": words["why"],
                     "reason": words["reason"],
                     "coarser": words["coarser"] and key not in _coarser,
+                    "coarser_label": words.get("coarser_label", ""),
                     "done": done,
                     "total": total,
                     "seconds_per_unit": (max(now - t0, 0.0) / done
@@ -152,7 +157,7 @@ def slowest_phase() -> Optional[dict]:
 def idlest_phase() -> Optional[dict]:
     """The active phase that has gone longest without finishing a unit
     (#1351): ``{"key", "what", "done", "total", "idle_seconds",
-    "coarser"}`` -- ``what`` filled as in :func:`slowest_phase` (empty
+    "coarser", "coarser_label"}`` -- ``what`` filled as in :func:`slowest_phase` (empty
     when the phase gave no words).  ``None`` when no phase is active."""
     try:
         now = time.time()
@@ -170,7 +175,9 @@ def idlest_phase() -> Optional[dict]:
                                                          total=total),
                             "idle_seconds": idle,
                             "coarser": (words["coarser"]
-                                        and key not in _coarser)}
+                                        and key not in _coarser),
+                            "coarser_label": words.get("coarser_label",
+                                                       "")}
         return best
     except Exception:
         return None

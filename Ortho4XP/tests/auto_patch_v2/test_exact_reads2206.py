@@ -112,3 +112,18 @@ def test_the_wall_class_reading_is_held_per_census(monkeypatch):
     wall_class.wall_class_components(_Obj(**{**ap.__dict__, "dem": object()}), cfg)
     wall_class.wall_class_components(ap, ("service", 2))
     assert len(calls) == 3
+
+
+def test_floor_pads_pre_selection_equals_on():
+    from shapely.strtree import STRtree
+
+    from auto_patch_v2.airport.unit_storey import _on
+    from auto_patch_v2.classify.floor_yard import _on_near
+    rng = np.random.default_rng(13)
+    parts = [(_Obj(base_y=float(k)), Point(*rng.uniform(0.0, 500.0, 2)).buffer(rng.uniform(2, 40), 2))
+             for k in range(80)]
+    ur = _Obj(parts=tuple(parts))
+    tree = STRtree([g for _p, g in parts])
+    for _k in range(30):
+        P = Point(*rng.uniform(0.0, 500.0, 2)).buffer(rng.uniform(10.0, 150.0), 3)
+        assert _on_near(ur, tree, P) == _on(ur, P)

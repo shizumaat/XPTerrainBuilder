@@ -277,6 +277,27 @@ def _outward_left(side: LineString, centre: tuple[float, float]) -> LineString:
     return side
 
 
+def _band_cover(on: np.ndarray, y0: np.ndarray, y1: np.ndarray, ln: np.ndarray,
+                lo: float, nb: int) -> np.ndarray:
+    """Per ``BAND_M`` band, the half lengths of the ``on`` faces spanning
+    it: each face adds ``0.5 * ln`` to bands ``floor((y0 - lo) / BAND_M)``
+    up to (not) ``ceil((y1 - lo) / BAND_M)``, at least one.  ONE
+    ``np.add.at`` (unbuffered, in index order), so every band sums its
+    faces in face order, as a face-by-face loop does (#2206 step 4)."""
+    cov = np.zeros(nb)
+    qs = np.flatnonzero(on)
+    if not len(qs):
+        return cov
+    b0 = np.floor((y0[qs] - lo) / BAND_M).astype(np.int64)
+    b1 = np.maximum(np.ceil((y1[qs] - lo) / BAND_M).astype(np.int64), b0 + 1)
+    b1 = np.minimum(b1, nb)                          # a slice stops at the end
+    n = np.maximum(b1 - b0, 0)
+    starts = np.repeat(b0, n)
+    offs = np.arange(int(n.sum())) - np.repeat(np.cumsum(n) - n, n)
+    np.add.at(cov, starts + offs, np.repeat(0.5 * ln[qs], n))
+    return cov
+
+
 def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,
               cover: float) -> list[float | None]:
     """Each side's FOOT (module docstring): the lowest ``BAND_M`` band over
@@ -319,11 +340,7 @@ def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: f
         s_ = (mid - p0) @ u
         facing = (nxz @ n_out) >= cos_along * np.maximum(nl, 1e-12)
         on = facing & (s_ >= -probe) & (s_ <= L + probe) & (ln > 0.05)
-        cov = np.zeros(nb)
-        for q in np.flatnonzero(on):
-            b0 = int(math.floor((y0[q] - lo) / BAND_M))
-            b1 = int(math.ceil((y1[q] - lo) / BAND_M))
-            cov[b0:max(b1, b0 + 1)] += 0.5 * ln[q]
+        cov = _band_cover(on, y0, y1, ln, lo, nb)
         full = np.flatnonzero(cov >= cover * L)
         out.append(None if not len(full) else lo + BAND_M * float(full[0]))
     return out

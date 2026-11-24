@@ -148,19 +148,34 @@ def _tops(tris: np.ndarray, x: np.ndarray, z: np.ndarray) -> np.ndarray:
     p0, e1, e2, den = p0[live], e1[live], e2[live], den[live]
     lo = tris[live].min(axis=1)
     hi = tris[live].max(axis=1)
-    for k in range(x.shape[0]):
-        px, pz = float(x[k]), float(z[k])
-        m = (lo[:, 0] <= px) & (px <= hi[:, 0]) & (lo[:, 2] <= pz) & (pz <= hi[:, 2])
-        if not m.any():
+    if not len(den) or not x.shape[0]:
+        return out
+    # #2206 step 4: the points in blocks against every triangle at once --
+    # each (point, triangle) pair's box test and barycentric arithmetic is
+    # the per-point loop's, element for element, and a max is order-free
+    xs, zs = np.asarray(x, dtype=float), np.asarray(z, dtype=float)
+    step = max(1, _PAIRS // len(den))
+    for a in range(0, xs.shape[0], step):
+        px, pz = xs[a:a + step, None], zs[a:a + step, None]
+        k, j = np.nonzero((lo[:, 0] <= px) & (px <= hi[:, 0])
+                          & (lo[:, 2] <= pz) & (pz <= hi[:, 2]))
+        if not len(k):
             continue
-        qx, qz = px - p0[m, 0], pz - p0[m, 2]
-        u = (qx * e2[m, 2] - e2[m, 0] * qz) / den[m]
-        v = (e1[m, 0] * qz - qx * e1[m, 2]) / den[m]
+        qx, qz = xs[a + k] - p0[j, 0], zs[a + k] - p0[j, 2]
+        u = (qx * e2[j, 2] - e2[j, 0] * qz) / den[j]
+        v = (e1[j, 0] * qz - qx * e1[j, 2]) / den[j]
         ins = (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1.0 + 1e-6)
         if ins.any():
-            y = p0[m, 1] + u * e1[m, 1] + v * e2[m, 1]
-            out[k] = float(np.max(y[ins]))
+            y = p0[j, 1] + u * e1[j, 1] + v * e2[j, 1]
+            top = np.full(px.shape[0], -np.inf)
+            np.maximum.at(top, k[ins], y[ins])
+            hit = np.isfinite(top)
+            out[a:a + step][hit] = top[hit]
     return out
+
+
+#: (point, triangle) pairs :func:`_tops` box-tests in one block
+_PAIRS = 1 << 21
 
 
 def _stations(pts: np.ndarray, before: float, after: float

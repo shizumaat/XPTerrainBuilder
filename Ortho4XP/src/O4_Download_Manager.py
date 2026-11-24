@@ -8,7 +8,9 @@ file is installed, the transfer failed, or the caller stopped.
   file (``O4_Machine_Slots.try_os_lock``).  Taking it is atomic, so there is
   no check-then-create window, and the system drops it when the holder dies,
   however it dies.  A second caller finds the lock held, JOINS, and is woken
-  by the file landing.  It shares a failure of the flight it waited for; a
+  by the file landing.  While it waits it hears the flight's progress
+  (``Watcher.waited``: the leader's temporary on disk and the length its
+  server named, #2218).  It shares a failure of the flight it waited for; a
   flight that was stopped or crashed is taken over by one of its waiters.
 * ATOMIC INSTALL.  Bytes go to ``<target>.tmp-<pid>-<thread>``, are checked
   (length, the resource's own validator) and move with one ``os.replace``.
@@ -70,8 +72,10 @@ SERVER_LIMIT = 4
 TOTAL_LIMIT = 8
 TOTAL_CLASS = "download-total"
 
-#: How often a joiner looks for the file, the lock and Stop.
+#: How often a joiner looks for the file, the lock and Stop ...
 POLL_SECONDS = 0.25
+#: ... and how often it reads the flight's progress for its watcher.
+PROGRESS_SECONDS = 1.0
 #: Stop is checked between chunks: at 400 KB/s this is under a second.
 CHUNK_BYTES = 1 << 18
 HTTP_TIMEOUT_SECONDS = 60
@@ -139,6 +143,71 @@ class Watcher:
     def finished(self) -> None:
         """The request ended, however it ended."""
 
+    def waited(self, received: int, total_bytes: int) -> None:
+        """A joiner's wait: the flight it waits for has ``received``
+        bytes on disk of ``total_bytes`` (0 when its server named no
+        length)."""
+
+
+class _FlightWatcher(Watcher):
+    """The caller's watcher, plus the length the server named noted in
+    the flight's state, where the flight's joiners read it."""
+
+    def __init__(self, inner: Watcher, state_path: str) -> None:
+        self.inner = inner
+        self.state_path = state_path
+
+    def joined(self) -> None:
+        self.inner.joined()
+
+    def leading(self) -> None:
+        self.inner.leading()
+
+    def started(self, total_bytes: int) -> None:
+        if total_bytes > 0:
+            state = FNAMES.read_json_dict(self.state_path)
+            state["total_bytes"] = int(total_bytes)
+            _write_state(self.state_path, state)
+        self.inner.started(total_bytes)
+
+    def chunk(self, size: int, received: int, total_bytes: int) -> None:
+        self.inner.chunk(size, received, total_bytes)
+
+    def finished(self) -> None:
+        self.inner.finished()
+
+    def waited(self, received: int, total_bytes: int) -> None:
+        self.inner.waited(received, total_bytes)
+
+
+def _flight_progress(resource: Resource, stem: str, watch: Watcher,
+                     clock: Callable[[], float] = time.time):
+    """A joiner's poll: at most every PROGRESS_SECONDS, tell ``watch``
+    how far the running flight is (its largest temporary of the target
+    on disk; the length its state names while it runs)."""
+    folder = os.path.dirname(resource.target)
+    name = os.path.basename(resource.target)
+    last = [-math.inf]
+
+    def poll() -> None:
+        now = clock()
+        if now - last[0] < PROGRESS_SECONDS:
+            return
+        last[0] = now
+        state = FNAMES.read_json_dict(stem + ".json")
+        total = (int(state.get("total_bytes", 0))
+                 if state.get("outcome") == "running" else 0)
+        received = 0
+        with contextlib.suppress(OSError):
+            for entry in os.scandir(folder):
+                match = _TEMPORARY.match(entry.name)
+                if match is not None and match.group("target") == name:
+                    with contextlib.suppress(OSError):
+                        received = max(received, entry.stat().st_size)
+        if total or received:
+            watch.waited(received, total)
+    return poll
+
 
 def _state_stem(resource: Resource) -> str:
     """``<folder>/<readable key>-<hash>``: the lock and state share it."""
@@ -191,7 +260,8 @@ def fetch(resource: Resource, *, refresh: bool = False,
     :data:`STOPPED`; what it raises is the result's ``error``, and it
     holds its own server limit (no slot is taken for it here).  Never
     raises for a network or file failure."""
-    watch = watcher or Watcher()
+    watch = _FlightWatcher(watcher or Watcher(),
+                           _state_stem(resource) + ".json")
     if transfer is None:
         move = _streamed(resource.url, watch, open_stream or requests.get,
                          (server_limit, total_limit))
@@ -206,10 +276,12 @@ def fetch(resource: Resource, *, refresh: bool = False,
         watch.finished()
 
 
-def _wait_for_flight(lock_path: str, stop, ready=None, on_join=None):
+def _wait_for_flight(lock_path: str, stop, ready=None, on_join=None,
+                     on_poll=None):
     """The flight lock's descriptor once held; :data:`READY` when
     ``ready()`` comes true first, :data:`STOPPED` at Stop.  The wait holds
-    no scheduler slot.  ``OSError``: the lock file cannot be opened."""
+    no scheduler slot; ``on_poll()`` runs at each look.  ``OSError``: the
+    lock file cannot be opened."""
     flight = SLOTS.try_os_lock(lock_path)
     if flight is not None:
         return flight
@@ -222,6 +294,8 @@ def _wait_for_flight(lock_path: str, stop, ready=None, on_join=None):
                 return READY
             if stop():
                 return STOPPED
+            if on_poll is not None:
+                on_poll()
             flight = SLOTS.try_os_lock(lock_path)
             if flight is not None:
                 return flight
@@ -324,7 +398,8 @@ def _join_or_lead(resource, refresh, stop, watch, move) -> Result:
     if stop():
         return Result(STOPPED)
     os.makedirs(os.path.dirname(stem), exist_ok=True)
-    flight = _wait_for_flight(stem + ".lock", stop, ready, join)
+    flight = _wait_for_flight(stem + ".lock", stop, ready, join,
+                              _flight_progress(resource, stem, watch))
     if isinstance(flight, str):
         return Result(flight, joined=True)
     try:

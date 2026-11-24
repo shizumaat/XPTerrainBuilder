@@ -757,6 +757,7 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
         self.metered = False               # registered with its ETA
         self.next_report = DOWNLOAD_PROGRESS_EVERY_BYTES
         self.chunk_started = 0.0
+        self.waited_at = None              # (time, bytes) a joiner last saw
 
     def joined(self) -> None:
         UI.vprint(1, "   OSM regional extract", self.region_id,
@@ -798,6 +799,28 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
                 received >> 20,
                 "/%d" % (total_bytes >> 20) if total_bytes else ""))
             self.next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
+
+    def waited(self, received: int, total_bytes: int) -> None:
+        """A foreground joiner prices the flight it waits on the same
+        way the leader does (#2218): registered with the meter, the
+        bytes landing on disk sampled as throughput, the bar driven."""
+        if not self.foreground or total_bytes <= 0:
+            return
+        try:
+            from o4_engine import download_meter as METER
+        except Exception:
+            return
+        now = time.time()
+        key = "extract:" + self.region_id
+        if not self.metered:
+            METER.begin(key, total_bytes)
+            self.metered = True
+        elif self.waited_at is not None and received > self.waited_at[1]:
+            METER.record(received - self.waited_at[1],
+                         now - self.waited_at[0], now=now)
+        self.waited_at = (now, received)
+        METER.update(key, received)
+        UI.progress_bar(1, int(min(received * 100 // total_bytes, 99)))
 
     def finished(self) -> None:
         if self.metered:
@@ -1018,8 +1041,23 @@ def _refresh_stale_store() -> None:
         _acquire_extract(region_id, _url_for_region(region_id) or pbf_url)
 
 
+def _sweep_interrupted_downloads() -> int:
+    """Remove what interrupted extract downloads left in the store
+    (``<region>.osm.pbf.tmp-<pid>-<thread>`` of a dead writer, or one
+    unwritten past ``ABANDONED_SECONDS``; a live writer's is kept) and
+    say so (#2218).  The count removed; never raises."""
+    try:
+        removed = DOWNLOADS.sweep_stale_temporaries(STORE_DIRECTORY)
+    except Exception:
+        return 0
+    if removed:
+        UI.vprint(1, "   Removed %d file(s) left by interrupted OSM"
+                  " regional extract downloads." % removed)
+    return removed
+
+
 def _maintenance_loop() -> None:
-    DOWNLOADS.sweep_stale_temporaries(STORE_DIRECTORY)
+    _sweep_interrupted_downloads()
     refreshed = False
     while True:
         # While a stop is in flight the wanted list is left untouched —

@@ -107,10 +107,11 @@ def classified_land(classification):
     return None if land.is_empty else land
 
 
-def _run(cache, law, stage: str, inputs: _t.Callable[[], dict], fn):
+def _run(cache, law, stage: str, inputs: _t.Callable[[], dict], fn, view=None):
     """``fn(law)`` through ``cache``'s ``stage`` record (keyed on
-    ``inputs()``), or plainly when there is no cache."""
-    return fn(law) if cache is None else cache.run(stage, inputs(), fn)
+    ``inputs()``, named by ``view`` of its output), or plainly when there is
+    no cache."""
+    return fn(law) if cache is None else cache.run(stage, inputs(), fn, view=view)
 
 
 def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_s: float,
@@ -383,7 +384,9 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
         cache, law, "shapes",
         lambda: {**common, "airport": ap_digest, "planar": cache.output_digest("planar"),
                  "road_profile": cache.output_digest("road_profile"),
-                 "classification": cl_digest, "params": params}, _shapes)
+                 "classification": cl_digest, "params": params}, _shapes,
+        # named without its clock and the lines quoting it (#2205)
+        view=lambda o: _dc.replace(o[0], wall_s=0.0))
     if cache is not None:
         cache.close()
     for ln in shape_lines:

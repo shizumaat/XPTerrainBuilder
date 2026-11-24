@@ -106,7 +106,7 @@ def test_t4_a_miss_writes_and_the_next_build_is_served_the_same_record(tmp_path)
     assert calls == [1], "a hit does not run the stage"
     assert a == b
     assert fa.output_digest("classify") == fb.output_digest("classify")
-    assert SC.digest_of(a) == fa.output_digest("classify")
+    assert SC.value_digest(a) == fa.output_digest("classify")
 
 
 def test_t4_a_changed_code_digest_misses(tmp_path, monkeypatch):

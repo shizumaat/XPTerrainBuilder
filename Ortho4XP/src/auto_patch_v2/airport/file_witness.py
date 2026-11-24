@@ -18,8 +18,10 @@ window (opened for writing, or renamed onto): the object stage's outputs,
 which its reuse re-hashes before it serves a record (#879).
 
 NOT RECORDED: code (``.py``, ``.pyc``, extension modules — a stage's code
-is its ``stage_code`` digest), the stage cache's own files (``o4_stage*``)
-and files opened for writing.  What a file
+is its ``stage_code`` digest), the stage cache's own files (``o4_stage*``),
+the machine memory ledger (``O4_Machine_Memory``: machine state another
+build rewrites at any moment, read by this process's admission thread and
+no stage's input, #2205) and files opened for writing.  What a file
 opened outside Python (a C library, a subprocess) reads is not seen; the
 DEM's rasters, the one such read the front half makes, are witnessed by
 their answers (``airport/dem_record``).
@@ -40,6 +42,8 @@ __all__ = ["FileRecorder", "holds"]
 _CODE = (".py", ".pyc", ".pyd", ".so", ".dylib", ".dll")
 #: the stage cache's own records and index (``airport/stage_cache``)
 _OWN = "o4_stage"
+#: machine state, never a recipe input (module doc)
+_LEDGER_ENV = "O4_MACHINE_LEDGER_DIR"
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
 
 _LOCK = threading.Lock()
@@ -56,6 +60,12 @@ def _as_str(path: _t.Any) -> "str | None":
     return path if isinstance(path, str) else None
 
 
+def _is_machine_state(path: str) -> bool:
+    root = os.environ.get(_LEDGER_ENV, "").strip() or os.path.join(
+        os.path.expanduser("~"), ".ortho4xp", "machine_memory")
+    return os.path.abspath(path).startswith(os.path.abspath(root) + os.sep)
+
+
 def _hook(event: str, args: tuple) -> None:
     if event not in ("open", "os.rename") or not _ACTIVE:
         return
@@ -69,7 +79,7 @@ def _hook(event: str, args: tuple) -> None:
     path, mode, flags = (tuple(args) + (None, None, None))[:3]
     path = _as_str(path)
     if (path is None or path.endswith(_CODE)
-            or os.path.basename(path).startswith(_OWN)):
+            or os.path.basename(path).startswith(_OWN) or _is_machine_state(path)):
         return
     if isinstance(mode, str):
         writing = any(c in mode for c in "wax+")

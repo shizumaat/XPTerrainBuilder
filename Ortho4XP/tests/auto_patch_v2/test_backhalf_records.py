@@ -104,6 +104,7 @@ def _arm(world, root: Path | None, **fc_kw):
     """One constraint stage + the strips: ``(cs, counts, stage fields,
     yielded rows, strips, the cache report)``; ``root`` None is COLD."""
     law, airport, cl, pm = world
+    pm = pickle.loads(pickle.dumps(pm))     # each build holds its own map
     fc = None
     if root is not None:
         fc = FC.FrontCache(ICAO, airport, law, enabled=True, mod_cache_root=str(root),
@@ -175,7 +176,7 @@ def test_t8_the_records_are_the_codec_never_a_pickle_of_rows(warm):
     path = next(p for p in root.rglob("o4_stage_*constraints.gen.taxi_chain_*.cache"))
     head, _wit, load = SC.read(path, SC.read_header(path)["key"], decode=lambda b: b)
     assert head["payload_sha256"] and head["output_digest"] != head["payload_sha256"]
-    enc, _runs, _stats = pickle.loads(load())
+    enc, _runs, _stats, _writes = pickle.loads(load())
     assert isinstance(enc, CODEC.ColumnarSet)
 
 

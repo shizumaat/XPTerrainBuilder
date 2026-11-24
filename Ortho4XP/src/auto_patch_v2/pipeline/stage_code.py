@@ -2882,6 +2882,7 @@ CODE_MODULES["solve"] = _mods("""
     model.clocks
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    pipeline.registry_writes
     geom.deck_spans planar.deck_span_cut planar.route_lines
     pipeline.late_view
     geom.channel_declared planar.channel_ramp

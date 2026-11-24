@@ -49,3 +49,24 @@ def test_the_witness_reads_the_law_and_the_dem():
     fn, t = slope_witness(ap, law)
     assert t == 0.5 and fn(box(0, 0, 10, 10)) == 0.0
     assert slope_witness(types.SimpleNamespace(dem=None), law) is None
+
+
+def test_the_array_read_is_the_point_read():
+    """#2206: ``z_many`` reads every sample in one call and gives the float
+    the per-point reads give, bit for bit; the witness hands it on."""
+    import numpy as np
+    from shapely.geometry import Polygon
+
+    def z(x, y):
+        return 100.0 + 0.137 * x - 0.0291 * y + 1e-3 * x * y
+    calls = []
+
+    def many(xs, ys):
+        calls.append(len(xs))
+        return np.array([z(x, y) for x, y in zip(xs, ys)])
+    u = Polygon([(0, 0), (37.3, 2.1), (41.9, 29.7), (12.2, 33.3), (3.1, 17.7)])
+    assert seat_float_m(u, z, many) == seat_float_m(u, z) > 0.0 and len(calls) == 1
+    law = Law.for_airport("KASE")
+    ap = types.SimpleNamespace(dem=types.SimpleNamespace(z=z, z_many=many))
+    w = slope_witness(ap, law)
+    assert w.z_many is many and w[0](u) == seat_float_m(u, z)

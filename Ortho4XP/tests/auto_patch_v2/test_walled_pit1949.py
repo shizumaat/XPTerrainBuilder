@@ -336,3 +336,26 @@ def test_a_sloped_wall_hangs_from_where_the_sample_stands():
     prof = np.array([[[0.0, 0.0], [100.0, 10.0], [100.0, 12.0]]] * 3)
     lo, hi = _slice(prof, np.array([50.0, 0.0, 100.0]))
     assert np.allclose(lo, [5.0, 0.0, 10.0]) and np.allclose(hi, [6.0, 0.0, 12.0]), (lo, hi)
+
+
+def test_a_floor_outline_is_sampled_once_whatever_its_walls(tmp_path, monkeypatch):
+    """#2206 (HECA 103 s): a shared-datum frame hands every plate the same
+    many wall mates; the floor's outline is sampled ONCE per read, and the
+    rim, the walled share and rule 7 read those same points."""
+    from auto_patch_v2.airport import walled_pit as WP
+    objs = _pit(tmp_path)
+    extra = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0)]
+    objs += [_at(_write(tmp_path / f"walls{k}.obj", extra), f"dsf:obj{k + 3}") for k in range(3)]
+    want, _n = _read(objs, 105.0)
+    calls = {"samples": 0, "rings": 0}
+
+    def counted(name, real):
+        def f(*a, **k):
+            calls[name] += 1
+            return real(*a, **k)
+        return f
+    monkeypatch.setattr(WP, "_ring_samples", counted("samples", WP._ring_samples))
+    monkeypatch.setattr(WP, "_on_ring", counted("rings", WP._on_ring))
+    floors, notes = _read(objs, 105.0)
+    assert len(floors) == 1 and calls["samples"] == 1 and calls["rings"] == 4, (calls, notes)
+    assert floors[0].rim_z == want[0].rim_z and floors[0].covers == want[0].covers

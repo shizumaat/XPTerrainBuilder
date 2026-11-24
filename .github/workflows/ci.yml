@@ -130,19 +130,25 @@ jobs:
   #
   # Wall time (measured 2026-09-28, 4-core Linux container, py3.13):
   # non-Qt half 21m51s, Qt half ~15s.  Hence timeout-minutes 60, not 30.
-  # If a runner ever outgrows that, split the non-Qt half by directory
-  # (tests/auto_patch_v2 and the rest) into two jobs — never by dropping
-  # files, which is the defect this job just stopped committing.
+  # SHARDED 2026-11-23 (run 45270210136): the non-Qt half outgrew its
+  # 50-minute step — Linux was killed at 99 % and Windows at 91 % with no
+  # failure, macOS took 41 min.  It now runs as SHARDS shards per OS
+  # (O4_TEST_SHARD=k/N, tests/conftest.py `_keep_ci_shard`): disjoint,
+  # their union the whole collection, each airport's xdist_group whole,
+  # airports and each file's tests dealt round-robin so the shards weigh
+  # about the same (16,834 items -> 4,204..4,215 each).  Never split by
+  # dropping files.  The Qt half runs once per OS, on shard 1.
   python-tests:
     needs: changes
     if: needs.changes.outputs.python == 'true'
-    name: Python tests (${{ matrix.os }})
+    name: Python tests (${{ matrix.os }}, ${{ matrix.shard }}/4)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false        # one platform's red must not hide another's
       matrix:
         os: [macos-15, windows-latest, ubuntu-22.04]
+        shard: [1, 2, 3, 4]      # keep in step with SHARDS below
     defaults:
       run:
         shell: bash           # one recipe; Git bash on the Windows runner
@@ -152,6 +158,7 @@ jobs:
       # the interactive backends for the same reason.
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
+      SHARDS: "4"
       # #54: a one-off SIGSEGV in the serial Qt suite (rc 139,
       # shiboken6/PySide6) whose dump named no test.  pytest's faulthandler
       # plugin arms only once the session starts, which leaves import and
@@ -320,8 +327,13 @@ jobs:
           # items on the corpus machine.  The floor keeps the proportion it
           # had (about two thirds of the collection): it is a guard against
           # the collection COLLAPSING, never a count of the suite.
-          floor "non-Qt" 5300 non-qt --ignore-glob='tests/test_qt_*.py' tests
-          floor "Qt"      250 qt     tests/test_qt_*.py
+          # This shard's quarter of the non-Qt set (the floor keeps the
+          # same two-thirds proportion of it); the Qt set on shard 1 only.
+          O4_TEST_SHARD="${{ matrix.shard }}/$SHARDS" \
+            floor "non-Qt" 1300 non-qt --ignore-glob='tests/test_qt_*.py' tests
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            floor "Qt"      250 qt     tests/test_qt_*.py
+          fi
 
       # EVERYTHING except the Qt files, in parallel.  No `|| [ $? -eq 5 ]`:
       # this target cannot legitimately collect nothing, and the floor above
@@ -381,6 +393,7 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             progress="-v -v"                     # net verbose over PYTEST_FLAGS' -q
           fi
+          O4_TEST_SHARD="${{ matrix.shard }}/$SHARDS" \
           $limit python -m pytest $PYTEST_FLAGS -n auto $progress \
             --junitxml=junit-non-qt.xml \
             --ignore-glob='tests/test_qt_*.py' tests
@@ -414,7 +427,7 @@ jobs:
       #     is cancelled or times out keeps nothing.  The file is uploaded
       #     below either way, so the dump is readable after the fact.
       - name: Qt app (offscreen, serial)
-        if: always()
+        if: always() && matrix.shard == 1
         working-directory: Ortho4XP
         run: |
           limit=""
@@ -459,8 +472,10 @@ jobs:
         run: |
           python tools/ci_collection_census.py reconcile --name "non-Qt" \
             --census census-non-qt.json --junit junit-non-qt.xml
-          python tools/ci_collection_census.py reconcile --name "Qt" \
-            --census census-qt.json --junit junit-qt.xml
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            python tools/ci_collection_census.py reconcile --name "Qt" \
+              --census census-qt.json --junit junit-qt.xml
+          fi
 
       # `if: always()`: the crash log is worth exactly as much as the run
       # that produced it is red.
@@ -474,7 +489,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qt-suite-log-${{ matrix.os }}
+          name: qt-suite-log-${{ matrix.os }}-${{ matrix.shard }}
           path: |
             Ortho4XP/qt-suite.log
             Ortho4XP/nodeids-non-qt.txt

@@ -215,15 +215,23 @@ def choice(pack_root: str, action: str, lat=None, lon=None) -> dict:
         if not folders:
             _answer(pack_root, "")
     elif action == "writable":
+        # A paused writer is told BEFORE the folders change: once they are
+        # writable it may pass and forget the pack at any poll, and an
+        # answer recorded after that would outlive it as a stale entry.
+        waiting = was.get("state") == WAITING
+        if waiting:
+            _answer(pack_root, WRITABLE)
         try:
             changed = _pa.make_writable(pack_root)
         except OSError as exc:
+            if waiting:
+                _answer(pack_root, WAITING)
             out.update(state="failed", error=str(exc))
             UI.vprint(0, f"  [pack] {name}: could not be made writable ({exc}); "
                          f"it is as it was")
         else:
-            waiting = was.get("state") == WAITING
-            _answer(pack_root, WRITABLE if waiting else "")
+            if not waiting:
+                _answer(pack_root, "")
             out.update(state="writable", changed=len(changed), folders=[],
                        rebuild=not waiting and was.get("state") == NOT_NOW)
             UI.vprint(0, f"  [pack] {name}: made writable — added your write "

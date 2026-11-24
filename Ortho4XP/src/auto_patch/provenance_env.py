@@ -197,6 +197,7 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_SUITE_WRITE_AUDIT": "suite: records what the tests write",
     "O4_SUITE_WRITE_AUDIT_OUT": "suite: where that record goes",
     "O4_TEST_AIRPORTS": "suite: which airports the fixtures use",
+    "O4_TEST_SHARD": "suite: which CI shard (k/N) of the tests runs",
     "O4_TEST_TILE": "suite: which tile the fixtures use",
     "O4_TIMING_RUNS": "suite: how many runs a timing test takes",
     "O4_TRIANGLE4XP_TEST_BINARY": "suite: which Triangle4XP the binary twin runs",

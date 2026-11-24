@@ -12,6 +12,13 @@ answer ends the attempt as a transport refusal, which
 ``elevation_access.base_fallback`` covers with the fallback (and
 remembers the host, so the other stuck cells of the run skip it too).
 
+The download never refuses on its own for being slow (owner 2026-11-24:
+"ask the user if they want to wait or fallback"): the throughput floor
+(``O4_Transfer_Floor``) only detects, and :func:`report_floor` flags the
+phase (:func:`o4_engine.task_meter.flag_stuck`), so the slow-step alert
+asks at once while the body keeps streaming.  With nobody to answer
+(the CLI, the alert off) the flag is never read and the download waits.
+
 Telemetry never breaks a download: a missing engine (the frozen CLI
 without ``o4_engine``) leaves the phase out and every answer false.
 """
@@ -21,7 +28,7 @@ import threading
 from urllib.parse import urlparse
 
 __all__ = ["PHASE_PREFIX", "download_phase", "fallback_requested",
-           "phase_key"]
+           "phase_key", "report_floor"]
 
 #: The task-meter key of a host's base download is this plus the host.
 PHASE_PREFIX = "base_elevation_download:"
@@ -56,6 +63,24 @@ def fallback_requested(url):
     except Exception:
         return False
     return bool(meter.coarser_requested(phase_key(host)))
+
+
+def report_floor(url, source, below, detail=""):
+    """The floor's verdict on ``url``'s body: ``below`` flags the host's
+    phase stuck in the alert's words, otherwise the flag comes down."""
+    meter = _task_meter()
+    if meter is None:
+        return
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        return
+    what = ("The %s download is moving below the speed floor: %s."
+            % (source, detail)) if below else ""
+    meter.flag_stuck(
+        phase_key(host), what,
+        "The server is sending very slowly. The download goes on while "
+        "you choose: keep waiting, or take the other source.")
 
 
 @contextlib.contextmanager

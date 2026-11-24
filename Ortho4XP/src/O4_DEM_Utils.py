@@ -1408,14 +1408,6 @@ HTTP_REQUEST_ATTEMPT_CAP = 6
 #: Seconds one base-tile GET may take.
 HTTP_REQUEST_TIMEOUT_S = 10
 
-#: Attempts that moved below the throughput floor
-#: (``O4_Transfer_Floor``) before :func:`http_request` gives the source
-#: up (#2211).  A server that trickles once trickles again: two slow
-#: attempts and the source is refused on the transport -- the refusal
-#: the base fallback covers -- about two minutes in, never after six
-#: attempts that each could trickle for hours.
-HTTP_REQUEST_SLOW_ATTEMPT_CAP = 2
-
 #: The clock the throughput floor reads; named so a twin drives it.
 HTTP_REQUEST_CLOCK = time.monotonic
 
@@ -1523,9 +1515,21 @@ def http_request(url, source, verbose=False, destination=None):
     def abandoned():
         return ea_fallback_choice.fallback_requested(url)
 
+    # Below the throughput floor (#2211, owner 2026-11-24): never a
+    # refusal -- the phase is flagged so the slow-step alert asks "wait
+    # or fall back" at once, the body keeps streaming, and the fact is
+    # logged once per file (a headless run just waits, as before).
+    logged_below = []
+
+    def floor_verdict(below, detail):
+        if below and not logged_below:
+            logged_below.append(True)
+            UI.vprint(1, "    ", source, "download below the speed floor "
+                      "(%s) -- still downloading" % detail)
+        ea_fallback_choice.report_floor(url, source, below, detail)
+
     s = requests.Session()
     tentative = 0
-    slow = 0
     last_failure = None
     last_error = None
     while True:
@@ -1553,13 +1557,16 @@ def http_request(url, source, verbose=False, destination=None):
                 written = None
                 if (destination is not None
                         and outcome == ea_discovery.HTTP_OUTCOME_OK):
-                    # The floor fails an attempt that trickles (#2211).
-                    (status, written) = DOWNLOADS.write_body(
-                        r, destination, lambda: UI.red_flag,
-                        TRANSFER_FLOOR.ThroughputFloor(
-                            clock=lambda: HTTP_REQUEST_CLOCK(),
-                            abandoned=abandoned),
-                        chunk_bytes=TRANSFER_FLOOR.FLOOR_CHUNK_BYTES)
+                    # The floor detects an attempt that trickles (#2211).
+                    try:
+                        (status, written) = DOWNLOADS.write_body(
+                            r, destination, lambda: UI.red_flag,
+                            TRANSFER_FLOOR.ThroughputFloor(
+                                clock=lambda: HTTP_REQUEST_CLOCK(),
+                                abandoned=abandoned, report=floor_verdict),
+                            chunk_bytes=TRANSFER_FLOOR.FLOOR_CHUNK_BYTES)
+                    finally:
+                        ea_fallback_choice.report_floor(url, source, False)
                     if status != DOWNLOADS.READY:
                         return 0
                 elapsed = time.time() - t0
@@ -1614,14 +1621,6 @@ def http_request(url, source, verbose=False, destination=None):
             raise
         except TRANSFER_FLOOR.TransferAbandoned:
             raise _abandoned_refusal(source, url) from None
-        except TRANSFER_FLOOR.TransferTooSlow as e:
-            slow += 1
-            last_failure = "too slow: %s" % e
-            last_error = None
-            UI.vprint(1, "    ", source, "download too slow:", e)
-            if slow >= HTTP_REQUEST_SLOW_ATTEMPT_CAP and not UI.red_flag:
-                raise _transport_refusal(source, url, tentative + 1,
-                                         last_failure, None) from e
         except Exception as e:
             last_failure = "%s: %s" % (type(e).__name__, e)
             last_error = e
@@ -1656,7 +1655,7 @@ def http_request(url, source, verbose=False, destination=None):
 
 def _transport_refusal(source, url, attempts, last_failure, last_error):
     """The :class:`ElevationTransportRefused` :func:`http_request` raises
-    when every attempt failed (or trickled below the floor)."""
+    when every attempt failed."""
     refusal = ElevationTransportRefused(
         "the %s elevation download of %s failed %d times on "
         "the transport (last: %s) -- REFUSING to build this "

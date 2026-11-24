@@ -2,15 +2,19 @@
 
 Measured on the owner's +28+086: the Viewfinderpanoramas archive ran 80+
 minutes and never fell back, because ``O4_DEM_Utils.http_request`` falls
-back only after six FAILED attempts and a trickle never fails.  These
-twins hold the bar:
+back only after six FAILED attempts and a trickle never fails.  The
+owner's ruling (2026-11-24): "The floor seems fine, but ask the user if
+they want to wait or fallback."  These twins hold that bar:
 
-* an attempt below the throughput floor fails (``O4_Transfer_Floor``);
-* two such attempts give the source up as a TRANSPORT refusal, so the
-  configured fallback takes the cell, logged;
-* while the configured source downloads, the slow-step alert offers
-  "Use <fallback> instead" (the first covering ``fallback_rank``), and
-  that answer ends the attempt and takes the fallback at once.
+* the throughput floor (``O4_Transfer_Floor``) DETECTS a body below
+  100 KB/s over 60 s and never fails the transfer;
+* below the floor the base download's phase is flagged, so the
+  slow-step alert asks AT ONCE (before its own thresholds) with
+  Continue / "Use <fallback> instead" / Cancel this tile, while the
+  body keeps streaming;
+* "Use FABDEM instead" ends the attempt and takes the fallback;
+  "Continue" waits for the configured source;
+* with nobody to answer, the download waits as before, logged once.
 
 No network, no wall clock: the session is a fake whose body advances an
 injected clock per chunk.
@@ -56,32 +60,45 @@ def _feed(floor, clock, rate, seconds, step=1.0, received=0):
     return received
 
 
-def test_a_transfer_above_the_floor_never_fails():
+def _floor(clock, **kw):
+    verdicts = []
+    floor = FLOOR.ThroughputFloor(
+        clock=clock, report=lambda below, detail: verdicts.append(
+            (below, detail)), **kw)
+    return floor, verdicts
+
+
+def test_a_transfer_above_the_floor_is_never_reported_below():
     clock = _Clock()
-    floor = FLOOR.ThroughputFloor(clock=clock)
+    floor, verdicts = _floor(clock)
     _feed(floor, clock, 2 * FLOOR.FLOOR_BYTES_PER_SECOND, 600)
+    assert verdicts and not any(below for below, _ in verdicts)
 
 
-def test_a_trickle_fails_after_one_window_not_before():
+def test_a_trickle_is_reported_after_one_window_and_never_raises():
     clock = _Clock()
-    floor = FLOOR.ThroughputFloor(clock=clock)
+    floor, verdicts = _floor(clock)
     rate = FLOOR.FLOOR_BYTES_PER_SECOND / 10
     _feed(floor, clock, rate, FLOOR.FLOOR_WINDOW_SECONDS - 1)
-    with pytest.raises(FLOOR.TransferTooSlow, match="below the 100 KB/s"):
-        clock.now += 1.0
-        floor.chunk(1, 1, 0)
+    assert verdicts == []
+    clock.now += 1.0
+    floor.chunk(1, 1, 0)
+    assert verdicts[0][0] and "the floor is 100 KB/s" in verdicts[0][1]
+    # The floor only detects: the transfer goes on, window after window.
+    _feed(floor, clock, rate, 10 * FLOOR.FLOOR_WINDOW_SECONDS)
+    assert len(verdicts) > 5 and all(below for below, _ in verdicts)
 
 
-def test_a_fast_start_that_then_trickles_still_fails():
+def test_a_fast_start_that_then_trickles_is_reported():
     clock = _Clock()
-    floor = FLOOR.ThroughputFloor(clock=clock)
+    floor, verdicts = _floor(clock)
     received = _feed(floor, clock, 10 * FLOOR.FLOOR_BYTES_PER_SECOND,
                      FLOOR.FLOOR_WINDOW_SECONDS)
-    with pytest.raises(FLOOR.TransferTooSlow):
-        for _ in range(int(FLOOR.FLOOR_WINDOW_SECONDS) + 1):
-            clock.now += 1.0
-            received += 10
-            floor.chunk(10, received, 0)
+    for _ in range(int(FLOOR.FLOOR_WINDOW_SECONDS) + 1):
+        clock.now += 1.0
+        received += 10
+        floor.chunk(10, received, 0)
+    assert [below for below, _ in verdicts] == [False, True]
 
 
 def test_abandoned_ends_the_transfer_at_the_next_chunk():
@@ -143,16 +160,35 @@ def _serve(monkeypatch, answer):
     return session
 
 
-def test_two_trickling_attempts_give_the_source_up_on_the_transport(
+def test_a_trickle_is_never_refused_it_downloads_to_the_end_logged_once(
+        transport, monkeypatch, tmp_path, capsys):
+    chunks = 40      # 16 s each at 1 KB/s: ten windows below the floor
+    session = _serve(monkeypatch, lambda: _Trickle(transport, 1024, chunks))
+    path = tmp_path / "a.zip"
+    assert DEM.http_request(URL, "View", destination=str(path))
+    assert session.calls == 1
+    assert path.stat().st_size == chunks * FLOOR.FLOOR_CHUNK_BYTES
+    said = capsys.readouterr().out
+    assert said.count("below the speed floor") == 1
+    assert "still downloading" in said
+
+
+def test_below_the_floor_flags_the_phase_and_the_flag_comes_down(
         transport, monkeypatch, tmp_path):
-    session = _serve(monkeypatch, lambda: _Trickle(transport, 1024, 10 ** 6))
-    with pytest.raises(DEM.ElevationTransportRefused) as caught:
-        DEM.http_request(URL, "View", destination=str(tmp_path / "a.zip"))
-    assert session.calls == DEM.HTTP_REQUEST_SLOW_ATTEMPT_CAP == 2
-    assert "too slow" in str(caught.value)
-    # One window per attempt plus a chunk: minutes, never hours.
-    assert transport.now < 2 * (FLOOR.FLOOR_WINDOW_SECONDS
-                                + FLOOR.FLOOR_CHUNK_BYTES / 1024)
+    seen = []
+    session = _serve(monkeypatch, lambda: _Trickle(
+        transport, 1024, 12,
+        lambda: seen.append(task_meter.flagged_phase())))
+    with fallback_choice.download_phase("slow.invalid", "Viewfinder",
+                                        "+28+086", "FABDEM"):
+        assert DEM.http_request(URL, "View", destination=str(tmp_path / "a"))
+        assert task_meter.flagged_phase() is None   # the attempt ended
+    assert session.calls == 1
+    flagged = [f for f in seen if f]
+    assert seen[0] is None and flagged     # after one window, not before
+    assert flagged[0]["key"] == fallback_choice.phase_key("slow.invalid")
+    assert "below the speed floor" in flagged[0]["what"]
+    assert flagged[0]["coarser_label"] == "Use FABDEM instead"
 
 
 def test_a_body_above_the_floor_is_kept(transport, monkeypatch, tmp_path):
@@ -248,46 +284,87 @@ def _ensure(providers):
         _Configured(), CONFIGURED, CELL[0], CELL[1], False, providers)
 
 
-def test_a_trickling_source_hands_the_cell_to_fabdem_logged(
+def test_headless_a_trickling_source_keeps_the_cell_and_waits(
         world, monkeypatch, capsys):
-    _serve(monkeypatch, lambda: _Trickle(DEM.HTTP_REQUEST_CLOCK,
-                                         1024, 10 ** 6))
+    """Nobody to answer: the configured source keeps the cell."""
+    _serve(monkeypatch, lambda: _Trickle(DEM.HTTP_REQUEST_CLOCK, 1024, 40))
     assert _ensure(world) == 1
-    assert _Spare.calls == ["FABDEM"]
+    assert _Spare.calls == []
     said = capsys.readouterr().out
-    assert "elevation cell +28+086 taken from FABDEM instead" in said
-    assert "too slow" in said
+    assert said.count("below the speed floor") == 1
+    assert "FABDEM" not in said
 
 
-def test_the_alert_offers_the_fallback_and_its_answer_takes_it(
-        world, monkeypatch):
+def _watch(monkeypatch):
+    """A slow-step watch whose own thresholds never fire: only the
+    phase's flag can raise the alert."""
     sent = []
     watch = slow_step.SlowStepWatch(sent.append)
     monkeypatch.setattr(slow_step.FLOCK, "lock_waits", lambda: [])
     monkeypatch.setattr(slow_step, "_disk_paths", lambda: ())
     monkeypatch.setattr(slow_step.download_meter, "watch_transfers",
                         lambda: True)
-    # The download crawls (rule 1); the alert names the phase's answer.
     monkeypatch.setattr(slow_step.download_meter, "activity", lambda: {
-        "in_flight": 1, "busy_since": 0.0, "bytes": 0, "requests": 0,
-        "last_progress": 0.0, "hosts": {}})
+        "in_flight": 0, "busy_since": None, "bytes": 0, "requests": 0,
+        "last_progress": None, "hosts": {}})
     watch.begin(CELL, "mesh", "mesh", enabled=True, now=0.0)
-    seen = []
+    return watch, sent
 
-    def _user_answers_once():
-        if not seen:
-            event = watch.poll(now=slow_step.STALL_SECONDS)
-            seen.append(event)
-            assert watch.choose(CELL, "coarser")
 
+def _user_answers(watch, choice, polls):
+    """Poll the watch before every chunk (1 s apart on the watch's own
+    clock, far below every threshold); answer ``choice`` on the first
+    alert."""
+    def on_chunk():
+        event = watch.poll(now=float(len(polls) + 1))
+        polls.append(event)
+        if event is not None and not event.resolved and choice:
+            assert watch.choose(CELL, choice)
+    return on_chunk
+
+
+def test_below_the_floor_raises_the_alert_at_once_and_fabdem_takes_it(
+        world, monkeypatch):
+    (watch, sent) = _watch(monkeypatch)
+    polls = []
     _serve(monkeypatch, lambda: _Trickle(DEM.HTTP_REQUEST_CLOCK, 1024,
-                                         10 ** 6, _user_answers_once))
+                                         10 ** 6,
+                                         _user_answers(watch, "coarser",
+                                                       polls)))
     assert _ensure(world) == 1
-    event = seen[0]
-    assert event.reason == "download_stalled"
+    alerts = [e for e in polls if e is not None]
+    event = alerts[0]
+    assert event.reason == "phase_flagged"
+    assert "below the speed floor" in event.message
     assert event.options == ("continue", "coarser", "cancel")
     assert event.option_labels == ("Continue", "Use FABDEM instead",
                                    "Cancel this tile")
     assert _Spare.calls == ["FABDEM"]
-    # Within one attempt: the user's answer, never the floor's verdict.
-    assert DEM.HTTP_REQUEST_CLOCK.now < FLOOR.FLOOR_WINDOW_SECONDS
+    # Right after the first window, on the user's answer -- no refusal.
+    assert len(polls) <= FLOOR.FLOOR_WINDOW_SECONDS / 16 + 2
+
+
+def test_continue_waits_and_the_configured_source_finishes(world,
+                                                           monkeypatch):
+    (watch, sent) = _watch(monkeypatch)
+    polls = []
+    _serve(monkeypatch, lambda: _Trickle(DEM.HTTP_REQUEST_CLOCK, 1024, 40,
+                                         _user_answers(watch, "continue",
+                                                       polls)))
+    assert _ensure(world) == 1
+    alerts = [e for e in polls if e is not None]
+    assert len(alerts) == 1 and alerts[0].reason == "phase_flagged"
+    assert _Spare.calls == []
+    assert len(polls) == 40             # every chunk arrived
+
+
+def test_the_alert_closes_when_the_download_recovers(transport,
+                                                    monkeypatch):
+    (watch, sent) = _watch(monkeypatch)
+    with fallback_choice.download_phase("slow.invalid", "Viewfinder",
+                                        "+28+086", "FABDEM"):
+        fallback_choice.report_floor(URL, "View", True, "1.0 KB/s")
+        assert watch.poll(now=1.0).reason == "phase_flagged"
+        fallback_choice.report_floor(URL, "View", False)
+        assert watch.poll(now=2.0) is None
+    assert sent[-1].resolved

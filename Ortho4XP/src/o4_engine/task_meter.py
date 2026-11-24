@@ -39,8 +39,9 @@ _OVERRUN_REMAINING_FRACTION = 0.5
 
 _lock = threading.Lock()
 # key -> [t0, done_units, total_units, predicted_s, words, last_unit_t];
-# ``words`` is {"what", "why", "reason", "coarser"} as :func:`begin` was
-# given them, ``last_unit_t`` when a unit last completed (``t0`` before
+# ``words`` is {"what", "why", "reason", "coarser", "coarser_label"} as
+# :func:`begin` was given them (plus :func:`flag_stuck`'s "flag"),
+# ``last_unit_t`` when a unit last completed (``t0`` before
 # the first) -- what :func:`idlest_phase` reads for a hang (#1351).
 _active: dict = {}
 # Phases whose remaining units the user asked to finish on coarser data.
@@ -92,6 +93,41 @@ def advance(key: str, done_units: int) -> None:
                 entry[1] = done
     except Exception:
         pass
+
+
+def flag_stuck(key: str, what: str = "", why: str = "") -> None:
+    """The phase says it is stuck NOW, in its own words (#2211: the base
+    download below the throughput floor): the slow-step alert reads it
+    through :func:`flagged_phase` and asks at once, before any of its
+    own thresholds.  Empty ``what`` takes the flag down (the transfer
+    recovered or the attempt ended)."""
+    try:
+        with _lock:
+            entry = _active.get(key)
+            if entry is not None:
+                entry[4]["flag"] = (str(what), str(why)) if what else None
+    except Exception:
+        pass
+
+
+def flagged_phase() -> Optional[dict]:
+    """An active phase that :func:`flag_stuck` flagged: ``{"key",
+    "what", "why", "coarser", "coarser_label"}`` with the FLAG's words,
+    or ``None``."""
+    try:
+        with _lock:
+            for key, entry in sorted(_active.items()):
+                words = entry[4]
+                if words.get("flag"):
+                    return {"key": key, "what": words["flag"][0],
+                            "why": words["flag"][1],
+                            "coarser": (words["coarser"]
+                                        and key not in _coarser),
+                            "coarser_label": words.get("coarser_label",
+                                                       "")}
+        return None
+    except Exception:
+        return None
 
 
 def end(key: str) -> None:

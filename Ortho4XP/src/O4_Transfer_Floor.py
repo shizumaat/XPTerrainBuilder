@@ -5,12 +5,14 @@ a transfer FAIL: every read returns before the socket's timeout, so a
 retry loop that counts failed attempts never gets to its fallback
 (measured: a Viewfinderpanoramas base archive ran 80+ min this way).
 :class:`ThroughputFloor` is the download manager's
-:class:`~O4_Download_Manager.Watcher` that makes such an attempt fail:
-over each window of :data:`FLOOR_WINDOW_SECONDS` the body must move at
-least :data:`FLOOR_BYTES_PER_SECOND`, or the next chunk raises
-:class:`TransferTooSlow`.  ``abandoned`` (optional) is asked at every
-chunk too: true raises :class:`TransferAbandoned` -- the user chose
-another source for this transfer.
+:class:`~O4_Download_Manager.Watcher` that DETECTS such a transfer: at
+the end of each window of :data:`FLOOR_WINDOW_SECONDS` it tells
+``report(below, detail)`` whether the body moved below
+:data:`FLOOR_BYTES_PER_SECOND`.  It never fails the transfer itself --
+the owner's ruling (2026-11-24): below the floor the user is ASKED
+whether to wait or fall back, and the download goes on meanwhile.
+``abandoned`` (optional) is asked at every chunk: true raises
+:class:`TransferAbandoned` -- the user chose another source.
 
 The clock is injected, so a twin proves the floor without waiting it
 out.  The verdict lands at a chunk boundary, so a caller that wants it
@@ -25,11 +27,10 @@ from typing import Callable, Optional
 import O4_Download_Manager as DOWNLOADS
 
 __all__ = ["FLOOR_BYTES_PER_SECOND", "FLOOR_CHUNK_BYTES",
-           "FLOOR_WINDOW_SECONDS", "ThroughputFloor", "TransferAbandoned",
-           "TransferTooSlow"]
+           "FLOOR_WINDOW_SECONDS", "ThroughputFloor", "TransferAbandoned"]
 
 #: The slowest a body may move, averaged over one window (owner bar on
-#: #2211: "< 100 KB/s over 60 s" fails the attempt).
+#: #2211: "< 100 KB/s over 60 s" is below the floor).
 FLOOR_BYTES_PER_SECOND = 100 * 1024
 FLOOR_WINDOW_SECONDS = 60.0
 
@@ -39,29 +40,32 @@ FLOOR_WINDOW_SECONDS = 60.0
 FLOOR_CHUNK_BYTES = 16 * 1024
 
 
-class TransferTooSlow(OSError):
-    """The body moved below the floor for a whole window."""
-
-
 class TransferAbandoned(OSError):
     """The caller's ``abandoned`` came true while the body streamed."""
 
 
-class ThroughputFloor(DOWNLOADS.Watcher):
-    """Fails a streamed transfer that moves below the floor.
+def _never_mind(below: bool, detail: str) -> None:
+    pass
 
-    Windows are back to back: each starts where the last passed, so a
+
+class ThroughputFloor(DOWNLOADS.Watcher):
+    """Reports, window by window, whether a streamed transfer moves
+    below the floor.
+
+    Windows are back to back: each starts where the last ended, so a
     server that stalls after a fast start is still caught one window
-    later."""
+    later, and one that recovers is reported above the floor again."""
 
     def __init__(self, floor_bytes_per_second: float = FLOOR_BYTES_PER_SECOND,
                  window_seconds: float = FLOOR_WINDOW_SECONDS,
                  clock: Callable[[], float] = time.monotonic,
-                 abandoned: Optional[Callable[[], bool]] = None):
+                 abandoned: Optional[Callable[[], bool]] = None,
+                 report: Callable[[bool, str], None] = _never_mind):
         self._floor = float(floor_bytes_per_second)
         self._window = float(window_seconds)
         self._clock = clock
         self._abandoned = abandoned
+        self._report = report
         self._window_t0: Optional[float] = None
         self._window_bytes = 0
 
@@ -81,9 +85,9 @@ class ThroughputFloor(DOWNLOADS.Watcher):
         if elapsed < self._window:
             return
         rate = (received - self._window_bytes) / elapsed
-        if rate < self._floor:
-            raise TransferTooSlow(
-                "the body moved %.1f KB/s over %.0f s, below the %.0f KB/s "
-                "floor (%d bytes received)"
-                % (rate / 1024.0, elapsed, self._floor / 1024.0, received))
+        self._report(
+            rate < self._floor,
+            "%.1f KB/s over %.0f s, the floor is %.0f KB/s (%d bytes "
+            "received)" % (rate / 1024.0, elapsed, self._floor / 1024.0,
+                           received))
         (self._window_t0, self._window_bytes) = (now, received)

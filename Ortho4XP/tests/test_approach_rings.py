@@ -2094,3 +2094,34 @@ def test_use_coarser_data_leaves_the_remaining_cells_on_the_base(
     assert sorted(outcomes.values()) == ["ok"]
     # the phase is over: its request does not outlive it
     assert not task_meter.coarser_requested(RINGS.APPROACH_RING_PHASE)
+
+
+def test_the_neighbour_aerodromes_are_read_once_per_prep(tmp_path, monkeypatch):
+    """2026-11-24 (lane lvector): the DEM prep resolves the ring plan three
+    times; inside ``neighbour_boundaries_read_once`` the neighbours' cached
+    layers are parsed once, a layer that changed is read again, each call
+    gets its own containers, and outside the block nothing is kept."""
+    reads = []
+    layer = tmp_path / "airports.osm.bz2"
+    layer.write_bytes(b"one")
+    monkeypatch.setattr(FNAMES, "osm_cached", lambda lat, lon, kind: str(layer))
+    monkeypatch.setattr(
+        RINGS, "_read_neighbour_boundary_polygons",
+        lambda lat, lon, reach: reads.append((lat, lon, reach))
+        or ({"KAAA@+33-113": geometry.Point(0, 0)}, ["+32-112"]))
+
+    with RINGS.neighbour_boundaries_read_once():
+        first = RINGS._neighbour_boundary_polygons(33, -112, 5000.0)
+        first[0].clear()
+        first[1].append("mutated")
+        second = RINGS._neighbour_boundary_polygons(33, -112, 5000.0)
+        assert len(reads) == 1
+        assert list(second[0]) == ["KAAA@+33-113"] and second[1] == ["+32-112"]
+        RINGS._neighbour_boundary_polygons(33, -113, 5000.0)
+        assert len(reads) == 2
+        layer.write_bytes(b"changed layer")
+        RINGS._neighbour_boundary_polygons(33, -112, 5000.0)
+        assert len(reads) == 3
+    RINGS._neighbour_boundary_polygons(33, -112, 5000.0)
+    RINGS._neighbour_boundary_polygons(33, -112, 5000.0)
+    assert len(reads) == 5

@@ -2717,8 +2717,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.pipeline.prefix import PackRead
         from prefix_twice_arm import prefix_twice as _twice
         return {"prefix_twice": _twice(icao, airport, cl, law, inputs,
-                                       PackRead(_objs, _orep, _ocache),
-                                       memo=prefix_twice == "on")}
+                                       PackRead(_objs, _orep, _ocache))}
     if late is None:
         return _rest(cl)
     # spec §55 (4) THE LAST STAGE — the build's own function
@@ -3363,10 +3362,10 @@ def main() -> int:
                     help="with --roles-against: a ref that must stay apron "
                          "(an owner-ruled apron); any flip of it is printed")
     ap.add_argument("--replay", type=Path, metavar="PKL")
-    ap.add_argument("--prefix-twice", choices=("on", "off"), default=None,
+    ap.add_argument("--prefix-twice", choices=("off",), default=None,
                     help="#2206: with --from classify, run the build's prefix on the base "
-                         "classification then the whole one in one process, the front memo "
-                         "on (a build) or off; print the clocks, the memo outcomes and the "
+                         "classification then the whole one in one process (no front memo: "
+                         "deleted in step 1); print the clocks and the "
                          "late map's digest, and solve nothing (tools/prefix_twice_arm.py)")
     ap.add_argument("--from", dest="resume",
                     choices=("constraints", "shapes", "planar", "classify"),

@@ -49,6 +49,12 @@ at KATL.
   off. If Step 0 shows the value key differs at most airports, delete the memo instead
   (`planar/arrangement_memo.py`, `overlay.py:330-334, 550-556`, the decorator at `build.py:494`).
   Expected: about 19 % of a late derive [E]; HECA about 40 s.
+  **Done (lane lmemo, 2026-11-23): the memo is DELETED, the fallback.** Step 0 measured that it serves
+  no late derive (KBUF and KATL record `[computed, held_other_airport]`), and lane lexact's arm made to
+  serve at KATL changed the late map by value (vertices `d55585ecc7ed` vs `a9e766dafb04`): dead weight
+  that would break the output if it ever served. Removed `planar/arrangement_memo.py`, its read and hold
+  in `planar/overlay.py`, the `scoped` decorator on `pipeline/build.build`, `prefix_clocks["front_memo"]`
+  and its test; `--prefix-twice` keeps only `off`. Bodies byte-identical at KBUF and KRDU.
 - **Step 2, one crossing decision per build.** Targets `planar/build.py:415-418`,
   `planar/deck_takeover.py:952`, `planar/deck_pack_cover.py:107` (`_cover_plan`, 109 calls of 0.33 s at
   KATL). Write the consumer census of what `decide_crossings` reads of the classification first, then

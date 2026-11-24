@@ -469,3 +469,41 @@ def test_a_prefix_rerun_goes_through_every_record_and_equals_cold(tmp_path):
                 "jetway_strip@prefix1"} <= set(st)
         assert got[1] == cold[1] and got[2] == cold[2]
         assert fc.tag == ""
+
+
+# ── #2206 D1: a served generator carries what it wrote into the registries ──
+
+def _held_after(world, root: Path) -> tuple[dict, dict[str, str]]:
+    law, airport, cl, pm = world
+    pm = pickle.loads(pickle.dumps(pm))
+    fc = FC.FrontCache(ICAO, airport, law, enabled=True, mod_cache_root=str(root))
+    airport = fc.airport(airport)
+    stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
+    CR.constraints_stage(fc, stage.pm, law, airport, stage, INPUTS, [])
+    return stage.pm.registries.held, _states(fc.finish())
+
+
+def test_a_served_generator_installs_its_registry_writes(world, tmp_path, monkeypatch):
+    """The solve re-runs on a served constraint stage: the pad's contacts
+    must be there, and a generator re-run after a served one reads them."""
+    (n0, f0), (n1, f1) = GENERATORS[0], GENERATORS[1]
+
+    def writer(planar, law, airport):
+        planar.registries.held.setdefault("pad", {})["hold_contacts"] = [(7, None)]
+        return f0(planar, law, airport)
+
+    def reader(planar, law, airport):
+        h = planar.registries.held["pad"]
+        h["read_back"] = list(h["hold_contacts"])
+        return f1(planar, law, airport)
+    monkeypatch.setattr(CR, "GENERATORS", ((n0, writer), (n1, reader), *GENERATORS[2:]))
+    cold, _ = _held_after(world, tmp_path)
+    assert cold["pad"] == {"hold_contacts": [(7, None)], "read_back": [(7, None)]}
+    warm, st = _held_after(world, tmp_path)
+    assert st[f"constraints.gen.{n0}"] == st[f"constraints.gen.{n1}"] == "hit"
+    assert SC.value_digest(warm) == SC.value_digest(cold)
+    for p in tmp_path.rglob(f"o4_stage_*constraints.gen.{n1}_*.cache"):
+        p.unlink()
+    partial, st = _held_after(world, tmp_path)
+    assert st[f"constraints.gen.{n0}"] == "hit" and st[f"constraints.gen.{n1}"] == "miss"
+    assert SC.value_digest(partial) == SC.value_digest(cold)

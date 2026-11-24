@@ -386,3 +386,38 @@ def test_t5b_the_airport_digest_is_the_same_in_two_processes(tmp_path):
     assert one and one == run("o", "2", tmp_path / "b"), \
         "one airport, two hash seeds, two temp dirs: one digest"
     assert run("q", "1", tmp_path / "a") != one, "a changed placement name moves it"
+
+
+# ── #2205: equal inputs name their records alike ─────────────────────────
+
+def test_an_equal_output_is_named_alike_whatever_it_shares():
+    """A recomputed output (a resume) equals the killed run's but shares
+    objects differently: its name must not follow the pickle's memo."""
+    shared = ["road", 1.5]
+    a, b = {"x": shared, "y": shared}, {"x": ["road", 1.5], "y": ["road", 1.5]}
+    (blob_a, name_a), (blob_b, name_b) = SC.encode(a), SC.encode(b)
+    assert blob_a != blob_b and name_a == name_b
+
+
+def test_a_view_leaves_a_stage_clock_out_of_its_name():
+    view = lambda o: o["answer"]
+    assert (SC.encode({"answer": [1, 2], "wall_s": 0.1}, view)[1]
+            == SC.encode({"answer": [1, 2], "wall_s": 9.9}, view)[1])
+    assert (SC.encode({"answer": [1, 2], "wall_s": 0.1}, view)[1]
+            != SC.encode({"answer": [1, 3], "wall_s": 0.1}, view)[1])
+
+
+def test_the_machine_memory_ledger_is_no_file_witness(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger"
+    ledger.mkdir()
+    (ledger / "state.json").write_text("{}")
+    (tmp_path / "input.txt").write_text("x")
+    monkeypatch.setenv("O4_MACHINE_LEDGER_DIR", str(ledger))
+    rec = FW.FileRecorder()
+    rec.recording(True)
+    try:
+        (ledger / "state.json").read_text()
+        (tmp_path / "input.txt").read_text()
+    finally:
+        rec.recording(False)
+    assert set(rec.record()) == {os.path.abspath(tmp_path / "input.txt")}

@@ -64,6 +64,7 @@ import numpy as np
 import shapely
 from shapely import STRtree
 
+from ..geom.line_walk import points_along as _points_along
 from ..geom.plane_groups import plane_groups as _plane_groups
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -160,13 +161,14 @@ def _ring_samples(foot, step: float) -> np.ndarray:
     """``foot``'s outline sampled every ``step`` (at most): ``n`` points at
     the middles of ``n`` equal runs of its boundary -- read ONCE per floor,
     every mate's :func:`_on_ring` and :func:`_hung` ask the same points
-    (#2206: re-interpolated per mate on a long ring, HECA 103 s)."""
+    (#2206: re-interpolated per mate on a long ring, HECA 103 s), walked
+    in ONE pass (``geom/line_walk``, GEOS's points bit for bit)."""
     ring = foot.boundary
     L = ring.length
     if L <= 0.0:
         return np.empty(0, dtype=object)
     n = max(1, int(math.ceil(L / step)))
-    return shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (L / n))
+    return _points_along(ring, (np.arange(n) + 0.5) * (L / n))
 
 
 def _on_ring(pts: np.ndarray, walls, tk: float) -> tuple[float, "float | None"]:

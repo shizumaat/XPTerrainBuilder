@@ -13,7 +13,6 @@ triangles in mesh order.
 from __future__ import annotations
 
 import numpy
-
 import O4_Geo_Arrays as GEO_ARRAYS
 
 __all__ = ["water_tris_by_square"]

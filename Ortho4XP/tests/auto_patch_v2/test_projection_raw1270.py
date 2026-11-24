@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import numpy as np
 import scipy.sparse as sp
-
 from auto_patch_v2.solve.rows import _one_matrix, _Reduction
 
 

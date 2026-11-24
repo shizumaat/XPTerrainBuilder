@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pytest
 import scipy.sparse as sp
-
 from auto_patch_v2.solve import design_qp, round_normal
 from auto_patch_v2.solve.linear import _linear_solve
 from auto_patch_v2.solve.round_normal import Prefix, RoundNormal

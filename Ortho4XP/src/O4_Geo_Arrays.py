@@ -11,7 +11,6 @@ answers for that element.
 from __future__ import annotations
 
 import numpy
-
 import O4_Geo_Utils as GEO
 
 __all__ = ["wgs84_to_orthogrid"]

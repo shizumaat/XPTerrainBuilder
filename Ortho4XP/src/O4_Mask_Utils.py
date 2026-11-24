@@ -23,6 +23,7 @@ import O4_Imagery_Utils as IMG
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_Triangle_Run as TRIANGLE_RUN
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mesh_IO as MESH_IO
 import O4_Mask_Water_Squares as WATER_SQUARES
 import O4_Unpatched_Airports as UNPATCHED
@@ -80,10 +81,13 @@ SHALLOW_WATER_CACHE_SCHEMA = "margin-0.5"
 BATHYMETRY_COVERAGE_FADE_M = 150.0
 # Mask workers spend nearly all their time in GIL-releasing numpy/scipy/PIL
 # calls (profiled 2026-07-15), so threads scale with cores; capped to keep
-# the per-worker image working set (a few hundred MB) in check.  Full width
-# even under concurrent tile builds (2026-07-17 ruling: the operating
-# system arbitrates processor contention).
+# the per-worker image working set (a few hundred MB) in check.  Each
+# worker past the first holds a machine slot (#1225; RULINGS 2026-10-22l:
+# slots are demand-allocated and returned promptly), which replaced the
+# 2026-07-17 full-width rule.
 masks_build_slots = max(2, min(12, (os.cpu_count() or 4) - 2))
+#: The memory a mask worker's slot reserves on the machine ledger.
+MASK_WORKER_GB = 1.0
 
 ################################################################################
 def mask_name_for_texture(tile, til_x_left, til_y_top, zl, *args):
@@ -543,8 +547,17 @@ def build_masks(tile, for_imagery=False):
             masks_queue.put(key)
     dico_progress = {"done": 0, "bar": 1}
 
-    parallel_execute(build_mask, masks_queue, masks_build_slots,
-                     progress=dico_progress)
+    # The step's own slot covers one mask worker; each other one is a
+    # machine slot of its own, never more than there are squares, given
+    # back after the join (#1225, #2269).  The workers are threads whose
+    # numpy/scipy work releases the GIL (measured on +37-009: 59
+    # thread-seconds in 6 s of wall), about 0.3 GB each (the masks
+    # step's 3.7 GB peak with twelve on +21-087).
+    workers = max(1, min(masks_build_slots, masks_queue.qsize()))
+    with MACHINE_SLOTS.try_take(workers - 1, gb=MASK_WORKER_GB,
+                                what="mask workers") as extra:
+        parallel_execute(build_mask, masks_queue, 1 + extra.count,
+                         progress=dico_progress)
 
     UI.progress_bar(1, 100)
     UI.timings_and_bottom_line(timer)

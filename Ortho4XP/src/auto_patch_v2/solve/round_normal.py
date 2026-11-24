@@ -87,8 +87,11 @@ class RoundNormal:
 
     def __init__(self, pre: Prefix, W: sp.csr_matrix, bW: np.ndarray,
                  U: sp.csr_matrix | None, low_rank: str,
-                 pool: _t.Any = None, workers: int = 1) -> None:
+                 pool: _t.Any = None, workers: int = 1, factor=_factor) -> None:
         self.pre, self.W, self.bW = pre, W, bW
+        #: each try's factorisation (``fill_order.factor_in_order`` in a
+        #: QP's ordered columns)
+        self.factor = factor
         self.n = n = int(pre.A0.shape[1])
         self.U, self.low_rank = U, low_rank
         #: row i: ``1`` at the partial sum's column i, then W's column i
@@ -138,7 +141,7 @@ class RoundNormal:
         U = self.U
         if self.dpos is None:            # a column with no diagonal yet
             back = _normal_back(_floored(self._off() + sp.diags(dg, format="csc")),
-                                U, self.low_rank)
+                                U, self.low_rank, self.factor)
         else:
             # ``linear._floored``: its ε from this diagonal, added by the
             # binop's own ``a + b``
@@ -147,7 +150,7 @@ class RoundNormal:
                 data, indices, indptr, dslot, nb = self.border
                 data = data.copy()
                 data[dslot] = md
-                lu = _factor(sp.csc_matrix((data, indices, indptr), shape=(nb, nb)))
+                lu = self.factor(sp.csc_matrix((data, indices, indptr), shape=(nb, nb)))
 
                 def back(r: np.ndarray, rc: np.ndarray) -> np.ndarray:
                     return np.asarray(lu.solve(np.concatenate([r, rc]))[:n], float)
@@ -155,7 +158,8 @@ class RoundNormal:
                 data = self.N.data.copy()
                 data[self.dpos] = md
                 back = _normal_back(sp.csc_matrix((data, self.N.indices, self.N.indptr),
-                                                  shape=(n, n)), U, self.low_rank)
+                                                  shape=(n, n)), U, self.low_rank,
+                                    self.factor)
         x0 = np.asarray(x0, float)
         pre = self.pre
         r_lam = root * x0 - (root * sp.identity(n, format="csr")) @ x0   # ±0

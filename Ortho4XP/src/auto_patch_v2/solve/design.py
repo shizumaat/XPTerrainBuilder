@@ -71,6 +71,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
+from .fill_order import ColumnOrder
 from .warm_seed import WarmSeed
 from .feasibility import (LpMemo, _carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
                           promote_missed, published, publish_stages, runway_after,
@@ -722,6 +723,9 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     def _settled(x_):    # §30 (3c): ONE derivation, ``design_report.settled_flip``
         return settled_flip(A1 @ x_ - (b1 - shift), tol, active)
 
+    #: #1270: the stage's one fill-reducing column order (``solve/fill_order``)
+    order = ColumnOrder()
+
     def _inner_qp(x0: np.ndarray | None) -> np.ndarray:
         """§20c: the SAME one-sided problem at the CURRENT multipliers,
         solved to its unique optimum (``solve/design_qp.py``) instead of
@@ -735,7 +739,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               solver_max_iter=int(d.solver_max_iter),
                               low_rank=low_rank,
                               rel_tol=float(d.qp_rel_tol), active_tol=0.0,
-                              verbose=opt.verbose)
+                              order=order, verbose=opt.verbose)
         t_solver += time.perf_counter() - t1
         active_i = np.flatnonzero(A1 @ res.x - (b1 - shift) > tol)
         active = set(active_i.tolist())

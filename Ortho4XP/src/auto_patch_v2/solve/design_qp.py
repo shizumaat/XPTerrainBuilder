@@ -79,6 +79,7 @@ import scipy.sparse as sp
 # solver below is the module's own — see the docstring's deviation.
 import highspy  # noqa: F401
 
+from .fill_order import ColumnOrder, factor_in_order
 from .linear import RowBlocks, _linear_solve, _objective
 from .round_normal import Prefix, RoundNormal
 
@@ -147,6 +148,7 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
                     U: sp.csr_matrix | None, c: np.ndarray | None,
                     *, method: str, solver_tol: float, solver_max_iter: int,
                     low_rank: str, rel_tol: float, active_tol: float = 0.0,
+                    order: ColumnOrder | None = None,
                     verbose: bool = False) -> QPResult:
     """Minimise ``F`` (module docstring) to its unique optimum.
 
@@ -165,7 +167,37 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     ``rel_tol`` is ``[design] qp_rel_tol`` (§61 (4)): the iteration is
     CONVERGED when one accepted step buys less than it, relative to the
     objective — a convex C¹ function at its minimum buys nothing.
+
+    ``order`` is the stage's :class:`~.fill_order.ColumnOrder` (#1270): the
+    descent runs in its ordered columns, taken from this QP's first active
+    set when the stage holds none (a QP alone orders by its own).
     """
+    t0 = time.perf_counter()
+    solves = 0
+    if x0 is None:                       # the cold start: no active set yet
+        x0 = _linear_solve(A0, b0, None, method, solver_tol, solver_max_iter,
+                           U, c, low_rank)
+        solves = 1
+    x0 = np.asarray(x0, float)
+    order = ColumnOrder() if order is None else order
+    if not order.holds(int(A0.shape[1])):
+        order.take(A0, A1, np.flatnonzero(A1 @ x0 - (b1 - shift) > active_tol))
+    res = _descend(order.relabel(A0), b0, order.relabel(A1), b1, w_row, shift,
+                   x0[order.q], order.relabel(U, sort=True), c, method=method,
+                   solver_tol=solver_tol, solver_max_iter=solver_max_iter,
+                   low_rank=low_rank, rel_tol=rel_tol, active_tol=active_tol,
+                   verbose=verbose)
+    return res._replace(x=res.x[order.at], solves=res.solves + solves,
+                        wall_s=time.perf_counter() - t0)
+
+
+def _descend(A0: sp.csr_matrix, b0: np.ndarray, A1: sp.csr_matrix, b1: np.ndarray,
+             w_row: np.ndarray, shift: np.ndarray, x0: np.ndarray,
+             U: sp.csr_matrix | None, c: np.ndarray | None, *, method: str,
+             solver_tol: float, solver_max_iter: int, low_rank: str, rel_tol: float,
+             active_tol: float, verbose: bool) -> QPResult:
+    """:func:`solve_one_sided`'s descent from ``x0``, in the ordered columns
+    (each try's factorisation in the order the columns already have)."""
     t0 = time.perf_counter()
     nc = A0.shape[1]
     bb = b1 - shift
@@ -198,9 +230,7 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         r = np.maximum(a1x(x) - bb, 0.0)
         return g + 2.0 * (A1T @ (w_row * r))
 
-    def active(x: np.ndarray | None) -> np.ndarray:
-        if x is None:
-            return np.zeros(0, dtype=np.int64)
+    def active(x: np.ndarray) -> np.ndarray:
         sel = A1_rows.above(a1x(x), bb, active_tol)
         a1x_of.clear()       # the next products are the next round's
         return sel
@@ -231,33 +261,25 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         W = (sp.diags(sw[sel]) @ A1[sel]).tocsr() if sel.size else \
             sp.csr_matrix((0, nc))
         this_round["rn"] = RoundNormal(this_round["pre"], W, sw[sel] * bb[sel], Uk,
-                                       low_rank, norm_pool, _NORMAL_WORKERS)
+                                       low_rank, norm_pool, _NORMAL_WORKERS,
+                                       factor_in_order)
 
-    def step(x: np.ndarray | None, lam: float,
-             sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:
-        """The active set's own subproblem, PROXIMAL at ``x`` (``sel`` its
-        active rows when the caller already read them off ``x``)."""
-        if sel is None:
-            sel = active(x)
+    def step(x: np.ndarray, lam: float, sel: np.ndarray) -> tuple[np.ndarray, int]:
+        """The active set ``sel``'s own subproblem, PROXIMAL at ``x``."""
         rn = this_round.get("rn")
-        if rn is not None and x is not None and lam > 0.0:
+        if rn is not None:
             return rn.solve(x, lam, None if Uk is None else c), int(sel.size)
         blocks, rhs = stack(sel)
-        if x is not None and lam > 0.0:
-            root = float(np.sqrt(lam))
-            blocks.append(root * eye)
-            rhs.append(root * x)
-        A = sp.vstack(blocks, format="csr") if len(blocks) > 1 else A0
-        b = np.concatenate(rhs) if len(rhs) > 1 else b0
+        root = float(np.sqrt(lam))
+        blocks.append(root * eye)
+        rhs.append(root * x)
+        A = sp.vstack(blocks, format="csr")
+        b = np.concatenate(rhs)
         return (_linear_solve(A, b, x, method, solver_tol, solver_max_iter,
                               U, c, low_rank), int(sel.size))
 
     solves = 0
-    if x0 is None:                       # the cold start: no active set yet
-        x, _n = step(None, 0.0)
-        solves += 1
-    else:
-        x = np.asarray(x0, float).copy()
+    x = np.asarray(x0, float).copy()
     f = F(x)
     lam = _LAMBDA0
     status = "round_cap"

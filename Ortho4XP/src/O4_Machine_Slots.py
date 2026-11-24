@@ -108,7 +108,7 @@ __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
            "ensure_session", "has_net_priority", "hold_class", "lend", "lend_step",
            "SLOT_WAIT_TTL_S", "background_thread", "name_process",
-           "lower_this_thread", "process_name", "slot_waiters",
+           "lower_this_thread", "process_name", "slot_waiters", "want_slot",
            "release_os_lock", "retake_step", "try_os_lock",
            "background_priority", "lower_priority", "machine_verdict",
            "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
@@ -262,6 +262,8 @@ class Held:
         self._fds = list(fds)
         self.gb = float(gb)
         self._reservation = reservation
+        #: what the slots are for (a step's label, :func:`step`)
+        self.what = ""
         #: each slot's holder label file (:func:`_slot_holders`), or ""
         self._who = list(who) if who is not None else [""] * len(self._fds)
 
@@ -555,8 +557,20 @@ def _holders_text() -> str:
 
 
 def slot_waiters() -> int:
-    """How many :func:`take` calls of the session wait for a slot now."""
+    """How many requests of the session wait for a slot now (a waiting
+    :func:`take`, or a caller that said so with :func:`want_slot`)."""
     return _demand_count(ensure_session()[0], SLOT_WAIT_TTL_S)
+
+
+def want_slot(wants: bool = True) -> None:
+    """THIS thread waits for a slot (``wants``: refresh its mark at least
+    every :data:`SLOT_WAIT_TTL_S`) or no longer does — for a caller that
+    polls :func:`try_take` itself (the airport queue), so pools yield to
+    it as they do to a waiting :func:`take`."""
+    if wants:
+        _note_demand(ensure_session()[0])
+    else:
+        _drop_demand(ensure_session()[0])
 
 
 #: one log line, never raising (the ledger's own)
@@ -580,24 +594,31 @@ def step(*, on_wait=None, give_up=None, gb: "float | None" = None,
         yield _STEP[0]
         return
     what = what or "this step"
-    began = [None]
-
-    def waits() -> None:
-        # #2267: one line when the step waits, naming the holders
-        began[0] = time.monotonic()
-        _say("Machine slots: %s waits for a slot — %s." % (what, _holders_text()))
-        if on_wait is not None:
-            on_wait()
-    held = take(1, on_wait=waits, give_up=give_up, gb=gb, what=what)
-    if began[0] is not None and held.count:
-        _say("Machine slots: %s starts after %.0f s waiting for a slot."
-             % (what, time.monotonic() - began[0]))
+    held = _said_take(what, "starts", on_wait=on_wait, give_up=give_up, gb=gb)
+    held.what = what
     _STEP.append(held)
     try:
         yield held
     finally:
         _STEP.clear()
         held.release()
+
+
+def _said_take(what: str, then: str, *, on_wait=None, **kw) -> Held:
+    """:func:`take` of one slot for a step, saying so when it waits (#2267):
+    one line naming the holders, one when the step ``then``-s."""
+    began = [None]
+
+    def waits() -> None:
+        began[0] = time.monotonic()
+        _say("Machine slots: %s waits for a slot — %s." % (what, _holders_text()))
+        if on_wait is not None:
+            on_wait()
+    held = take(1, on_wait=waits, what=what, **kw)
+    if began[0] is not None and held.count:
+        _say("Machine slots: %s %s after %.0f s waiting for a slot."
+             % (what, then, time.monotonic() - began[0]))
+    return held
 
 
 @contextlib.contextmanager
@@ -628,7 +649,8 @@ def retake_step(held: "Held | None", *, give_up=None) -> None:
     ``give_up()`` true ends the wait: the step goes on holding none."""
     if held is None:
         return
-    again = take(1, gb=held.gb, what="this step", give_up=give_up)
+    again = _said_take(getattr(held, "what", "") or "this step", "goes on",
+                       gb=held.gb, give_up=give_up)
     held._fds, again._fds = again._fds, []         # the step owns it again
     held._who, again._who = again._who, []
     held._reservation, again._reservation = again._reservation, None

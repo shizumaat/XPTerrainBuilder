@@ -44,6 +44,7 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                 held = _SLOTS.try_take(
                     1, what=label(queue[0]) if label is not None else "")
                 if not held.count:
+                    _SLOTS.want_slot()          # pools yield to it (#2267)
                     break
                 task = queue.pop(0)
                 try:
@@ -52,6 +53,8 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                     held.release()
                     raise
                 running[future] = (executor, held, task)
+            if not queue or len(running) >= width:
+                _SLOTS.want_slot(False)         # nothing of it waits now
             if queue and not running and not said and on_wait is not None:
                 said = True
                 on_wait()
@@ -74,6 +77,7 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                     held.release()
                 on_done(task, future)
     finally:
+        _SLOTS.want_slot(False)
         for future, (executor, held, task) in running.items():
             try:
                 teardown(executor, future, task)

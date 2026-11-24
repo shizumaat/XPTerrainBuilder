@@ -445,3 +445,44 @@ def test_a_step_that_never_waits_says_nothing(session, monkeypatch):
     with SLOTS.step(what="tile +36-008 masks step"):
         pass
     assert lines == []
+
+
+def test_a_step_retaking_its_lent_slot_says_it_waits_too(session, monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    with SLOTS.step(what="tile +21-087 vector step"):
+        lent = SLOTS.lend_step()                       # its airports build
+        airport = SLOTS.try_take(1, what="airport ZZZZ")
+        t = threading.Thread(target=SLOTS.retake_step, args=(lent,))
+        t.start()
+        assert _until(lambda: lines)
+        airport.release()
+        t.join(10)
+        assert lent.count == 1                         # the step owns it again
+    assert lines[0] == ("Machine slots: tile +21-087 vector step waits for a "
+                        "slot — 1 of 1 held: airport ZZZZ 1.")
+    assert lines[1].startswith("Machine slots: tile +21-087 vector step goes on after ")
+
+
+def test_a_queued_airport_is_a_waiter_the_pools_see(session):
+    import concurrent.futures as cf
+    from auto_patch import slot_gated_pool as GATED
+    session(1)
+    hold = SLOTS.try_take(1, what="airport ZZZA pool")
+    seen = []
+
+    def start(task):
+        f = cf.Future()
+        f.set_result(task)
+        return None, f
+
+    def tick():
+        seen.append(SLOTS.slot_waiters())
+        if len(seen) == 2:
+            hold.release()                             # the pool yields its slot
+    GATED.run(["ZZZB"], width=1, start=start, on_done=lambda t, f: None,
+              teardown=lambda e, f, t: None, on_tick=tick, poll_s=0.01,
+              label=lambda t: "airport " + t)
+    assert seen[0] == 1                                # it waited, and said so
+    assert SLOTS.slot_waiters() == 0                   # and no longer does

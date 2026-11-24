@@ -1070,3 +1070,41 @@ def test_two_cutters_racing_one_destination_both_succeed_when_held(
     assert injected <= len(windows_replace["attempts"]) <= bound
     assert all(queue == [] for queue in
                windows_replace["per_thread"].values())
+
+
+# ---------------------------------------------------------------------------
+# #2269: the tag-driven selection (C++ key/id prefilters) emits the bytes
+# of the node-by-node selection pass for every closure case.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("statements", _QUERY_SETS + (
+    ['node["aeroway"]', 'way["aeroway"]', 'rel["aeroway"]'],
+    ['way["leisure"="park"]', 'rel["type"="route"]'],
+    ['way["natural"="reef"]', 'relation["natural"="reef"]'],
+))
+@pytest.mark.parametrize("boxes", (BBOX, [(0.0, 0.0, 0.45, 0.45),
+                                          (0.55, 0.55, 1.0, 1.0)]))
+def test_tag_driven_selection_is_byte_identical(tmp_path, monkeypatch,
+                                                statements, boxes):
+    source = _relation_heavy_fixture(tmp_path)
+    tag_driven = FILTER.filter_extracts_to_osm_xml(
+        [source], statements, boxes)
+    monkeypatch.setattr(FILTER, "_HAS_KEY_PREFILTER", False)
+    node_by_node = FILTER.filter_extracts_to_osm_xml(
+        [source], statements, boxes)
+    assert tag_driven == node_by_node
+
+
+def test_tag_driven_selection_drops_ways_with_absent_nodes(tmp_path,
+                                                           monkeypatch):
+    source = _write(tmp_path, "gap.osm", (
+        _node(1, "0.5", "0.5") + _node(2, "0.6", "0.6")
+        + _way(10, [1, 2, 77], {"natural": "water"})
+        + _way(11, [1, 2], {"natural": "water"})))
+    tag_driven = FILTER.filter_extracts_to_osm_xml(
+        [source], ['way["natural"="water"]'], BBOX)
+    monkeypatch.setattr(FILTER, "_HAS_KEY_PREFILTER", False)
+    assert tag_driven == FILTER.filter_extracts_to_osm_xml(
+        [source], ['way["natural"="water"]'], BBOX)
+    assert _parse_ids(tag_driven)[1] == [11]

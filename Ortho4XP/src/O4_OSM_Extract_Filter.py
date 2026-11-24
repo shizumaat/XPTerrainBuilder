@@ -356,10 +356,7 @@ class _SelectionHandler(osmium.SimpleHandler):
         self.selected_rels: Dict[int, _RelData] = {}
 
     def _in_bbox(self, lat: float, lon: float) -> bool:
-        for (lat_min, lon_min, lat_max, lon_max) in self._boxes:
-            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                return True
-        return False
+        return _in_any_box(lat, lon, self._boxes)
 
     def node(self, n: "osmium.osm.Node") -> None:
         loc = n.location
@@ -483,6 +480,146 @@ _HAS_PREFILTERS = hasattr(osmium, "FileProcessor") and hasattr(
 )
 
 
+_HAS_KEY_PREFILTER = _HAS_PREFILTERS and hasattr(osmium.filter, "KeyFilter")
+
+
+def _is_tag_selective(matchers: _Matchers) -> bool:
+    """True when no matcher is the tag-agnostic ``*`` (the clip cutter)."""
+    return all(key != "*" for kind in matchers.values() for key, _ in kind)
+
+
+def _tagged_objects(path, entities, matchers_by_type):
+    """Objects of ``entities`` carrying a matcher key (the key test in
+    C++, osmium.filter.KeyFilter) that a matcher of their type selects
+    (the exact test here).  Yields ``(type, object)``; geometry is the
+    caller's test."""
+    keys = sorted({key for kind in matchers_by_type.values()
+                   for key, _ in kind})
+    if not keys:
+        return
+    processor = osmium.FileProcessor(path, entities).with_filter(
+        osmium.filter.KeyFilter(*keys))
+    for obj in processor:
+        if obj.is_node():
+            kind = "node"
+        elif obj.is_way():
+            kind = "way"
+        else:
+            kind = "relation"
+        if _tags_match(obj.tags, matchers_by_type[kind]):
+            yield kind, obj
+
+
+def _in_any_box(lat, lon, bounding_boxes) -> bool:
+    for (lat_min, lon_min, lat_max, lon_max) in bounding_boxes:
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            return True
+    return False
+
+
+def _tag_candidates(path, matchers):
+    """Tag-matching ways and relations (one C++-keyed read), and every
+    way those relations name, tagged or not (one C++ id read)."""
+    candidate_ways: Dict[int, _WayData] = {}
+    candidate_rels: Dict[int, _RelData] = {}
+    for kind, obj in _tagged_objects(
+            path, osmium.osm.WAY | osmium.osm.RELATION,
+            {"node": [], "way": matchers["way"],
+             "relation": matchers["relation"]}):
+        tags = [(t.k, t.v) for t in obj.tags]
+        if kind == "way":
+            candidate_ways[obj.id] = ([nd.ref for nd in obj.nodes], tags)
+        else:
+            candidate_rels[obj.id] = (
+                [(m.type, m.ref, m.role) for m in obj.members], tags)
+    member_way_ids = {ref for members, _ in candidate_rels.values()
+                      for (mtype, ref, _role) in members if mtype == "w"}
+    member_ways = _gather_ways_prefiltered(
+        path, member_way_ids - set(candidate_ways), set())
+    for way_id in member_way_ids & set(candidate_ways):
+        member_ways[way_id] = candidate_ways[way_id]
+    return candidate_ways, candidate_rels, member_ways
+
+
+def _select_by_tags(path, matchers, bounding_boxes):
+    """The selection of :func:`_process_extract`, driven by the TAGS
+    instead of by every node of the file (#2269).
+
+    The node-by-node pass hands every node of the file to Python to
+    learn which lie in a box (a 138 MB clip: ~45 s per layer, twice per
+    masks step).  The only nodes whose box membership a rule reads are
+    the nodes of tag-matching ways, the node members of tag-matching
+    relations and the nodes of those relations' member ways, so only
+    those are read (id test in C++), and the SAME rules apply:
+
+    * a node is selected when it matches and lies in a box;
+    * a way when it matches and any of its nodes lies in a box;
+    * a relation when it matches and a node member lies in a box or a
+      way member has a node in a box.
+
+    Same closure, same tags/members, same dropping of ways with absent
+    nodes, so the serialized bytes equal the node-by-node pass's.
+    """
+    candidate_ways, candidate_rels, member_ways = _tag_candidates(
+        path, matchers)
+    wanted_node_ids = {ref for refs, _ in candidate_ways.values()
+                       for ref in refs}
+    wanted_node_ids.update(ref for refs, _ in member_ways.values()
+                           for ref in refs)
+    wanted_node_ids.update(ref for members, _ in candidate_rels.values()
+                           for (mtype, ref, _role) in members
+                           if mtype == "n")
+    nodes = _gather_nodes_prefiltered(path, wanted_node_ids)
+    selected_node_ids = set()
+    for _kind, obj in _tagged_objects(
+            path, osmium.osm.NODE,
+            {"node": matchers["node"], "way": [], "relation": []}):
+        location = obj.location
+        if _in_any_box(location.lat, location.lon, bounding_boxes):
+            nodes[obj.id] = (location.lat, location.lon,
+                             [(t.k, t.v) for t in obj.tags])
+            selected_node_ids.add(obj.id)
+    return _close_selection(nodes, selected_node_ids, candidate_ways,
+                            candidate_rels, member_ways, bounding_boxes)
+
+
+def _close_selection(nodes, selected_node_ids, candidate_ways,
+                     candidate_rels, member_ways, bounding_boxes):
+    """Apply the selection rules and the downward closure to the
+    candidates; returns the (nodes, ways, rels) the node-by-node passes
+    return."""
+    in_box = {node_id for node_id, (lat, lon, _tags) in nodes.items()
+              if _in_any_box(lat, lon, bounding_boxes)}
+    way_ids = {way_id for way_id, (refs, _tags) in candidate_ways.items()
+               if any(ref in in_box for ref in refs)}
+    touching_member_ways = {
+        way_id for way_id, (refs, _tags) in member_ways.items()
+        if any(ref in in_box for ref in refs)}
+    rels: Dict[int, _RelData] = {}
+    needed_node_ids = set(selected_node_ids)
+    for rel_id, (members, tags) in candidate_rels.items():
+        if not any((mtype == "n" and ref in in_box)
+                   or (mtype == "w" and ref in touching_member_ways)
+                   for (mtype, ref, _role) in members):
+            continue
+        rels[rel_id] = (members, tags)
+        for (mtype, ref, _role) in members:
+            if mtype == "w":
+                way_ids.add(ref)
+            elif mtype == "n":
+                needed_node_ids.add(ref)
+    ways = {way_id: candidate_ways.get(way_id) or member_ways[way_id]
+            for way_id in way_ids
+            if way_id in candidate_ways or way_id in member_ways}
+    for refs, _tags in ways.values():
+        needed_node_ids.update(refs)
+    kept_nodes = {node_id: nodes[node_id] for node_id in needed_node_ids
+                  if node_id in nodes}
+    kept_ways = {way_id: data for way_id, data in ways.items()
+                 if all(ref in kept_nodes for ref in data[0])}
+    return kept_nodes, kept_ways, rels
+
+
 def _process_extract(
     path: str,
     matchers: _Matchers,
@@ -493,6 +630,13 @@ def _process_extract(
     in the file are dropped."""
     if not os.path.isfile(path):
         raise ExtractFilterError("extract file not found: " + str(path))
+    if _HAS_KEY_PREFILTER and _is_tag_selective(matchers):
+        try:
+            return _select_by_tags(path, matchers, bounding_boxes)
+        except Exception as e:  # osmium: RuntimeError on corrupt input
+            raise ExtractFilterError(
+                "could not read extract " + str(path) + ": " + str(e)
+            ) from e
     try:
         selection = _SelectionHandler(matchers, bounding_boxes)
         selection.apply_file(path)

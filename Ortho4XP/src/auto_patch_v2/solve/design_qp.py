@@ -80,7 +80,7 @@ import scipy.sparse as sp
 import highspy  # noqa: F401
 
 from .linear import RowBlocks, _linear_solve, _objective
-from .round_normal import RoundNormal
+from .round_normal import Prefix, RoundNormal
 
 __all__ = ["SOLVERS", "DEFAULT_SOLVER", "QPResult", "solve_one_sided"]
 
@@ -223,13 +223,15 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     this_round: dict = {}
 
     def round_normal(sel: np.ndarray) -> None:
-        """The round's ``SᵀS``, before its tries."""
-        if shared:
-            blocks, rhs = stack(sel)
-            this_round["rn"] = RoundNormal(
-                sp.vstack(blocks, format="csr"),
-                np.concatenate(rhs) if len(rhs) > 1 else b0,
-                norm_pool, _NORMAL_WORKERS)
+        """The round's normal matrix, before its tries."""
+        if not shared:
+            return
+        if "pre" not in this_round:
+            this_round["pre"] = Prefix(A0, b0, A0T, norm_pool, _NORMAL_WORKERS)
+        W = (sp.diags(sw[sel]) @ A1[sel]).tocsr() if sel.size else \
+            sp.csr_matrix((0, nc))
+        this_round["rn"] = RoundNormal(this_round["pre"], W, sw[sel] * bb[sel], Uk,
+                                       low_rank, norm_pool, _NORMAL_WORKERS)
 
     def step(x: np.ndarray | None, lam: float,
              sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:
@@ -239,7 +241,7 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
             sel = active(x)
         rn = this_round.get("rn")
         if rn is not None and x is not None and lam > 0.0:
-            return rn.solve(x, lam, Uk, None if Uk is None else c, low_rank), int(sel.size)
+            return rn.solve(x, lam, None if Uk is None else c), int(sel.size)
         blocks, rhs = stack(sel)
         if x is not None and lam > 0.0:
             root = float(np.sqrt(lam))

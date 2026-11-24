@@ -32,7 +32,7 @@ import typing as _t
 from ..airport import pool as _pool
 from ..airport import pool_memory as _mem
 
-__all__ = ["may_start", "raw_airport", "payload", "start", "worker_deriver", "answer",
+__all__ = ["may_start", "warm", "raw_airport", "payload", "start", "worker_deriver", "answer",
            "install", "worker_clock", "shipped_reads", "adopt_reads"]
 
 
@@ -106,17 +106,43 @@ def adopt_reads(deriver, placed: _t.Mapping) -> None:
     adopt(deriver.airport, deriver.pack.objects, res, _law_of(deriver))
 
 
+def _imported(_state, _task) -> None:
+    """IN THE WORKER: the prefix and its run-ahead plumbing imported, so a
+    payload handed later finds them loaded (:func:`warm`)."""
+    from . import build, stage_one_ahead  # noqa: F401
+
+
+def warm(out: _t.Callable[[str], None], stall_s: float):
+    """ONE isolated pool worker started NOW, importing the prefix
+    (#2206 step 3): the process start and the imports run beside the
+    build's load, partition and classify, not after them.  Hand it to
+    :func:`start` (``pool=``); the caller closes it when nothing is handed.
+    ``None`` when no worker may start (:func:`may_start`)."""
+    if may_start("build"):
+        return None
+    pool = _pool.WorkPool(workers=1, isolate=True, out=out, stall_s=stall_s)
+    if pool.begin(_imported, [None], what="the run-ahead worker's imports",
+                  unit="derive") is None:
+        pool.close()
+        return None
+    return pool
+
+
 def start(task: _t.Callable, payload_: dict, extra: tuple = (), *, what: str,
-          out: _t.Callable[[str], None], stall_s: float
+          out: _t.Callable[[str], None], stall_s: float, pool=None
           ) -> "tuple[_t.Any, _t.Any, _t.Any] | str":
     """Ship ``payload_`` and start ``task((spec, *extra))`` in ONE isolated
     pool worker: ``(pool, pending, shared)``, or why it could not start
-    (everything it took released)."""
+    (everything it took released).  ``pool``: a worker :func:`warm`
+    started, else one is started here."""
     try:
         shared = _pool.share_object(payload_)
     except Exception as exc:                       # no shared memory: serial
+        if pool is not None:
+            pool.close()
         return f"{type(exc).__name__}: {exc}"
-    pool = _pool.WorkPool(workers=1, isolate=True, out=out, stall_s=stall_s)
+    if pool is None:
+        pool = _pool.WorkPool(workers=1, isolate=True, out=out, stall_s=stall_s)
     pending = pool.begin(task, [(shared.spec, *extra)], what=what, unit="derive")
     if pending is None:
         why = pool.reason

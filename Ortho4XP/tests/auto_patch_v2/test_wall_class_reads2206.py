@@ -6,11 +6,10 @@ from __future__ import annotations
 import types
 
 import numpy as np
-from shapely.geometry import LineString, Polygon, box
-from shapely.ops import nearest_points
-
 from auto_patch_v2.airport import sunk_frame, wall_class
 from auto_patch_v2.law import Law
+from shapely.geometry import LineString, Polygon, box
+from shapely.ops import nearest_points
 
 
 def _pairs_one_by_one(whole, wide, ring_m):

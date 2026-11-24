@@ -29,9 +29,9 @@ def test_orthogrid_of_arrays_is_the_scalar_one():
     for zoomlevel in (14, 16, 19):
         (til_x, til_y) = GEO_ARRAYS.wgs84_to_orthogrid(
             numpy.array(lat), numpy.array(lon), zoomlevel)
-        assert list(zip(til_x.tolist(), til_y.tolist())) == [
+        assert list(zip(til_x.tolist(), til_y.tolist(), strict=True)) == [
             GEO.wgs84_to_orthogrid(a, b, zoomlevel)
-            for (a, b) in zip(lat, lon)]
+            for (a, b) in zip(lat, lon, strict=True)]
 
 
 def test_triangle_rows_are_the_per_element_reads():

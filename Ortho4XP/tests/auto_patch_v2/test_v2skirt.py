@@ -215,3 +215,27 @@ def test_the_law_register(law):
     assert sk.drops_pad and sk.seat_low_side         # both halves of 10ag
     assert sk.min_depth_m > 0.0 and sk.depth_tolerance_m > 0.0
     assert 0.0 < sk.pad_cover_fraction <= 1.0
+
+
+def test_a_lip_is_settled_without_the_footprint(tmp_path, law):
+    """#2206: every below-zero piece under ``min_depth_m`` is a lip, read
+    without the footprint; the verdict equals the full reading's, and the
+    perimeter fraction is read in full on demand."""
+    lip = _box(tmp_path / "lip.obj", skirt_depth=0.5 * law.tables.structures.skirt.min_depth_m)
+    c = _cache(law)
+    r = skirt.reading(c, str(lip), law)
+    full = skirt.below_zero_reading(c, str(lip), law, settle_early=False)
+    assert not r.footprint_read and full.footprint_read
+    assert (r.skirt, r.depth_m) == (full.skirt, full.depth_m) == (False, None)
+    assert "lip" in r.reason and "lip" in full.reason
+    assert skirt.below_zero_perimeter_fraction(c, str(lip), law) == \
+        pytest.approx(full.perimeter_fraction)
+
+
+def test_a_full_reading_is_unchanged_by_settling(objs, law):
+    """The skirted and the narrow-cut fixtures need the footprint: the
+    settled reading is the full one."""
+    for name in ("skirted", "well"):
+        c = _cache(law)
+        assert skirt.reading(c, str(objs[name]), law) == \
+            skirt.below_zero_reading(c, str(objs[name]), law, settle_early=False)

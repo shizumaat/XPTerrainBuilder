@@ -229,7 +229,8 @@ def _wait_for_flight(lock_path: str, stop, ready=None, on_join=None):
 
 @contextlib.contextmanager
 def hold_flight(lock_path: str,
-                should_stop: Optional[Callable[[], bool]] = None):
+                should_stop: Optional[Callable[[], bool]] = None,
+                on_join: Optional[Callable[[], None]] = None):
     """Run the block as the one flight of ``lock_path`` across every
     process: yields True once this caller holds it, False when Stop came
     first (the block must then do nothing).  A holder that dies releases
@@ -240,11 +241,12 @@ def hold_flight(lock_path: str,
     shared-repo guard allows): the holder removes it, and a caller that
     locked a file removed meanwhile locks the new one instead.  A lock
     file that cannot be opened at all runs the block unlocked (True), as
-    an advisory lock must."""
+    an advisory lock must.  ``on_join()`` is called once if the lock is
+    held elsewhere when this caller arrives (it is about to wait)."""
     stop = should_stop or _never
     try:
         os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
-        flight = _hold_current(lock_path, stop)
+        flight = _hold_current(lock_path, stop, on_join)
     except OSError:
         yield True
         return
@@ -257,11 +259,12 @@ def hold_flight(lock_path: str,
         _release_flight(lock_path, flight)
 
 
-def _hold_current(lock_path: str, stop):
+def _hold_current(lock_path: str, stop, on_join=None):
     """:func:`_wait_for_flight` until the descriptor held is the file
     the path names now (a holder that left removed the one it held)."""
     while True:
-        flight = _wait_for_flight(lock_path, stop)
+        flight = _wait_for_flight(lock_path, stop, on_join=on_join)
+        on_join = None
         if flight == STOPPED:
             return flight
         try:

@@ -42,8 +42,6 @@ __all__ = ["FileRecorder", "holds"]
 _CODE = (".py", ".pyc", ".pyd", ".so", ".dylib", ".dll")
 #: the stage cache's own records and index (``airport/stage_cache``)
 _OWN = "o4_stage"
-#: machine state, never a recipe input (module doc)
-_LEDGER_ENV = "O4_MACHINE_LEDGER_DIR"
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
 
 _LOCK = threading.Lock()
@@ -61,8 +59,8 @@ def _as_str(path: _t.Any) -> "str | None":
 
 
 def _is_machine_state(path: str) -> bool:
-    root = os.environ.get(_LEDGER_ENV, "").strip() or os.path.join(
-        os.path.expanduser("~"), ".ortho4xp", "machine_memory")
+    import O4_Machine_Memory as _memory   # the ledger's one path reader
+    root = _memory.ledger_dir()
     return os.path.abspath(path).startswith(os.path.abspath(root) + os.sep)
 
 

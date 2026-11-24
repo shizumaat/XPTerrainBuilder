@@ -486,11 +486,6 @@
  },
  {
   "path": "Ortho4XP/src/O4_Machine_Memory.py",
-  "name": "ledger_dir",
-  "reason": "integration test-558: the ledger directory resolver (ENV_DIR / per-user path); the conftest isolation and twins read it, production goes through snapshot/reserve"
- },
- {
-  "path": "Ortho4XP/src/O4_Machine_Memory.py",
   "name": "role",
   "reason": "integration test-558: the session role (app/lane/cli) the admission law reads; public for the twins that set ENV_ROLE and check it"
  },

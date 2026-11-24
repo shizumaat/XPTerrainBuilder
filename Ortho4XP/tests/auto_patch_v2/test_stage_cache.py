@@ -414,14 +414,14 @@ def test_a_view_leaves_a_stage_clock_out_of_its_name():
 def test_the_machine_memory_ledger_is_no_file_witness(tmp_path, monkeypatch):
     ledger = tmp_path / "ledger"
     ledger.mkdir()
-    (ledger / "state.json").write_text("{}")
-    (tmp_path / "input.txt").write_text("x")
+    (ledger / "state.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / "input.txt").write_text("x", encoding="utf-8", newline="\n")
     monkeypatch.setenv("O4_MACHINE_LEDGER_DIR", str(ledger))
     rec = FW.FileRecorder()
     rec.recording(True)
     try:
-        (ledger / "state.json").read_text()
-        (tmp_path / "input.txt").read_text()
+        (ledger / "state.json").read_text(encoding="utf-8")
+        (tmp_path / "input.txt").read_text(encoding="utf-8")
     finally:
         rec.recording(False)
     assert set(rec.record()) == {os.path.abspath(tmp_path / "input.txt")}

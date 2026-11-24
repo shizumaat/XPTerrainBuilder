@@ -35,7 +35,6 @@ import O4_Text_Files as TEXT
 import O4_Triangle_Run as TRIANGLE_RUN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
-import O4_Water_Imagery as WATERIMG
 import requests
 from O4_Parallel_Utils import effective_download_slots, parallel_execute
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -3170,15 +3169,7 @@ def convert_texture(
     cache_key = None
     dxt5 = False
     masked_texture = False
-    if WATERIMG.draws_under(tile) and type == "dds":
-        # The photo under the water (RULINGS 2026-11-24f): no mask PNG;
-        # the ``depth`` alpha is the depth-graded mask itself.
-        mask_im = WATERIMG.imprints_alpha(tile) and MASK.needs_mask(
-            tile, til_x_left, til_y_top, zoomlevel)
-        masked_texture = bool(mask_im)
-        if masked_texture:
-            mask_im = mask_im.convert("L")
-    elif tile.imprint_masks_to_dds and type == "dds":
+    if tile.imprint_masks_to_dds and type == "dds":
         masked_texture = os.path.exists(
             os.path.join(
                 tile.build_dir,

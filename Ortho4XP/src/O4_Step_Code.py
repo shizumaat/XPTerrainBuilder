@@ -1059,6 +1059,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.solve.design_roles",
     "auto_patch_v2.solve.design_stage",
     "auto_patch_v2.solve.feasibility",
+    "auto_patch_v2.solve.fill_order",
     "auto_patch_v2.solve.flex",
     "auto_patch_v2.solve.follow_stage",
     "auto_patch_v2.solve.ground_band",

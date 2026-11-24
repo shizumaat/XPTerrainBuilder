@@ -29,6 +29,7 @@ import O4_Overlay_Utils as OVL
 import O4_Tile_Build_Log as TILELOG
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
+import O4_Water_Imagery as WATERIMG
 from PIL import Image, ImageDraw
 
 quad_init_level = 3
@@ -1147,6 +1148,89 @@ def _build_dsf_body(tile, download_queue):
     # Fade masks are rasterised once per texture tile (airport_ortho mode).
     fade_masks_written = set()
 
+    # The photo UNDER the water (``water_imagery`` ``under``, RULINGS
+    # 2026-11-24f, ``O4_Water_Imagery``): one physical WATER_COLOR_MASK
+    # triangle per water triangle that shows the photo, no mask PNG, no
+    # overlay, no second terrain_Water triangle.
+    under_water = WATERIMG.draws_under(tile)
+    under_crops = {}
+
+    def treat_under_texture(texture_attributes):
+        """Queue an ``under`` tile's texture when it is missing or its
+        alpha form is not the one asked for, and drop a mask PNG an
+        earlier build left beside it (``under`` references none)."""
+        texture_file_name = FNAMES.dds_file_name_from_attributes(
+            *texture_attributes)
+        textures_dir = os.path.join(tile.build_dir, "textures")
+        target_tex = os.path.join(textures_dir, texture_file_name)
+        mask_png = os.path.join(
+            textures_dir, FNAMES.mask_file(*texture_attributes))
+        if os.path.exists(mask_png):
+            os.remove(mask_png)
+        rebuild = PLACEHOLDER.needs_build(tile, target_tex)
+        if not rebuild:
+            wants_alpha = WATERIMG.imprints_alpha(tile) and bool(
+                MASK.needs_mask(tile, *texture_attributes))
+            rebuild = TIERS.is_dxt5(target_tex) != wants_alpha
+        if rebuild:
+            download_queue.put(texture_attributes)
+            textures_queued_count[0] += 1
+        else:
+            UI.vprint(2, "   Texture file " + texture_file_name
+                      + " already present.")
+        treated_textures.add(texture_attributes)
+
+    def under_sea_shows_imagery(texture_attributes, n1, n2, n3):
+        """True when the depth-graded mask of the triangle's texture shows
+        imagery anywhere inside this sea triangle."""
+        if texture_attributes not in under_crops:
+            crop = MASK.needs_mask(tile, *texture_attributes)
+            under_crops[texture_attributes] = (
+                WATERIMG.coarse_mask(numpy.asarray(crop.convert("L")))
+                if crop else None)
+        crop = under_crops[texture_attributes]
+        if crop is None:
+            return False
+        st_points = [
+            GEO.st_coord(node_coords[5 * n + 1], node_coords[5 * n],
+                         *texture_attributes)
+            for n in (n1, n2, n3)]
+        return WATERIMG.triangle_has_imagery(
+            crop, st_points, MASK.ALL_WATER_MAX)
+
+    def under_terrain(texture_attributes, tri_type):
+        """The WATER_COLOR_MASK terrain of ``texture_attributes`` for
+        ``tri_type`` water, its ``.ter`` written on first use."""
+        nonlocal bTERT
+        terrain_attributes = (texture_attributes, tri_type)
+        if terrain_attributes in dico_terrains:
+            return dico_terrains[terrain_attributes]
+        terrain_idx = len(dico_terrains)
+        textured_tris[terrain_idx] = defaultdict(lambda: array.array("H"))
+        dico_terrains[terrain_attributes] = terrain_idx
+        if texture_attributes not in treated_textures:
+            treat_under_texture(texture_attributes)
+        terrain_file_name = create_terrain_file(
+            tile, FNAMES.dds_file_name_from_attributes(*texture_attributes),
+            *texture_attributes, tri_type, False)
+        bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
+        return terrain_idx
+
+    def water_color_vertex(n, idx_pool, s, t):
+        """A new WATER_COLOR_MASK vertex (band 1, 9 planes: lon, lat,
+        elev, nx, ny, fetch ratio, depth ratio, s, t)."""
+        (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_pool + pool_nbr)
+        dsf_pools[idx_dsfpool].extend(node_icoords[5 * n : 5 * n + 5])
+        # TODO (improve fetch values)
+        ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
+                                            node_bathy, tile, node_scale)
+        ratio_fetch = 1
+        dsf_pools[idx_dsfpool].extend(
+            (int(65535 * ratio_fetch), int(65535 * ratio_bathy),
+             int(round(s * 65535)), int(round(t * 65535)))
+        )
+        return (idx_dsfpool, pos_in_pool)
+
     def _tri_centroid(n1, n2, n3):
         """Absolute (lon, lat) centroid of a triangle, for mode routing."""
         bary_lon = (
@@ -1451,7 +1535,13 @@ def _build_dsf_body(tile, download_queue):
             is_overlay = False
 
             # Do we need to build new terrain file(s) ?
-            if terrain_attributes in dico_terrains:
+            if under_water:
+                # the photo under the water where the mask shows it
+                terrain_idx = (
+                    under_terrain(texture_attributes, tri_type)
+                    if under_sea_shows_imagery(texture_attributes, n1, n2, n3)
+                    else 0)
+            elif terrain_attributes in dico_terrains:
                 terrain_idx = dico_terrains[terrain_attributes]
                 is_overlay = terrain_idx in overlay_terrains
             else:
@@ -1586,19 +1676,9 @@ def _build_dsf_body(tile, download_queue):
                                 int(round(t * 65535)),
                             )
                         )
-                    else:  # dtx5 dds with mask included
-                        (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_pool + pool_nbr)
-                        dsf_pools[idx_dsfpool].extend(
-                            node_icoords[5 * n : 5 * n + 5]
-                        )
-                        # TODO (improve fetch values)
-                        ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                            node_bathy, tile, node_scale)
-                        ratio_fetch = 1
-                        dsf_pools[idx_dsfpool].extend(
-                            (int(65535 * ratio_fetch), int(65535 * ratio_bathy), 
-                             int(round(s * 65535)), int(round(t * 65535)))
-                        )
+                    else:  # physical water: dxt5 with the mask, or under
+                        (idx_dsfpool, pos_in_pool) = water_color_vertex(
+                            n, idx_pool, s, t)
                     len_textured_nodes += 1
                     textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
                 tri_p.extend((idx_dsfpool, pos_in_pool))
@@ -1710,7 +1790,9 @@ def _build_dsf_body(tile, download_queue):
         is_overlay = False
 
         # Do we need to build new terrain file(s) ?
-        if terrain_attributes in dico_terrains:
+        if under_water and tri_type == 1:
+            terrain_idx = under_terrain(texture_attributes, tri_type)
+        elif terrain_attributes in dico_terrains:
             terrain_idx = dico_terrains[terrain_attributes]
             is_overlay = terrain_idx in overlay_terrains
         else:
@@ -1744,6 +1826,8 @@ def _build_dsf_body(tile, download_queue):
                 *texture_attributes
             )
             # do we need to download a new texture ?
+            if under_water and texture_attributes not in treated_textures:
+                treat_under_texture(texture_attributes)
             if texture_attributes not in treated_textures:
                 target_tex = os.path.join(
                             tile.build_dir, "textures", texture_file_name
@@ -1799,6 +1883,9 @@ def _build_dsf_body(tile, download_queue):
                     dsf_pools[idx_dsfpool].extend(
                         (int(round(s * 65535)), int(round(t * 65535)))
                     )
+                elif under_water:  # inland water, the photo under it
+                    (idx_dsfpool, pos_in_pool) = water_color_vertex(
+                        n, idx_pool, s, t)
                 elif terrain_idx in masked_inland_terrains:
                     # Feathered inland shore: the mask is the border
                     # texture, sampled at the ortho coordinates — the

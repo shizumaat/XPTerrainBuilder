@@ -320,6 +320,26 @@ national-server fetches for a result OSM provides — and only explicit
 unmapped). An intertidal twin ahead of a real bathymetry source in the
 priority walk never starves it on the automatic paths.
 
+### 4.6 The photo under the water (`water_imagery`, RULINGS 2026-11-24f)
+
+Tile settings `water_imagery` (`mask` default, `under`) and
+`water_imagery_alpha` (`opaque` default, `depth`; read only with
+`under`), resolved in `src/O4_Water_Imagery.py`. `mask` is everything
+above, byte for byte. `under` (X-Plane 12 water only) draws the photo as
+the floor beneath the water: each water triangle that shows it is ONE
+physical `WATER_COLOR_MASK` + `WET` triangle (band 1, nine planes: lon,
+lat, elev, nx, ny, fetch ratio 1, the `set_depth_ratio` depth ratio, s,
+t) with no mask PNG, no `BORDER_TEX` and no second `terrain_Water`
+triangle. Sea: a triangle gets it when the depth-graded mask of its
+texture (`needs_mask`, max-pooled to 256 cells a side) rises above
+`ALL_WATER_MAX` inside the triangle's pixel box; the others stay plain
+`terrain_Water`. Inland: every inland triangle, its depth ratio from the
+inland bed (`node_scale`) or the shore-distance ramp. `opaque` writes the
+textures DXT1; `depth` writes the masked ones DXT5 with the mask as
+alpha, read from `needs_mask` at conversion (never from a PNG). How
+X-Plane reads that alpha under its water is undocumented; the owner
+compares the arms in the sim.
+
 ## 5. DSF `sea_level` raster (Step 3)
 
 `extract_elevation_and_bathymetry_data(lat, lon)` grows a companion

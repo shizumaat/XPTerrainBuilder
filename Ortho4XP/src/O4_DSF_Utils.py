@@ -1873,12 +1873,15 @@ def _build_dsf_body(tile, download_queue):
             bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
         # We put the tri in the right terrain
         # First the ones associated to the dico_customzl
-        tri_p = array.array("H")
+        # Each corner's (dsf pool, position): tuples, compared and
+        # emitted as the 16-bit triangle record did (#850).
+        corners = []
         for n in (n1, n3, n2):  # beware of ordering for orientation !
             idx_pool = idx_node_to_idx_pool[n]
             node_hash = (
                 idx_pool,
-                *node_icoords[5 * n : 5 * n + 2],
+                node_icoords[5 * n],
+                node_icoords[5 * n + 1],
                 terrain_idx,
             )
             if node_hash in textured_nodes:
@@ -1932,22 +1935,20 @@ def _build_dsf_body(tile, download_queue):
                     )
                 len_textured_nodes += 1
                 textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
-            tri_p.extend((idx_dsfpool, pos_in_pool))
+            corners.append((idx_dsfpool, pos_in_pool))
+        (first, second, third) = corners
         # some triangles could be reduced to nothing by the pool snapping,
         # we skip them (possible killer to X-Plane's drapping of roads ?)
-        if (
-            tri_p[:2] == tri_p[2:4]
-            or tri_p[2:4] == tri_p[4:]
-            or tri_p[4:] == tri_p[:2]
-        ):
+        if first == second or second == third or third == first:
             continue
-        if tri_p[0] == tri_p[2] == tri_p[4]:
-            textured_tris[terrain_idx][tri_p[0]].extend(
-                (tri_p[1], tri_p[3], tri_p[5])
+        if first[0] == second[0] == third[0]:
+            textured_tris[terrain_idx][first[0]].extend(
+                (first[1], second[1], third[1])
             )
         else:
             total_cross_pool += 1
-            textured_tris[terrain_idx]["cross-pool"].extend(tri_p)
+            textured_tris[terrain_idx]["cross-pool"].extend(
+                first + second + third)
         
         # XP water
         if is_overlay: 

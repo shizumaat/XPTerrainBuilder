@@ -1,5 +1,7 @@
 # One map, one path: the fastest legal airport solve (#2206, RULINGS 2026-11-23e, 23g)
 
+**WITHDRAWN 2026-11-24** by the two-round-cap review: no design deleting the late derive meets RULINGS 23e (KBUF null control exact; one map, predicted knives and ring cut each add real rows). Replaced by `exact-prefix-speedups-20261124.md`. The deletion list below is void.
+
 Design round read-only at d0a8b5f0e; nothing here has been built or replayed. Tags: [M] measured from
 a record, [C] read from code, [E] estimate. Paths are under `Ortho4XP/src/auto_patch_v2/`.
 Replaces item 3 of `fastest-pipeline-spec.md`, whose post-solve re-derive fallback the owner rejected (23g).

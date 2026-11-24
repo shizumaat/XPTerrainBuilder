@@ -185,6 +185,7 @@ def _derive(airport: Airport, cfg) -> list[WallComponent]:
     out: list[WallComponent] = []
     paved: list = []            # the apt.dat airside union, read once on demand
     sunk_law: list = []         # the sunk witness's default law, loaded once on demand
+    sunk_memo: dict = {}        # the sunk witness's plans and roads, read once
     for u in part.units:
         got: list[WallComponent] = []
         for m in u.members:
@@ -253,7 +254,8 @@ def _derive(airport: Airport, cfg) -> list[WallComponent]:
                 # #2120 R2 W1: THE FOURTH WITNESS -- a block its author drew
                 # down from his ground, the ground stepping across it
                 sunk = None if retains or not _stands_on_ground(p) else \
-                    sunk_wall(airport, u, p, whole, wide, cfg, _sunk_law(sunk_law), to_xy)
+                    sunk_wall(airport, u, p, whole, wide, cfg, _sunk_law(sunk_law), to_xy,
+                              sunk_memo)
                 if sunk is not None:
                     retained, kept_top, retains, source = sunk.retained_m, sunk.y_up, True, "dem"
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
@@ -632,21 +634,29 @@ def _across_pairs(whole, wide: float, ring_m: float):
     point and the point as far out on the FAR side (through that wall
     point, ``wide`` across) — three ``(n, 2)`` arrays."""
     import numpy as np
-    from shapely.ops import nearest_points
+    import shapely
     grown = whole.buffer(ring_m)
     near, wall, far = [], [], []
     for g in getattr(grown, "geoms", [grown]):
-        for t in np.arange(0.0, g.exterior.length, 2.0):
-            p = g.exterior.interpolate(float(t))
-            q = nearest_points(whole, p)[0]
-            dx, dy = q.x - p.x, q.y - p.y
+        # #2206: one GEOS call per ring for the ring points and their
+        # nearest wall points (``interpolate`` / ``nearest_points`` point
+        # by point read the same numbers); the arithmetic stays per point
+        ts = np.arange(0.0, g.exterior.length, 2.0)
+        if ts.size == 0:
+            continue
+        ps = shapely.line_interpolate_point(g.exterior, ts)
+        qs = shapely.get_point(shapely.shortest_line(whole, ps), 0)
+        for px, py, qx, qy in zip(shapely.get_x(ps).tolist(), shapely.get_y(ps).tolist(),
+                                  shapely.get_x(qs).tolist(), shapely.get_y(qs).tolist(),
+                                  strict=True):
+            dx, dy = qx - px, qy - py
             n = (dx * dx + dy * dy) ** 0.5
             if n <= 1e-9:
                 continue
             k = (wide + ring_m) / n
-            near.append((p.x, p.y))
-            wall.append((q.x, q.y))
-            far.append((q.x + dx * k, q.y + dy * k))
+            near.append((px, py))
+            wall.append((qx, qy))
+            far.append((qx + dx * k, qy + dy * k))
     return (np.asarray(near, dtype=float).reshape(-1, 2),
             np.asarray(wall, dtype=float).reshape(-1, 2),
             np.asarray(far, dtype=float).reshape(-1, 2))

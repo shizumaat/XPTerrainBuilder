@@ -411,3 +411,44 @@ def test_cross_zl_anchor_shrinks_the_zone_edge_step(harmonization_tile):
     assert step_after - step_before == pytest.approx(-strength * d, abs=0.5)
     # THE point: the zone-edge step is smaller than it was.
     assert abs(step_after) < abs(step_before)
+
+
+def test_a_texture_with_no_land_gets_the_field_for_its_water(harmonization_tile):
+    """Owner 2026-11-24: a texture whose mask has no land (all shallow
+    water, still visible) used to get NO field while its neighbour with
+    land got one everywhere -- a step at their shared edge.  It now gets
+    the same interpolant (``water=True``), applied to its water pixels
+    only by ``convert_texture``; an invisible all-water texture still gets
+    nothing from the default call."""
+    tile, write_jpeg, write_mask, _tmp = harmonization_tile
+    for column, grey in ((0, 100), (1, 140), (2, 140)):
+        write_jpeg(column * STEP, 0, grey)
+    write_mask(2 * STEP, 0, numpy.full((64, 64), 200, numpy.uint8))
+    _collect(tile, _row())
+    IMG.solve_color_field(tile)
+    assert tile.color_harmonization_statistics[
+        (2 * STEP, 0, ZL, PROVIDER_CODE)]["land_fraction"] == 0.0
+    assert IMG.color_harmonization_field_for_texture(
+        tile, 2 * STEP, 0, ZL, PROVIDER_CODE) is None
+    water = IMG.color_harmonization_field_for_texture(
+        tile, 2 * STEP, 0, ZL, PROVIDER_CODE, water=True)
+    land = IMG.color_harmonization_field_for_texture(
+        tile, STEP, 0, ZL, PROVIDER_CODE)
+    assert water is not None and land is not None
+    assert numpy.abs(water[:, 0, :] - land[:, -1, :]).max() < 1.0
+
+
+def test_the_water_pixels_field_never_touches_land():
+    """``_repair_water_seams_in_texture`` adds a no-land texture's field to
+    its water pixels only: every land pixel (mask 255) is unchanged."""
+    size = 256
+    image = Image.fromarray(numpy.full((size, size, 3), 120, numpy.uint8))
+    mask = numpy.full((size // 4, size // 4), 200, numpy.uint8)
+    mask[:, :16] = 255
+    field = numpy.full((HARMONIZE.FIELD_SIZE, HARMONIZE.FIELD_SIZE, 3), 12.0,
+                       numpy.float32)
+    out = numpy.asarray(IMG._repair_water_seams_in_texture(
+        image, Image.fromarray(mask, "L"), field, 28128, ZL))
+    land = numpy.kron(mask >= 255, numpy.ones((4, 4), bool))
+    assert (out[land] == 120).all()
+    assert (out[:, 128:] == 132).all()

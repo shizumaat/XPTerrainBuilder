@@ -432,6 +432,13 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
         use = CUSTOM_USE.read(FNAMES.patch_dir(tile.lat, tile.lon))
         if use:
             inputs["custom_patch_use"] = use
+    if step == "masks":
+        # #2265: only a band from a provider with a declared source
+        # revision is keyed; every other tile's record stays valid.
+        import O4_Bathymetry_Band as BATHYBAND
+        band_source = BATHYBAND.masks_source_state(tile)
+        if band_source is not None:
+            inputs["band_source"] = band_source
     return inputs
 
 
@@ -677,6 +684,8 @@ def stale_reason(tile, step: str) -> str | None:
                        entry.get("osm_files"))
         recorded = {k: v for k, v in (entry.get("inputs") or {}).items()
                     if k not in _RETIRED_KEYS}
+        if live.get("band_source") == "pending":
+            return "its bathymetry band has cells to fetch again"
         trusted = _trusted(entry)
         for key in sorted(set(live) | set(recorded)):
             if key in _KEYS_EQUAL_WHEN_ABSENT and key not in recorded:

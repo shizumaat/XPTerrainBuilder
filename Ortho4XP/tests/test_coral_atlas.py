@@ -27,12 +27,6 @@ docstrings:
   empty; ``fetch`` (through ``INSETS.fetch_inset``) returns provenance
   carrying the definition's license and attribution.
 
-* WEB API CLIENT -- ``AtlasApiClient`` extracts a nested access token on
-  login, sets the bearer header on later calls, surfaces the server
-  ``message`` on failure, returns the created area-of-interest id, wraps the
-  download request body as ``{"datasets": {...}}``, and ``_find_package_url``
-  locates a nested archive link (``None`` when absent).
-
 * BAND FALLTHROUGH -- ``ensure_bathymetry_band`` walks the covering
   providers best-first and falls through a provider that yields nothing to
   the next, returning the second provider's VRT; ``fine_nearshore_only``
@@ -313,126 +307,11 @@ def test_strategy_fetch_provenance_carries_license(monkeypatch, tmp_path):
 
 
 # =====================================================================
-# 5. AtlasApiClient (all requests through a fake Session)
+# 5. No automated retrieval (the Atlas Terms of Use, #2265)
 # =====================================================================
-class _FakeResponse:
-    def __init__(self, status_code=200, body=None, text=""):
-        self.status_code = status_code
-        self._body = body if body is not None else {}
-        self.text = text
-
-    def json(self):
-        if self._body is None:
-            raise ValueError("no json body")
-        return self._body
-
-
-class _FakeSession:
-    """Records every request and dispatches to a per-test handler."""
-
-    def __init__(self):
-        self.requests = []
-        self.handler = lambda method, url, payload: _FakeResponse()
-
-    def request(self, method, url, json=None, headers=None, timeout=None):
-        self.requests.append(
-            {
-                "method": method,
-                "url": url,
-                "json": json,
-                "headers": dict(headers or {}),
-            }
-        )
-        return self.handler(method, url, json)
-
-
-def _client_with_fake_session(monkeypatch):
-    import requests
-
-    monkeypatch.setattr(requests, "Session", _FakeSession)
-    return CORAL.AtlasApiClient()
-
-
-def test_login_extracts_nested_token_and_sets_bearer(monkeypatch):
-    """login digs the access token out of a nested body and every later
-    request carries it as a bearer header."""
-    client = _client_with_fake_session(monkeypatch)
-
-    def handler(method, url, payload):
-        if url.endswith("auth/login"):
-            return _FakeResponse(
-                body={"data": {"session": {"access_token": "TOKEN-123"}}}
-            )
-        # A later call -> success, id for create_area_of_interest.
-        return _FakeResponse(body={"data": {"id": "aoi-7"}})
-
-    client._session.handler = handler
-    client.login("pilot@example.test", "secret")
-    assert client._token == "TOKEN-123"
-
-    client.create_area_of_interest("Ortho4XP_N21W160", {"type": "Polygon"})
-    # The SECOND request (the AOI creation) carried the bearer header.
-    last_request = client._session.requests[-1]
-    assert last_request["headers"].get("Authorization") == "Bearer TOKEN-123"
-
-
-def test_login_failure_surfaces_server_message(monkeypatch):
-    """A failed login raises AtlasApiError carrying the server message."""
-    client = _client_with_fake_session(monkeypatch)
-
-    def handler(method, url, payload):
-        return _FakeResponse(
-            status_code=401,
-            body={"code": 401, "message": "These credentials are invalid."},
-        )
-
-    client._session.handler = handler
-    with pytest.raises(CORAL.AtlasApiError) as raised:
-        client.login("pilot@example.test", "wrong")
-    assert "These credentials are invalid." in str(raised.value)
-
-
-def test_create_area_of_interest_returns_id(monkeypatch):
-    client = _client_with_fake_session(monkeypatch)
-    client._session.handler = (
-        lambda method, url, payload: _FakeResponse(
-            body={"data": {"aoi": {"id": "aoi-42"}}}
-        )
-    )
-    identifier = client.create_area_of_interest("area", {"type": "Polygon"})
-    assert identifier == "aoi-42"
-
-
-def test_request_download_body_shape(monkeypatch):
-    """The download request wraps the datasets as {"datasets": {...}}."""
-    client = _client_with_fake_session(monkeypatch)
-    client._session.handler = (
-        lambda method, url, payload: _FakeResponse(body={"status": "queued"})
-    )
-    client.request_download("aoi-42", {"bathymetry": "tif"})
-    sent = client._session.requests[-1]
-    assert sent["url"].endswith("download/aois/aoi-42")
-    assert sent["json"] == {"datasets": {"bathymetry": "tif"}}
-
-
-def test_find_package_url_nested_and_absent():
-    """_find_package_url pulls a nested archive link out, else returns None."""
-    body = {
-        "status": "ready",
-        "result": {
-            "files": [
-                {"kind": "metadata", "note": "no link here"},
-                {"kind": "package", "url": "https://atlas.test/pkg/aoi.zip"},
-            ]
-        },
-    }
-    assert (
-        CORAL._find_package_url(body) == "https://atlas.test/pkg/aoi.zip"
-    )
-    assert (
-        CORAL._find_package_url({"status": "pending", "note": "no url yet"})
-        is None
-    )
+def test_the_engine_has_no_atlas_sign_in_or_download():
+    for name in ("guided_fetch_for_tile", "AtlasApiClient", "AtlasApiError"):
+        assert not hasattr(CORAL, name)
 
 
 # =====================================================================

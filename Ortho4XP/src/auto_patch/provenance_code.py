@@ -1251,6 +1251,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "elevation_access.strategies.viewfinder_zip",
     "elevation_access.strategies.wcs",
     "elevation_access.strategies.wcs_kvp",
+    "elevation_access.strategies.wcs_subset",
     "elevation_access.strategies.wfs_tile_index",
     "elevation_access.strategies.xyz_archive_drop",
     "elevation_access.strategies.xyz_text_tiles",

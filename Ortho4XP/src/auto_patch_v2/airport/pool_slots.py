@@ -129,6 +129,10 @@ class Job:
         self.queue = list(queue)
         self.futs: dict = {}
         self.submit = submit
+        #: submitted and not yet finished (pruned at each pump)
+        self.running: set = set()
+        #: submitted since the collect last looked (it drains this)
+        self.new: list = []
         #: the build's process waits in this job's collect (its slot is free)
         self.collecting = False
         #: what stopped the feeding (a broken executor), raised by the collect
@@ -160,25 +164,28 @@ class Feeder:
         self._wake.set()
 
     def busy(self) -> int:
+        """Tasks running now, over every job."""
         with self.lock:
-            return sum(1 for j in self._jobs for f in j.futs if not f.done())
+            for job in self._jobs:
+                job.running = {f for f in job.running if not f.done()}
+            return sum(len(j.running) for j in self._jobs)
 
     def pump(self) -> None:
         """Submit what the slots allow now; give back idle slots."""
         with self.lock:
             if self._closed:
                 return
-            self._jobs = [j for j in self._jobs
-                          if j.queue or any(not f.done() for f in j.futs)]
+            busy = self.busy()
+            self._jobs = [j for j in self._jobs if j.queue or j.running]
             queued = sum(len(j.queue) for j in self._jobs if j.error is None)
             if self.book is None:
                 room = queued
             else:
-                room = self.book.fit(self.busy(), queued)
+                room = self.book.fit(busy, queued)
             for job in self._jobs:
                 if job.error is not None or not job.queue:
                     continue
-                own = sum(1 for f in job.futs if not f.done())
+                own = len(job.running)
                 n = min(len(job.queue), room)
                 if n == 0 and job.collecting and own == 0:
                     n = 1                       # on the build's own slot
@@ -192,6 +199,8 @@ class Feeder:
                         job.error = e
                         break
                     job.futs[fut] = span
+                    job.running.add(fut)
+                    job.new.append(fut)
                     fut.add_done_callback(self.wake)
 
     def _run(self) -> None:

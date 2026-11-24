@@ -676,12 +676,12 @@ class WorkPool:
         what, unit, job = p.what, p.unit, p.job
         tick = (lambda *_a: None) if self._isolate else _pulse.tick
         try:
-            seen: set = set()
+            live: set = set()
             done_n, last = 0, time.monotonic()
             looked = last
             job.collecting = True                  # this process's slot is free
             while True:
-                live, queued = self._unseen(job, seen)
+                queued = self._unseen(job, live)
                 if not live and not queued:
                     break
                 tick(what or "pool", done_n, p.n, unit)
@@ -701,8 +701,8 @@ class WorkPool:
                         self._pump()               # the floor: one on our slot
                     continue
                 last = time.monotonic()
+                live -= done
                 for f in done:
-                    seen.add(f)
                     a, b = job.futs[f]
                     out[a:b], rungs = f.result()   # a task's own error re-raises
                     _fe.add_rung_counts(rungs)
@@ -723,18 +723,23 @@ class WorkPool:
         self.tasks_done += p.n
         return out
 
-    def _unseen(self, job: "_ps.Job", seen: set) -> tuple[list, int]:
-        """``(the job's submitted futures not yet read, its spans not yet
-        submitted)``; raises what stopped the feeding (a broken executor)."""
+    def _unseen(self, job: "_ps.Job", live: set) -> int:
+        """Add the job's newly submitted futures to ``live``; how many of
+        its spans are not submitted yet.  Raises what stopped the feeding
+        (a broken executor)."""
         feeder = self._feeder
         if job.error is not None:
             raise job.error
         if feeder is None:                         # closed under the collect
             if job.queue:
                 raise _cf.BrokenExecutor("the pool was closed")
-            return [f for f in job.futs if f not in seen], 0
+            live.update(job.new)
+            job.new.clear()
+            return 0
         with feeder.lock:
-            return [f for f in job.futs if f not in seen], len(job.queue)
+            live.update(job.new)
+            job.new.clear()
+            return len(job.queue)
 
     def _pump(self) -> None:
         feeder = self._feeder

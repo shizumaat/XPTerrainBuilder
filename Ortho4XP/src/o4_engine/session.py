@@ -1334,7 +1334,8 @@ class EngineSession:
             # the vector step lends it back while its airports build.
             with SLOTS.step(give_up=lambda: UI.red_flag,
                             gb=_step_reservation_gigabytes(key, tile),
-                            what="tile %s step" % key):
+                            what="tile %s %s step" % (
+                                FNAMES.short_latlon(tile.lat, tile.lon), key)):
                 # ... and gives it back while the step only waits (#2254).
                 parking = step_parking.ChildParking(self._emit, tile.lat,
                                                     tile.lon)

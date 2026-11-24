@@ -23,6 +23,14 @@ the holder exits, however it exits, so a killed build never leaks a slot.
   while the process only waits on airport workers it starts
   (:func:`lend`); a DDS conversion pool takes a slot per extra worker.
 
+WAITERS AND HOLDERS (#2267).  A :func:`take` that finds no room leaves a
+wait mark in the session (``want/<pid>-<thread>``, refreshed every poll);
+:func:`slot_waiters` counts them, and a work pool yields the slots its
+workers leave idle to them (``auto_patch_v2.airport.pool_slots``).  Each
+granted slot carries its holder's name (``who-<k>``, :func:`name_process`
+or the grant's ``what``); a step that waits logs one line naming them
+(:func:`_holders_text`) and one when it starts.
+
 A worker PROCESS is started only after its slot is granted: nothing waits
 resident for a slot (#1225, second report: every airport of a tile was
 spawned up front and queued for a slot at ~2 GB each).
@@ -99,6 +107,8 @@ else:
 __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
            "ensure_session", "has_net_priority", "hold_class", "lend", "lend_step",
+           "SLOT_WAIT_TTL_S", "background_thread", "name_process",
+           "lower_this_thread", "process_name", "slot_waiters", "want_slot",
            "release_os_lock", "retake_step", "try_os_lock",
            "background_priority", "lower_priority", "machine_verdict",
            "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
@@ -247,14 +257,35 @@ class Held:
     or the process's exit) gives both back."""
 
     def __init__(self, fds: list, gb: float = 0.0,
-                 reservation: "_MEM.Reservation | None" = None) -> None:
+                 reservation: "_MEM.Reservation | None" = None,
+                 who: "list | None" = None) -> None:
         self._fds = list(fds)
         self.gb = float(gb)
         self._reservation = reservation
+        #: what the slots are for (a step's label, :func:`step`)
+        self.what = ""
+        #: each slot's holder label file (:func:`_slot_holders`), or ""
+        self._who = list(who) if who is not None else [""] * len(self._fds)
 
     @property
     def count(self) -> int:
         return len(self._fds)
+
+    def shed(self, k: int = 1) -> int:
+        """Give back ``k`` of these slots (the rest stay held) and lower
+        the reservation to what is left (#2267: a pool yields the slots
+        its workers do not use).  Returns how many were given back."""
+        k = max(0, min(int(k), len(self._fds)))
+        for _ in range(k):
+            _unlabel(self._who.pop() if self._who else "")
+            _unlock(self._fds.pop())
+        if k and self._reservation is not None:
+            if self._fds:
+                self._reservation.settle(self.gb * len(self._fds))
+            else:
+                self._reservation.release()
+                self._reservation = None
+        return k
 
     def settle(self, per_gb: float) -> None:
         """Lower the reservation to ``per_gb`` a slot once the processes it
@@ -271,7 +302,10 @@ class Held:
 
     def release(self) -> None:
         fds, self._fds = self._fds, []
+        who, self._who = self._who, []
         reservation, self._reservation = self._reservation, None
+        for path in who:
+            _unlabel(path)
         for fd in fds:
             _unlock(fd)
         if reservation is not None:
@@ -358,20 +392,25 @@ def _take_free(path: str, cap: int, n: int, per: float, what: str) -> Held:
     if pressed:
         want = cap                         # pressed: count the free ones
     fds: list = []
+    slots: list = []
     start = os.getpid() % cap              # spread the scans
     for k in range(cap):
         if len(fds) >= want:
             break
-        fd = _lock(os.path.join(path, "slot-%d" % ((start + k) % cap)))
+        slot = (start + k) % cap
+        fd = _lock(os.path.join(path, "slot-%d" % slot))
         if fd is not None:
             fds.append(fd)
+            slots.append(slot)
     if pressed:
         idle = len(fds) == cap             # the session holds none
         keep = 1 if idle and machine_verdict(per, idle=True).ok else 0
         for fd in fds[keep:]:
             _unlock(fd)
-        fds = fds[:keep]
-    return _held(fds, per, what)
+        fds, slots = fds[:keep], slots[:keep]
+    held = _held(fds, per, what)
+    held._who = [_label(path, slot, what) for slot in slots]
+    return held
 
 
 def _memory_fit(n: int, per: float) -> int:
@@ -403,19 +442,26 @@ def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None,
     holds it (``O4_Machine_Memory.note_wait``); ``give_up()`` true (a
     cancel) ends the wait with nothing held."""
     want = max(1, min(int(n), session_capacity()))
-    said = False
-    while True:
-        held = try_take(want, gb, what)
-        if held.count >= want:
-            return held
-        held.release()
-        if give_up is not None and give_up():
-            return Held([])
-        if not said and on_wait is not None:
-            said = True
-            on_wait()
-        note_memory_wait(want, gb, what)
-        time.sleep(poll_s)
+    said = marked = False
+    try:
+        while True:
+            held = try_take(want, gb, what)
+            if held.count >= want:
+                return held
+            held.release()
+            if give_up is not None and give_up():
+                return Held([])
+            # #2267: a waiter is seen — pools give it the next idle slot
+            _note_demand(ensure_session()[0])
+            marked = True
+            if not said and on_wait is not None:
+                said = True
+                on_wait()
+            note_memory_wait(want, gb, what)
+            time.sleep(poll_s)
+    finally:
+        if marked:
+            _drop_demand(ensure_session()[0])
 
 
 def note_memory_wait(n: int, gb: "float | None", what: str) -> None:
@@ -428,6 +474,109 @@ def note_memory_wait(n: int, gb: "float | None", what: str) -> None:
         _MEM.note_wait(what or "a build process", verdict, per * n)
 
 
+# ── who holds the slots, and who waits (#2267) ──────────────────────────
+
+#: seconds a waiting :func:`take`'s mark stands after its last attempt
+#: (it refreshes it every :data:`POLL_S`)
+SLOT_WAIT_TTL_S = 3 * POLL_S
+
+#: what this process's slots are called when a grant names nothing
+_NAME: list = [""]
+
+
+def name_process(text: str) -> None:
+    """Name this process's slots in :func:`_slot_holders` (an airport
+    worker: ``airport MMUN``)."""
+    _NAME[0] = str(text or "")
+
+
+def process_name() -> str:
+    """:func:`name_process`'s name, or ``pid N``."""
+    return _NAME[0] or "pid %d" % os.getpid()
+
+
+def _label(path: str, slot: int, what: str) -> str:
+    """Write who holds ``slot`` beside it; the label file's path ("" when
+    it cannot be written: the label is a log aid, never a lock)."""
+    who = os.path.join(path, "who-%d" % slot)
+    text = what if what and what != "this step" else process_name()
+    try:
+        with open(who, "w", encoding="utf-8", newline="") as handle:
+            handle.write("%d\t%s" % (os.getpid(), text))
+    except OSError:
+        return ""
+    return who
+
+
+def _unlabel(who: str) -> None:
+    if who:
+        with contextlib.suppress(OSError):
+            os.remove(who)
+
+
+def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _slot_holders() -> dict:
+    """``{label: slots}`` of the session's held slots, as their holders
+    named them (a dead holder's label is skipped)."""
+    path = ensure_session()[0]
+    out: dict = {}
+    try:
+        names = [n for n in os.listdir(path) if n.startswith("who-")]
+    except OSError:
+        return out
+    for name in names:
+        try:
+            with open(os.path.join(path, name), encoding="utf-8") as handle:
+                pid, _tab, label = handle.read().partition("\t")
+            if not _alive(int(pid)):
+                continue
+        except (OSError, ValueError):
+            continue
+        out[label] = out.get(label, 0) + 1
+    return out
+
+
+def _holders_text() -> str:
+    """:func:`_slot_holders` in one phrase, largest first, with the count."""
+    held = _slot_holders()
+    parts = ["%s %d" % (k, v) for k, v in
+             sorted(held.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return "%d of %d held: %s" % (sum(held.values()), session_capacity(),
+                                  ", ".join(parts) or "nobody named")
+
+
+def slot_waiters() -> int:
+    """How many requests of the session wait for a slot now (a waiting
+    :func:`take`, or a caller that said so with :func:`want_slot`)."""
+    return _demand_count(ensure_session()[0], SLOT_WAIT_TTL_S)
+
+
+def want_slot(wants: bool = True) -> None:
+    """THIS thread waits for a slot (``wants``: refresh its mark at least
+    every :data:`SLOT_WAIT_TTL_S`) or no longer does — for a caller that
+    polls :func:`try_take` itself (the airport queue), so pools yield to
+    it as they do to a waiting :func:`take`."""
+    if wants:
+        _note_demand(ensure_session()[0])
+    else:
+        _drop_demand(ensure_session()[0])
+
+
+#: one log line, never raising (the ledger's own)
+_say = _MEM._say
+
+
 #: the slot this process's current heavy step holds (:func:`step`)
 _STEP: list = []
 
@@ -438,18 +587,38 @@ def step(*, on_wait=None, give_up=None, gb: "float | None" = None,
     """Hold ONE slot for this process's heavy step (nested: the outer one
     covers it), reserving ``gb`` (default ``worker_gb``; 0 when a parallel
     run's parent reserved the step) on the machine ledger.  The process
-    waits here, light, until the slot and the memory are free."""
+    waits here, light, until the slot and the memory are free; a wait is
+    logged once with who holds the slots, and again when the step starts
+    (#2267)."""
     if _STEP:
         yield _STEP[0]
         return
-    held = take(1, on_wait=on_wait, give_up=give_up, gb=gb,
-                what=what or "this step")
+    what = what or "this step"
+    held = _said_take(what, "starts", on_wait=on_wait, give_up=give_up, gb=gb)
+    held.what = what
     _STEP.append(held)
     try:
         yield held
     finally:
         _STEP.clear()
         held.release()
+
+
+def _said_take(what: str, then: str, *, on_wait=None, **kw) -> Held:
+    """:func:`take` of one slot for a step, saying so when it waits (#2267):
+    one line naming the holders, one when the step ``then``-s."""
+    began = [None]
+
+    def waits() -> None:
+        began[0] = time.monotonic()
+        _say("Machine slots: %s waits for a slot — %s." % (what, _holders_text()))
+        if on_wait is not None:
+            on_wait()
+    held = take(1, on_wait=waits, what=what, **kw)
+    if began[0] is not None and held.count:
+        _say("Machine slots: %s %s after %.0f s waiting for a slot."
+             % (what, then, time.monotonic() - began[0]))
+    return held
 
 
 @contextlib.contextmanager
@@ -480,8 +649,10 @@ def retake_step(held: "Held | None", *, give_up=None) -> None:
     ``give_up()`` true ends the wait: the step goes on holding none."""
     if held is None:
         return
-    again = take(1, gb=held.gb, what="this step", give_up=give_up)
+    again = _said_take(getattr(held, "what", "") or "this step", "goes on",
+                       gb=held.gb, give_up=give_up)
     held._fds, again._fds = again._fds, []         # the step owns it again
+    held._who, again._who = again._who, []
     held._reservation, again._reservation = again._reservation, None
 
 
@@ -595,26 +766,40 @@ def _note_demand(path: str) -> None:
         pass
 
 
-def _demand_live(path: str) -> bool:
-    """Does a priority request (any process) wait on the class at
-    ``path`` now?  Dead processes' old marks are removed."""
+def _drop_demand(path: str) -> None:
+    """This thread no longer waits on ``path`` (its mark goes at once)."""
+    mark = os.path.join(_demand_dir(path),
+                        "%d-%d" % (os.getpid(), threading.get_ident()))
+    with contextlib.suppress(OSError):
+        os.remove(mark)
+
+
+def _demand_count(path: str, ttl_s: float) -> int:
+    """How many requests (any process) wait on ``path`` now — marks
+    refreshed within ``ttl_s``.  Dead processes' old marks are removed."""
     now = time.time()
-    live = False
+    live = 0
     try:
         entries = list(os.scandir(_demand_dir(path)))
     except OSError:
-        return False
+        return 0
     for entry in entries:
         try:
             age = now - entry.stat().st_mtime
         except OSError:
             continue
-        if age < DEMAND_TTL_S:
-            live = True
+        if age < ttl_s:
+            live += 1
         elif age > _DEMAND_STALE_S:
             with contextlib.suppress(OSError):
                 os.remove(entry.path)
     return live
+
+
+def _demand_live(path: str) -> bool:
+    """Does a priority request (any process) wait on the class at
+    ``path`` now?"""
+    return _demand_count(path, DEMAND_TTL_S) > 0
 
 
 def try_take_class(name: str, n: int = 1, limit: int = 1,
@@ -705,6 +890,44 @@ def lower_priority() -> None:
             os.setpriority(os.PRIO_PROCESS, 0, nice)
     except Exception:
         pass
+
+
+@contextlib.contextmanager
+def background_thread():
+    """Run THIS THREAD in the system's background band for the block
+    (#2268: a Library scan beside a build yields its CPU and disk to it):
+    macOS ``PRIO_DARWIN_THREAD``/``PRIO_DARWIN_BG`` (CPU and I/O
+    throttled), Linux the thread's nice 19, Windows background mode.
+    The thread's band is restored after.  Never raises."""
+    undo = lower_this_thread()
+    try:
+        yield
+    finally:
+        try:
+            undo()
+        except Exception:
+            pass
+
+
+def lower_this_thread():
+    """Run THIS thread in the background band (:func:`background_thread`)
+    until the callable it returns is called.  Never raises."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            me = k32.GetCurrentThread()
+            k32.SetThreadPriority(me, 0x00010000)      # BACKGROUND_BEGIN
+            return lambda: k32.SetThreadPriority(me, 0x00020000)
+        if hasattr(os, "PRIO_DARWIN_THREAD"):
+            os.setpriority(os.PRIO_DARWIN_THREAD, 0, os.PRIO_DARWIN_BG)
+            return lambda: os.setpriority(os.PRIO_DARWIN_THREAD, 0, 0)
+        tid = threading.get_native_id()
+        before = os.getpriority(os.PRIO_PROCESS, tid)
+        os.setpriority(os.PRIO_PROCESS, tid, 19)       # Linux: per thread
+        return lambda: os.setpriority(os.PRIO_PROCESS, tid, before)
+    except Exception:
+        return lambda: None
 
 
 def background_priority() -> None:

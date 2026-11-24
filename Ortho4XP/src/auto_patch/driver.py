@@ -1127,6 +1127,8 @@ def _build_write_verify_one(task: dict) -> dict:
         # ONE machine slot for the whole build (issue #1225): taken by the
         # parent before this worker process was started, or here on the
         # serial path, where the tile's own process waits for it.
+        # #2267: this process's slots (its pools' too) carry its airport
+        _SLOTS.name_process("airport %s" % icao)
         if _SLOT_HELD_BY_PARENT:
             return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
         with _SLOTS.take(1):
@@ -1393,6 +1395,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
                                set() if fut.done() else {fut})
 
             _GATED.run(tasks, width=n, start=_start, on_done=_done,
+                       label=lambda t: "airport %s" % t["icao"],
                        teardown=_teardown, on_tick=_drain_progress,
                        on_wait=lambda: UI.lvprint(
                            0, "   Auto-patch: waiting for a machine slot "

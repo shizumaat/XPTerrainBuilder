@@ -25,7 +25,7 @@ __all__ = ["run"]
 
 
 def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
-        on_wait=None, poll_s: float = 0.5) -> None:
+        on_wait=None, poll_s: float = 0.5, label=None) -> None:
     """Run every task in its own worker, at most ``width`` at once and
     never more than the session's free slots.
 
@@ -33,15 +33,18 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
     ``on_done(task, future)`` for each finished one; ``teardown(executor,
     future, task)`` before its slot is released (also for every worker
     still running when this exits abnormally); ``on_tick()`` once per poll;
-    ``on_wait()`` once, the first time nothing of this run can start."""
+    ``on_wait()`` once, the first time nothing of this run can start;
+    ``label(task)`` names the holder of the task's slot (#2267)."""
     queue = list(tasks)
     running: dict = {}
     said = False
     try:
         while queue or running:
             while queue and len(running) < width:
-                held = _SLOTS.try_take(1)
+                held = _SLOTS.try_take(
+                    1, what=label(queue[0]) if label is not None else "")
                 if not held.count:
+                    _SLOTS.want_slot()          # pools yield to it (#2267)
                     break
                 task = queue.pop(0)
                 try:
@@ -50,6 +53,8 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                     held.release()
                     raise
                 running[future] = (executor, held, task)
+            if not queue or len(running) >= width:
+                _SLOTS.want_slot(False)         # nothing of it waits now
             if queue and not running and not said and on_wait is not None:
                 said = True
                 on_wait()
@@ -72,6 +77,7 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                     held.release()
                 on_done(task, future)
     finally:
+        _SLOTS.want_slot(False)
         for future, (executor, held, task) in running.items():
             try:
                 teardown(executor, future, task)

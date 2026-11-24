@@ -120,7 +120,8 @@ def test_floor_pads_pre_selection_equals_on():
     from auto_patch_v2.airport.unit_storey import _on
     from auto_patch_v2.classify.floor_yard import _on_near
     rng = np.random.default_rng(13)
-    parts = [(_Obj(base_y=float(k)), Point(*rng.uniform(0.0, 500.0, 2)).buffer(rng.uniform(2, 40), 2))
+    parts = [(_Obj(base_y=float(k)),
+              Point(*rng.uniform(0.0, 500.0, 2)).buffer(rng.uniform(2, 40), 2))
              for k in range(80)]
     ur = _Obj(parts=tuple(parts))
     tree = STRtree([g for _p, g in parts])

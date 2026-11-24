@@ -23,11 +23,27 @@ __all__ = ["prefix_twice"]
 
 
 def _digest(obj: _t.Any) -> str:
-    from auto_patch_v2.airport.stage_cache import value_digest
+    """The VALUE digest (``stage_cache.content_digest``, blind to object
+    sharing: a served front is a deep copy), ``~`` marking the canonical
+    fallback for a product too deep for it (sharing-sensitive)."""
+    from auto_patch_v2.airport.stage_cache import canonical_digest, content_digest
     try:
-        return value_digest(obj)[:16]
+        return content_digest(obj)[:16]
+    except (RecursionError, ValueError):
+        try:
+            return "~" + canonical_digest(obj)[:16]
+        except Exception as exc:
+            return f"undigested ({type(exc).__name__})"
     except Exception as exc:                  # a product that will not pickle
         return f"undigested ({type(exc).__name__})"
+
+
+def _fields(obj: _t.Any) -> dict[str, str]:
+    """One digest per dataclass field of ``obj`` (where a map differs)."""
+    import dataclasses as _dc
+    if not _dc.is_dataclass(obj):
+        return {"value": _digest(obj)}
+    return {f.name: _digest(getattr(obj, f.name)) for f in _dc.fields(obj)}
 
 
 def prefix_twice(icao: str, airport, cl, law, inputs, pack, *, memo: bool,
@@ -50,7 +66,8 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *, memo: bool,
         pm, cs = derive.last.pm, derive.last.cs
         return {"walls": walls, "clocks": list(derive.clocks),
                 "outcomes": _arr_memo.outcomes(),
-                "late_pm": _digest(pm), "late_cs": _digest(cs)}
+                "late_pm": _digest(pm), "late_cs": _digest(cs),
+                "late_pm_fields": _fields(pm)}
     got = (_arr_memo.scoped(both) if memo else both)()
     for (what, s), clock in zip(got["walls"], got["clocks"]):
         steps = ", ".join(f"{k} {v:.1f}" for k, v in clock["wall_s"].items())
@@ -58,4 +75,6 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *, memo: bool,
             f"{s:.1f} s, steps sum {clock['total_s']:.1f} s: {steps}")
     out(f"[{icao}] PREFIX TWICE front memo outcomes: {got['outcomes']}")
     out(f"[{icao}] PREFIX TWICE late map digest pm {got['late_pm']} cs {got['late_cs']}")
+    out(f"[{icao}] PREFIX TWICE late map fields "
+        + " ".join(f"{k}={v}" for k, v in got["late_pm_fields"].items()))
     return got

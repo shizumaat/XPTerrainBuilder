@@ -457,6 +457,9 @@ EXCEPTION_CODES = {
     # (``dsf_poly_clip``): caught by ``generated_pack``, which keeps the
     # page; never raised out of a build step
     "UvMappedPage": "unexpected_error",
+    # a streamed square whose folders the disk budget gave back (#2193):
+    # the follow job skips it at once; never raised out of a build step
+    "SquareGone": "unexpected_error",
     # geometry (shapely's GEOSException covers TopologyException, #559)
     "GEOSException": "airport_geometry",
     "TopologicalError": "airport_geometry",

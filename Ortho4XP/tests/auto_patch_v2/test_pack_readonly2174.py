@@ -171,9 +171,9 @@ def test_a_folder_with_nothing_to_edit_is_never_asked_about(pack):
     objects = os.path.join(root, "objects")
     os.makedirs(plugins)
     os.makedirs(objects)
-    with open(os.path.join(plugins, "init.lua"), "w") as fh:
+    with open(os.path.join(plugins, "init.lua"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("-- read only\n")
-    with open(os.path.join(objects, "Hangar.obj"), "w") as fh:
+    with open(os.path.join(objects, "Hangar.obj"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("A\n800\nOBJ\n")
     for d in (plugins, os.path.dirname(plugins)):
         os.chmod(d, 0o555)

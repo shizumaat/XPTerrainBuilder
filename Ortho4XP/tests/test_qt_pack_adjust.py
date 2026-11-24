@@ -300,6 +300,9 @@ def test_the_pack_row_adjust_asks_the_engine(window, monkeypatch):
     window._progress_states = {(29, -96): ("active", "mesh", 10)}
     window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
     assert len(sent) == 1, "never while the run builds the pack's tile"
+    # the engine answers the first command (#2200: one pending per row)
+    import types
+    window._pack_row_answered(types.SimpleNamespace(pack_root="/X/Custom Scenery/Some Pack"))
     window._run_tiles = {(48, 2)}
     window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
     assert len(sent) == 2, "a run on other tiles never holds it (#2168)"

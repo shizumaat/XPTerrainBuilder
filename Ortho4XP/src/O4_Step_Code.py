@@ -1066,6 +1066,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.solve.project",
     "auto_patch_v2.solve.project_strip",
     "auto_patch_v2.solve.project_yard",
+    "auto_patch_v2.solve.round_normal",
     "auto_patch_v2.solve.rows",
     "auto_patch_v2.solve.runway_first",
     "auto_patch_v2.solve.stage_shadow",

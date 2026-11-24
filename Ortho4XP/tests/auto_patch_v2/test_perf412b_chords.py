@@ -223,6 +223,6 @@ def test_the_build_report_carries_the_verify_pool():
     src = inspect.getsource(V.judge)
     assert 'say=lambda m: out("  " + m),' in src
     assert "on_pool=_vpool.append)" in src
-    src = inspect.getsource(B.build)
+    src = inspect.getsource(B._build)               # build's body (#2206 step 3)
     assert "pool_out=_vpool" in src
     assert '"verify": _vpool[-1] if _vpool else None}' in src

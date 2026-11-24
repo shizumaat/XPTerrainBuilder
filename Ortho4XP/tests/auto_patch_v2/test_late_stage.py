@@ -291,7 +291,7 @@ def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
             walk(child, u)
     walk(tree, False)
     assert len(calls) == 1 and guarded == [True]
-    src = inspect.getsource(_build.build)
+    src = inspect.getsource(_build._build)          # build's body (#2206 step 3)
     assert "cl_gaps, _cl_base = None, gap_free(cl)" in src
     plain = types.SimpleNamespace(cells=(
         Cell(0, "apron", "pav1", ((0, 0), (1, 0), (1, 1)), (), None, None, "airside", "apron", {}),))

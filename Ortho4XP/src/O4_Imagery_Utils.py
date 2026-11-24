@@ -27,6 +27,7 @@ import O4_Imagery_Async as FETCH_ASYNC
 import O4_Imagery_Capture_Seam as CAPTURE_SEAM
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Provider_Blend as PROVIDER_BLEND
+import O4_Imagery_Water_Seams as WATER_SEAMS
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
 import O4_OSM_Utils as OSM
@@ -3047,6 +3048,33 @@ def repair_sea_nodata_in_texture(
     return filled_image
 
 
+def water_seam_mask(tile, til_x_left, til_y_top, zoomlevel):
+    """The texture's water mask crop (``L``) when its imagery shows under
+    water, else ``None`` (all land, all water, or no mask square)."""
+    try:
+        land_class, crop = MASK.land_class_for_texture(
+            tile, til_x_left, til_y_top, zoomlevel)
+    except Exception as error:
+        UI.vprint(2, "      Water seam mask skipped:", str(error))
+        return None
+    return crop if land_class == "mask" else None
+
+
+def repair_water_seams_in_texture(big_image, water_mask, til_y_top, zoomlevel):
+    """Colour-match and blur the straight seams of the provider's mosaic
+    under water (``O4_Imagery_Water_Seams``); land pixels never change."""
+    lat = GEO.gtile_to_wgs84(0, til_y_top + 8, zoomlevel)[0]
+    metres_per_px = (GEO.webmercator_pixel_size(lat, zoomlevel)
+                     * 4096.0 / big_image.size[0])
+    repaired, seams = WATER_SEAMS.repair_water_seams(
+        big_image, water_mask, metres_per_px)
+    if seams.flagged:
+        runs = seams.runs()
+        UI.vprint(2, "      Water seams:", len(runs), "line(s),",
+                  int(seams.tinted.sum()), "tinted cell(s).")
+    return repaired
+
+
 def save_temp_png(image, path):
     """Save the converter's temporary PNG with fast zlib (#833).
 
@@ -3239,6 +3267,8 @@ def convert_texture(
         tile, harmonization_field, til_x_left, til_y_top, zoomlevel)
     blend_gain = PROVIDER_BLEND.gain_field(tile, til_x_left, til_y_top,
                                            zoomlevel)
+    # the provider's own seams under shallow water (owner 2026-11-24)
+    water_mask = water_seam_mask(tile, til_x_left, til_y_top, zoomlevel)
     if (provider_code in local_combined_providers_dict) and (
         (provider_code not in providers_dict)
         or not os.path.exists(os.path.join(file_dir, jpeg_file_name))
@@ -3250,6 +3280,9 @@ def convert_texture(
             big_image = HARMONIZE.apply_color_field(
                 big_image, harmonization_field, gain=blend_gain
             )
+        if water_mask is not None:
+            big_image = repair_water_seams_in_texture(
+                big_image, water_mask, til_y_top, zoomlevel)
         if masked_texture:
             if tile.sea_nodata_fill:
                 big_image = repair_sea_nodata_in_texture(
@@ -3285,6 +3318,7 @@ def convert_texture(
         (providers_dict[provider_code]["color_filters"] != "none")
         or masked_texture
         or harmonization_field is not None
+        or water_mask is not None
     ):
         big_image = Image.open(
             os.path.join(file_dir, jpeg_file_name), "r"
@@ -3297,6 +3331,9 @@ def convert_texture(
             big_image = HARMONIZE.apply_color_field(
                 big_image, harmonization_field, gain=blend_gain
             )
+        if water_mask is not None:
+            big_image = repair_water_seams_in_texture(
+                big_image, water_mask, til_y_top, zoomlevel)
         if masked_texture:
             if tile.sea_nodata_fill:
                 big_image = repair_sea_nodata_in_texture(

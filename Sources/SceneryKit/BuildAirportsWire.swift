@@ -62,10 +62,14 @@ public struct O4BuildAirports: Sendable, Equatable {
     public let fitConfirm: String
     /// The switch per airport (#2182); empty from an engine that predates it.
     public let fitAirports: [FitAirport]
+    /// How each airport with a custom patch uses it (#2179): the picker
+    /// rows; empty from an engine that predates them.
+    public let customPatchUse: [O4CustomPatchUse]
 
     public init(airports: [Airport], packs: [Pack], totalSeconds: ClosedRange<Double>,
                 customPatches: [String] = [], fitBuildings: Bool? = nil,
-                fitConfirm: String = "", fitAirports: [FitAirport] = []) {
+                fitConfirm: String = "", fitAirports: [FitAirport] = [],
+                customPatchUse: [O4CustomPatchUse] = []) {
         self.airports = airports
         self.packs = packs
         self.totalSeconds = totalSeconds
@@ -73,6 +77,7 @@ public struct O4BuildAirports: Sendable, Equatable {
         self.fitBuildings = fitBuildings
         self.fitConfirm = fitConfirm
         self.fitAirports = fitAirports
+        self.customPatchUse = customPatchUse
     }
 
     /// A `[low, high]` wire pair, ordered; nil when absent or malformed.
@@ -124,7 +129,9 @@ public struct O4BuildAirports: Sendable, Equatable {
             customPatches: event["custom_patches"]?.arrayValue?.compactMap(\.stringValue) ?? [],
             fitBuildings: event["fit_buildings"]?.boolValue,
             fitConfirm: event["fit_confirm"]?.stringValue ?? "",
-            fitAirports: fitAirports))
+            fitAirports: fitAirports,
+            customPatchUse: (event["custom_patch_use"]?.arrayValue ?? [])
+                .compactMap(O4CustomPatchUse.from)))
     }
 }
 

@@ -351,10 +351,10 @@ struct BuildPane: View {
                     }
                 }
             }
-            // Custom patch (#1229, RULINGS 2026-10-26c): the custom patch
-            // files the build applies instead of the auto patch, and "Use
-            // auto patch", which sets them aside, never deletes them (the
-            // Qt pane: the same).
+            // Custom patch (#1229, #2179; RULINGS 2026-10-26c, 2026-11-23d/f):
+            // the tile's custom patch files, and per airport with a
+            // hand-made one a picker, "As made" or "Our auto patch" (the
+            // Qt pane: the same). Nothing is renamed.
             if let files = buildModel.customPatchTiles[active], !files.isEmpty {
                 HStack(alignment: .firstTextBaseline) {
                     Text(O4CustomPatchText.title + ":")
@@ -365,9 +365,13 @@ struct BuildPane: View {
                         Text(O4CustomPatchText.info(files))
                             .scaledFont(.caption)
                             .fixedSize(horizontal: false, vertical: true)
-                        UseAutoPatchButton(buildModel: buildModel,
-                                           activity: buildModel.activity,
-                                           tile: active)
+                        if buildModel.supportsCustomPatchUse {
+                            ForEach(buildModel.customPatchUses[active] ?? []) { row in
+                                CustomPatchUsePicker(buildModel: buildModel,
+                                                     activity: buildModel.activity,
+                                                     row: row)
+                            }
+                        }
                     }
                 }
             }

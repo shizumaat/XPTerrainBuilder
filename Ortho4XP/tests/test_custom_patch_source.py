@@ -1,7 +1,10 @@
-"""Synthetic twin of the custom-patch re-base (#2173, RULINGS 2026-11-19b):
-a patch authored on DEM A, a build meshing DEM B = A + a smooth bump; the
-re-based heights follow B, pads stay one height, the user's file is never
-edited, and auto / ``_edited`` patches are never re-based."""
+"""Synthetic twin of a custom patch's reference elevation (#2179; the fit
+of RULINGS 2026-11-19b (2), kept when its re-base and band were retired by
+2026-11-23d): a patch authored on DEM A, a build meshing DEM B = A + a
+smooth bump; the fit names A, the patch is never rewritten, and only a
+custom patch's source is recorded."""
+
+import json
 
 import os
 import sys
@@ -12,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import O4_Patch_Rebase as R  # noqa: E402
+import O4_Custom_Patch_Source as R  # noqa: E402
 
 LAT, LON = 39.0, -107.0
 KX = 111120.0 * numpy.cos(numpy.radians(LAT + 0.2))
@@ -82,35 +85,29 @@ def test_reference_is_the_authoring_dem():
     assert ref == R.BUILD_SOURCE
 
 
-def test_rebased_heights_follow_the_build_dem_and_pads_stay_flat():
-    text = patch_text(dem_a)
-    nodes, pads, ramps = R._height_points(text)
-    field = R._OffsetField(*R._height_gaps(nodes, pads, ramps, dem_b))
-    new, stats = R._rebase_text(text, field, nodes, pads, ramps)
-    n2, p2, r2 = R._height_points(new)
-    gaps = numpy.array([dem_b(numpy.array([n2[r] for r in refs[:-1]])).mean()
-                        - alt for _, refs, alt in p2])
-    assert numpy.abs(numpy.median(gaps)) < 0.1
-    assert numpy.abs(gaps).max() < 0.5
-    assert stats["pad_spread"].max() < 0.2
-    _, (high, low) = r2[0][0], r2[0][2:]
-    want = dem_b(R._ends(n2, r2[0][1]))
-    assert abs(high - want[0]) < 1.0 and abs(low - want[1]) < 1.0
-    # Only height values changed.
-    changed = [a for a, b in zip(text.splitlines(), new.splitlines(), strict=False)
-               if a != b]
-    assert changed and all("altitude" in line for line in changed)
-
-
 @pytest.mark.parametrize("name", ["KXXX_auto.patch.osm",
                                   "KXXX_edited.patch.osm"])
-def test_auto_and_edited_patches_are_never_rebased(tmp_path, name):
-    tile = SimpleNamespace(build_dir=str(tmp_path), lat=39, lon=-107)
-    assert R.mesh_path(tile, str(tmp_path), name) == str(tmp_path / name)
+def test_auto_and_edited_patches_record_no_source(tmp_path, name):
+    tile = SimpleNamespace(build_dir=str(tmp_path / "build"), lat=39,
+                           lon=-107)
+    (tmp_path / name).write_text(patch_text(dem_a), encoding="utf-8", newline="")
+    R.remember_source(tile, str(tmp_path), name)
+    assert not (tmp_path / "build" / R.SOURCES_RECORD).exists()
 
 
-def test_setting_off_reads_the_users_file(tmp_path):
-    tile = SimpleNamespace(build_dir=str(tmp_path), lat=39, lon=-107,
-                           rebase_custom_patches=False)
-    assert (R.mesh_path(tile, str(tmp_path), "KXXX.patch.osm")
-            == str(tmp_path / "KXXX.patch.osm"))
+def test_a_custom_patch_records_its_source_and_is_never_rewritten(
+        tmp_path, monkeypatch):
+    tile = SimpleNamespace(build_dir=str(tmp_path / "build"), lat=39,
+                           lon=-107)
+    path = tmp_path / "KXXX.patch.osm"
+    text = patch_text(dem_a)
+    path.write_text(text, encoding="utf-8", newline="")
+    monkeypatch.setattr(R, "_ground_record", lambda *_a: None)
+    monkeypatch.setattr(R, "_sources",
+                        lambda _t: {R.BUILD_SOURCE: dem_b, "A": dem_a})
+    R.remember_source(tile, str(tmp_path), "KXXX.patch.osm")
+    record = json.loads((tmp_path / "build" / R.SOURCES_RECORD).read_text(
+        encoding="utf-8"))
+    assert record["KXXX.patch.osm"]["source"] == "A"
+    assert path.read_text(encoding="utf-8") == text
+    assert not (tmp_path / "build" / "custom_patch_rebase").exists()

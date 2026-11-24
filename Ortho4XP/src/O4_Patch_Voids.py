@@ -32,19 +32,13 @@ import json
 import os
 
 HOLE_FEATURE = "gap_interior_ring"
-#: The tag that marks ANY ring as an uncovered hole, whatever its
-#: ``o4_feature`` -- the custom-patch blend band's inner foot ring
-#: (``O4_Patch_Band``, #2173) is a ``bank_foot`` AND a void.
-VOID_TAG = ("o4_void", "yes")
 SIDECAR_SUFFIX = ".patch_voids.json"
 SIDECAR_VERSION = 1
 
 
 def is_hole(wtags) -> bool:
     """Whether a patch way's tags mark an uncovered hole ring."""
-    wtags = wtags or {}
-    return (wtags.get("o4_feature") == HOLE_FEATURE
-            or wtags.get(VOID_TAG[0]) == VOID_TAG[1])
+    return (wtags or {}).get("o4_feature") == HOLE_FEATURE
 
 
 def voids(hole_polygons, cover_polygons):

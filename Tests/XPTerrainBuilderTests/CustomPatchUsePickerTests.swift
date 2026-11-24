@@ -1,10 +1,10 @@
 import XCTest
 @testable import XPTerrainBuilder
 
-/// #1922: "Use auto patch" waits only for its own tile. Qt twin:
-/// `Ortho4XP/tests/test_qt_custom_patch.py`.
+/// #1922: the custom-patch picker (#2179) waits only for its own tile.
+/// Qt twin: `Ortho4XP/tests/test_qt_custom_patch.py`.
 @MainActor
-final class UseAutoPatchButtonTests: XCTestCase {
+final class CustomPatchUsePickerTests: XCTestCase {
     func testOnlyTheTileInTheRunIsHeld() {
         let building = BuildModel.TileCoord(lat: 46, lon: 6)
         let queued = BuildModel.TileCoord(lat: 47, lon: 6)

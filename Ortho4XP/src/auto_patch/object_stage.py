@@ -1597,17 +1597,12 @@ def _custom_patch_airports(patch_dir: str) -> dict:
     ``<ICAO>_edited.patch.osm`` (owner RULINGS 2026-11-18k).  Such an
     airport's pack is used unmodified — the patch was likely designed for
     it; an edited patch keeps 2026-11-03e (13), its objects re-placed.
-    Here, not in ``selection``: that module is in the patch code key."""
-    import O4_File_Names as FNAMES
+    Only an airport that uses its custom patch "As made" (#2179,
+    ``O4_Custom_Patch_Use``): one on "Our auto patch" is auto-patched,
+    its objects placed as for any other airport."""
+    import O4_Custom_Patch_Use as CUSTOM_USE
 
-    out: dict = {}
-    if not os.path.isdir(patch_dir):
-        return out
-    for f in sorted(os.listdir(patch_dir)):
-        icao = FNAMES.patch_file_icao(f) if FNAMES.is_manual_patch_name(f) else None
-        if icao and f != FNAMES.edited_patch_name(icao):
-            out.setdefault(icao, []).append(f)
-    return out
+    return CUSTOM_USE.as_made_files(patch_dir)
 
 
 def _pack_stand_down(tile, icao: str | None = None) -> str:

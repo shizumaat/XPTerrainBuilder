@@ -806,8 +806,14 @@ def test_the_patch_library_has_one_home_in_each_app(window):
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
     card = window.airports_card.layout()
+    # the airport list, its custom-patch pickers (#2179), then the library
+    # (the Mac card: airportList, customPatchUseList, LibraryMatchList)
     assert card.indexOf(window.airports_card.library_match_list) == \
-        card.indexOf(window.airports_card.airports_text) + 1
+        card.indexOf(window.airports_card.custom_patch_use) + 1 == \
+        card.indexOf(window.airports_card.airports_text) + 2
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert swift.index("airportList\n") < swift.index(
+        "customPatchUseList\n") < swift.index("LibraryMatchList(matches")
 
 
 def test_imagery_on_demand_has_one_home_in_each_app(window):
@@ -1376,3 +1382,47 @@ def test_both_cards_have_a_fit_switch_per_airport(window, monkeypatch):
     kase.setChecked(True)
     assert writes[-1] == ("+39-107", "KASE", True) and card.chk_fit.isChecked()
     assert QTAIRPORTS.FIT_KEY not in card.overrides
+
+
+def test_both_apps_pick_how_a_custom_patch_is_used(window, monkeypatch):
+    """#2179 (RULINGS 2026-11-23d/f): the Build card and the tile pane
+    carry one picker per airport with a custom patch, "As made" (the
+    default, with its warning) or "Our auto patch", in the same words; a
+    choice is written through ``O4_Custom_Patches.set_use`` and the card
+    is asked again.  The Mac app's ``CustomPatchUsePicker`` sits in
+    ``BuildAirportsCard.customPatchUseList`` and the tile pane's row."""
+    import O4_Custom_Patches as CUSTOM
+    import O4_Qt_Custom_Patch_Use as QTCUSTOMUSE
+
+    card_swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    pane_swift = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    picker_swift = (SWIFT / "CustomPatchUsePicker.swift").read_text(
+        encoding="utf-8")
+    assert "card.customPatchUse" in card_swift
+    assert "CustomPatchUsePicker(" in card_swift
+    assert "CustomPatchUsePicker(" in pane_swift
+    assert "O4CustomPatchText.asMadeTitle" in picker_swift
+    assert "O4CustomPatchText.autoPatchTitle" in picker_swift
+    assert "row.warning" in picker_swift
+    assert "QTCUSTOMUSE.CustomPatchUseList" in inspect.getsource(
+        GUI.MainWindow._make_widgets)
+    card = window.airports_card
+    writes = []
+    monkeypatch.setattr(CUSTOM, "set_use", lambda lat, lon, icao, mode:
+                        writes.append((lat, lon, icao, mode)))
+    monkeypatch.setattr(card, "on_card_changed", None, raising=False)
+    monkeypatch.setattr(card, "on_custom_patch_use", None, raising=False)
+    card._on_ready((card._generation, {
+        "airports": [], "packs": [], "total_s": [0, 0],
+        "custom_patch_use": [
+            {"icao": "KASE", "tile": [39, -107], "files": ["KASE.patch.osm"],
+             "use": "as_made", "chosen": False,
+             "warning": CUSTOM.AS_MADE_WARNING}]}, ""))
+    combo = card.custom_patch_use.combos["KASE"]
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        CUSTOM.AS_MADE_TITLE, CUSTOM.AUTO_PATCH_TITLE]
+    assert combo.currentText() == CUSTOM.AS_MADE_TITLE
+    assert card.custom_patch_use.warnings["KASE"].text() == (
+        QTCUSTOMUSE.WARNING_MARK + CUSTOM.AS_MADE_WARNING)
+    combo.setCurrentIndex(1)
+    assert writes == [(39, -107, "KASE", "auto_patch")]

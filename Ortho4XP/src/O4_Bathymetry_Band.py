@@ -121,11 +121,11 @@ def _cell_fetch_worker_count(cell_count: int) -> int:
     shared = max(2, CELL_FETCH_WORKERS // parallel_sibling_count())
     return min(shared, cell_count)
 
-# masks_use_DEM_too="auto" only counts a provider as "good data" when its
+# masks_use_DEM_too="auto" only fetches a provider into this BAND when its
 # native resolution is at least this fine: the global fallbacks (GEBCO,
-# 450 m) barely resolve the shoreline and would degrade every coastal
-# mask on Earth if auto engaged on them.  Explicit True and the DSF
-# sea_level raster synthesis use any provider.
+# 450 m) barely resolve the shoreline, so in auto mode they reach the masks
+# only as O4_Bathymetry_Coarse's soft sea alpha.  Explicit True and the DSF
+# sea_level raster synthesis use any provider here.
 AUTO_MODE_MAXIMUM_RESOLUTION_M = 50.0
 
 NO_COVERAGE = "no_coverage"
@@ -1016,6 +1016,58 @@ def warp_band_to_post_grid(band_vrt_path: str, lat: int, lon: int,
     return numpy.flipud(values)
 
 
+def read_band_window(til_x, til_y, zoomlevel, band_path, size=6144,
+                     resample="bilinear"):
+    """A depth raster over one mask square's padded web-mercator window
+    (the 6144 px pre-mask geometry) as a ``size``-square float32 array,
+    nodata -32768; ``None`` when the warp fails.  Never raises."""
+    (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, zoomlevel)
+    (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, zoomlevel)
+    px0 -= 1024
+    py0 -= 1024
+    (latmax, lonmin) = GEO.pix_to_wgs84(px0, py0, zoomlevel)
+    (latmin, lonmax) = GEO.pix_to_wgs84(px0 + 6144, py0 + 6144, zoomlevel)
+    (web_x_min, web_y_max) = GEO.geo_to_webm(lonmin, latmax)
+    (web_x_max, web_y_min) = GEO.geo_to_webm(lonmax, latmin)
+    try:
+        gdal.UseExceptions()
+        warped = gdal.Warp(
+            "",
+            band_path,
+            options=gdal.WarpOptions(
+                format="MEM",
+                outputType=gdal.GDT_Float32,
+                dstSRS="EPSG:3857",
+                outputBounds=(web_x_min, web_y_min, web_x_max, web_y_max),
+                width=size,
+                height=size,
+                resampleAlg=resample,
+                dstNodata=-32768.0,
+            ),
+        )
+        if warped is None:
+            return None
+        values = warped.GetRasterBand(1).ReadAsArray()
+        warped = None
+        return values
+    except Exception as error:
+        UI.vprint(
+            2, "   Bathymetry window read failed for one mask square:",
+            str(error),
+        )
+        return None
+
+
+def depth_spline(values, reef_depth_m: float):
+    """``spline(1 - depth / D)``: 1 at the waterline (and above it), 0 at
+    depth ``D`` and beyond (spec section 4.2)."""
+    import numpy
+
+    shallowness = numpy.clip(
+        1.0 + values / max(float(reef_depth_m), 0.01), 0.0, 1.0)
+    return shallowness * shallowness * (3.0 - 2.0 * shallowness)
+
+
 # Prefetch bookkeeping: build steps that run BEFORE the band consumers
 # (the vector step, spec section 3) can start the fetch on a background
 # thread so it overlaps the mesh build; the consumers then join the
@@ -1140,6 +1192,11 @@ def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
                 return True
             fine_nearshore_only = masks_dem_setting == "auto"
             intertidal_ok = masks_dem_setting == "True"
+            if fine_nearshore_only:
+                import O4_Bathymetry_Coarse as COARSE
+
+                if not COARSE.fill_is_settled(tile):
+                    return False
         import O4_Airport_Elevation_Insets as INSETS
 
         definitions = INSETS.select_bathymetry_definitions(
@@ -1207,11 +1264,27 @@ def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
 
 
 def masks_source_state(tile) -> Optional[str]:
-    """What the MASKS step's key needs from a revised provider's band:
-    ``None`` when no provider the masks walk declares a source revision
-    or it yields no cells (the step's key is then unchanged), PENDING
-    while cells are still to be asked, else a digest of its mosaic.
-    Disk only."""
+    """The MASKS step's key on its depth sources: the fine band's state
+    (:func:`_fine_source_state`) joined with the coarse raster's
+    (:func:`O4_Bathymetry_Coarse.fill_state`).  ``None`` when neither has
+    an answer, so such a tile's key is unchanged; PENDING when either is
+    still to be asked.  Disk only."""
+    import O4_Bathymetry_Coarse as COARSE
+
+    fine = _fine_source_state(tile)
+    coarse = COARSE.fill_state(tile)
+    if coarse is None:
+        return fine
+    if SOURCE_REVISION.PENDING in (fine, coarse):
+        return SOURCE_REVISION.PENDING
+    return "%s+%s" % (fine or "", coarse)
+
+
+def _fine_source_state(tile) -> Optional[str]:
+    """What the key needs from a revised provider's band: ``None`` when
+    no provider the masks walk declares a source revision or it yields no
+    cells, PENDING while cells are still to be asked, else a digest of
+    its mosaic.  Disk only."""
     setting = str(getattr(tile, "masks_use_DEM_too", "False"))
     if not has_gdal or setting not in ("auto", "True"):
         return None
@@ -1469,8 +1542,8 @@ def _ensure_bathymetry_band_now(
             1,
             "   INFO: the covering bathymetry source(s)",
             ", ".join(d["code"] for d in coarse),
-            "are too coarse for automatic depth-graded masks; set"
-            " masks_use_DEM_too=True to use them anyway.",
+            "are coarse: they fill the depth-graded masks from one"
+            " tile raster (O4_Bathymetry_Coarse), not this fine band.",
         )
     if not definitions:
         UI.vprint(

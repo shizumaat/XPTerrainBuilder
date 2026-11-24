@@ -1216,6 +1216,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Imagery_Regions_Table",
         "O4_Imagery_Utils",
         # the provider's seams under shallow water: convert_texture
+        "O4_Imagery_Water_Lines",
         "O4_Imagery_Water_Seams",
         "O4_Mask_Utils",
         "O4_Mask_Water_Squares",

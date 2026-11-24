@@ -850,8 +850,8 @@ def runway_read(pm, law, airport, z) -> list[dict]:
     out = []
     for rw in airport.runways:
         e0, e1 = rw.ends
-        z0 = e0.threshold_elev_m if e0.threshold_elev_m is not None else valued.get((rw.id, e0.name))
-        z1 = e1.threshold_elev_m if e1.threshold_elev_m is not None else valued.get((rw.id, e1.name))
+        z0, z1 = (e.threshold_elev_m if e.threshold_elev_m is not None
+                  else valued.get((rw.id, e.name)) for e in (e0, e1))
         if z0 is None or z1 is None:
             continue
         chs = chains.get(rw.id) or []

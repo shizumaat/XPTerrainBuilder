@@ -348,11 +348,15 @@ def test_an_unsurveyed_pair_keeps_its_pins_off_a_sea_level_dem(law):
     class _Sea(_Classed):
         def z(self, x, y):
             return -1.0
-    airport, _pm = _site(law, _Sea(0.0, None), (5.0, 5.0), elev=5.0)
-    airport, _recs, lines = EP.verify(_cifp_airport(airport), law)
-    rw = airport.runways[0]
-    assert [e.threshold_elev_m for e in rw.ends] == [5.0, 5.0]
-    assert any("published pins stand" in ln and "sea level" in ln for ln in lines)
+    # a field at 5 m: the sub-sea read is void fill (``_unvoid``), unread;
+    # a field at 0.5 m (under ``sea_band_min_z0_m``): the read stands and
+    # the sea-level guard refuses it
+    for elev, why in ((5.0, "unread"), (0.5, "sea level")):
+        airport, _pm = _site(law, _Sea(0.0, None), (elev, elev), elev=elev)
+        airport, _recs, lines = EP.verify(_cifp_airport(airport), law)
+        rw = airport.runways[0]
+        assert [e.threshold_elev_m for e in rw.ends] == [elev, elev]
+        assert any("published pins stand" in ln and why in ln for ln in lines)
     cap = EP._slope_cap(law, rw)
     assert cap is not None and cap > 0.0
 

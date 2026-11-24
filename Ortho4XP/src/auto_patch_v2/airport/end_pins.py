@@ -89,8 +89,7 @@ import numpy as np
 
 from ..law import Law
 from ..law.inset_class import dem_source_class
-from ..law.tables import (role_cap, runway_end_zone_cap, runway_ends,
-                          runway_mean_slope_max)
+from ..law.tables import role_cap, runway_end_zone_cap, runway_ends, runway_mean_slope_max
 from ..model.airport import Airport, Runway
 from . import runway_peers as _peers
 from .cifp import match_designator

@@ -42,14 +42,13 @@ import json
 
 import numpy
 
-__all__ = ["COAST_RING_PIXELS", "partial_fill_cover", "refuse_partial_coast",
-           "untrusted_coast_cells"]
+__all__ = ["COAST_RING_PIXELS", "refuse_partial_coast"]
 
 #: How many native pixels beside a refused sub-sea pixel are judged.
 COAST_RING_PIXELS = 1
 
 
-def partial_fill_cover(sidecar_meta, cover_threshold):
+def _partial_fill_cover(sidecar_meta, cover_threshold):
     """The inset's true coverage when its sidecar records a masked
     provider fill and that coverage is below ``cover_threshold``, else
     ``None`` (the inset is not judged)."""
@@ -78,7 +77,7 @@ def _dilate8(mask, rings):
     return grown
 
 
-def untrusted_coast_cells(values, nodata, base_values, base_nodata=None):
+def _untrusted_coast_cells(values, nodata, base_values, base_nodata=None):
     """``(refused, sub_sea)``: boolean arrays shaped like ``values`` --
     the valid pixels the rule refuses, and those of them refused for
     standing below sea level where the base reads land.  ``base_values``
@@ -140,10 +139,10 @@ def refuse_partial_coast(inset, base_dem, inset_path, cover_threshold):
     if hasattr(inset, "coast_refusal"):
         return inset.coast_refusal
     inset.coast_refusal = None
-    cover = partial_fill_cover(_sidecar_meta(inset_path), cover_threshold)
+    cover = _partial_fill_cover(_sidecar_meta(inset_path), cover_threshold)
     if cover is None or getattr(inset, "alt_dem", None) is None:
         return None
-    refused, sub_sea = untrusted_coast_cells(
+    refused, sub_sea = _untrusted_coast_cells(
         inset.alt_dem, inset.nodata, _base_at_posts(inset, base_dem),
         base_dem.nodata)
     if not refused.any():

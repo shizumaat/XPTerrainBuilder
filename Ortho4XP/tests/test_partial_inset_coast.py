@@ -4,22 +4,21 @@ import json
 import types
 
 import numpy
-
 from elevation_access.partial_inset_coast import (
-    partial_fill_cover,
+    _partial_fill_cover,
+    _untrusted_coast_cells,
     refuse_partial_coast,
-    untrusted_coast_cells,
 )
 
 ND = -32768.0
 
 
 def test_partial_fill_cover_judges_only_a_masked_fill_under_the_threshold():
-    assert partial_fill_cover({}, 0.8) is None
-    assert partial_fill_cover({"provider_fill": None}, 0.8) is None
-    assert partial_fill_cover(
+    assert _partial_fill_cover({}, 0.8) is None
+    assert _partial_fill_cover({"provider_fill": None}, 0.8) is None
+    assert _partial_fill_cover(
         {"provider_fill": {"valid_fraction": 0.95}}, 0.8) is None
-    assert partial_fill_cover(
+    assert _partial_fill_cover(
         {"provider_fill": {"valid_fraction": 0.34}}, 0.8) == 0.34
 
 
@@ -46,7 +45,7 @@ def _scene():
 
 def test_sub_sea_fringe_and_the_low_ring_beside_it_are_refused():
     values, base = _scene()
-    refused, sub_sea = untrusted_coast_cells(values, ND, base)
+    refused, sub_sea = _untrusted_coast_cells(values, ND, base)
     # the -6 m pixels where the base reads 4 m: refused as sub-sea
     assert sub_sea[3].tolist() == [True, True, False, True, True]
     # the ring next to them, standing BELOW the base (5 m over 8 m): refused
@@ -60,14 +59,14 @@ def test_sub_sea_fringe_and_the_low_ring_beside_it_are_refused():
 def test_a_coast_pixel_above_the_base_is_kept_a_cliff_top_runway():
     values = numpy.array([[32.0, 32.0], [31.0, 31.0], [ND, ND]])
     base = numpy.array([[25.0, 25.0], [12.0, 12.0], [0.0, 0.0]])
-    refused, sub_sea = untrusted_coast_cells(values, ND, base)
+    refused, sub_sea = _untrusted_coast_cells(values, ND, base)
     assert not refused.any() and not sub_sea.any()
 
 
 def test_base_nodata_never_reads_as_land():
     values = numpy.array([[-3.0, ND]])
     base = numpy.array([[-32768.0, 0.0]])
-    refused, sub_sea = untrusted_coast_cells(values, ND, base, -32768.0)
+    refused, sub_sea = _untrusted_coast_cells(values, ND, base, -32768.0)
     assert not sub_sea.any() and not refused.any()
 
 
@@ -118,5 +117,5 @@ def test_a_low_coastline_beside_the_fill_alone_is_kept_lpma_class():
     however it stands against the base (a runway platform, a cliff)."""
     values = numpy.array([[40.0, 40.0], [35.0, 2.0], [ND, ND]])
     base = numpy.array([[45.0, 45.0], [44.0, 30.0], [0.0, 0.0]])
-    refused, sub_sea = untrusted_coast_cells(values, ND, base)
+    refused, sub_sea = _untrusted_coast_cells(values, ND, base)
     assert not refused.any() and not sub_sea.any()

@@ -910,11 +910,14 @@ def test_every_warning_print_of_a_step_module_is_in_the_census():
     # their own sidecar keys (#564, #668), and the scenery-order check the
     # engine runs at the end of a built tile (#1729, O4_Mesh_Order) — not
     # by a step's census row; and the pack-supplied ground with no mesh of
-    # its own (#1362), published by the auto-patch driver per airport
+    # its own (#1362), published by the auto-patch driver per airport;
+    # and the pack objects the object stage did not fit (#2186), published
+    # by ``O4_Object_Stage`` per airport
     degraded = {c for c, e in FAIL.CATALOGUE.items()
                 if e.severity == "degraded"}
     assert degraded - census_codes == {"pack_restore_unproven",
                                        "pack_ground_no_mesh",
+                                       "pack_objects_not_fitted",
                                        "airport_pack_unmounted",
                                        "scenery_hidden_by_mesh",
                                        "scenery_hides_mesh"}

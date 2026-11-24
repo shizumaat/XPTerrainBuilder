@@ -595,9 +595,10 @@ def _object_stage_code() -> "str | None":
 
 def object_stage_stale(tile) -> str | None:
     """Over a REUSED mesh step (#1901): None when the object stage's code
-    is the one the mesh step's record was cut under, else why it must run
-    again — its own per-airport reuse (``object_stage_reuse``) then
-    decides airport by airport.  Never raises (an unreadable record means
+    is the one the mesh step's record was cut under and its last run
+    fitted every airport's objects (#2186), else why it must run again —
+    its own per-airport reuse (``object_stage_reuse``) then decides
+    airport by airport.  Never raises (an unreadable record means
     "run it")."""
     try:
         entry = committed_entry(tile, "mesh")
@@ -606,7 +607,10 @@ def object_stage_stale(tile) -> str | None:
             return "the object stage has no code identity"
         if entry.get("object_code") != live:
             return "the object stage's code changed"
-        return None
+        # #2186: a run that left objects unfitted is not done — its
+        # warning says "build the tile again", so the next build must
+        import O4_Object_Stage as OBJECT_STAGE
+        return OBJECT_STAGE.failed_last_run(tile)
     except Exception as error:
         return "its record could not be checked (%s)" % (error,)
 

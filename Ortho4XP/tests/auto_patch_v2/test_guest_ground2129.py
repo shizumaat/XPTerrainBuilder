@@ -121,7 +121,7 @@ def test_the_later_build_of_the_guests_tile_reseats_them(tmp_path, monkeypatch):
     monkeypatch.setattr(TR, "guest_mark", lambda root, there, key: (
         marks.get(key) if (root, tuple(there)) == (str(pack), B_) else None))
     ran = []
-    monkeypatch.setattr(OS, "_object_stage", lambda t, only=None: (
+    monkeypatch.setattr(OS, "_object_stage", lambda t, only=None, failed=None: (
         ran.append(((t.lat, t.lon), only)) or {"airports_failed": 0}))
     monkeypatch.setattr(CFG.Tile, "read_from_config", lambda self, *a, **k: None)
     tile = types.SimpleNamespace(lat=B_[0], lon=B_[1], custom_build_dir="")

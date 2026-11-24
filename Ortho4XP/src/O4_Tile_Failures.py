@@ -249,6 +249,13 @@ CATALOGUE = {
         "{source} {substituted_why}, so {fallback} was used. It includes "
         "trees and buildings, so the ground there may read a few metres "
         "high.{kept}", "rebuild_later", severity="info"),
+    # the object stage after the mesh did not fit an airport pack's objects
+    # to the new ground (#2186): the tile was built, the pack is as it was
+    # (``O4_Object_Stage.run``); the next build runs the stage again
+    "pack_objects_not_fitted": Entry(
+        "the buildings of {airports} were not fitted to its new ground.",
+        "{pack} could not be updated for this tile, so its objects may "
+        "float or sink there.", "retry", severity="degraded"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),

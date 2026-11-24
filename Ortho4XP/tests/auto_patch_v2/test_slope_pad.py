@@ -63,7 +63,7 @@ def test_the_array_read_is_the_point_read():
 
     def many(xs, ys):
         calls.append(len(xs))
-        return np.array([z(x, y) for x, y in zip(xs, ys)])
+        return np.array([z(x, y) for x, y in zip(xs, ys, strict=True)])
     u = Polygon([(0, 0), (37.3, 2.1), (41.9, 29.7), (12.2, 33.3), (3.1, 17.7)])
     assert seat_float_m(u, z, many) == seat_float_m(u, z) > 0.0 and len(calls) == 1
     law = Law.for_airport("KASE")

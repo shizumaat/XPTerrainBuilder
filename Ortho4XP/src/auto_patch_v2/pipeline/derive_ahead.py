@@ -26,6 +26,7 @@ the output cannot change; only the clock does."""
 from __future__ import annotations
 
 import dataclasses as _dc
+import time
 import typing as _t
 
 from ..airport import pool as _pool
@@ -162,7 +163,11 @@ def install(derive, res: _t.Mapping[str, _t.Any]) -> tuple:
     airport = _dc.replace(derive.airport, flat_site=res["flat_site"])
     rec = _dc.replace(res["record"], airport=airport)
     derive.runs += 1
-    derive.last = _dc.replace(rec, hold=hold_pass(rec.pm, derive.law, airport))
+    t = time.perf_counter()
+    hold = hold_pass(rec.pm, derive.law, airport)
+    # the hold is bound again here, off the worker's clock (#2206 step 0)
+    derive.last = _dc.replace(rec, hold=hold, wall={**(rec.wall or {}),
+                                                    "hold_here": time.perf_counter() - t})
     derive.note_clock("worker")
     if derive.cache is not None and derive.cache.active:
         derive.cache.report["stages"].update(res["stages"])

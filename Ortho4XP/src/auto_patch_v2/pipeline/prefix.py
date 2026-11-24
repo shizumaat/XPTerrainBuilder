@@ -361,13 +361,17 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     # the target channels below read the law the shape record is keyed on
     law_c = cache.stage_law() if cache is not None else law
     wall["road_profile"] = time.perf_counter() - t
+    t = time.perf_counter()
     if targets is not None:
         pm, yield_records = targets(pm), []
     else:
         pm, yield_records = _channels(icao, pm, law, law_c, airport, road_profiles, road_rep,
                                       wall["road_profile"], lrep, say)
+    wall["channels"] = time.perf_counter() - t
     if after_channels is not None:
+        t = time.perf_counter()
         after_channels(airport, pm)
+        wall["after_channels"] = time.perf_counter() - t
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
@@ -425,13 +429,16 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     # interval / pass 1b, bound here because ``solve`` may not import
     # ``constraints``
     from ..constraints.no_step import hold_pass
+    t = time.perf_counter()
+    hold = hold_pass(pm, law, airport)
+    wall["hold"] = time.perf_counter() - t
     return PrefixRecord(
         airport=airport, planar_pm=planar_pm, pstats=pstats, planar_record=planar_record,
         flat_how=flat_how, road_rep=road_rep, road_profiles=road_profiles,
         reports={k: getattr(lrep, k, None) for k in _REPORTS},
         yield_records=yield_records, stage=stage, pm=pm, cs=cs, counts=counts,
         gwalls=gwalls, seam_yielded=seam_yielded, strips=strips,
-        hold=hold_pass(pm, law, airport), wall=wall,
+        hold=hold, wall=wall,
         keys={} if cache is None else {
             **back_in, "assembly": con.key if rows is None else None,
             "strips": sgot.digest, "chain": con.chain})
@@ -477,11 +484,13 @@ class Deriver:
         canonical digest follows object identity, and a classification
         unpickled in a worker need not digest as the build's own did)."""
         self.runs += 1
+        t0 = time.perf_counter()
         if self.cache is not None:
             self.cache.reopen(f"prefix{self.runs}")
             cl_digest = self.cache.digest(cl) if cl_digest is None else cl_digest
         else:
             cl_digest = None
+        t_digest = time.perf_counter() - t0
         try:
             self.last = run_prefix(self.airport, cl, self.law, self.inputs, self.pack,
                                    self.cache, common=self.common, cl_digest=cl_digest,
@@ -489,14 +498,17 @@ class Deriver:
         finally:
             if self.cache is not None:
                 self.cache.tag = ""
-        self.note_clock("here")
+        self.last.wall["digest"] = t_digest
+        self.note_clock("here", run_s=time.perf_counter() - t0)
         return self.last.derived()
 
-    def note_clock(self, where: str) -> None:
+    def note_clock(self, where: str, run_s: float | None = None) -> None:
         """Record ``last``'s step walls as run ``runs`` (``where``: ``"here"``
-        or ``"worker"``) — a clock, never in a digest."""
+        or ``"worker"``; ``run_s`` the run's own wall, which its steps sum to
+        within the unclocked glue) — a clock, never in a digest."""
         wall = dict(getattr(self.last, "wall", None) or {})
         self.clocks.append({"run": self.runs, "where": where,
                             "what": str(self.kw.get("heartbeat") or ""),
                             "total_s": round(sum(wall.values()), 3),
+                            "run_s": None if run_s is None else round(float(run_s), 3),
                             "wall_s": {k: round(float(v), 3) for k, v in wall.items()}})

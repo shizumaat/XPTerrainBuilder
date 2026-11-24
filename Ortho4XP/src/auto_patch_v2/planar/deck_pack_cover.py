@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
+import weakref
 
 import numpy as np
 import shapely
@@ -104,13 +105,35 @@ def _placed(o, geom, law):
     return _fe.enter([geom], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
 
 
+#: the authored-frame cover per parsed geometry (#2206 step 2): ``{id(g):
+#: {(depth, floor, ny_min): union | None}}``, dropped with the geometry
+_LOCAL: dict[int, dict] = {}
+
+
 def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
     """The frame plan of ``o``'s up-facing faces within ``depth`` of its
     ground (solid -- neither animated nor drawn under the terrain -- and
     draped), or ``None``.  With ``floor``: only its SOLID up-facing faces
     standing at least ``floor`` over its ground (an elevated top: a deck,
-    an overpass, a roof -- never a draped face)."""
+    an overpass, a roof -- never a draped face).
+
+    The union is read in the AUTHORED frame, a reading of the resource
+    alone, so it is held per geometry (every placement of a resource, and
+    every prefix run of the build, reads it once) and placed per object."""
     ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
+    memo = _LOCAL.get(id(g))
+    if memo is None:
+        memo = _LOCAL[id(g)] = {}
+        weakref.finalize(g, _LOCAL.pop, id(g), None)
+    key = (float(depth), None if floor is None else float(floor), ny_min)
+    if key not in memo:
+        memo[key] = _local_cover(g, depth, floor, ny_min)
+    local = memo[key]
+    return _placed(o, local, law) if local is not None else None
+
+
+def _local_cover(g, depth: float, floor: "float | None", ny_min: float):
+    """:func:`_cover_plan`'s union in ``g``'s authored frame, or ``None``."""
     v = g.vertices
     parts = [t for t in (_static_solid(g, g.animated, getattr(g, "under_terrain", _NONE)),
                          g.draped if floor is None else _NONE_TRIS) if t.shape[0]]
@@ -123,7 +146,7 @@ def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
         return None
     polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
              if p.is_valid and p.area > 1e-6]
-    return _placed(o, _fe.union(polys, "deck_pack_cover.cover"), law) if polys else None
+    return _fe.union(polys, "deck_pack_cover.cover") if polys else None
 
 
 def _structure_plan(o, g, law, depth: float):

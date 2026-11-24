@@ -1224,8 +1224,6 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
         "O4_Triangle_Run",
-        # the photo under the water (RULINGS 2026-11-24f): convert_texture
-        "O4_Water_Imagery",
         # the capture seams' mosaic (#2108): the tile's texture squares
         "O4_World_Drape",
     ),

@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from scipy.ndimage import uniform_filter1d
 import skfmm
 import O4_Bathymetry_Band as BATHYBAND
+import O4_Bathymetry_Coarse as COARSE
 import O4_Coastal_Foam_Edge as FOAM
 import O4_Shore_Feather as SHORE
 import O4_DEM_Utils as DEM
@@ -314,6 +315,13 @@ def build_masks(tile, for_imagery=False):
             intertidal_ok=(masks_dem_setting == "True"),
         )
     legacy_dem_refinement = masks_dem_setting == "True"
+    # Auto mode: the global depth source fills the water no fine
+    # source covers, wherever the sea is shallow (O4_Bathymetry_Coarse).
+    coarse_fill = (
+        COARSE.ensure_coarse_fill(tile, bathymetry_band_vrt)
+        if masks_dem_setting == "auto" and dico_sea and coastline_sea_present
+        else None
+    )
 
     # OpenStreetMap shallow-water fallback (spec section 4.4): only where
     # measured bathymetry is unavailable — atolls, reef coasts and tidal
@@ -421,6 +429,11 @@ def build_masks(tile, for_imagery=False):
             shallow_water_alpha = build_shallow_water_alpha(
                 til_x, til_y, tile, shallow_water_categories)
 
+        coarse_alpha = None
+        if coarse_fill is not None:
+            coarse_alpha = COARSE.square_alpha(
+                til_x, til_y, tile, coarse_fill, pre_mask == 0)
+
         if custom_extent_code:
             custom_array = build_custom_pre_mask(
                 til_x, til_y, sea_level, tile, custom_extent_code)
@@ -433,6 +446,7 @@ def build_masks(tile, for_imagery=False):
                 shallow_water_alpha is None
                 or shallow_water_alpha.max() == 0
             )
+            and coarse_alpha is None
         ):
             # Nothing to mask — but an offshore shallow (an atoll in a
             # full-sea square) still deserves a mask via the depth ramp
@@ -484,6 +498,10 @@ def build_masks(tile, for_imagery=False):
             # Mapped shallow-water fallback (spec section 4.4), same
             # maximum semantics as the measured ramp.
             blured_mask = numpy.maximum(blured_mask, shallow_water_alpha)
+
+        if coarse_alpha is not None:
+            # Zero wherever a fine source has data: fine pixels are final.
+            blured_mask = numpy.maximum(blured_mask, coarse_alpha)
 
         if not (blured_mask.max() == 0 or blured_mask.min() == 255):
             mask_im = Image.fromarray(blured_mask)
@@ -1012,40 +1030,9 @@ def build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path):
         from osgeo import gdal
     except ImportError:
         return (None, None)
-    (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
-    (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, tile.mask_zl)
-    px0 -= 1024
-    py0 -= 1024
-    (latmax, lonmin) = GEO.pix_to_wgs84(px0, py0, tile.mask_zl)
-    (latmin, lonmax) = GEO.pix_to_wgs84(px0 + 6144, py0 + 6144, tile.mask_zl)
-    (web_x_min, web_y_max) = GEO.geo_to_webm(lonmin, latmax)
-    (web_x_max, web_y_min) = GEO.geo_to_webm(lonmax, latmin)
-    try:
-        gdal.UseExceptions()
-        warped = gdal.Warp(
-            "",
-            band_vrt_path,
-            options=gdal.WarpOptions(
-                format="MEM",
-                outputType=gdal.GDT_Float32,
-                dstSRS="EPSG:3857",
-                outputBounds=(web_x_min, web_y_min, web_x_max, web_y_max),
-                width=6144,
-                height=6144,
-                resampleAlg="bilinear",
-                dstNodata=-32768.0,
-            ),
-        )
-        if warped is None:
-            return (None, None)
-        values = warped.GetRasterBand(1).ReadAsArray()
-        warped = None
-    except Exception as error:
-        UI.vprint(
-            2, "   Bathymetry window read failed for one mask square:",
-            str(error),
-        )
-        return (None, None)
+    (latm0, _) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
+    values = BATHYBAND.read_band_window(
+        til_x, til_y, tile.mask_zl, band_vrt_path)
     if values is None:
         return (None, None)
     valid = values > -32000.0
@@ -1055,11 +1042,8 @@ def build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path):
     land_array = (
         ((values >= mask_altitude_above) & valid).astype(numpy.uint8) * 255
     )
-    reef_depth = max(
-        float(getattr(tile, "reef_visibility_depth", 25.0)), 0.01
-    )
-    shallowness = numpy.clip(1.0 + values / reef_depth, 0.0, 1.0)
-    spline = shallowness * shallowness * (3.0 - 2.0 * shallowness)
+    spline = BATHYBAND.depth_spline(
+        values, getattr(tile, "reef_visibility_depth", 25.0))
     # The ramp reaches up to the land threshold, not just to 0: the
     # intertidal strip is opaque imagery (values above 0 clip to full
     # shallowness), and beyond the threshold the land pre-mask takes

@@ -199,6 +199,15 @@ Resolution at `build_masks` start:
   (byte-identical legacy masks) when no fine provider covers the tile.
 * `False` — off; no DEM refinement, no depth ramp.
 
+Amended by RULINGS 2026-11-24a and the owner's 2026-11-24T02:08Z/02:10Z
+widening: in `"auto"` the coarse source no longer stays out of the masks.
+`O4_Bathymetry_Coarse` fetches ONE raster per sea tile at the source's
+native resolution (tile plus 0.1 degree) and adds a soft alpha over sea
+pixels wherever the water is shallower than `reef_visibility_depth`, with
+no airport, corridor or shoreline-distance gate. It never refines land,
+is zero on fine data (rising over 900 m from it), and stays at or below
+0.85 opacity. Fine sources keep the 50 m bar and their airport gate.
+
 ### 4.2 Depth-graded water alpha
 
 New `build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path)` in

@@ -49,7 +49,7 @@ from ..model.planar import PlanarMap
 from .design_report import row_metre_scale
 from .design_roles import HeadTest, ruling_head
 
-__all__ = ["ConflictReport", "tier_of", "row_tiers", "cap_seniority",
+__all__ = ["ConflictReport", "LpMemo", "tier_of", "row_tiers", "cap_seniority",
            "SIDE_RANKED_HEADS",
            "check_hard_set", "canonical_rank",
            "shipped_conflicts", "publish_stages", "demote_conflicts",
@@ -91,6 +91,10 @@ class ConflictReport:
     #: the tie-broken answer's tier-weighted cost minus the first LP's
     #: (zero to the LP's own precision: the optimum is untouched)
     tie_cost_delta: float = 0.0
+    #: #2206 step 4: the LP's answer was an earlier stage-1 pass's, read
+    #: on the identical hard set (:class:`LpMemo`); ``lp_wall_s`` is then
+    #: the key's seconds
+    lp_memo: bool = False
 
     def as_dict(self) -> dict[str, _t.Any]:
         return {"rows": self.rows, "relaxed": self.relaxed,
@@ -107,7 +111,8 @@ class ConflictReport:
                 "promoted_on_miss": self.promoted_on_miss,
                 "tie_break": self.tie_break,
                 "tie_wall_s": round(self.tie_wall_s, 3),
-                "tie_cost_delta": float(f"{self.tie_cost_delta:.6g}")}
+                "tie_cost_delta": float(f"{self.tie_cost_delta:.6g}"),
+                "lp_memo": self.lp_memo}
 
     def by_head_line(self) -> str:
         """The relaxed rows BY HEAD, count and worst metre (spec §55 (5))."""
@@ -122,6 +127,7 @@ class ConflictReport:
                 + (f"; tie-break {self.tie_break}, {self.tie_wall_s:.2f} s"
                    if self.tie_break else "") + ")"
                 + (" OVER BUDGET" if self.over_budget else "")
+                + (", memo" if self.lp_memo else "")
                 + f", {self.relaxed} relaxed"
                 + (f" {dict(sorted(self.by_tier.items()))}" if self.relaxed else "")
                 + (f"; {self.runway_conflict} RUNWAY row(s) in a law conflict, "
@@ -290,15 +296,63 @@ def canonical_rank(planar: PlanarMap, one: list, rows: np.ndarray,
     return rank
 
 
+class LpMemo:
+    """THE §5a LP'S ANSWERS ACROSS STAGE-1 PASSES (#2206 step 4).  Stage 1
+    is solved three or four times (pass 1a, the trend retarget, pass 1b,
+    the hold retarget) and a retarget moves trend TARGETS only — never a
+    hard row — so the LP reads the same hard set again.  An answer is
+    reused only when EVERYTHING the LP and its tie-break read is the same:
+    the scaled hard rows (matrix and bound), their prices and tolerances,
+    and the canonical rank's inputs (each row's vertices, coefficients, raw
+    bound and head, over the SAME vertex table).  The answer is then the
+    one the LP would return: identical inputs, one deterministic solver.
+    The rows' positions in ``one`` are never keyed: they are re-read."""
+
+    def __init__(self) -> None:
+        self._got: dict[str, tuple] = {}
+        self.hits = 0
+
+    @staticmethod
+    def key(Am: sp.csr_matrix, bm: np.ndarray, cost: np.ndarray, tol: float,
+            one: list, rows: np.ndarray, heads: _t.Sequence[str]) -> str:
+        """The digest of everything :func:`check_hard_set`'s LP reads."""
+        import hashlib
+        h = hashlib.blake2b(digest_size=20)
+        for arr in (np.asarray(Am.shape, np.int64), Am.indptr.astype(np.int64),
+                    Am.indices.astype(np.int64), np.asarray(Am.data, float),
+                    np.asarray(bm, float), np.asarray(cost, float),
+                    np.asarray([tol], float)):
+            h.update(np.ascontiguousarray(arr).tobytes())
+            h.update(b"|")
+        terms = [one[int(k)][0] for k in rows]
+        h.update(np.fromiter((len(t) for t in terms), np.int64, len(terms)).tobytes())
+        h.update(np.fromiter((int(u) for t in terms for u, _c in t), np.int64).tobytes())
+        h.update(np.fromiter((float(c) for t in terms for _u, c in t), float).tobytes())
+        h.update(np.fromiter((float(one[int(k)][1]) for k in rows), float,
+                             rows.size).tobytes())
+        h.update("\x00".join(heads).encode())
+        return h.hexdigest()
+
+    def get(self, key: str, vertices: _t.Any) -> "tuple | None":
+        got = self._got.get(key)
+        if got is None or got[0] is not vertices:
+            return None
+        self.hits += 1
+        return got[1]
+
+    def put(self, key: str, vertices: _t.Any, answer: tuple) -> None:
+        self._got[key] = (vertices, answer)
+
+
 def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
                    A: sp.csr_matrix, b: np.ndarray, *, stage: str = "",
-                   verbose: bool = False
+                   verbose: bool = False, memo: "LpMemo | None" = None
                    ) -> tuple[np.ndarray, ConflictReport]:
     """The §5a check over the hard rows ``hard_i`` (indices into ``one``)
     of the stage's one-sided stack ``A x ≤ b`` (the FULL rows — leaders
     included, unscaled — over the reduced columns).  Returns the indices of
     ``one`` to DEMOTE (the relaxed rows, never a runway row) and the
-    report."""
+    report.  ``memo``: the stage-1 passes' :class:`LpMemo`."""
     from .project import _relax_lp
     d = design_law(law)
     rep = ConflictReport()
@@ -331,16 +385,24 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
     duals: list = []
     tie: dict = {}
     t0 = time.perf_counter()
-    # §61 (5): among EQUAL optima the relaxation set earliest in CANONICAL
-    # order is chosen — a function of the geometry, never of the row order
-    s, st = _relax_lp(Am, bm, np.ones(rows.size, bool), verbose, cost=cost,
-                      duals=duals, dual_form=True, tie_tol=tol,
-                      tie_rank=lambda: canonical_rank(planar, one, rows, heads),
-                      info=tie)
+    key = None if memo is None else LpMemo.key(Am, bm, cost, tol, one, rows, heads)
+    got = None if key is None else memo.get(key, planar.vertices)
+    if got is not None:
+        s, st, duals, tie = got
+        rep.lp_memo = True
+    else:
+        # §61 (5): among EQUAL optima the relaxation set earliest in CANONICAL
+        # order is chosen — a function of the geometry, never of the row order
+        s, st = _relax_lp(Am, bm, np.ones(rows.size, bool), verbose, cost=cost,
+                          duals=duals, dual_form=True, tie_tol=tol,
+                          tie_rank=lambda: canonical_rank(planar, one, rows, heads),
+                          info=tie)
+        if key is not None:
+            memo.put(key, planar.vertices, (s, st, list(duals), dict(tie)))
     rep.lp_wall_s = time.perf_counter() - t0
     rep.status = st
     rep.tie_break = str(tie.get("tie", ""))
-    rep.tie_wall_s = float(tie.get("tie_wall_s", 0.0))
+    rep.tie_wall_s = 0.0 if rep.lp_memo else float(tie.get("tie_wall_s", 0.0))
     rep.tie_cost_delta = float(tie.get("tie_cost_delta", 0.0))
     rep.over_budget = rep.lp_wall_s > float(d.hard_conflict_lp_budget_s)
     if st != "optimal":                 # named, nothing demoted
@@ -436,7 +498,8 @@ def publish_stages(*reps: _t.Any, pass1a: "dict | None" = None,
 
 def demote_conflicts(planar: PlanarMap, law: Law, base: _t.Any,
                      A: sp.csr_matrix, b: np.ndarray, rep: _t.Any, *,
-                     stage: str = "", verbose: bool = False) -> None:
+                     stage: str = "", verbose: bool = False,
+                     memo: "LpMemo | None" = None) -> None:
     """§5a in ``design._solve_stage`` after ``assemble``, before the QP:
     the hard rows alone (the FULL rows, leaders in — before the one-way
     split) through :func:`check_hard_set`; the relaxed rows leave
@@ -446,7 +509,7 @@ def demote_conflicts(planar: PlanarMap, law: Law, base: _t.Any,
         return
     demote, rep.hard_feasibility = check_hard_set(
         planar, law, base.one, np.asarray(base.hard, dtype=np.int64), A, b,
-        stage=stage, verbose=verbose)
+        stage=stage, verbose=verbose, memo=memo)
     if demote.size:
         gone = set(int(k) for k in demote)
         base.hard = [k for k in base.hard if k not in gone]

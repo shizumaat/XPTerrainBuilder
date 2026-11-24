@@ -72,7 +72,7 @@ from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, har
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
 from .warm_seed import WarmSeed
-from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
+from .feasibility import (LpMemo, _carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
                           promote_missed, published, publish_stages, runway_after,
                           shipped_conflicts)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
@@ -218,6 +218,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     budget_memo: dict = {}
     # one first-QP seed per stage (``solve/warm_seed``, RULINGS 2026-10-19am (a))
     seed1, seed2 = WarmSeed(), WarmSeed()
+    # #2206 step 4: one §5a LP memo for every stage-1 pass (a retarget moves
+    # trend targets, never a hard row; ``feasibility.LpMemo``)
+    lp_memo1 = LpMemo()
 
     def _s1(pm_x: PlanarMap, cs_x: ConstraintSet):
         if trend_rewrite is None:
@@ -259,7 +262,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               method=method, low_rank=low_rank, drop=d_x,
                               fixed=f_x, levelled_out=lv,
                               stage_roles=airside_stage_roles(law),
-                              projection_memo=budget_memo, seed=seed1, label="stage1")
+                              projection_memo=budget_memo, seed=seed1, label="stage1",
+                              lp_memo=lp_memo1)
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
     from .pin_yield import stage1_read_pins
@@ -522,7 +526,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  stage_roles: _t.AbstractSet[str] | None = None,
                  projection_memo: dict | None = None,
                  seed: WarmSeed | None = None,
-                 label: str = "single"
+                 label: str = "single",
+                 lp_memo: "LpMemo | None" = None
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -537,6 +542,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     the next (RULINGS 2026-10-19am (a)); ``None`` starts it cold.
     ``label`` names the stage on its clock record (``model/clocks``: the
     assemble / §5a LP / QP / projection / report seconds, #2206 6a).
+    ``lp_memo``: the stage-1 passes' §5a :class:`~.feasibility.LpMemo`
+    (#2206 step 4; ``None`` reads the LP every time).
     """
     opt = options or Options()
     d = design_law(law)
@@ -589,7 +596,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # §5a FEASIBILITY BEFORE THE SOLVE (RULINGS 2026-09-30be/30bf), conflicts named
     t_lp = time.perf_counter()
     demote_conflicts(planar, law, base_p, A1, b1, rep, verbose=opt.verbose,
-                     stage="2" if fixed and drop is None else "1" if drop else "")
+                     stage="2" if fixed and drop is None else "1" if drop else "",
+                     memo=lp_memo)
     t_qp = time.perf_counter()
     clk["lp_s"] = round(t_qp - t_lp, 3)
     # THE ONE-WAY SPLIT (RULINGS 2026-09-09b (2)/(3)).  A corridor row

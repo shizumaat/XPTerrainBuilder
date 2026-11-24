@@ -193,6 +193,7 @@ def _derive_stage_one(_state, task) -> dict:
     """THE WORKER: the build's prefix on the ribbon-free classification,
     under the blocks ``stage_one_problem`` runs it in."""
     (spec,) = task
+    t0 = time.perf_counter()
     p = _pool.shared_object(spec)
     from ..constraints.door_pad import stage_one as _no_door_pads
     from ..model.stage_one import from_full
@@ -202,7 +203,7 @@ def _derive_stage_one(_state, task) -> dict:
         p["full"].on_decks = lambda placed: _ahead.adopt_reads(deriver, placed)
     with _no_door_pads(), _no_group_levels(), from_full(p["full"]):
         deriver(p["cl0"], p["cl_digest"])
-    return _ahead.answer(deriver, fc)
+    return _ahead.answer(deriver, fc, worker_s=time.perf_counter() - t0)
 
 
 class Ahead:
@@ -211,7 +212,7 @@ class Ahead:
     ribbon-free classification it returns the worker's ``(pm, cs, strips,
     hold)`` when the map agrees, else derives here.  ``split`` is
     ``stage_one_classification``'s answer, for ``stage_one_problem``;
-    :meth:`close` releases the worker."""
+    :meth:`close` releases the worker; :meth:`clock` is its record."""
 
     def __init__(self, derive, split: tuple, view_digest: "str | None", pool, pending,
                  shared, out, folder: "str | None" = None) -> None:
@@ -223,6 +224,10 @@ class Ahead:
         self.outcome = ""
         #: :func:`start_early`'s hand-over folder, and the decks handed
         self.folder, self._decks = folder, None
+        #: the clock (#2206 step 0): started, the wait at the take, the
+        #: worker's own seconds (payload to answer)
+        self._t0, self.waited_s, self.worker_s = time.perf_counter(), None, None
+        self.ready_s: float | None = None
 
     def _hand(self, name: str, obj: dict) -> None:
         tmp = os.path.join(self.folder, _hand_name(name) + ".tmp")
@@ -310,16 +315,31 @@ class Ahead:
             self.refused = f"the worker raised {type(exc).__name__}: {exc}"
             res = None
         waited = time.perf_counter() - t
+        self.waited_s = waited
+        self.ready_s = time.perf_counter() - self._t0
         self.out(self.pool.line())
         if res is None:
             self.outcome = "no answer"
             return None
+        self.worker_s = res[0].get("worker_s")
         derived = _ahead.install(self.derive, res[0])
         self.outcome = "hit"
         self.out(f"stage 1's ribbon-free derive ahead HIT (#2044): the worker's prefix run "
                  f"{self.derive.runs} is stage 1's (waited {waited:.1f} s; "
                  f"{_ahead.worker_clock(self.derive)})")
         return derived
+
+    def clock(self) -> dict[str, _t.Any]:
+        """The run ahead's record for ``report.json`` (#2206 step 0): its
+        outcome (``hit``, ``miss``, ``no answer``, or ``unused`` when stage 1
+        never asked), why it was refused, the seconds from its start to the
+        answer taken, the build's wait at the take and the worker's own."""
+        def r(v: "float | None") -> "float | None":
+            return None if v is None else round(float(v), 3)
+        return {"started": "early" if self.folder is not None else "after channels",
+                "outcome": self.outcome or "unused", "refused": self.refused,
+                "ready_s": r(self.ready_s), "waited_s": r(self.waited_s),
+                "worker_s": r(self.worker_s)}
 
     def close(self) -> None:
         """Release the worker, the shared block and the hand-over folder

@@ -30,7 +30,7 @@ from ..geom.union_find import find_root
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
            "_one_matrix", "_sheet_components", "_role_bodies", "_plane_targets",
-           "_plane_rows", "_level_free_columns", "_level_free_after", "_level_row_columns",
+           "_plane_rows", "_level_free_columns", "_level_row_columns",
            "apply_level_belt"]
 
 
@@ -189,8 +189,8 @@ class _Rows:
     #: so no positional call shifts; memory ``pack_partition`` precedent).
     drop: frozenset[int] = frozenset()
     #: #1270: the LEVEL forest the belt read (:func:`_level_free_columns`
-    #: with ``keep``), continued by :func:`_level_free_after` over the rows
-    #: added since instead of re-read over every side
+    #: ``keep``), continued by the stage's own read (``resume``) over the
+    #: rows added since instead of re-read over every side
     level_forest: _t.Any = _dc.field(default=None, repr=False, compare=False)
 
     @property
@@ -408,10 +408,18 @@ def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
 def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
                         one: _t.Sequence[tuple[_t.Sequence[tuple[int, float]],
                                                float, _t.Any]] = (),
-                        tol: float = 1e-9, keep: bool = False) -> dict[int, int]:
+                        tol: float = 1e-9, keep: bool = False,
+                        resume: bool = False) -> dict[int, int]:
     """The columns that reach the solve with NO LEVEL -> their component
-    root (RULINGS 2026-09-13, lane ``v2zerocrater``).  ``keep`` leaves the
-    forest on ``rows.level_forest`` for :func:`_level_free_after`.
+    root (RULINGS 2026-09-13, lane ``v2zerocrater``).
+
+    #1270: ``keep`` leaves the forest on ``rows.level_forest`` (the belt's
+    read); ``resume`` continues that forest — when it was read over these
+    same ``body`` and ``one`` — over only the rows added to ``rows`` since
+    (the belt's own, the membrane's), and drops it.  Which columns share a
+    piece and which pieces carry a level does not depend on the order rows
+    are read in, so the KEYS are a fresh read's; the roots are the
+    continued forest's.
 
     A row carries LEVEL when its coefficients OVER THE REMAINING COLUMNS
     do not sum to zero: an absolute row (a datum, a chord, a trend, a
@@ -430,6 +438,10 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     and, when it is an absolute bound, levels them.  Passing it keeps the
     belt from claiming a vertex that a band already holds.
     """
+    if resume:
+        got = _resumed(rows, body, red, one)
+        if got is not None:
+            return got
     # a LIST forest over the columns and the reduction's columns as a list
     # (#1951: this runs over every one-sided side — 18 M at KMCI — up to
     # twice per stage solve; numpy scalar reads and a dict forest were most
@@ -486,23 +498,20 @@ def _level_free_of(parent: list[int], has_level: set[int], n_cols: int) -> dict[
     return {c: find_root(parent, c) for c in range(n_cols) if find_root(parent, c) not in level_roots}
 
 
-def _level_free_after(rows: "_Rows", body: "_Rows | None", red: _Reduction,
-                      one: _t.Sequence = ()) -> _t.AbstractSet[int]:
-    """The SET of columns :func:`_level_free_columns` reads level-free now
-    (#1270).  When the belt left its forest (``keep``) over these same
-    ``body`` and ``one``, only the rows added to ``rows`` since — the belt's
-    own and the membrane's — are taken: which columns share a piece and
-    which pieces carry a level does not depend on the order the rows are
-    read in (the roots do, and are not returned).  Anything else re-reads."""
+def _resumed(rows: "_Rows", body: "_Rows | None", red: _Reduction,
+             one: _t.Sequence) -> dict[int, int] | None:
+    """:func:`_level_free_columns` ``resume``: the kept forest continued
+    over the rows added since, or ``None`` when there is none to continue."""
     got = rows.level_forest
     rows.level_forest = None
-    if got is not None:
-        parent, has_level, tol, i0, b0, one0, n_one = got
-        if (one0 is one and len(one) == n_one and i0 <= len(rows.r)
-                and (None if body is None else len(body.r)) == b0):
-            _take_rows(rows, i0, _taker(parent, has_level, tol))
-            return set(_level_free_of(parent, has_level, red.n_cols))
-    return set(_level_free_columns(rows, body, red, one))
+    if got is None:
+        return None
+    parent, has_level, tol, i0, b0, one0, n_one = got
+    if not (one0 is one and len(one) == n_one and i0 <= len(rows.r)
+            and (None if body is None else len(body.r)) == b0):
+        return None
+    _take_rows(rows, i0, _taker(parent, has_level, tol))
+    return _level_free_of(parent, has_level, red.n_cols)
 
 
 def _level_row_columns(rows: "_Rows", body: "_Rows | None", n_cols: int,

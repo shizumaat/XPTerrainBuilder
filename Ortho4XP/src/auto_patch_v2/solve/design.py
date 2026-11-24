@@ -77,8 +77,7 @@ from .feasibility import (LpMemo, _carries_a_column, apron_hard_rows, demote_con
                           shipped_conflicts)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
-from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_after,
-                   _level_free_columns,
+from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
                    _one_matrix,
                    apply_level_belt, _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
@@ -560,7 +559,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # that keeps a sentinel 0.0 m from being SUBSTITUTED into the next stage.
     unlevelled: set[int] = set()
     if levelled_out is not None:
-        unlevelled = _level_free_after(rows, base_p.body, red, one)
+        unlevelled = set(_level_free_columns(rows, base_p.body, red, one, resume=True))
         rep.stage1_unlevelled = len(unlevelled)
     rows.level_forest = None            # the belt's forest is read once or never
     chord_v, road_v = base_p.chord_vertices, base_p.road_fit_vertices

@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import random
 
-from auto_patch_v2.solve.rows import (_level_free_after, _level_free_columns,
-                                      _Reduction, _Rows)
+from auto_patch_v2.solve.rows import _level_free_columns, _Reduction, _Rows
 
 
 def _problem(seed: int, n: int = 80):
@@ -43,7 +42,7 @@ def test_continued_forest_reads_the_fresh_free_set():
                 rows.add(((a, 1.0),), 250.0, 1.0)
             else:
                 rows.add(((a, 1.0), (b, -1.0)), 0.0, 1.0)
-        got = _level_free_after(rows, None, red, one)
+        got = set(_level_free_columns(rows, None, red, one, resume=True))
         want = set(_level_free_columns(rows, None, red, one))
         assert got == want, seed
         seen_change += got != before
@@ -53,5 +52,5 @@ def test_continued_forest_reads_the_fresh_free_set():
 
 def test_without_a_kept_forest_it_reads_fresh():
     _rnd, rows, red, one = _problem(3)
-    assert _level_free_after(rows, None, red, one) == \
-        set(_level_free_columns(rows, None, red, one))
+    assert _level_free_columns(rows, None, red, one, resume=True) == \
+        _level_free_columns(rows, None, red, one)

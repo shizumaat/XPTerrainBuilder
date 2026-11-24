@@ -84,8 +84,8 @@ def _bordered(M: sp.csc_matrix, U: sp.csr_matrix) -> sp.csc_matrix:
     nm, nu = int(mp[-1]), int(up[-1])
     indptr = np.concatenate([mp + up, nm + nu + rp[1:] + np.arange(1, k + 1)])
     nnz = int(indptr[-1])
-    idx_t = np.int32 if n + k < np.iinfo(np.int32).max and nnz < np.iinfo(np.int32).max \
-        else np.int64
+    big = max(n + k, nnz) >= np.iinfo(np.int32).max
+    idx_t = np.int64 if big else np.int32
     indices = np.empty(nnz, dtype=idx_t)
     data = np.empty(nnz)
     # column j < n: M's entries, then U's column j

@@ -39,8 +39,9 @@ _OVERRUN_REMAINING_FRACTION = 0.5
 
 _lock = threading.Lock()
 # key -> [t0, done_units, total_units, predicted_s, words, last_unit_t];
-# ``words`` is {"what", "why", "reason", "coarser"} as :func:`begin` was
-# given them, ``last_unit_t`` when a unit last completed (``t0`` before
+# ``words`` is {"what", "why", "reason", "coarser", "coarser_label"} as
+# :func:`begin` was given them (plus :func:`flag_stuck`'s "flag"),
+# ``last_unit_t`` when a unit last completed (``t0`` before
 # the first) -- what :func:`idlest_phase` reads for a hang (#1351).
 _active: dict = {}
 # Phases whose remaining units the user asked to finish on coarser data.
@@ -49,7 +50,8 @@ _coarser: set = set()
 
 def begin(key: str, total_units: int,
           predicted_seconds: Optional[float] = None, *, what: str = "",
-          why: str = "", reason: str = "", coarser: bool = False) -> None:
+          why: str = "", reason: str = "", coarser: bool = False,
+          coarser_label: str = "") -> None:
     """Register an active phase of ``total_units`` similar work units.
 
     ``predicted_seconds`` (optional) prices the whole phase until the
@@ -57,7 +59,9 @@ def begin(key: str, total_units: int,
     cannot be paced.  ``what`` / ``why`` are the phase's plain words for
     the slow-step alert (``what`` may name ``{done}`` and ``{total}``),
     ``reason`` its short reason code, and ``coarser`` whether it can
-    finish its remaining units on coarser data.
+    finish its remaining units on coarser data -- or on another source:
+    ``coarser_label`` is then the answer's own button words (the base
+    download's "Use FABDEM instead", #2211).
     """
     try:
         if total_units <= 0:
@@ -69,7 +73,8 @@ def begin(key: str, total_units: int,
                 now, 0, int(total_units),
                 float(predicted_seconds) if predicted_seconds else None,
                 {"what": str(what), "why": str(why), "reason": str(reason),
-                 "coarser": bool(coarser)},
+                 "coarser": bool(coarser),
+                 "coarser_label": str(coarser_label)},
                 now,
             ]
     except Exception:
@@ -88,6 +93,41 @@ def advance(key: str, done_units: int) -> None:
                 entry[1] = done
     except Exception:
         pass
+
+
+def flag_stuck(key: str, what: str = "", why: str = "") -> None:
+    """The phase says it is stuck NOW, in its own words (#2211: the base
+    download below the throughput floor): the slow-step alert reads it
+    through :func:`flagged_phase` and asks at once, before any of its
+    own thresholds.  Empty ``what`` takes the flag down (the transfer
+    recovered or the attempt ended)."""
+    try:
+        with _lock:
+            entry = _active.get(key)
+            if entry is not None:
+                entry[4]["flag"] = (str(what), str(why)) if what else None
+    except Exception:
+        pass
+
+
+def flagged_phase() -> Optional[dict]:
+    """An active phase that :func:`flag_stuck` flagged: ``{"key",
+    "what", "why", "coarser", "coarser_label"}`` with the FLAG's words,
+    or ``None``."""
+    try:
+        with _lock:
+            for key, entry in sorted(_active.items()):
+                words = entry[4]
+                if words.get("flag"):
+                    return {"key": key, "what": words["flag"][0],
+                            "why": words["flag"][1],
+                            "coarser": (words["coarser"]
+                                        and key not in _coarser),
+                            "coarser_label": words.get("coarser_label",
+                                                       "")}
+        return None
+    except Exception:
+        return None
 
 
 def end(key: str) -> None:
@@ -114,8 +154,8 @@ def _remaining(entry, now) -> Optional[float]:
 def slowest_phase() -> Optional[dict]:
     """The active phase with words that has the most time left (#1351).
 
-    ``{"key", "what", "why", "reason", "coarser", "done", "total",
-    "seconds_per_unit", "remaining"}`` — ``what`` with its ``{done}`` /
+    ``{"key", "what", "why", "reason", "coarser", "coarser_label",
+    "done", "total", "seconds_per_unit", "remaining"}`` — ``what`` with its ``{done}`` /
     ``{total}`` filled, ``seconds_per_unit`` / ``remaining`` ``None``
     before the first unit is done, ``coarser`` false once asked.
     ``None`` when no active phase said what it is.
@@ -135,6 +175,7 @@ def slowest_phase() -> Optional[dict]:
                     "why": words["why"],
                     "reason": words["reason"],
                     "coarser": words["coarser"] and key not in _coarser,
+                    "coarser_label": words.get("coarser_label", ""),
                     "done": done,
                     "total": total,
                     "seconds_per_unit": (max(now - t0, 0.0) / done
@@ -152,7 +193,7 @@ def slowest_phase() -> Optional[dict]:
 def idlest_phase() -> Optional[dict]:
     """The active phase that has gone longest without finishing a unit
     (#1351): ``{"key", "what", "done", "total", "idle_seconds",
-    "coarser"}`` -- ``what`` filled as in :func:`slowest_phase` (empty
+    "coarser", "coarser_label"}`` -- ``what`` filled as in :func:`slowest_phase` (empty
     when the phase gave no words).  ``None`` when no phase is active."""
     try:
         now = time.time()
@@ -170,7 +211,9 @@ def idlest_phase() -> Optional[dict]:
                                                          total=total),
                             "idle_seconds": idle,
                             "coarser": (words["coarser"]
-                                        and key not in _coarser)}
+                                        and key not in _coarser),
+                            "coarser_label": words.get("coarser_label",
+                                                       "")}
         return best
     except Exception:
         return None

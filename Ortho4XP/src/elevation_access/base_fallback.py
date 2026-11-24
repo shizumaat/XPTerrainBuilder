@@ -34,7 +34,6 @@ SEAM.  A substituted cell is tied to its cached configured neighbours
 """
 
 import contextlib
-import os
 import time
 from urllib.parse import urlparse
 
@@ -43,7 +42,7 @@ import O4_File_Names as FNAMES
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
-from elevation_access import base_seam, sea_cell
+from elevation_access import base_seam, fallback_choice, sea_cell
 from elevation_access.base_tiles import cached_elevation_file_is_valid
 from elevation_access.definitions import ROLE_BASE, _parse_float
 from elevation_access.registry import ACCESS_STRATEGIES
@@ -313,7 +312,11 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
     absent = False
     if failure is None:
         try:
-            return strategy.ensure_tile(definition, lat, lon, verbose)
+            # A slow-step phase offering "Use <fallback> instead" (#2211).
+            with fallback_choice.download_phase(
+                    host, source_label(definition), _cell_label(lat, lon),
+                    _first_covering_label(providers, lat, lon)):
+                return strategy.ensure_tile(definition, lat, lon, verbose)
         except DEM.ElevationTransportRefused as error:
             failure = str(error)
             _unreachable[host] = (time.monotonic(), failure)
@@ -335,6 +338,18 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
     return _take_fallback(definition, lat, lon, failure, verbose, providers,
                           False if absent else _proxied.get(host, False),
                           absent)
+
+
+def _first_covering_label(providers, lat, lon):
+    """The name of the first fallback that covers ``(lat, lon)``, or
+    ``None`` -- the source the slow-step alert offers instead (#2211)."""
+    for definition in fallback_definitions(providers):
+        try:
+            if _strategy(definition).covers(definition, lat, lon):
+                return source_label(definition)
+        except Exception:
+            continue
+    return None
 
 
 def _take_fallback(configured, lat, lon, configured_failure, verbose,

@@ -479,6 +479,7 @@ EXCEPTION_CODES = {
     "ProviderQueryError": "elevation_download_failed",
     "ProviderUnavailable": "elevation_download_failed",
     "TransientFetchError": "elevation_download_failed",
+    "TransferAbandoned": "elevation_download_failed",
     "AltFrameRefused": "elevation_cache_bad",
     "ColdDemFrame": "airport_elevation_missing",
     "ColdTile": "airport_elevation_missing",

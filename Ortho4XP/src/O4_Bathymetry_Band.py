@@ -191,8 +191,7 @@ def _write_band_stamp(stamp_path: str, stamp: dict) -> None:
 
 
 def _stamp_cells(stamp: dict) -> dict:
-    cells = stamp.get("cells")
-    return dict(cells) if isinstance(cells, dict) else {}
+    return SOURCE_REVISION.stamp_map(stamp, "cells")
 
 
 def _gating_key_text(gating_key) -> str:

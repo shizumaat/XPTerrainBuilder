@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-__all__ = ["PENDING", "declared_revision", "healed_stamp", "provider_state"]
+__all__ = ["PENDING", "declared_revision", "stamp_map", "healed_stamp", "provider_state"]
 
 #: A step-key value: this provider still has cells to ask for.
 PENDING = "pending"
@@ -35,9 +35,14 @@ def declared_revision(definition: dict) -> int:
         return 0
 
 
+def stamp_map(stamp: dict, key: str) -> dict:
+    """A copy of the stamp's mapping at ``key``; empty when it holds none."""
+    value = stamp.get(key)
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _recorded(stamp: dict) -> dict:
-    revisions = stamp.get("source_revisions")
-    return dict(revisions) if isinstance(revisions, dict) else {}
+    return stamp_map(stamp, "source_revisions")
 
 
 def _refetch(stamp: dict) -> list:

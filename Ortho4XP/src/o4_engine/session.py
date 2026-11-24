@@ -600,6 +600,12 @@ class _EtaTracker:
         # trim below only fires on gain).
         self.bar_windows = {}
         self.step_clock = None                 # the running step's clock
+        # A foreground download blocking the running step (#2218):
+        # (since, the step's own remaining when it began) while one
+        # runs, and the seconds the step has spent waiting on them.
+        self.download_wait = None
+        self.download_waited = 0.0
+        self.clock = time.time                 # tests inject a clock
         self.finished_steps = {}               # (lat,lon) -> set(step)
         # Per-tile wall clocks (TileClocks event, protocol 1.3): first
         # step start stamp, and the frozen final elapsed at the tile's
@@ -628,9 +634,11 @@ class _EtaTracker:
     def step_started(self, tile, key):
         self.tile_index = max(self.tile_index, self.tiles.index(tile))
         self.step_key = key
-        self.step_started_at = time.time()
+        self.step_started_at = self.clock()
         self.tile_t0.setdefault(tile, self.step_started_at)
         self.bar_windows = {}
+        self.download_wait = None
+        self.download_waited = 0.0
 
     def step_finished(self, tile, key):
         self.finished_steps.setdefault(tile, set()).add(key)
@@ -684,35 +692,57 @@ class _EtaTracker:
 
     # -- read ------------------------------------------------------------
     def _current_step_remaining(self):
-        """Model/bar estimate, floored by live phase telemetry: while a
-        foreground extract streams, its unmoved bytes priced at the
-        meter's throughput are a HARD lower bound no compute model can
-        undercut, and a counted phase (airport insets, Overpass rounds)
-        floors it at its own measured pace the same way."""
-        base = self._current_step_remaining_base()
+        """The running step's remaining seconds (#2218).
+
+        While a foreground download blocks the step (an extract the
+        step's query needs, ``download_meter.downloading``), the step
+        waits on bytes, not on compute: its remaining is the download's
+        unmoved bytes at the measured throughput PLUS what the step had
+        left when the download began, held still.  The step's own
+        clocks (model overrun, bar rates) do not run meanwhile — the
+        old floor took the larger of the two, and the model's overrun
+        stretched with every waited minute (TLPL +13-061: ~7 h quoted
+        for a 14 min download).  The waited seconds come off the step's
+        elapsed afterwards, and its bar windows restart (the download
+        drove bar 1 with its own percentage).  A counted phase floors
+        the result at its own measured pace (``task_meter``)."""
+        now = self.clock()
         try:
             from . import download_meter, task_meter
-            for meter in (download_meter, task_meter):
-                active = meter.active_remaining_seconds()
-                if active is not None:
-                    base = max(base, active)
-        except Exception:
-            pass
-        return base
+        except Exception:                            # pragma: no cover
+            return self._current_step_remaining_base(now)
+        if download_meter.downloading():
+            if self.download_wait is None:
+                self.download_wait = (
+                    now, self._current_step_remaining_base(now))
+            active = download_meter.active_remaining_seconds()
+            base = self.download_wait[1] + (active or 0.0)
+        else:
+            if self.download_wait is not None:
+                self.download_waited += max(
+                    0.0, now - self.download_wait[0])
+                self.download_wait = None
+                self.bar_windows = {}
+            base = self._current_step_remaining_base(now)
+        active = task_meter.active_remaining_seconds()
+        return base if active is None else max(base, active)
 
-    def _current_step_remaining_base(self):
+    def _current_step_remaining_base(self, now=None):
         from .tile_time_model import remaining_step_seconds
 
         if self.step_key is None or self.step_started_at is None:
             return 0.0
+        now = self.clock() if now is None else now
+        # The step's own time: its elapsed less its download waits.
+        own_now = now - self.download_waited
         tile = self.tiles[self.tile_index]
         estimate = self.estimates.get(tile, {}).get(self.step_key)
-        elapsed = time.time() - self.step_started_at
+        elapsed = own_now - self.step_started_at
         # The step's own clock, for a step with no live percentage.
         clock = self.step_clock
         if clock is not None and clock.key == self.step_key \
                 and self.step_key in STEP_CLOCK.CLOCK_STEPS:
-            return clock.remaining(time.time())
+            return clock.remaining(own_now)
         # Live per-bar rates once any window has substance: the step's
         # activities run concurrently, so the SLOWEST bar is the step's
         # remaining time (bars without a rate yet simply don't vote —

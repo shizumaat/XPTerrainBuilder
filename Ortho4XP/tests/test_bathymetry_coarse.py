@@ -66,7 +66,7 @@ def test_bank_far_from_any_shore_shows_and_deep_water_stays_zero(tmp_path):
     assert alpha[2048, max(column - 900, 0)] > 100
     if column + 900 < 4096:
         assert alpha[2048, column + 900] == 0
-    assert alpha.max() <= round(255 * COARSE.MAXIMUM_OPACITY)
+    assert alpha.max() <= round(255 * COARSE.BAND.SHALLOW_WATER_OPACITY)
 
 
 def test_all_deep_square_adds_nothing(tmp_path):
@@ -173,3 +173,38 @@ def test_failed_fetch_is_pending_until_it_succeeds(provider, monkeypatch):
 def test_fine_only_mode_settings_have_no_fill_state(provider):
     assert COARSE.fill_state(_tile(
     ).__class__(**{**vars(_tile()), "masks_use_DEM_too": "True"})) is None
+
+
+def _inland_strip():
+    """No sea; a band of inland water across the square's middle rows."""
+    inland = numpy.zeros((6144, 6144), dtype=bool)
+    inland[2800:3300, :] = True
+    return inland
+
+
+def test_inland_water_measured_at_sea_level_takes_the_depth_alpha(tmp_path):
+    """A tidal lagoon (owner 2026-11-24T13:52Z, the Ria Formosa): intertidal
+    flats read just above zero, a channel at or below it; the whole body
+    takes the sea's depth alpha, capped at the shallow-water opacity."""
+    values = numpy.full((300, 300), 2.0, dtype=numpy.float32)
+    values[:, 140:145] = -0.5                  # the channel
+    path = _raster(tmp_path / "c.tif", values, LON - 0.1, LAT + 1.1, 0.004)
+    inland = _inland_strip()
+    alpha = COARSE.square_alpha(*_square(), _tile(),
+                                COARSE.CoarseFill(path, None),
+                                numpy.zeros_like(inland), inland)
+    assert alpha is not None
+    body = inland[1024:5120, 1024:5120]
+    assert alpha[body].min() >= 200
+    assert alpha.max() == round(255 * 0.85)
+    assert alpha[~body].max() == 0
+
+
+def test_inland_water_above_sea_level_keeps_its_mask(tmp_path):
+    """A lake the source reads at its surface elevation carries no depth."""
+    values = numpy.full((300, 300), 300.0, dtype=numpy.float32)
+    path = _raster(tmp_path / "c.tif", values, LON - 0.1, LAT + 1.1, 0.004)
+    inland = _inland_strip()
+    assert COARSE.square_alpha(*_square(), _tile(),
+                               COARSE.CoarseFill(path, None),
+                               numpy.zeros_like(inland), inland) is None

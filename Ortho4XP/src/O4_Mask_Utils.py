@@ -402,9 +402,11 @@ def build_masks(tile, for_imagery=False):
                                          dico_inland, sea_level, tile)
         if (til_x, til_y) not in dico_sea:
             # Inland water only, no sea in reach (#1981): the shore
-            # feather alone — no sea fade, foam, depth or extent.
-            inland_mask = _build_inland_shore_mask(
-                pre_mask, sea_level, feather_pixels)
+            # feather, and the depth alpha where a source measures the
+            # water — no sea fade, foam or extent.
+            inland_mask = _inland_depth_mask(
+                til_x, til_y, tile, pre_mask, sea_level, feather_pixels,
+                bathymetry_band_vrt, coarse_fill)
             if inland_mask is not None:
                 Image.fromarray(inland_mask).save(os.path.join(
                     dest_dir, FNAMES.legacy_mask(til_x, til_y)))
@@ -437,7 +439,8 @@ def build_masks(tile, for_imagery=False):
         coarse_alpha = None
         if coarse_fill is not None:
             coarse_alpha = COARSE.square_alpha(
-                til_x, til_y, tile, coarse_fill, pre_mask == 0)
+                til_x, til_y, tile, coarse_fill, pre_mask == 0,
+                (pre_mask > 0) & (pre_mask < 255))
 
         if custom_extent_code:
             custom_array = build_custom_pre_mask(
@@ -900,6 +903,7 @@ def build_shallow_water_alpha(til_x, til_y, tile, shallow_water_categories):
     depth_ceiling = max(
         float(getattr(tile, "reef_visibility_depth", 25.0)), 0.01
     )
+    top = 255 * BATHYBAND.shallow_water_opacity(tile)
     (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, tile.mask_zl)
     canvas = Image.new("L", (4096, 4096), "black")
     canvas_draw = ImageDraw.Draw(canvas)
@@ -921,7 +925,7 @@ def build_shallow_water_alpha(til_x, til_y, tile, shallow_water_categories):
             min(1.0 - assumed_depth_m / depth_ceiling, 1.0), 0.0
         )
         fill_alpha = int(
-            round(255 * shallowness * shallowness * (3 - 2 * shallowness))
+            round(top * shallowness * shallowness * (3 - 2 * shallowness))
         )
         if fill_alpha == 0:
             continue
@@ -1063,7 +1067,8 @@ def build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path):
     # shallowness), and beyond the threshold the land pre-mask takes
     # over at the same contour — no gap, no cliff.
     water = valid & (values <= mask_altitude_above)
-    alpha = numpy.where(water, 255.0 * spline, 0.0).astype(numpy.float32)
+    top = 255.0 * BATHYBAND.shallow_water_opacity(tile)
+    alpha = numpy.where(water, top * spline, 0.0).astype(numpy.float32)
     if not valid.all():
         alpha = _feather_alpha_at_coverage_edge(
             alpha, valid, GEO.webmercator_pixel_size(latm0, tile.mask_zl)
@@ -1191,6 +1196,42 @@ def _build_inland_shore_mask(pre_mask, sea_level, feather_pixels,
         return None
     composed[pre_mask[crop, crop] == 0] = 255
     return composed
+
+
+def _inland_depth_mask(til_x, til_y, tile, pre_mask, sea_level,
+                       feather_pixels, band_vrt, coarse_fill,
+                       crop_margin=1024):
+    """The mask of a square holding inland water and no sea, or ``None``:
+    :func:`_build_inland_shore_mask` raised by the depth alpha over the
+    inland water a source measures (owner 2026-11-24T13:52Z: the same
+    depth grading as the sea).  The fine band counts where it reads water
+    (spec section 4.3), the coarse source where
+    :func:`O4_Bathymetry_Coarse._measured_inland` admits the water body.
+    Land is never touched and no square gains a mask from depth alone
+    unless the alpha shows above the constant ``ratio_water`` blend."""
+    shore = _build_inland_shore_mask(pre_mask, sea_level, feather_pixels,
+                                     crop_margin)
+    crop = slice(crop_margin, pre_mask.shape[0] - crop_margin)
+    inland_full = (pre_mask > 0) & (pre_mask < 255)
+    inland = inland_full[crop, crop]
+    if not inland.any():
+        return shore
+    depth = None
+    if band_vrt:
+        depth = build_bathymetry_arrays(til_x, til_y, tile, band_vrt)[1]
+    if coarse_fill is not None:
+        coarse = COARSE.square_alpha(
+            til_x, til_y, tile, coarse_fill,
+            numpy.zeros_like(inland_full), inland_full)
+        if coarse is not None:
+            depth = coarse if depth is None else numpy.maximum(depth, coarse)
+    if depth is None or not (depth[inland] > int(sea_level)).any():
+        return shore
+    if shore is None:
+        shore = numpy.full(inland.shape, 255, dtype=numpy.uint8)
+        shore[inland] = int(sea_level)
+    shore[inland] = numpy.maximum(shore[inland], depth[inland])
+    return shore
 
 
 ################################################################################

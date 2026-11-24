@@ -1068,6 +1068,23 @@ def depth_spline(values, reef_depth_m: float):
     return shallowness * shallowness * (3.0 - 2.0 * shallowness)
 
 
+#: The photo's opacity at zero depth when the tile names none (owner
+#: 2026-11-24T14:08Z: "make 0.85 the default even when have depth data").
+SHALLOW_WATER_OPACITY = 0.85
+
+
+def shallow_water_opacity(tile) -> float:
+    """The photo's opacity at zero depth, the top of every depth ramp
+    (fine band, coarse source, mapped fallback; sea and inland): tile
+    setting ``shallow_water_opacity``, 1 = full photo, 0 = none."""
+    try:
+        value = float(getattr(tile, "shallow_water_opacity",
+                              SHALLOW_WATER_OPACITY))
+    except (TypeError, ValueError):
+        value = SHALLOW_WATER_OPACITY
+    return min(max(value, 0.0), 1.0)
+
+
 # Prefetch bookkeeping: build steps that run BEFORE the band consumers
 # (the vector step, spec section 3) can start the fetch on a background
 # thread so it overlaps the mesh build; the consumers then join the

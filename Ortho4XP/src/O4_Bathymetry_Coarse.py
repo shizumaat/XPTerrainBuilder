@@ -9,14 +9,17 @@ the source's native resolution (the tile plus :data:`OVERHANG_DEGREES`,
 about 0.2 MB) reaches banks with no coastline nearby, and the alpha is
 zero from ``reef_visibility_depth`` down, so open deep water stays masked.
 
-Coarse depth only ever ADDS a soft alpha over SEA pixels:
+Coarse depth only ever ADDS a soft alpha over the water: the sea, and
+inland water the source measures at sea level (a tidal lagoon, an
+estuary, :func:`_measured_inland`; owner 2026-11-24T13:52Z, the Ria
+Formosa):
 
 * it never refines the land pre-mask: a 450 m "land" pixel is not a coast;
 * its alpha is zero on and next to fine data, rising over
   :data:`FINE_JOIN_FEATHER_M`, so a fine pixel keeps its exact value and
   the join shows no step;
-* it stays below :data:`MAXIMUM_OPACITY`: a 450 m grid cannot claim an
-  opaque shore.
+* its top is the tile's ``shallow_water_opacity`` (0.85 by default, as
+  for every depth ramp: :func:`O4_Bathymetry_Band.shallow_water_opacity`).
 """
 from __future__ import annotations
 
@@ -47,8 +50,6 @@ COVERAGE_FADE_M = 900.0
 #: Gaussian sigma that removes the source grid's stair-steps (half a pixel
 #: of the 450 m grid).
 SMOOTHING_SIGMA_M = 225.0
-#: The coarse alpha's ceiling (the sea's shore opacity, owner 2026-11-18).
-MAXIMUM_OPACITY = 0.85
 #: The alpha is computed on the 6144 px window divided by this.
 _DECIMATION = 8
 #: Fine data within this many decimated pixels forces the alpha to zero,
@@ -178,10 +179,40 @@ def _ramp(distance_m, width_m):
     return r * r * (3.0 - 2.0 * r)
 
 
-def square_alpha(til_x, til_y, tile, fill: CoarseFill, sea_full):
-    """The fill's 4096 px alpha for one mask square, zero off the sea
-    (``sea_full``: the 6144 px pre-mask's sea pixels), or ``None`` when it
-    adds nothing."""
+def _measured_inland(inland_full, values):
+    """The 6144 px inland-water pixels whose water body the source measures
+    at or below sea level somewhere in the window (``values``: the source on
+    the decimated grid).
+
+    A lake or river above sea level reads as land (its surface elevation)
+    and stays out: the source carries no depth for it.  A tidal lagoon is
+    at sea level, so its channels read at or below zero; its whole body
+    then takes the sea's depth alpha (intertidal flats read just above
+    zero and stay shallow).  Bodies are connected on the decimated grid.
+    """
+    from scipy.ndimage import label
+
+    size = values.shape[0]
+    blocks = inland_full.reshape(size, _DECIMATION, size, _DECIMATION)
+    inland = blocks.any(axis=(1, 3))
+    (bodies, count) = label(inland, structure=numpy.ones((3, 3)))
+    if not count:
+        return None
+    wet = numpy.unique(bodies[inland & (values > -32000.0) & (values <= 0.0)])
+    wet = wet[wet > 0]
+    if not wet.size:
+        return None
+    chosen = numpy.isin(bodies, wet)
+    return inland_full & numpy.repeat(
+        numpy.repeat(chosen, _DECIMATION, axis=0), _DECIMATION, axis=1)
+
+
+def square_alpha(til_x, til_y, tile, fill: CoarseFill, sea_full,
+                 inland_full=None):
+    """The fill's 4096 px alpha for one mask square, zero off the water
+    (``sea_full``: the 6144 px pre-mask's sea pixels; ``inland_full``: its
+    inland-water pixels, of which only :func:`_measured_inland` ones count),
+    or ``None`` when it adds nothing."""
     from scipy.ndimage import distance_transform_edt, gaussian_filter
 
     size = 6144 // _DECIMATION
@@ -199,7 +230,14 @@ def square_alpha(til_x, til_y, tile, fill: CoarseFill, sea_full):
     depth = gaussian_filter(
         numpy.where(valid, numpy.minimum(values, 0.0), 0.0), sigma
     ) / numpy.maximum(weight, 1e-3)
-    alpha = 255.0 * MAXIMUM_OPACITY * BAND.depth_spline(
+    water_full = sea_full
+    if inland_full is not None and inland_full.any():
+        measured = _measured_inland(inland_full, values)
+        if measured is not None:
+            water_full = sea_full | measured
+    if not water_full[1024:5120, 1024:5120].any():
+        return None
+    alpha = 255.0 * BAND.shallow_water_opacity(tile) * BAND.depth_spline(
         depth, getattr(tile, "reef_visibility_depth", 25.0))
     if not valid.all():
         alpha *= _ramp(distance_transform_edt(valid) * pixel_m,
@@ -218,5 +256,5 @@ def square_alpha(til_x, til_y, tile, fill: CoarseFill, sea_full):
         return None
     final = numpy.asarray(Image.fromarray(cropped).resize(
         (4096, 4096), Image.BILINEAR)).copy()
-    final[~sea_full[1024:5120, 1024:5120]] = 0
+    final[~water_full[1024:5120, 1024:5120]] = 0
     return final if final.any() else None

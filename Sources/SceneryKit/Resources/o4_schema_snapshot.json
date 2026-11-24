@@ -88,6 +88,7 @@
    "bathymetry_near_seaplane_bases",
    "bathymetry_near_heliports",
    "reef_visibility_depth",
+   "shallow_water_opacity",
    "osm_shallow_water_fallback",
    "masks_custom_extent",
    "coastal_foam_edge"
@@ -1143,7 +1144,7 @@
   },
   "global_reef_visibility_depth": {
    "default": 25.0,
-   "hint": "Water shallower than this (in metres) keeps part of its imagery visible in the masks, fading smoothly from fully opaque at the waterline to the ratio_water transparency at this depth. Larger values keep deeper reef structure visible - Pacific atolls and lagoons read well around 30-40. Only effective where a bathymetry provider covers the tile.",
+   "hint": "Water shallower than this (in metres) keeps part of its imagery visible in the masks, fading smoothly from shallow_water_opacity at the waterline to no imagery at this depth. Larger values keep deeper reef structure visible - Pacific atolls and lagoons read well around 30-40. Only effective where a bathymetry provider covers the tile.",
    "name": "global_reef_visibility_depth",
    "type": "float"
   },
@@ -1209,6 +1210,12 @@
    "default": 0.0,
    "hint": "For layers of type \"mask\" in combined providers imageries, determines the extent (in meters) of the blur radius applied. This allows to smoothen some sea imageries where the wave or reflection pattern was too much present.",
    "name": "global_sea_texture_blur",
+   "type": "float"
+  },
+  "global_shallow_water_opacity": {
+   "default": 0.85,
+   "hint": "How much of the photo shows over the shallowest water, where the masks grade the water by its depth (measured sea depth, mapped reefs and tidal flats, and lagoons or other inland water a depth source measures): 1 is the full photo, 0 is none (only X-Plane water). Deeper water fades down from this value to no photo at reef_visibility_depth. 0.85 keeps a little X-Plane water showing even over sand flats.",
+   "name": "global_shallow_water_opacity",
    "type": "float"
   },
   "global_terrain_casts_shadows": {
@@ -1658,7 +1665,7 @@
   },
   "reef_visibility_depth": {
    "default": 25.0,
-   "hint": "Water shallower than this (in metres) keeps part of its imagery visible in the masks, fading smoothly from fully opaque at the waterline to the ratio_water transparency at this depth. Larger values keep deeper reef structure visible - Pacific atolls and lagoons read well around 30-40. Only effective where a bathymetry provider covers the tile.",
+   "hint": "Water shallower than this (in metres) keeps part of its imagery visible in the masks, fading smoothly from shallow_water_opacity at the waterline to no imagery at this depth. Larger values keep deeper reef structure visible - Pacific atolls and lagoons read well around 30-40. Only effective where a bathymetry provider covers the tile.",
    "name": "reef_visibility_depth",
    "type": "float"
   },
@@ -1724,6 +1731,12 @@
    "default": 0.0,
    "hint": "For layers of type \"mask\" in combined providers imageries, determines the extent (in meters) of the blur radius applied. This allows to smoothen some sea imageries where the wave or reflection pattern was too much present.",
    "name": "sea_texture_blur",
+   "type": "float"
+  },
+  "shallow_water_opacity": {
+   "default": 0.85,
+   "hint": "How much of the photo shows over the shallowest water, where the masks grade the water by its depth (measured sea depth, mapped reefs and tidal flats, and lagoons or other inland water a depth source measures): 1 is the full photo, 0 is none (only X-Plane water). Deeper water fades down from this value to no photo at reef_visibility_depth. 0.85 keeps a little X-Plane water showing even over sand flats.",
+   "name": "shallow_water_opacity",
    "type": "float"
   },
   "skip_converts": {

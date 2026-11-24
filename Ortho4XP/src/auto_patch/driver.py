@@ -1097,7 +1097,7 @@ def _seed_pack_walks(tasks: list) -> dict:
     return walks
 
 
-def airport_flight_path(task: dict) -> str | None:
+def _airport_flight_path(task: dict) -> str | None:
     """The lock file of the ONE build of a straddling airport across tiles
     (#2206 item 7), ``None`` for an airport only one tile builds.
 
@@ -1116,10 +1116,10 @@ def airport_flight_path(task: dict) -> str | None:
 
 def _one_flight_build(task: dict) -> dict:
     """``build_write_verify_one_v2`` as the one flight of its airport across
-    the tiles that build it (:func:`airport_flight_path`); the wait is
+    the tiles that build it (:func:`_airport_flight_path`); the wait is
     named in the result's log and ``flight_wait_s``."""
     import time as _time
-    path = airport_flight_path(task)
+    path = _airport_flight_path(task)
     if path is None:
         return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
     import O4_Download_Manager as _DM

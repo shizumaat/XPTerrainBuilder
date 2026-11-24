@@ -20,13 +20,13 @@ def _task(tiles):
 
 
 def test_one_tile_airport_takes_no_lock():
-    assert driver.airport_flight_path(_task([(33, -112)])) is None
-    assert driver.airport_flight_path({"icao": "ZZZZ"}) is None
+    assert driver._airport_flight_path(_task([(33, -112)])) is None
+    assert driver._airport_flight_path({"icao": "ZZZZ"}) is None
 
 
 def test_straddler_lock_is_beside_the_stage_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "airport_mod_cache_root", lambda: str(tmp_path))
-    path = driver.airport_flight_path(_task([(33, -113), (33, -112)]))
+    path = driver._airport_flight_path(_task([(33, -113), (33, -112)]))
     assert path == str(tmp_path / "o4_airport_flight_ZZZZ.lock")
 
 
@@ -37,7 +37,7 @@ def test_second_tile_waits_for_the_first(tmp_path, monkeypatch):
                         lambda task, dem: built.append(time.time()) or
                         {"icao": task["icao"], "ok": True, "log_lines": []})
     task = _task([(33, -113), (33, -112)])
-    held = SLOTS.try_os_lock(driver.airport_flight_path(task))   # tile A builds
+    held = SLOTS.try_os_lock(driver._airport_flight_path(task))   # tile A builds
     assert held is not None
     out = {}
     th = threading.Thread(target=lambda: out.update(driver._one_flight_build(task)))

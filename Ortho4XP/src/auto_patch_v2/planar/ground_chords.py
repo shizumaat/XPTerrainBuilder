@@ -130,15 +130,21 @@ def follow_ground(points: _t.Sequence[XY], z_many: _t.Callable, tol_m: float,
         return pts
     chords = list(zip(pts, pts[1:], strict=False))
     tss: list[np.ndarray] = []
-    zss: list[np.ndarray] = []
     lens: list[float] = []
+    xs: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
     for (ax, ay), (bx, by) in chords:
         d = math.hypot(bx - ax, by - ay)
         ts = np.linspace(0.0, 1.0, max(3, math.ceil(d / sample_m) + 1)) \
             if d >= 2.0 * min_piece_m and d > sample_m else np.array([0.0, 1.0])
         tss.append(ts)
         lens.append(d)
-        zss.append(np.asarray(z_many(ax + (bx - ax) * ts, ay + (by - ay) * ts), dtype=float))
+        xs.append(ax + (bx - ax) * ts)
+        ys.append(ay + (by - ay) * ts)
+    # ONE ground read for the whole ring (#2206: one per chord was 168,000
+    # reads at KATL); a point's ground is its own, whatever is read beside it
+    z_all = np.asarray(z_many(np.concatenate(xs), np.concatenate(ys)), dtype=float)
+    zss: list[np.ndarray] = np.split(z_all, np.cumsum([len(ts) for ts in tss])[:-1])
     free = [np.ones(len(ts), dtype=bool) for ts in tss]
     if mouth is not None and ramp is not None:
         closed = pts[0] == pts[-1]

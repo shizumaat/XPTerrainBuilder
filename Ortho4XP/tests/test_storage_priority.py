@@ -81,26 +81,68 @@ def _log():
         return handle.read()
 
 
-def test_an_old_tile_is_cleared_fully_before_a_recent_one_loses_anything(
+def test_imagery_of_every_tile_goes_before_any_tiles_rebuild_inputs(
         data, monkeypatch):
+    """#2207: bulk first (each tile's imagery and masks, the oldest tile
+    first), then every tile's rebuild data, then the map and elevation
+    data -- never an old tile's map data while a newer tile's imagery
+    could go."""
     old, recent = _tile(45, 7, 90), _tile(46, 7, 20)
-    _over(monkeypatch, 3.5 * BLOCK)                 # most of the old tile
+    _over(monkeypatch, 1.5 * BLOCK)
     _hold()
-    assert _left(old) == {"rebuild"}                # cheapest first
-    assert _left(recent) == set(recent)             # untouched
-    _over(monkeypatch, 1.5 * BLOCK)                 # the rest, and one more
+    assert _left(old) == set(old) - {"imagery", "masks"}    # the oldest first
+    assert _left(recent) == set(recent)
+    _over(monkeypatch, 1.5 * BLOCK)
     _hold()
-    assert _left(old) == set()
-    assert _left(recent) == set(recent) - {"imagery"}
+    assert _left(old) == _left(recent) == {"elevation", "osm", "rebuild"}
+    _over(monkeypatch, 1.5 * BLOCK)
+    _hold()
+    assert _left(old) == _left(recent) == {"elevation", "osm"}
+    _over(monkeypatch, 0.5 * BLOCK)
+    _hold()
+    assert len(_left(old)) == 1                     # inputs last, oldest first
+    assert _left(recent) == {"elevation", "osm"}
+
+
+def test_a_built_tiles_map_data_goes_after_a_tile_never_built(
+        data, monkeypatch):
+    built, bare = _tile(45, 7, 400), _tile(46, 7, 20)
+    folder = os.path.join(FNAMES.Tile_dir, FNAMES.tile_dir(45, 7))
+    monkeypatch.setattr(PRIORITY.FIRST, "built_tiles",
+                        lambda: {(45, 7): folder})
+    _over(monkeypatch, 7.5 * BLOCK)
+    _hold()
+    assert _left(bare) == set()                     # never built: first
+    assert _left(built) == {"elevation", "osm"}     # built: kept longest
 
 
 def test_favorites_go_last(data, monkeypatch):
     favorite, other = _tile(45, 7, 400), _tile(46, 7, 20)
     monkeypatch.setattr(PACKAGES, "_favorites", lambda: {"+45+007"})
+    _over(monkeypatch, 1.5 * BLOCK)
+    _hold()
+    assert _left(other) == set(other) - {"imagery", "masks"}
+    assert _left(favorite) == set(favorite)
     _over(monkeypatch, 5.5 * BLOCK)
     _hold()
     assert _left(other) == set()
-    assert _left(favorite) == set(favorite) - {"imagery"}
+    assert _left(favorite) == {"elevation", "osm"}
+
+
+def test_a_budget_pass_logs_its_trigger_with_the_numbers(data, monkeypatch):
+    """#2207: the first line of a budget pass says why it ran: the
+    budget, what is in use, the free space and the target, before any
+    deletion (and before any package line) of the pass."""
+    _tile(45, 7, 90)
+    _over(monkeypatch, 0.5 * BLOCK)
+    _hold()
+    lines = _log().splitlines()
+    first = next(i for i, line in enumerate(lines) if "disk budget:" in line)
+    assert "over the budget" in lines[first] and "free space" in lines[first]
+    assert "clearing" in lines[first] and "90 % of the budget" in lines[first]
+    deleted = [i for i, line in enumerate(lines) if " deleted " in line]
+    assert deleted and min(deleted) > first
+    assert all("disk budget)" in lines[i] for i in deleted)
 
 
 def test_session_recent_tiles_and_their_build_inputs_are_never_cleared(

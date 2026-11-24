@@ -152,18 +152,23 @@ def test_the_workers_records_serve_a_later_serial_build(two_cores, tmp_path):
     assert s1 and set(s1.values()) == {"hit"}, reader["states"]
 
 
-def _early_arm(bind=None) -> dict:
-    """#2206 item 5: the worker starts before the main pass's planar stage."""
+def _early_arm(bind=None, warm: bool = False) -> dict:
+    """#2206 item 5: the worker starts before the main pass's planar stage
+    (#2206 step 3, ``warm``: started before classify, handed its payload
+    after)."""
     from auto_patch_v2.model.stage_one import on_full_decks
     law = Law.for_airport("SYNT")
+    lines: list[str] = []
+    pool = SA.warm(lines.append) if warm else None
+    assert (pool is not None) == warm, lines
     airport = dc.replace(_with(_way(-3, RWY_END, highway="tertiary")), dem=_BulkFlat())
     cl = classify(airport, law)
     fc = FC.FrontCache(ICAO, airport, law, enabled=False, mod_cache_root=None)
     airport = fc.airport(airport)
     common = fc.common_inputs(None, None)
-    lines: list[str] = []
     derive = Deriver(airport, law, INPUTS, PACK, cache=fc, common=common)
-    a = SA.start_early(cl, derive, out=lines.append)
+    a = SA.start_early(cl, derive, out=lines.append, pool=pool)
+    assert pool is None or a.pool is pool
     assert a is not None, lines
     with on_full_decks(a.hand_decks):
         pre = run_prefix(airport, cl, law, INPUTS, PACK, fc, common=common,
@@ -185,6 +190,26 @@ def test_started_at_classify_end_a_hit_is_the_serial_derive(two_cores):
     assert any("from classify's end" in ln for ln in ahead["lines"])
     _clocked(ahead, "hit", "worker", "early")
     _same(ahead, _arm(False))
+
+
+def test_a_worker_warmed_before_classify_is_handed_the_payload(two_cores):
+    # #2206 step 3: the worker started (and importing the prefix) at the
+    # build's start answers exactly as one started at classify's end
+    ahead = _early_arm(warm=True)
+    assert ahead["outcome"] == "hit", ahead["lines"]
+    _clocked(ahead, "hit", "worker", "early")
+    _same(ahead, _arm(False))
+
+
+def test_a_warm_worker_with_nothing_handed_is_closed(two_cores):
+    from auto_patch_v2.pipeline.stage_one_map import stage_one_classification
+    lines: list[str] = []
+    pool = SA.warm(lines.append)
+    law = Law.for_airport("SYNT")
+    cl = classify(_with(), law)
+    assert stage_one_classification(cl) is None
+    assert SA.start_early(cl, None, out=lines.append, pool=pool) is None
+    assert pool._ex is None and not pool.pids()
 
 
 def test_started_at_classify_end_a_moved_deck_is_derived_here(two_cores):

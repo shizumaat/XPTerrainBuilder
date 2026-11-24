@@ -51,7 +51,7 @@ from ..airport import pool as _pool
 from ..airport import stage_cache as _store
 from . import derive_ahead as _ahead
 
-__all__ = ["start", "start_early"]
+__all__ = ["start", "start_early", "warm"]
 
 #: the longest the build waits on the worker's derive (seconds)
 STALL_S = 1800.0
@@ -103,27 +103,35 @@ def start(cl, derive, pm_channels, out: _t.Callable[[str], None]) -> "Ahead | No
     return Ahead(derive, split, _store.content_digest(view), pool, pending, shared, out)
 
 
-def start_early(cl, derive, out: _t.Callable[[str], None]) -> "Ahead | None":
+def warm(out: _t.Callable[[str], None]):
+    """The worker :func:`start_early` will hand its payload to, started at
+    the build's start (#2206 step 3, ``derive_ahead.warm``), or ``None``."""
+    return _ahead.warm(out, STALL_S)
+
+
+def start_early(cl, derive, out: _t.Callable[[str], None], pool=None) -> "Ahead | None":
     """Start stage 1's derive of ``cl`` in a worker BEFORE the main pass's
     planar stage (module doc, #2206 item 5), or ``None``: ``cl`` has no
     stage-1 classification of its own without the full map (a generated
     deck's no-bridge airside, which :func:`start` decides after the
     channels), or no worker may start (said through ``out``).  The build
     hands the full map with :meth:`Ahead.hand_decks` / :meth:`Ahead.
-    hand_anchors`."""
+    hand_anchors`.  ``pool``: the worker :func:`warm` started (closed here
+    when nothing is handed to it)."""
     from .stage_one_map import stage_one_classification
     split = stage_one_classification(cl)
-    if split is None:
-        return None
-    why = _ahead.may_start("build")
-    if why:
-        out(f"stage 1's ribbon-free derive not run ahead (#2044): {why}")
+    why = "" if split is None else _ahead.may_start("build")
+    if split is None or why:
+        if pool is not None:
+            pool.close()
+        if why:
+            out(f"stage 1's ribbon-free derive not run ahead (#2044): {why}")
         return None
     folder = tempfile.mkdtemp(prefix="o4_stage1_ahead_")
     cl_digest = derive.cache.digest(split[0]) if derive.cache is not None else None
     got = _ahead.start(_derive_stage_one, _ahead.payload(
         derive, derive.runs, cl0=split[0], cl_digest=cl_digest, full=_LazyFull(folder, STALL_S)),
-        what="stage 1's ribbon-free derive (ahead)", out=out, stall_s=STALL_S)
+        what="stage 1's ribbon-free derive (ahead)", out=out, stall_s=STALL_S, pool=pool)
     if isinstance(got, str):
         shutil.rmtree(folder, ignore_errors=True)
         out(f"stage 1's ribbon-free derive not run ahead (#2044): {got}")

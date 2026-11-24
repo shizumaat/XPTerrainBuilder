@@ -359,3 +359,29 @@ def test_a_floor_outline_is_sampled_once_whatever_its_walls(tmp_path, monkeypatc
     floors, notes = _read(objs, 105.0)
     assert len(floors) == 1 and calls["samples"] == 1 and calls["rings"] == 4, (calls, notes)
     assert floors[0].rim_z == want[0].rim_z and floors[0].covers == want[0].covers
+
+
+def test_the_open_hollows_read_ahead_answer_the_hollow_pass(tmp_path, monkeypatch):
+    """#2206: the open-hollow pass asks only resources its read-ahead
+    names (``object_floor._hollow_candidates``), and the readings a pool
+    puts in its memo are the serial readings -- the pass reads the same
+    pit whether they were read ahead or not."""
+    from auto_patch_v2.airport import pack_work as W
+    objs = _trench(tmp_path)
+    asked = []
+    real = OF._open_hollow
+    monkeypatch.setattr(OF, "_open_hollow",
+                        lambda res, g, law, memo: asked.append(res) or real(res, g, law, memo))
+    want, _n = _read_bored(objs, 105.0, [_BORE])
+    cache = O.ResourceCache(THICK)
+    cands = OF._hollow_candidates(objs, cache, LAW, {}, OF._CoPlaced(objs, 1.0), set(),
+                                  OF.STRtree([_BORE]))
+    assert asked and set(asked) <= set(cands)
+    monkeypatch.setattr(W, "HOLLOW_POOL_MIN", 1)
+    memo: dict = {}
+    with W.open_pool(LAW, cache, workers=2, out=lambda s: None) as pool:
+        n = W.read_hollows_ahead(cache, LAW, cands, memo, pool=pool)
+    assert n == len(set(cands)) and memo == {r: OF.open_hollow_of(cache.geometry(r), LAW)
+                                             for r in cands}
+    got, _n = _read_bored(objs, 105.0, [_BORE])
+    assert [f.id for f in got] == [f.id for f in want] and got[0].floor_z == want[0].floor_z

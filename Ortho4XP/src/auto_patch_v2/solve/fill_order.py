@@ -25,7 +25,9 @@ them (placed last: +28 % fill at HECA).
 
 Products, residuals and normal matrices are untouched; only the
 factorisation's summation order changes, so a solve moves at rounding level
-(KBUF, KRDU, HECA: patch bodies byte-identical).  NOT exact by
+(replays of KBUF, KRDU, KDEN, KATL, KDFW and HECA: every patch body, graded
+surface and seat file byte-identical; HECA's sidecar moves one diagnostic,
+five platforms' ``reach_lo_binding`` hop count by one).  NOT exact by
 construction: RULINGS 2026-11-23e/24e are the bar this is measured against.
 """
 from __future__ import annotations

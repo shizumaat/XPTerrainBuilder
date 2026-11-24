@@ -593,6 +593,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     Ub, cb = ((base_p.body.matrix(red.n_cols)) if base_p.body is not None
               and base_p.body.n else (None, None))
     A1, b1 = _one_matrix(one, red)
+    raw1 = (A1, b1, len(one))       # #1270: the projection extends it, never rebuilds
     # §5a FEASIBILITY BEFORE THE SOLVE (RULINGS 2026-09-30be/30bf), conflicts named
     t_lp = time.perf_counter()
     demote_conflicts(planar, law, base_p, A1, b1, rep, verbose=opt.verbose,
@@ -914,7 +915,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # ... then PHASE E, the ZONE projection (12ag, §32): one entry,
         x, rep.runway_projection, rep.zone_projection = project_after_solve(
             planar, law, base_p, x, stacked=(A1, b1), memo=projection_memo,
-            verbose=opt.verbose)
+            verbose=opt.verbose, raw=raw1)
         # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
         # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:

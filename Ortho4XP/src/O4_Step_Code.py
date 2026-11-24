@@ -767,6 +767,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.grid_pickle",
     "auto_patch_v2.geom.lens",
+    "auto_patch_v2.geom.line_walk",
     "auto_patch_v2.geom.lowest_face",
     "auto_patch_v2.geom.pad_base_slope",
     "auto_patch_v2.geom.pad_evidence",

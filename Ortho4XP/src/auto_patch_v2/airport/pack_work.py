@@ -40,7 +40,8 @@ from .pool import WorkPool
 
 __all__ = ["PackWorker", "setup", "open_pool", "resource_reads",
            "read_resources_ahead", "skirt_reading", "read_skirts_ahead",
-           "SKIRT_POOL_MIN", "member_attrs", "part_attrs_ahead",
+           "SKIRT_POOL_MIN", "read_hollows_ahead", "HOLLOW_POOL_MIN",
+           "member_attrs", "part_attrs_ahead",
            "placement_reads", "placements_ahead"]
 
 
@@ -187,6 +188,52 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
     for path, r in zip(todo, got, strict=True):
         if r is not None:
             cache.pre[("skirt", path)] = r
+    return len(todo)
+
+
+#: fewer open-hollow candidates than this are read on one core (a cost
+#: rule only — the reading is the same; one reading ~0.1-0.3 s)
+HOLLOW_POOL_MIN = 16
+
+
+def _hollow_reading(state: PackWorker, path: str) -> "bool | None":
+    """``object_floor.open_hollow_of`` of one resource, in a worker — or
+    ``None`` where it raises (the serial reader derives it in its place)."""
+    from .object_floor import open_hollow_of
+    try:
+        g = state.cache_for(path).geometry(path)
+        return None if g is None else open_hollow_of(g, state.law)
+    except Exception:
+        return None
+
+
+def read_hollows_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
+                       memo: dict, pool: WorkPool | None = None) -> int:
+    """Put ``object_floor.open_hollow_of`` of every resource of ``paths``
+    not in ``memo`` (its read-once memo, by resource) into ``memo``, read
+    by ``pool`` -- or by one opened here and closed again (#2206: the walled-pit read's
+    open-hollow test, a shape raster per resource, KATL 117 resources
+    15 s on one core).  Returns how many were read ahead; 0 when no pool
+    answers (the serial read derives each in its place, the same answer)."""
+    todo = [p for p in dict.fromkeys(paths) if p not in memo]
+    if len(todo) < HOLLOW_POOL_MIN:
+        return 0
+    own = pool is None
+    if own:
+        pool = open_pool(law, cache)
+    try:
+        if not pool.parallel:
+            return 0
+        got = pool.try_map(_hollow_reading, todo, weights=[_weight(p) for p in todo],
+                           what="open hollows", unit="resources")
+    finally:
+        if own:
+            pool.close()
+    if got is None:
+        return 0
+    for path, r in zip(todo, got, strict=True):
+        if r is not None:
+            memo[path] = r
     return len(todo)
 
 

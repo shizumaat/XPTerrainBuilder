@@ -1186,6 +1186,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Object_Stage_Code",
         # the post-mesh sea guard (lflood): its witness, the coastline
         "O4_Sea_Leak_Guard",
+        # the hairline pre-flight beside Triangle4XP (#1264)
+        "O4_Step_Overlap",
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
         # the object stage's pack-author choice (RULINGS 2026-11-11m (3)),
@@ -1199,6 +1201,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Color_Harmonization",
         "O4_DDS_Cache",
         "O4_DDS_Tiers",
+        # the water triangles' mask squares, by array (#2269)
+        "O4_Geo_Arrays",
         "O4_Imagery_Async",
         "O4_Imagery_Capture_Seam",
         "O4_Imagery_Certs",
@@ -1210,6 +1214,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Imagery_Regions_Table",
         "O4_Imagery_Utils",
         "O4_Mask_Utils",
+        "O4_Mask_Water_Squares",
         "O4_Mesh_IO",
         "O4_Num_Text",
         "O4_Sea_Nodata_Fill",

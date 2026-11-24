@@ -45,12 +45,11 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy
+import O4_Color_Harmonization as HARMONIZE
+import O4_Imagery_Water_Lines as LINES
 from PIL import Image
 from scipy import ndimage, sparse
 from scipy.sparse.linalg import factorized
-
-import O4_Color_Harmonization as HARMONIZE
-import O4_Imagery_Water_Lines as LINES
 
 __all__ = [
     "apply_on_water",

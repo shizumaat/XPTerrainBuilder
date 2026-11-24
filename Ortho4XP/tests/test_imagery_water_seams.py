@@ -8,11 +8,10 @@ or a natural curved edge drawn in the water.
 from __future__ import annotations
 
 import numpy
-import pytest
-from PIL import Image
-
 import O4_DDS_Encode as DDSENC
 import O4_Imagery_Water_Seams as WS
+import pytest
+from PIL import Image
 
 SIZE = 1024
 LAND_COLUMNS = 96

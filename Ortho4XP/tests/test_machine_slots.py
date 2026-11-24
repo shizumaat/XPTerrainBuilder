@@ -374,3 +374,74 @@ def test_builds_run_below_the_command_process():
     assert command == max(start, SLOTS.COMMAND_NICE)
     assert worker == max(start, SLOTS.NICE)
 
+
+
+# ── #2267: who holds the slots, who waits, and the wait's two lines ────
+
+def _until(cond, tries=400):
+    for _ in range(tries):                 # bounded: never a wall-time assert
+        if cond():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_a_held_slot_names_its_holder_until_it_is_released(session):
+    session(3)
+    SLOTS.name_process("airport ZZZZ")
+    try:
+        a = SLOTS.try_take(2, what="airport ZZZZ pool")
+        b = SLOTS.try_take(1)                          # named by the process
+        assert SLOTS._slot_holders() == {"airport ZZZZ pool": 2, "airport ZZZZ": 1}
+        assert SLOTS._holders_text() == "3 of 3 held: airport ZZZZ pool 2, airport ZZZZ 1"
+        assert a.shed(1) == 1 and a.count == 1
+        assert SLOTS._slot_holders()["airport ZZZZ pool"] == 1
+        a.release()
+        b.release()
+        assert SLOTS._slot_holders() == {}
+    finally:
+        SLOTS.name_process("")
+
+
+def test_a_waiting_take_is_counted_and_its_mark_goes_with_it(session):
+    session(1)
+    hold = SLOTS.try_take(1)
+    got = []
+    t = threading.Thread(target=lambda: got.append(SLOTS.take(1, poll_s=0.01)))
+    t.start()
+    assert _until(lambda: SLOTS.slot_waiters() == 1)
+    hold.release()
+    t.join(10)
+    assert got and got[0].count == 1
+    assert SLOTS.slot_waiters() == 0                   # gone at once, not by age
+    got[0].release()
+
+
+def test_a_waiting_step_says_who_holds_the_slots_and_when_it_starts(session,
+                                                                  monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    hold = SLOTS.try_take(1, what="airport ZZZZ pool")
+
+    def run():
+        with SLOTS.step(what="tile +36-008 vector step"):
+            pass
+    t = threading.Thread(target=run)
+    t.start()
+    assert _until(lambda: lines)
+    hold.release()
+    t.join(10)
+    assert lines[0] == ("Machine slots: tile +36-008 vector step waits for a "
+                        "slot — 1 of 1 held: airport ZZZZ pool 1.")
+    assert lines[1].startswith("Machine slots: tile +36-008 vector step starts after ")
+    assert len(lines) == 2
+
+
+def test_a_step_that_never_waits_says_nothing(session, monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    with SLOTS.step(what="tile +36-008 masks step"):
+        pass
+    assert lines == []

@@ -79,7 +79,8 @@ def _install(tmp_path, ini_rows):
 @pytest.fixture(autouse=True)
 def _fresh_selection_maps():
     A._SELECTION.clear()
-    OP._first_placing.cache_clear()
+    OP._PLACING.clear()
+    OP._REF_TILE.clear()
     yield
 
 
@@ -222,3 +223,19 @@ def test_the_load_reads_pages_from_one_dump_and_the_rest_from_the_other(tmp_path
     # the facades are the object pack's alone
     assert [(b.id, b.outer[0]) for b in polys.buildings] == [
         ("dsf:fac1", (-122.28 * 1e5, 47.92 * 1e5))]
+
+
+def test_a_library_of_many_airports_reads_each_dump_once(monkeypatch):
+    """#2268: the staleness check asks for every built airport; the old
+    64-entry LRU was evicted by more than 64 and re-read every dump each
+    check.  The answer is memoised on the block's digest and the dumps."""
+    seen = []
+    monkeypatch.setattr(OP, "_first_placing",
+                        lambda icao, block, dumps: seen.append(icao) or None)
+    blocks = {"Z%03d" % i: ("1 0 0 0 Z%03d" % i,) for i in range(200)}
+    for _ in range(2):
+        for icao, block in blocks.items():
+            OP._placing(icao, block, (("r", "d", 1.0),), "digest-" + icao)
+    assert sorted(seen) == sorted(blocks)              # once each
+    OP._placing("Z000", blocks["Z000"], (("r", "d", 2.0),), "digest-Z000")
+    assert seen.count("Z000") == 2                      # a re-dumped DSF reads again

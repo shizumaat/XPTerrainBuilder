@@ -37,8 +37,10 @@ The contract a caller relies on:
   shared with every airport and pool of every tile building at once.  A
   pool takes what is free when it starts, never waiting (``machine`` bound);
   with fewer than two free it does not start and the stage runs serially in
-  the build's own process, which already holds a slot.  A pinned budget
-  (:func:`configure`) is verbatim.
+  the build's own process, which already holds a slot.  Its tasks are
+  submitted only as its slots allow, and the slots its workers leave idle
+  go back — to a waiting step first (``pool_slots``, issue #2267).  A
+  pinned budget (:func:`configure`) is verbatim.
 * **the suite pins 1** (``tests/conftest.py`` calls ``configure(1)``): the
   engine never guesses that it is under test — a library importing pytest
   must not serialise a production build.
@@ -117,6 +119,7 @@ import O4_Machine_Slots as _slots
 
 from . import frame_entry as _fe
 from . import pool_memory as _mem
+from . import pool_slots as _ps
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
@@ -471,6 +474,7 @@ class WorkPool:
         self._isolate = bool(isolate)
         self._ex: _cf.ProcessPoolExecutor | None = None
         self._held = None                 # the machine slots its workers hold
+        self._feeder: _ps.Feeder | None = None
         self._worker_peak_gb = 0.0        # the largest worker measured
         self._dead = False
         #: why no pool answers (``""`` while one does): the budget, or what
@@ -505,14 +509,15 @@ class WorkPool:
         budget (:func:`configure`: a test, a tool arm) is honoured verbatim."""
         if self._isolate or _explicit[0] is not None:
             return True
-        held = _slots.try_take(self.workers)
+        label = "%s pool" % _slots.process_name()
+        held = _slots.try_take(self.workers, what=label)
         if held.count < 2:
             held.release()
             self.workers, self.bound, self.reason = 1, "machine", "budget 1"
             return False
         if held.count < self.workers:
             self.workers, self.bound = held.count, "machine"
-        self._held = held
+        self._held = _ps.SlotBook(held, self.workers, label)
         return True
 
     def _start(self) -> bool:
@@ -528,6 +533,7 @@ class WorkPool:
         except Exception as e:            # no semaphores, no fork budget, …
             self._give_up(f"could not start ({type(e).__name__}: {e})")
             return False
+        self._feeder = _ps.Feeder(self._held)
         _mem.register(self)
         return True
 
@@ -570,6 +576,9 @@ class WorkPool:
         close takes ``TEARDOWN_S + 2 * SIGNAL_S`` at most, whatever the
         worker count, and a worker still running after it is NAMED."""
         ex, self._ex = self._ex, None
+        feeder, self._feeder = self._feeder, None
+        if feeder is not None:
+            feeder.close()                # nothing more is submitted
         held, self._held = self._held, None
         if ex is None:
             if held is not None:
@@ -579,7 +588,11 @@ class WorkPool:
             self._close_executor(ex)
         finally:
             if held is not None:          # after the teardown: the workers are gone
-                held.release()
+                if feeder is not None:
+                    with feeder.lock:
+                        held.release()
+                else:
+                    held.release()
 
     def _close_executor(self, ex) -> None:
         procs = list((getattr(ex, "_processes", None) or {}).values())
@@ -641,45 +654,60 @@ class WorkPool:
         if weights is not None:
             w = [float(sum(weights[a:b])) for a, b in spans]
             order.sort(key=lambda k: (-w[k], k))
+        ex = self._ex
+        job = _ps.Job([spans[k] for k in order],
+                      lambda span: ex.submit(_run, fn, tasks[span[0]:span[1]]))
         try:
-            futs = {self._ex.submit(_run, fn, tasks[a:b]): (a, b)
-                    for a, b in (spans[k] for k in order)}
+            self._feeder.add(job)                  # what the slots allow now
+            if job.error is not None:
+                raise job.error
         except _cf.BrokenExecutor as e:
             self._give_up(f"{what or 'map'}: a worker died ({e})")
             return None
         except BaseException:
             self.close()                           # never leave workers behind
             raise
-        return Pending(self, futs, len(tasks), what, unit)
+        return Pending(self, job, len(tasks), what, unit)
 
     def _collect(self, p: "Pending") -> list | None:
         t0 = time.perf_counter()
         out: list = [None] * p.n
         prev = _pulse.current()
-        what, unit, futs = p.what, p.unit, p.futs
+        what, unit, job = p.what, p.unit, p.job
         tick = (lambda *_a: None) if self._isolate else _pulse.tick
         try:
-            pending, done_n, last = set(futs), 0, time.monotonic()
+            seen: set = set()
+            done_n, last = 0, time.monotonic()
             looked = last
-            while pending:
+            job.collecting = True                  # this process's slot is free
+            while True:
+                live, queued = self._unseen(job, seen)
+                if not live and not queued:
+                    break
                 tick(what or "pool", done_n, p.n, unit)
                 if not self._isolate and time.monotonic() - looked >= _mem.CHECK_S:
                     looked = time.monotonic()
                     self._memory_check(what)
-                done, pending = _cf.wait(pending, timeout=TICK_S,
-                                         return_when=_cf.FIRST_COMPLETED)
+                done = set()
+                if live:
+                    done, _ = _cf.wait(live, timeout=TICK_S,
+                                       return_when=_cf.FIRST_COMPLETED)
                 if not done:
                     if time.monotonic() - last > self._stall:
                         self._give_up(f"{what or 'map'}: no task finished in "
                                       f"{self._stall:.0f} s")
                         return None
+                    if not live:
+                        self._pump()               # the floor: one on our slot
                     continue
                 last = time.monotonic()
                 for f in done:
-                    a, b = futs[f]
+                    seen.add(f)
+                    a, b = job.futs[f]
                     out[a:b], rungs = f.result()   # a task's own error re-raises
                     _fe.add_rung_counts(rungs)
                     done_n += b - a
+                self._pump()                       # its slots run the next ones
         except _cf.BrokenExecutor as e:
             self._give_up(f"{what or 'map'}: a worker died ({e})")
             return None
@@ -687,11 +715,31 @@ class WorkPool:
             self.close()                           # never leave workers behind
             raise
         finally:
+            job.collecting = False
             if not self._isolate:
                 _pulse.tick(*prev) if prev else _pulse.clear()
             self.wall_s += time.perf_counter() - t0
+        self._pump()                               # idle slots go back now
         self.tasks_done += p.n
         return out
+
+    def _unseen(self, job: "_ps.Job", seen: set) -> tuple[list, int]:
+        """``(the job's submitted futures not yet read, its spans not yet
+        submitted)``; raises what stopped the feeding (a broken executor)."""
+        feeder = self._feeder
+        if job.error is not None:
+            raise job.error
+        if feeder is None:                         # closed under the collect
+            if job.queue:
+                raise _cf.BrokenExecutor("the pool was closed")
+            return [f for f in job.futs if f not in seen], 0
+        with feeder.lock:
+            return [f for f in job.futs if f not in seen], len(job.queue)
+
+    def _pump(self) -> None:
+        feeder = self._feeder
+        if feeder is not None:
+            feeder.pump()
 
     def _memory_check(self, what: str) -> None:
         """THE MEMORY GUARD (``pool_memory``, issue #1980): past a ceiling
@@ -736,8 +784,8 @@ class Pending:
     answers in INPUT order, or ``None`` when the pool stopped answering —
     once; a second call returns what the first did."""
 
-    def __init__(self, pool: WorkPool, futs: dict, n: int, what: str, unit: str) -> None:
-        self.pool, self.futs, self.n = pool, futs, n
+    def __init__(self, pool: WorkPool, job: "_ps.Job", n: int, what: str, unit: str) -> None:
+        self.pool, self.job, self.n = pool, job, n
         self.what, self.unit = what, unit
         self._got: list | None = None
         self._done = False

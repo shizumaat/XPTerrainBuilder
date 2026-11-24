@@ -516,6 +516,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.plate_ground",
     "auto_patch_v2.airport.pool",
     "auto_patch_v2.airport.pool_memory",
+    "auto_patch_v2.airport.pool_slots",
     "auto_patch_v2.airport.portal_floor",
     "auto_patch_v2.airport.portal_objects",
     "auto_patch_v2.airport.public_road",

@@ -93,6 +93,14 @@ def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
     return back
 
 
+def _floored(N: sp.csc_matrix) -> sp.csc_matrix:
+    """The normal matrix with its tiny Tikhonov floor: it keeps the
+    factorisation non-singular on a column the active set left with only a
+    bending row (``solve/round_normal`` builds the same ``N`` by rounds)."""
+    eps = 1e-12 * max(1.0, float(abs(N.diagonal()).max()))
+    return (N + eps * sp.identity(N.shape[0], format="csc")).tocsc()
+
+
 def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
                   method: str, tol: float, maxiter: int,
                   U: sp.csr_matrix | None = None, c: np.ndarray | None = None,
@@ -123,11 +131,7 @@ def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
     N = (At @ A).tocsc()
     rhs = At @ b
     if method == "normal":
-        # a tiny Tikhonov floor keeps the factorisation non-singular on a
-        # column the active set left with only a bending row
-        eps = 1e-12 * max(1.0, float(abs(N.diagonal()).max()))
-        M = (N + eps * sp.identity(N.shape[0], format="csc")).tocsc()
-        back = _normal_back(M, U if k else None, low_rank)
+        back = _normal_back(_floored(N), U if k else None, low_rank)
         cc = None if not k else np.asarray(c, float)
 
         def toward(x: np.ndarray) -> np.ndarray:

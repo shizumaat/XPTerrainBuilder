@@ -192,6 +192,7 @@ from elevation_access.warp import (
 from elevation_access.provider_fill import (
     declared_provider_fills, mask_provider_fill)
 from elevation_access.sentinel_smear import mask_sentinel_smear
+from elevation_access.partial_inset_coast import refuse_partial_coast
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -7542,6 +7543,10 @@ def bake_airport_insets_into_alt_dem(tile):
                       or {}).get(inset_path)
         if correction:
             entry["threshold_correction"] = correction
+        coast = (getattr(tile.dem, "inset_coast_refusals", None)
+                 or {}).get(inset_path)
+        if coast:
+            entry["coast_refused"] = coast
         baked_provenance.append(entry)
     UNPATCHED.record_inset_sources(tile, baked_provenance)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
@@ -7658,6 +7663,7 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
     from_file = inset is None
     if inset is None:
         inset = _bake_inset_raster(tile, inset_path)
+        _refuse_partial_coast(tile, inset_path, inset)
     if inset.alt_dem is None:
         return
     bake_window = _bake_window(base_dem, inset)
@@ -7774,6 +7780,34 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
         row_min : row_max + 1, column_min : column_max + 1
     ] = blended.astype(base_dem.alt_dem.dtype)
     return ring_offset_m
+
+
+def _refuse_partial_coast(tile, inset_path, inset):
+    """#2271: a PARTIAL inset (masked provider fill, true coverage under
+    ``INSET_MIN_AIRPORT_COVER_FRAC``) keeps the base where its coastline
+    is untrustworthy (:mod:`elevation_access.partial_inset_coast`); one
+    line says what was refused, and the bake's provenance carries it."""
+    if getattr(inset, "alt_dem", None) is None:
+        return
+    already = hasattr(inset, "coast_refusal")
+    record = refuse_partial_coast(inset, tile.dem, inset_path,
+                                  INSET_MIN_AIRPORT_COVER_FRAC)
+    if record is None:
+        return
+    refusals = getattr(tile.dem, "inset_coast_refusals", None)
+    if refusals is None:
+        refusals = tile.dem.inset_coast_refusals = {}
+    refusals[inset_path] = record
+    if not already:
+        UI.vprint(
+            1,
+            "   [inset] %s covers %.0f %% of its box (< %.0f %%): %d coastline "
+            "pixel(s) refused (%d below sea level where the base reads land) "
+            "- the base DEM models them (#2271)."
+            % (os.path.basename(inset_path), 100.0 * record["cover"],
+               100.0 * INSET_MIN_AIRPORT_COVER_FRAC, record["refused"],
+               record["sub_sea"]),
+        )
 
 
 def _bake_inset_raster(tile, inset_path):

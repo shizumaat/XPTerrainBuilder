@@ -69,7 +69,15 @@ THE CHORD IS THE FALLBACK (spec §21.2 (2), plan §2 — never an invented
 value): where the production DEM frame is DEGRADED (``airport.dem.
 provenance['degraded']``, the ``--allow-degraded-dem`` arm) or a runway's
 ridge yields too few DEM samples to fit, the target is the straight
-threshold chord exactly as before.
+threshold chord exactly as before.  So too where the trend leaves the
+SLOPE LAW (#2271): its off-chord amplitude between the pins exceeds
+``g L / 2``, the deepest V the runway's longitudinal cap ``g`` admits over
+the pins' distance ``L`` — no lawful runway of that length could follow
+it, so the trend is chasing a DEM artefact (NSAS: a 13 m coastal pit;
+trend 16.7 m off a level chord the 2 % cap admits 6.0 m from) and the
+solve could only follow it down to the cap.  The pins' own slope is
+deliberately NOT subtracted: a runway whose pins already use the cap
+(KASE) keeps its trend, as before.
 
 WHAT THE TARGET IS NOT (spec §21.2 (5)): a per-vertex DEM pull (08t (1)).
 The window is longer than any DEM artefact the owner has read as
@@ -106,6 +114,7 @@ from ..geom.trend import Trend as _Trend, trend_of as _trend_of
 from .runway_profile import (RUNWAY_FAMILY, dem_degraded,  # noqa: F401 (re-export)
                              ridge_chains, threshold_pins)
 from ..law import Law
+from ..law.tables import role_cap
 from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
@@ -140,7 +149,8 @@ class ChordReport(_t.TypedDict, total=False):
     window_m: float
     runways_trend: int
     runways_chord: int
-    #: why the fallback ran, where it did (a degraded frame names itself)
+    #: why the fallback ran, where it did (a degraded frame names itself;
+    #: a trend outside the slope law names its runway, ``by_runway``)
     fallback: str
     by_runway: list   # [{"runway", "kind", "trend_max_off_chord_m"}]
     #: THE RUNWAY x RUNWAY CROSSINGS (RULINGS 2026-09-09z (1)): one record
@@ -188,6 +198,10 @@ class _Chord:
     #: the trend runs on unscaled ground) is held at or under it too —
     #: never under the line through the pins.  ``None``: no ceiling
     ceiling: float | None = None
+    #: THE SLOPE-LAW FALLBACK (#2271): ``(trend amplitude, admitted)`` in
+    #: metres where the trend was refused for leaving the slope law, else
+    #: ``None``
+    slope_refused: tuple[float, float] | None = None
 
     def station(self, x: float, y: float) -> float:
         return (x - self.a_xy[0]) * self.ux + (y - self.a_xy[1]) * self.uy
@@ -326,6 +340,32 @@ def _crest_at_field(c: _Chord, field: float, step: float) -> _Chord:
     return _dc.replace(c, bow_scale=k, ceiling=field)
 
 
+def _admitted_off_chord(c: _Chord, grade: float) -> float:
+    """The off-chord amplitude the longitudinal cap ``grade`` admits over
+    ``c``'s pins: ``g L / 2``, the deepest V at the cap between pins
+    ``L`` apart (module docstring: the pins' own slope is not
+    subtracted)."""
+    return grade * (c.s1 - c.s0) / 2.0
+
+
+def _within_slope_law(c: _Chord, grade: float | None, step: float) -> _Chord:
+    """``c`` with its trend REFUSED (the chord fallback, module docstring)
+    where the trend's off-chord amplitude between the pins exceeds what
+    the runway's longitudinal cap ``grade`` admits
+    (:func:`_admitted_off_chord`).  ``None``: no cap, no judgement."""
+    if c.trend is None or grade is None or grade <= 0.0:
+        return c
+    n = max(1, int((c.s1 - c.s0) / max(step, 1e-3)))
+    amplitude = max(abs(c.own_z(c.s0 + (c.s1 - c.s0) * i / n)
+                        - c.straight_z(c.s0 + (c.s1 - c.s0) * i / n))
+                    for i in range(n + 1))
+    admitted = _admitted_off_chord(c, grade)
+    if amplitude <= admitted:
+        return c
+    return _dc.replace(c, trend=None, bow_scale=1.0, ceiling=None,
+                       slope_refused=(round(amplitude, 3), round(admitted, 3)))
+
+
 def _chords(pm: PlanarMap, law: Law, airport: Airport
             ) -> tuple[dict[str, _Chord], int]:
     """Runway id -> its TARGET PROFILE (the trend through its two threshold
@@ -365,7 +405,9 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
             c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window, inside))
         if at_field:
             c = _crest_at_field(c, float(field), step)
-        chords[rw.id] = c
+        cap = role_cap(law, "runway", rw.code_number, rw.code_letter)
+        chords[rw.id] = _within_slope_law(
+            c, None if cap is None else float(cap.longitudinal), step)
     return chords, n_without
 
 
@@ -714,8 +756,11 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                                  report["runways_chord"] else
                                  "chord" if not report["runways_trend"] else "mixed")
         deg = dem_degraded(airport)
+        refused = sorted(r for r, c in chords.items() if c.slope_refused)
         report["fallback"] = (f"degraded DEM frame: {deg}" if deg else
                               "" if not report["runways_chord"] else
+                              "trend outside the slope law: " + ", ".join(refused)
+                              if refused else
                               "ridge with fewer than three DEM stations")
         # HOW FAR THE TARGET LEAVES THE STRAIGHT CHORD, per runway: the
         # curvature §21 buys, read at the target itself rather than at the
@@ -733,7 +778,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
              "crest_s_m": round(c.crest(step)[0], 1), "crest_m": round(c.crest(step)[1], 3),
              "crest_over_field_m": (round(c.crest(step)[1] - float(field), 3)
                                     if field is not None else None),
-             "bow_scale": round(c.bow_scale, 4), "field_capped": c.ceiling is not None}
+             "bow_scale": round(c.bow_scale, 4), "field_capped": c.ceiling is not None,
+             **({"slope_refused_m": list(c.slope_refused)} if c.slope_refused else {})}
             for r, c in sorted(chords.items())]
         report["crossings"] = [
             {"pair": x.pair, "governing": x.governing, "other": x.other,

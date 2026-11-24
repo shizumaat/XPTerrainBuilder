@@ -1122,6 +1122,7 @@ _SHARED: tuple[str, ...] = (
     "elevation_access.las_tiles",
     "elevation_access.layered_warp",
     "elevation_access.mask_coverage",
+    "elevation_access.partial_inset_coast",
     "elevation_access.provider_fill",
     "elevation_access.raster_same",
     "elevation_access.recheck",

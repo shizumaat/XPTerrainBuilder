@@ -92,3 +92,36 @@ def test_each_front_read_is_counted_in_the_build_and_nothing_outside():
         return arrangement_memo.outcomes()
     assert one_build() == ["computed", "served", "held_other_airport"]
     assert arrangement_memo.outcomes() is None
+
+
+def _verdict(signals: dict):
+    from auto_patch_v2.model.airport import FlatVerdict
+    return FlatVerdict("not_flat", "not_flat", None, "metres", (), signals)
+
+
+def test_the_late_derive_is_served_with_the_main_pass_verdict(monkeypatch):
+    # #2206 step 1: the late derives are handed the main pass's airport
+    # WITH its flat-site verdict (a new object); the front reads the
+    # verdict only through its ground class
+    law = Law.for_airport("ZZZZ")
+    airport = _airport(law)
+    calls = []
+    real = overlay.weld_cells
+    monkeypatch.setattr(overlay, "weld_cells",
+                        lambda *a, **k: calls.append(1) or real(*a, **k))
+    base = Classification(_BASE, (), {}, ())
+    cut = Classification(_BASE + (_GAP,), (), {}, ())
+    fresh = _faces(overlay.build_arrangement(airport, cut, law))
+
+    @arrangement_memo.scoped
+    def one_build(late_airport):
+        overlay.build_arrangement(airport, base, law)
+        got = _faces(overlay.build_arrangement(late_airport, cut, law))
+        return got, arrangement_memo.outcomes()
+    same = _dc.replace(airport, flat_site=_verdict({}))
+    got, seen = one_build(same)
+    assert seen == ["computed", "served"] and got == fresh
+    # a verdict naming another ground class is computed again
+    other = _dc.replace(airport, flat_site=_verdict({"s2_source_class": "lidar"}))
+    got, seen = one_build(other)
+    assert seen == ["computed", "held_other_airport"] and got == fresh

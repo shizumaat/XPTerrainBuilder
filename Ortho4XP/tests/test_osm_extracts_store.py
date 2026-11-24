@@ -54,6 +54,8 @@ def store(tmp_path, monkeypatch):
     # ...and never read the corpus DEM: the land witness answers
     # "unknown" (the pre-#1731 behaviour) unless a test says otherwise.
     monkeypatch.setattr(LAND, "_land_posts", lambda lat, lon: None)
+    # ...and never download elevation for it (#2234's fetch).
+    monkeypatch.setattr(LAND, "fetch_elevation", lambda box: False)
     EXTRACTS._leaf_regions.cache = None
     # Synthetic Geofabrik index: europe is a parent (excluded), portugal
     # and spain are adjacent leaves meeting at lon -7.4.  iberia is an
@@ -115,12 +117,76 @@ class TestSeaRemainder:
         monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
         assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
 
-    def test_unknown_witness_returns_none(self, store):
+    def test_unknown_witness_takes_parent_holding_whole_box(self, store):
+        # #2234: no elevation yet, but the parent holds the whole box.
+        regions = EXTRACTS.covering_regions((38, -11, 39, -9.5))
+        assert [region_id for (region_id, _u) in regions] == ["europe"]
+
+    def test_unknown_witness_returns_none_above_the_cap(
+            self, store, monkeypatch):
+        monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
         assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
 
-    def test_no_intersecting_leaf_returns_none(self, store, monkeypatch):
+    def test_no_intersecting_leaf_without_land_is_empty(
+            self, store, monkeypatch):
         _witness_posts(monkeypatch, [])
-        assert EXTRACTS.covering_regions((20, -40, 21, -39)) is None
+        assert EXTRACTS.covering_regions((20, -40, 21, -39)) == []
+
+    def test_no_intersecting_leaf_takes_parent(self, store, monkeypatch):
+        # Turks and Caicos: no leaf reaches the box, the parent holds it.
+        _witness_posts(monkeypatch, [(-11.2, 38.5)])
+        regions = EXTRACTS.covering_regions((38.4, -11.5, 38.6, -11))
+        assert [region_id for (region_id, _u) in regions] == ["europe"]
+
+    def test_no_intersecting_leaf_unknown_land_takes_parent(self, store):
+        regions = EXTRACTS.covering_regions((38.4, -11.5, 38.6, -11))
+        assert [region_id for (region_id, _u) in regions] == ["europe"]
+
+    def test_empty_box_served_as_empty_answer(self, store, monkeypatch):
+        _witness_posts(monkeypatch, [])
+        xml = EXTRACTS.osm_xml_from_local_extracts(
+            ['way["natural"="water"]'], (20, -40, 21, -39))
+        assert xml.startswith(b"<?xml") and b"<way" not in xml
+        assert xml.rstrip().endswith(b"</osm>")
+
+    def test_unknown_cover_fetches_elevation_then_serves(
+            self, store, monkeypatch):
+        # #2234: the sea proof waits on elevation a first build lacks;
+        # the chooser fetches it and decides offline.
+        with open(EXTRACTS._region_file("portugal"), "wb") as pbf:
+            pbf.write(_PBF_HEADER)
+        monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
+        fetched = []
+
+        def fetch(box):
+            fetched.append(box)
+            _witness_posts(monkeypatch, [(-9.0, 38.5)])
+            return True
+
+        monkeypatch.setattr(LAND, "fetch_elevation", fetch)
+        monkeypatch.setattr(EXTRACTS, "_filter_stored_extracts",
+                            lambda regions, *_a: repr(regions).encode())
+        xml = EXTRACTS.osm_xml_from_local_extracts(
+            ['way["natural"="water"]'], (38, -11, 39, -9.5))
+        assert fetched == [(38, -11, 39, -9.5)]
+        assert b"portugal" in xml
+
+    def test_fetch_elevation_skips_ocean_and_known_cells(self, monkeypatch):
+        import O4_DEM_Utils as DEM
+
+        asked = []
+        monkeypatch.setattr(DEM, "tile_is_land", lambda lat, lon: lon != -9)
+        monkeypatch.setattr(
+            DEM, "ensure_elevation",
+            lambda source, lat, lon, **_k: asked.append((lat, lon)) or 1)
+        monkeypatch.setattr(LAND, "_elevation_paths",
+                            lambda lat, lon: ("",))
+        LAND._land_posts.cache_clear()
+        try:
+            assert LAND.fetch_elevation((38, -11, 39, -8.5)) is False
+        finally:
+            LAND._land_posts.cache_clear()
+        assert asked == [(38, -11), (38, -10)]
 
     def test_witness_unknown_when_any_cell_unread(self, monkeypatch):
         import numpy
@@ -173,9 +239,11 @@ class TestCoveringRegions:
     def test_uncovered_ocean_returns_none(self, store):
         assert EXTRACTS.covering_regions((20, -40, 21, -39)) is None
 
-    def test_largely_uncovered_bbox_returns_none(self, store):
+    def test_largely_uncovered_bbox_returns_none(self, store, monkeypatch):
         # Straddles the index's western edge with a ~67 percent hole:
-        # a residue this large means a missing region, not ocean.
+        # a residue this large means a missing region, not ocean (and
+        # no parent under the cap holds it).
+        monkeypatch.setattr(EXTRACTS, "PARENT_FALLBACK_MAX_AREA", 100.0)
         assert EXTRACTS.covering_regions((38, -11, 39, -9.5)) is None
 
     def test_small_ocean_residue_still_serves(self, store):
@@ -915,3 +983,42 @@ class TestOsmiumBinaryDiscovery:
         assert EXTRACTS._osmium_binary() == str(
             bundled_dir / "osmium-aarch64")
         EXTRACTS._osmium_binary.cache = "unset"
+
+
+class TestSingleBoxQueryExtractRoute:
+    """``OSM_query_to_OSM_layer`` asks the extracts before Overpass
+    (RULINGS 2026-11-24h: Overpass is the last resort)."""
+
+    QUERY = ['way["highway"="service"]']
+    XML = (b'<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6">\n'
+           b'  <node id="1" lat="38.5" lon="-9.0" version="1"/>\n'
+           b'  <node id="2" lat="38.6" lon="-9.0" version="1"/>\n'
+           b'  <way id="7" version="1">\n    <nd ref="1"/>\n'
+           b'    <nd ref="2"/>\n'
+           b'    <tag k="highway" v="service"/>\n  </way>\n</osm>')
+
+    def test_extract_answer_skips_overpass(self, monkeypatch):
+        import O4_OSM_Utils as OSM
+
+        monkeypatch.setattr(EXTRACTS, "osm_xml_from_local_extracts",
+                            lambda statements, box, **_k: self.XML)
+        monkeypatch.setattr(OSM, "get_overpass_data", lambda *a, **k:
+                            pytest.fail("Overpass asked"))
+        layer = OSM.OSM_layer()
+        assert OSM.OSM_query_to_OSM_layer(
+            self.QUERY, (38, -9.5, 39, -8.5), layer) == 1
+        assert layer.dicosmw
+
+    def test_unservable_box_falls_back_to_overpass(self, monkeypatch):
+        import O4_OSM_Utils as OSM
+
+        asked = []
+        monkeypatch.setattr(EXTRACTS, "osm_xml_from_local_extracts",
+                            lambda statements, box, **_k: None)
+        monkeypatch.setattr(
+            OSM, "get_overpass_data",
+            lambda query, bbox, request_description="", **_k:
+                asked.append(request_description) or self.XML)
+        OSM.OSM_query_to_OSM_layer(self.QUERY, (38, -9.5, 39, -8.5),
+                                   OSM.OSM_layer(), request_description="x")
+        assert asked == ["x"]

@@ -34,7 +34,6 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
-import threading
 import typing as _t
 from concurrent.futures import ThreadPoolExecutor
 
@@ -45,6 +44,7 @@ import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Tile_Staleness as _STALE
 
+from . import library_runs as _runs
 from . import storage as _storage
 from . import world_tile_remove as _world_remove
 
@@ -190,7 +190,8 @@ def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
         from . import world_state as WSTATE
         world = WSTATE.read_world(scenery_dir)
     ordered = [info for _key, info in sorted(infos.items())]
-    with ThreadPoolExecutor(ROW_WORKERS, thread_name_prefix="o4-library-row") as pool:
+    with ThreadPoolExecutor(ROW_WORKERS, thread_name_prefix="o4-library-row",
+                            initializer=_runs.row_initializer()) as pool:
         rows = list(pool.map(lambda info: _row(info, scenery_dir, packs, world),
                              ordered))
     return {"tiles": rows,
@@ -560,7 +561,10 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
     """Run one command on a worker thread; ``LibraryReady`` with
     ``request`` = the command's id completes it.  A refusal (bad
     arguments, no ``confirm``, a deletion while a build runs) raises here,
-    on the read loop, and is the command's ``ok: false`` reply."""
+    on the read loop, and is the command's ``ok: false`` reply.  A scan
+    asked for while the same scan runs is answered by one run after it,
+    and scans beside a build run in the background band
+    (``library_runs``, #2268)."""
     from .events import LibraryReady
     function, check = _COMMANDS[command]
     reading = command == "package_developer" and kwargs.get("action", "read") == "read"
@@ -570,7 +574,7 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
     if check is not None:
         check(kwargs)
 
-    def work() -> None:
+    def work(requests: list, kw: dict) -> None:
         # A command that changes tiles holds the imagery follow job's
         # fetches off them (#1992 P3b), as a build does.
         from .imagery_follow import paused
@@ -578,13 +582,11 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
                 else contextlib.nullcontext())
         try:
             with hold:
-                result = function(**kwargs)
-            event = LibraryReady(request=request, command=command,
-                                 result=result)
+                answer = {"result": function(**kw)}
         except Exception as error:      # the event carries it; the session lives on
-            event = LibraryReady(request=request, command=command,
-                                 error=str(error))
-        emit(event)
+            answer = {"error": str(error)}
+        for one in requests:
+            emit(LibraryReady(request=one, command=command, **answer))
 
-    threading.Thread(target=work, daemon=True, name="o4-library").start()
+    _runs.launch(command, request, kwargs, work, busy)
     return {"status": "started"}

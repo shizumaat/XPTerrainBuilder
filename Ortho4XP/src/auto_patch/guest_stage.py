@@ -187,10 +187,13 @@ def _stale(here, now: str) -> dict:
     return stale
 
 
-def reseat_guests(tile, mesh_path: str) -> dict:
+def reseat_guests(tile, mesh_path: str, failed: "list | None" = None) -> dict:
     """The module's re-seat for ``tile``'s build, its mesh at ``mesh_path``:
     ``{"guests_reseated": n, "guests_reseat_failed": n}`` (``{}`` when no
-    record needed it).  Never raises."""
+    record needed it).  Never raises; what it could not re-seat is
+    appended to ``failed`` (#2186, ``object_stage._not_fitted`` rows: the
+    objects stand on THIS tile)."""
+    failed = [] if failed is None else failed
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import tile_route as _route
     counts: dict = {}
@@ -198,17 +201,20 @@ def reseat_guests(tile, mesh_path: str) -> dict:
         here = (int(tile.lat), int(tile.lon))
         stale = _stale(here, _route.mesh_mark(_mesh_digest(mesh_path)))
         for origin, keys in sorted(stale.items()):
-            counts_one = _reseat_from(tile, origin, keys, UI)
+            counts_one = _reseat_from(tile, origin, keys, UI, failed)
             for k, v in counts_one.items():
                 counts[k] = counts.get(k, 0) + v
     except Exception as exc:
         UI.vprint(0, f"  [v2 rebake] guest re-seat failed ({exc}); the "
                      f"neighbours' objects on this tile are as they were")
+        from .object_stage import NOT_FITTED_CODE
+        failed.append({"code": NOT_FITTED_CODE,
+                       "detail": f"neighbour objects not re-seated: {exc}"})
         UI.vprint(2, traceback.format_exc())
     return counts
 
 
-def _reseat_from(tile, origin, keys, UI) -> dict:
+def _reseat_from(tile, origin, keys, UI, failed: list) -> dict:
     """Run ``origin``'s placement of the airports ``keys`` again."""
     import O4_Config_Utils as CFG
     import O4_File_Names as FNAMES
@@ -220,6 +226,7 @@ def _reseat_from(tile, origin, keys, UI) -> dict:
                  f"this mesh — re-seated by {name}'s plan")
     other = CFG.Tile(origin[0], origin[1], getattr(tile, "custom_build_dir", "") or "")
     other.read_from_config()
-    got = object_stage._object_stage(other, only=frozenset(keys))
+    got = object_stage._object_stage(other, only=frozenset(keys),
+                                     failed=failed)
     return {"guests_reseated": len(keys),
             "guests_reseat_failed": int(got.get("airports_failed", 0))}

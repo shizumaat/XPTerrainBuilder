@@ -59,13 +59,15 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import O4_Flight_Plan as FP
 import O4_Imagery_Follow_Reach as REACH
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 
 # The follow job's surface; Episode and core_wants are SpawnWatch's parts.
-__all__ = ["FLIGHT_START_WINDOW_S", "LOAD_DOWN_S", "RELOAD_QUIET_S",
+__all__ = ["FLIGHT_START_WINDOW_S", "LOAD_DOWN_S", "PLAN_PLACE_KM",
+           "RELOAD_QUIET_S",
            "SAME_PLACE_M", "WINDOW_MARGIN_S", "SpawnWatch"]
 
 #: Seconds from a flight load's first (mip 4) texture opens to X-Plane's
@@ -84,6 +86,9 @@ RELOAD_QUIET_S = 120.0
 LOAD_DOWN_S = 10.0
 #: The camera "did not move" across a drop within this distance.
 SAME_PLACE_M = 2000.0
+#: A flight load this close to a plan's departure IS that departure: the
+#: plan's core stays open (#2256); the camera past it has left.
+PLAN_PLACE_KM = 5.0
 
 
 def _eye_tier(row, lat: float, lon: float, agl_m: float = 0.0):
@@ -140,6 +145,20 @@ class Episode:
     local: set[str] = dataclasses.field(default_factory=set)
     landed: set[str] = dataclasses.field(default_factory=set)
     missed: set[str] = dataclasses.field(default_factory=set)
+    #: A ``plan`` episode: X-Plane has loaded the flight at its departure.
+    at_place: bool = False
+
+    def near(self, lat: float, lon: float) -> bool:
+        """Is ``(lat, lon)`` this episode's place?"""
+        return FP.route_length_km([(self.lat, self.lon),
+                                   (lat, lon)]) <= PLAN_PLACE_KM
+
+    def loaded_here(self, window_end: float) -> None:
+        """X-Plane loads the flight at this ``plan`` episode's departure:
+        what landed so far is read by that load, and the window is its."""
+        self.at_place = True
+        self.missed.clear()
+        self.window_end = max(self.window_end, window_end)
 
     def pending(self, rows, failed=()) -> list[str]:
         """The core's keys still to land, in fetch order: files that need
@@ -169,9 +188,13 @@ class Episode:
         keeps only the squares it still wants finer than on disk, each at
         no more than the tier it wants from here (:func:`_eye_tier`).  A
         ``plan`` episode is the departure wherever the camera is: kept
-        whole.  Returns the squares dropped."""
+        whole until the aircraft loaded there has left it (#2256: a slow
+        square must not hold the planner in flight).  Returns the squares
+        dropped."""
         if self.witness == "plan":
-            return 0
+            if not self.at_place or self.near(lat, lon):
+                return 0
+            self.witness = "flight_load"
         dropped = 0
         for key in list(self.wants):
             row = rows.get(key)
@@ -232,7 +255,13 @@ class SpawnWatch:
         or ``None`` when the witness belongs to an event already known.
         ``is_local(row, tier)`` says a file needs no download; ``agl_m``
         the camera's height (the core is read at the eye); ``tiles`` the
-        rows by tile (:func:`core_wants`)."""
+        rows by tile (:func:`core_wants`).  A flight load at an open
+        ``plan`` episode's departure keeps that episode (#2256)."""
+        held = self.episode
+        if (kind == "flight_load" and held is not None
+                and held.witness == "plan" and held.near(lat, lon)):
+            held.loaded_here(now + self.window_s)
+            return None
         if kind == "flight_load" and moved_m <= SAME_PLACE_M:
             if down_s < LOAD_DOWN_S:
                 return None                 # a stutter: nothing read again

@@ -61,7 +61,7 @@ REGISTRY = _dev.REGISTRY
 CONFLICT_CHOICES = ("keep", "replace")
 
 #: Where a replaced patch goes: beside itself, renamed
-#: (``O4_Custom_Patches.set_aside``, the rename "Use auto patch" makes);
+#: (``O4_Custom_Patches.set_aside``, the rename "Revert to auto" makes);
 #: renaming it back restores it.
 SET_ASIDE = ".disabled"
 

@@ -34,11 +34,13 @@ __all__ = ["loading"]
 def _lsof(pids: Iterable[int]) -> set:
     import O4_UI_Utils as UI
     try:
+        command = ["lsof", "-n", "-P", "-Fn", "-p",
+                   ",".join(str(p) for p in pids)]
         done = subprocess.run(
-            ["lsof", "-n", "-P", "-Fn", "-p", ",".join(str(p) for p in pids)],
+            command,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             check=False, timeout=20,
-            **UI.external_tool_keyword_arguments())
+            **UI.external_tool_keyword_arguments(command))
     except (OSError, subprocess.SubprocessError):
         return set()
     return {line[1:] for line in done.stdout.splitlines()

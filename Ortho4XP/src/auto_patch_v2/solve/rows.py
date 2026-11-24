@@ -188,6 +188,10 @@ class _Rows:
     #: right-hand side — its value is not decided here (a field at the END
     #: so no positional call shifts; memory ``pack_partition`` precedent).
     drop: frozenset[int] = frozenset()
+    #: #1270: the LEVEL forest the belt read (:func:`_level_free_columns`
+    #: ``keep``), continued by the stage's own read (``resume``) over the
+    #: rows added since instead of re-read over every side
+    level_forest: _t.Any = _dc.field(default=None, repr=False, compare=False)
 
     @property
     def n(self) -> int:
@@ -404,9 +408,18 @@ def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
 def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
                         one: _t.Sequence[tuple[_t.Sequence[tuple[int, float]],
                                                float, _t.Any]] = (),
-                        tol: float = 1e-9) -> dict[int, int]:
+                        tol: float = 1e-9, keep: bool = False,
+                        resume: bool = False) -> dict[int, int]:
     """The columns that reach the solve with NO LEVEL -> their component
     root (RULINGS 2026-09-13, lane ``v2zerocrater``).
+
+    #1270: ``keep`` leaves the forest on ``rows.level_forest`` (the belt's
+    read); ``resume`` continues that forest — when it was read over these
+    same ``body`` and ``one`` — over only the rows added to ``rows`` since
+    (the belt's own, the membrane's), and drops it.  Which columns share a
+    piece and which pieces carry a level does not depend on the order rows
+    are read in, so the KEYS are a fresh read's; the roots are the
+    continued forest's.
 
     A row carries LEVEL when its coefficients OVER THE REMAINING COLUMNS
     do not sum to zero: an absolute row (a datum, a chord, a trend, a
@@ -425,6 +438,10 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     and, when it is an absolute bound, levels them.  Passing it keeps the
     belt from claiming a vertex that a band already holds.
     """
+    if resume:
+        got = _resumed(rows, body, red, one)
+        if got is not None:
+            return got
     # a LIST forest over the columns and the reduction's columns as a list
     # (#1951: this runs over every one-sided side — 18 M at KMCI — up to
     # twice per stage solve; numpy scalar reads and a dict forest were most
@@ -432,25 +449,10 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     parent: list[int] = list(range(red.n_cols))
     col_of: list[int] = red.col.tolist()
     has_level: set[int] = set()
-
-    def take(cols: _t.Sequence[int], coefs: _t.Sequence[float]) -> None:
-        if not cols:
-            return
-        r0 = find_root(parent, int(cols[0]))
-        for c in cols[1:]:
-            parent[find_root(parent, int(c))] = r0
-            r0 = find_root(parent, r0)
-        if abs(sum(coefs)) > tol:
-            has_level.add(find_root(parent, int(cols[0])))
-
+    take = _taker(parent, has_level, tol)
     for src in (rows, body):
-        if src is None or not src.n:
-            continue
-        per: dict[int, list[tuple[int, float]]] = {}
-        for k, c, v in zip(src.r, src.c, src.v):
-            per.setdefault(k, []).append((int(c), float(v)))
-        for _k, terms in per.items():
-            take([c for c, _ in terms], [v for _, v in terms])
+        if src is not None and src.n:
+            _take_rows(src, 0, take)
     for terms, _hi, _row in one:
         cols: list[int] = []
         coefs: list[float] = []
@@ -460,9 +462,56 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
                 cols.append(col)
                 coefs.append(float(coef))
         take(cols, coefs)
+    if keep:
+        rows.level_forest = (parent, has_level, tol, len(rows.r),
+                             None if body is None else len(body.r), one, len(one))
+    return _level_free_of(parent, has_level, red.n_cols)
+
+
+def _taker(parent: list[int], has_level: set[int], tol: float) -> _t.Callable:
+    """One row into the forest: union its columns, mark a LEVEL root."""
+    def take(cols: _t.Sequence[int], coefs: _t.Sequence[float]) -> None:
+        if not cols:
+            return
+        r0 = find_root(parent, int(cols[0]))
+        for c in cols[1:]:
+            parent[find_root(parent, int(c))] = r0
+            r0 = find_root(parent, r0)
+        if abs(sum(coefs)) > tol:
+            has_level.add(find_root(parent, int(cols[0])))
+    return take
+
+
+def _take_rows(src: "_Rows", i0: int, take: _t.Callable) -> None:
+    """Every row of ``src`` whose terms start at triple ``i0``, by row."""
+    per: dict[int, list[tuple[int, float]]] = {}
+    for k, c, v in zip(src.r[i0:], src.c[i0:], src.v[i0:]):
+        per.setdefault(k, []).append((int(c), float(v)))
+    for _k, terms in per.items():
+        take([c for c, _ in terms], [v for _, v in terms])
+
+
+def _level_free_of(parent: list[int], has_level: set[int], n_cols: int) -> dict[int, int]:
+    """The level-free columns -> root of a finished forest."""
     # a root's level marker must survive later unions: re-reduce
     level_roots = {find_root(parent, r) for r in has_level}
-    return {c: find_root(parent, c) for c in range(red.n_cols) if find_root(parent, c) not in level_roots}
+    return {c: find_root(parent, c) for c in range(n_cols) if find_root(parent, c) not in level_roots}
+
+
+def _resumed(rows: "_Rows", body: "_Rows | None", red: _Reduction,
+             one: _t.Sequence) -> dict[int, int] | None:
+    """:func:`_level_free_columns` ``resume``: the kept forest continued
+    over the rows added since, or ``None`` when there is none to continue."""
+    got = rows.level_forest
+    rows.level_forest = None
+    if got is None:
+        return None
+    parent, has_level, tol, i0, b0, one0, n_one = got
+    if not (one0 is one and len(one) == n_one and i0 <= len(rows.r)
+            and (None if body is None else len(body.r)) == b0):
+        return None
+    _take_rows(rows, i0, _taker(parent, has_level, tol))
+    return _level_free_of(parent, has_level, red.n_cols)
 
 
 def _level_row_columns(rows: "_Rows", body: "_Rows | None", n_cols: int,
@@ -504,7 +553,7 @@ def apply_level_belt(pm: PlanarMap, rows: "_Rows", body: "_Rows | None",
     under it rather than emit it at the sentinel 0.0 m.  Returns how many
     rows the belt added; a non-zero count names geometry no law levels.
     """
-    free = _level_free_columns(rows, body, red, one)
+    free = _level_free_columns(rows, body, red, one, keep=True)
     if not free:
         return 0
     by_free: dict[int, list[int]] = {}

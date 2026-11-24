@@ -10,7 +10,9 @@ from shapely.strtree import STRtree
 
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
-import O4_Patch_Rebase as PATCH_REBASE
+import O4_Custom_Patch_Use as CUSTOM_USE
+import O4_Custom_Patch_Source as PATCH_SOURCE
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
@@ -69,6 +71,31 @@ def _custom_patch_label(path):
                   "not carry the fixes since; open the airport's auto patch "
                   "in the editor again to pick them up)" % (made, running))
     return label
+
+
+def _say_custom_patch_use(patch_dir, manual_icaos):
+    """One verbosity-0 line per airport with a manual patch: an edited
+    patch is used; a custom one is used as made, or kept while our auto
+    patch builds the airport (#2179, RULINGS 2026-11-23d/f)."""
+    customs = CUSTOM_USE.custom_files(patch_dir)
+    for icao in sorted(set(i for i in manual_icaos if i) | set(customs)):
+        files = [f + _custom_patch_label(os.path.join(patch_dir, f))
+                 for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
+        mode = CUSTOM_USE.use_of(patch_dir, icao)[0]
+        if icao in customs and mode == CUSTOM_USE.AUTO_PATCH:
+            UI.vprint(0, "   %s: our auto patch is used; your custom patch "
+                      "%s is kept, not applied." % (icao,
+                                                   ", ".join(customs[icao])))
+        elif icao in customs:
+            UI.vprint(0, "   %s: custom patch %s used as made, on the "
+                      "elevation it was made for. Higher-resolution "
+                      "elevation is available here but requires our auto "
+                      "patch: choose \"Our auto patch\" for %s in the Build "
+                      "box or the tile info." % (
+                          icao, ", ".join(files) or "(custom)", icao))
+        else:
+            UI.vprint(0, "   %s: using the patch %s — the airport is not "
+                      "auto-patched." % (icao, ", ".join(files)))
 
 
 ################################################################################
@@ -863,71 +890,59 @@ def _airport_auto_roads_layer_at(lat, lon):
     # 2026-09-17t chip D — and this writer had never stamped its cache
     # nor re-derived it, so every airport at every tile read an
     # unstamped file).  Same predicate the tile-wide layers use
-    # (``_layer_cache_is_current``).  A stale copy is MOVED ASIDE, not
-    # deleted, and put back if the re-derivation yields nothing (the
-    # harness precedent ``build_airport.refresh_stale_osm_layers``: a
-    # stale corpus beats an absent one when Overpass fails).
-    aside_path = None
+    # (``_layer_cache_is_current``).  A stale copy stays where it is
+    # until the re-derived one replaces it, so it is kept when the
+    # re-derivation yields nothing (the harness precedent
+    # ``build_airport.refresh_stale_osm_layers``: a stale corpus beats an
+    # absent one when Overpass fails).
     if os.path.isfile(cache_path):
         if OSM._cached_osm_schema_matches(cache_path, ROAD_CACHE_TAG_SCHEMA):
             UI.vprint(1, "    * Recycling airport-area road data from",
                       cache_path)
             layer.update_dicosm(cache_path, input_tags, target_tags)
             return layer
-        aside_path = cache_path + ".stale"
         UI.vprint(1, "    * Airport-area road cache", cache_path,
                   "predates tag schema", ROAD_CACHE_TAG_SCHEMA,
-                  "- re-deriving it (stale copy set aside).")
-        try:
-            os.replace(cache_path, aside_path)
-        except OSError:
-            aside_path = None
-    got_any = False
-    # Regional-extract backend first, all inset boxes batched into ONE
-    # filtering pass (the pbf filtering cost is dominated by reading the
-    # whole extract, so N boxes in one pass cost one read instead of N).
-    # ``OSM_query_to_OSM_layer`` below has no extract path — before this
-    # attempt existed, a cold cache meant one Overpass round per airport
-    # bbox even with the covering extract already on disk.  Same
-    # accelerator-never-dependency discipline as the tile-wide layers:
-    # any failure falls through to the historic Overpass loop.
-    try:
-        import O4_OSM_Extracts as EXTRACTS
+                  "- re-deriving it (the stale copy is kept until then).")
 
-        xml_bytes = EXTRACTS.osm_xml_from_local_extracts(
-            queries, boxes, request_description="airport_small_roads")
-    except Exception:
-        xml_bytes = None
-    if xml_bytes:
-        layer.update_dicosm(xml_bytes, input_tags, target_tags)
-        got_any = True
-    else:
+    def download():
+        # Regional-extract backend first, all inset boxes batched into
+        # ONE filtering pass (the pbf filtering cost is dominated by
+        # reading the whole extract, so N boxes in one pass cost one read
+        # instead of N).  ``OSM_query_to_OSM_layer`` below has no extract
+        # path — before this attempt existed, a cold cache meant one
+        # Overpass round per airport bbox even with the covering extract
+        # already on disk.  Same accelerator-never-dependency discipline
+        # as the tile-wide layers: any failure falls through to the
+        # historic Overpass loop.
+        try:
+            import O4_OSM_Extracts as EXTRACTS
+
+            xml_bytes = EXTRACTS.osm_xml_from_local_extracts(
+                queries, boxes, request_description="airport_small_roads")
+        except Exception:
+            xml_bytes = None
+        if xml_bytes:
+            layer.update_dicosm(xml_bytes, input_tags, target_tags)
+            return True
+        got_any = False
         for bbox in boxes:
             if OSM.OSM_query_to_OSM_layer(
                     queries, bbox, layer,
                     tags_of_interest=ROADS_TAGS_OF_INTEREST):
                 got_any = True
             if UI.red_flag:
-                return None
-    if not got_any:
-        if aside_path and not os.path.isfile(cache_path):
-            try:
-                os.replace(aside_path, cache_path)
-            except OSError:
-                pass
-        return None
-    try:
-        layer.write_to_file(
-            cache_path,
-            header_attributes={"o4_tag_schema": ROAD_CACHE_TAG_SCHEMA})
-    except OSError:
-        pass
-    if aside_path and os.path.isfile(cache_path):
-        try:
-            os.remove(aside_path)
-        except OSError:
-            pass
-    return layer
+                return False
+        return got_any
+
+    # Once across processes, installed with one rename (#2258).
+    made = OSM.cache_layer_once(cache_path, ROAD_CACHE_TAG_SCHEMA, download,
+                                layer)
+    if made == "joined":
+        UI.vprint(1, "    * Recycling airport-area road data from",
+                  cache_path)
+        layer.update_dicosm(cache_path, input_tags, target_tags)
+    return layer if made else None
 
 
 #: The road feeds auto_patch_v2 reads, and the fallback tile square, used
@@ -1285,7 +1300,8 @@ def start_background_osm_prefetch(tile):
             )
 
     _osm_prefetch_thread = threading.Thread(
-        target=download_missing_layer_caches, daemon=True)
+        target=STEP_WAIT.step_thread(download_missing_layer_caches),
+        daemon=True)
     _osm_prefetch_thread.start()
 
 
@@ -1295,7 +1311,8 @@ def wait_for_background_osm_prefetch():
     race the prefetch on the same cache file."""
     global _osm_prefetch_thread
     if _osm_prefetch_thread is not None:
-        _osm_prefetch_thread.join()
+        with STEP_WAIT.joining():
+            _osm_prefetch_thread.join()
         _osm_prefetch_thread = None
 
 
@@ -1924,7 +1941,7 @@ def ensure_tile_frame(lat, lon, *, reason=""):
 
     Returns True when the tile's frame is warm on return.
     """
-    import O4_File_Lock as LOCK
+    import O4_Download_Manager as DOWNLOADS
 
     stem = "%+03d%+04d" % (lat, lon)
     neighbour = CFG.Tile(lat, lon, "")
@@ -1936,11 +1953,11 @@ def ensure_tile_frame(lat, lon, *, reason=""):
     UI.lvprint(0, "   Airport insets: tile %s%s — warming its frame "
                   "(airports layer + its own inset selection)"
                % (stem, (" (%s)" % reason) if reason else ""))
-    with LOCK.hold_file_lock(lock_path) as held:
+    # One warm per tile across processes (O4_Download_Manager): a dead
+    # holder releases it, and a Stop ends the wait (census finding 3).
+    with DOWNLOADS.hold_flight(lock_path, lambda: UI.red_flag) as held:
         if not held:
-            UI.lvprint(0, "   Airport insets: tile %s — timed out waiting "
-                          "for another build's frame lock; continuing and "
-                          "letting the frame check decide." % stem)
+            return tile_frame_is_warm(lat, lon)
         layer = OSM.OSM_layer()
         OSM.OSM_queries_to_OSM_layer(AIRPORTS_QUERIES, layer, lat, lon,
                                      ["all"], cached_suffix="airports")
@@ -3076,6 +3093,22 @@ def cached_water_multipolygon(tile):
     — when nothing is on disk: "no data" and "no water" are different
     answers.
     """
+    water_layer = _cached_water_layer(tile)
+    if water_layer is None:
+        return None
+    try:
+        (area, _tidal) = OSM.OSM_to_MultiPolygon(
+            water_layer, tile.lat, tile.lon,
+            lambda pol, osmid, dicosmtags: water_polygon_is_tidal(
+                osmid, dicosmtags))
+    except Exception:                                      # pragma: no cover
+        return None
+    return VECT.ensure_MultiPolygon(area)
+
+
+def _cached_water_layer(tile):
+    """The ``water`` OSM layer ``include_water`` reads, from disk only;
+    ``None`` when it is not there."""
     custom_water = FNAMES.custom_water(tile.lat, tile.lon)
     custom_water_dir = FNAMES.custom_water_dir(tile.lat, tile.lon)
     water_layer = OSM.OSM_layer()
@@ -3102,14 +3135,34 @@ def cached_water_multipolygon(tile):
                 WATER_TAGS_OF_INTEREST, cached_suffix="water",
                 cache_schema=WATER_CACHE_TAG_SCHEMA):
             return None
+    return water_layer
+
+
+def cached_masked_water(tile):
+    """The water the mesh masks and shows no photo through: the sea plus
+    the lakes :func:`_large_lake_filter` sends to it, tile-relative, from
+    data ALREADY ON DISK (a possibly empty polygon).  ``None`` when a layer
+    is not there yet or cannot be read: unknown is not dry."""
+    custom = (os.path.isfile(FNAMES.custom_coastline(tile.lat, tile.lon))
+              or os.path.isdir(FNAMES.custom_coastline_dir(tile.lat, tile.lon)))
+    if not custom and not os.path.isfile(
+            FNAMES.osm_cached(tile.lat, tile.lon, "coastline")):
+        return None
+    water_layer = _cached_water_layer(tile)
+    if water_layer is None:
+        return None
     try:
-        (area, _tidal) = OSM.OSM_to_MultiPolygon(
-            water_layer, tile.lat, tile.lon,
-            lambda pol, osmid, dicosmtags: water_polygon_is_tidal(
-                osmid, dicosmtags))
+        (_kept, large_lakes) = OSM.OSM_to_MultiPolygon(
+            water_layer, tile.lat, tile.lon, _large_lake_filter(tile))
+        (coastline, custom_source) = cached_coastline_multilinestring(tile)
+        parts = [large_lakes]
+        if coastline is not None:
+            parts.append(sea_area_from_coastline(
+                coastline, tile.lat, tile.lon, custom_source))
+        return VECT.ensure_MultiPolygon(ops.unary_union(
+            [part.buffer(0) for part in parts if not part.is_empty]))
     except Exception:                                      # pragma: no cover
         return None
-    return VECT.ensure_MultiPolygon(area)
 
 
 def cached_tile_water(tile):
@@ -3383,16 +3436,9 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
 
 
 ################################################################################
-def include_water(vector_map, tile, patches_area=None, graded_area=None):
-    """Encode the tile's inland water.
-
-    ``patches_area`` is the patch pavement union from
-    ``include_patches`` (via ``include_airports``), threaded here for the
-    inland limb of the seawall (see ``SEAWALL_MARKER``): a patch ring
-    that borders a lake, a river or a dock gets the same outward
-    breakline the coastline limb gets in ``include_sea``, at the level
-    the water rings themselves are draped on.
-    """
+def _large_lake_filter(tile):
+    """The test ``OSM_to_MultiPolygon`` splits the water with: a lake too
+    large to keep its imagery is masked like the sea (``SEA_EQUIV``)."""
     large_lake_threshold = (
         tile.max_area * 1e6 / (GEO.lat_to_m * GEO.lon_to_m(tile.lat + 0.5))
     )
@@ -3440,6 +3486,20 @@ def include_water(vector_map, tile, patches_area=None, graded_area=None):
                 "km^2.",
             )
             return True
+    return filter_large_lakes
+
+
+def include_water(vector_map, tile, patches_area=None, graded_area=None):
+    """Encode the tile's inland water.
+
+    ``patches_area`` is the patch pavement union from
+    ``include_patches`` (via ``include_airports``), threaded here for the
+    inland limb of the seawall (see ``SEAWALL_MARKER``): a patch ring
+    that borders a lake, a river or a dock gets the same outward
+    breakline the coastline limb gets in ``include_sea``, at the level
+    the water rings themselves are draped on.
+    """
+    filter_large_lakes = _large_lake_filter(tile)
 
     UI.vprint(0, "-> Dealing with inland water")
     wait_for_background_osm_prefetch()
@@ -4154,7 +4214,11 @@ def include_patches(vector_map, tile):
     all_patch_files = [
         f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"
     ]
-    manual_patches = [f for f in all_patch_files if "_auto.patch.osm" not in f]
+    # The manual patches this build APPLIES (#2179, RULINGS 2026-11-23d):
+    # a custom patch whose airport uses "Our auto patch" is kept on disk
+    # but is not a patch of this build (``O4_Custom_Patch_Use``, the one
+    # reader every other decider asks too).
+    manual_patches = CUSTOM_USE.applied_manual_files(patch_dir)
     auto_patches = [f for f in all_patch_files if "_auto.patch.osm" in f]
     # Track which ICAO codes are covered by manual patches
     manual_icao_codes = {FNAMES.patch_file_icao(f) for f in manual_patches}
@@ -4171,24 +4235,10 @@ def include_patches(vector_map, tile):
         for candidate in (getattr(tile, "auto_patch_selection", None) or ())
         if candidate.disposition == "boundary_skipped"
     }
-    # SAID AT VERBOSITY 0, ONCE PER AIRPORT, whether or not an auto patch
-    # file exists (#1229; lane ``othhjunction``, #13/#15): the owner's
-    # build-350 OTHH read was on a JOSM-saved ``OTHH.patch.osm`` that
-    # silently replaced the auto patch.  A custom patch is always honoured
-    # — this line is how the user learns the airport is not auto-patched.
-    # A5 (spec patch-editor-20261015 §1.3): a file the patch editor wrote
-    # is LABELLED (user-edited).
-    for icao in sorted(i for i in manual_icao_codes if i):
-        manual = [
-            f + _custom_patch_label(os.path.join(patch_dir, f))
-            for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
-        UI.vprint(
-            0,
-            "   %s: using the CUSTOM patch %s — the airport is not "
-            "auto-patched. To use the auto patch, choose \"Use auto "
-            "patch\" in the tile info (it sets the custom file aside, "
-            "never deletes it)." % (icao, ", ".join(manual) or "(custom)"),
-        )
+    # SAID AT VERBOSITY 0, ONCE PER AIRPORT (#1229; lane ``othhjunction``,
+    # #13/#15; #2179): how each airport with a custom patch is built — as
+    # made, or by our auto patch with the custom file kept.
+    _say_custom_patch_use(patch_dir, manual_icao_codes)
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:
@@ -4223,10 +4273,13 @@ def include_patches(vector_map, tile):
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()
         try:
-            # A custom patch authored over another elevation source is
-            # read from its re-based copy (RULINGS 2026-11-19b, #2173).
+            # A custom patch is meshed as authored (#2179: the 19b re-base
+            # and band are retired); the source it was made for is
+            # recorded for the apps' notice.
+            if not is_auto:
+                PATCH_SOURCE.remember_source(tile, patch_dir, pfile_name)
             patch_layer.update_dicosm(
-                PATCH_REBASE.mesh_path(tile, patch_dir, pfile_name),
+                os.path.join(patch_dir, pfile_name),
                 input_tags=None,
                 target_tags=None,
             )

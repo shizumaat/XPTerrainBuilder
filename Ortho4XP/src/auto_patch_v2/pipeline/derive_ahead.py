@@ -26,13 +26,14 @@ the output cannot change; only the clock does."""
 from __future__ import annotations
 
 import dataclasses as _dc
+import time
 import typing as _t
 
 from ..airport import pool as _pool
 from ..airport import pool_memory as _mem
 
 __all__ = ["may_start", "raw_airport", "payload", "start", "worker_deriver", "answer",
-           "install", "worker_clock"]
+           "install", "worker_clock", "shipped_reads", "adopt_reads"]
 
 
 def may_start(what: str) -> str:
@@ -84,6 +85,25 @@ def _pack(derive):
         return pack
     return pack._replace(resources=shipped(derive.airport, pack.objects, pack.resources,
                                            _law_of(derive)))
+
+
+def shipped_reads(derive) -> dict:
+    """The build's pack readings as they stand NOW (``planar/pack_reads.
+    shipped``'s ``placed``), for a worker that started before they were read
+    (``stage_one_ahead.start_early``, #2206 item 5): :func:`adopt_reads`."""
+    return _pack(derive).resources.placed if getattr(derive.pack, "resources", None) \
+        is not None else {}
+
+
+def adopt_reads(deriver, placed: _t.Mapping) -> None:
+    """IN THE WORKER: the build's readings :func:`shipped_reads` handed, as
+    this worker's own (before its planar stage reads any)."""
+    res = getattr(deriver.pack, "resources", None)
+    if res is None or not placed:
+        return
+    res.placed.update(placed)
+    from ..planar.pack_reads import adopt
+    adopt(deriver.airport, deriver.pack.objects, res, _law_of(deriver))
 
 
 def start(task: _t.Callable, payload_: dict, extra: tuple = (), *, what: str,
@@ -143,7 +163,12 @@ def install(derive, res: _t.Mapping[str, _t.Any]) -> tuple:
     airport = _dc.replace(derive.airport, flat_site=res["flat_site"])
     rec = _dc.replace(res["record"], airport=airport)
     derive.runs += 1
-    derive.last = _dc.replace(rec, hold=hold_pass(rec.pm, derive.law, airport))
+    t = time.perf_counter()
+    hold = hold_pass(rec.pm, derive.law, airport)
+    # the hold is bound again here, off the worker's clock (#2206 step 0)
+    derive.last = _dc.replace(rec, hold=hold, wall={**(rec.wall or {}),
+                                                    "hold_here": time.perf_counter() - t})
+    derive.note_clock("worker")
     if derive.cache is not None and derive.cache.active:
         derive.cache.report["stages"].update(res["stages"])
     return derive.last.derived()

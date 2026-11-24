@@ -21,8 +21,8 @@ Life cycle, designed so users never manage it by hand:
   start — Qt or CLI, never by parallel-build worker children) refreshes
   the region index when stale, re-downloads extracts older than the
   ``osm_extract_refresh_days`` setting, and drains the wanted list on a
-  rescan loop.  Worker children only ever append wants: a single
-  downloader can never race itself over a multi-hundred-megabyte file.
+  rescan loop.  Every transfer goes through ``O4_Download_Manager``: one
+  per region across all processes, whoever asks.
 
 Failure discipline: this backend is an accelerator, never a
 dependency.  Every public entry point swallows its own errors and
@@ -40,7 +40,9 @@ import threading
 import time
 from typing import Optional
 
+import O4_Download_Manager as DOWNLOADS
 import O4_File_Names as FNAMES
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import requests
 
@@ -48,15 +50,8 @@ INDEX_URL = "https://download.geofabrik.de/index-v1.json"
 INDEX_REFRESH_DAYS = 7.0
 DEFAULT_EXTRACT_REFRESH_DAYS = 180.0
 WANTED_RESCAN_SECONDS = 60.0
-DOWNLOAD_CHUNK_BYTES = 1 << 20
 DOWNLOAD_PROGRESS_EVERY_BYTES = 50 << 20
 HTTP_TIMEOUT_SECONDS = 60
-# Foreground acquisition: how often a waiter re-checks for the extract
-# while another downloader streams it, and how recent a sibling ``.tmp``
-# must be to count as a live concurrent download (older = a crashed
-# download's residue, safe to ignore and replace).
-FOREGROUND_POLL_SECONDS = 2.0
-CONCURRENT_TMP_FRESH_SECONDS = 30.0
 # An extract address that answered 404 is not asked again for this long
 # (#2201), and a 404 re-reads the index only when the stored one is
 # older than NOT_FOUND_INDEX_FRESH_SECONDS (a fresh index that still
@@ -78,45 +73,43 @@ _store_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
-def extracts_enabled() -> bool:
-    """The ``osm_regional_extracts`` setting (True when unavailable).
+def _setting(name: str, default):
+    """The setting ``name``, ``default`` when it cannot be read.
 
-    Read from ``O4_Config_Utils`` only when that module is ALREADY
-    imported (it always is by build time — the Tile class lives there);
-    importing it here would trigger its side effects (global config
-    creation) from a passive check.
-    """
+    From ``O4_Config_Utils`` once that module has it.  Before then (the
+    engine starts extract maintenance before it loads the configuration)
+    from the global config file: importing ``O4_Config_Utils`` here would
+    trigger its side effects (global config creation) from a passive
+    check, and assuming the default contacted Geofabrik with the backend
+    switched off."""
     try:
         CFG = sys.modules.get("O4_Config_Utils")
-        if CFG is None:
-            return True
-        return bool(getattr(CFG, "osm_regional_extracts", True))
+        if CFG is not None and hasattr(CFG, name):
+            return type(default)(getattr(CFG, name))
+        import O4_Settings_Model as SETTINGS
+
+        (ok, text, _error) = SETTINGS.coerce(
+            name, SETTINGS.global_effective_value(name))
+        if not ok:
+            return default
+        return text == "True" if isinstance(default, bool) else float(text)
     except Exception:
-        return True
+        return default
+
+
+def extracts_enabled() -> bool:
+    """The ``osm_regional_extracts`` setting (True when unavailable)."""
+    return _setting("osm_regional_extracts", True)
 
 
 def _extract_refresh_days() -> float:
-    try:
-        CFG = sys.modules.get("O4_Config_Utils")
-        if CFG is None:
-            return DEFAULT_EXTRACT_REFRESH_DAYS
-        return float(getattr(
-            CFG, "osm_extract_refresh_days", DEFAULT_EXTRACT_REFRESH_DAYS))
-    except Exception:
-        return DEFAULT_EXTRACT_REFRESH_DAYS
+    return _setting("osm_extract_refresh_days", DEFAULT_EXTRACT_REFRESH_DAYS)
 
 
 def foreground_download_enabled() -> bool:
     """The ``osm_extract_foreground_download`` setting (True when
-    unavailable); same passive ``sys.modules`` read as
-    :func:`extracts_enabled`."""
-    try:
-        CFG = sys.modules.get("O4_Config_Utils")
-        if CFG is None:
-            return True
-        return bool(getattr(CFG, "osm_extract_foreground_download", True))
-    except Exception:
-        return True
+    unavailable)."""
+    return _setting("osm_extract_foreground_download", True)
 
 
 # ---------------------------------------------------------------------------
@@ -136,10 +129,16 @@ def _read_json(path: str):
 
 def _write_json_atomic(path: str, payload) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    temporary_path = path + ".tmp"
+    temporary_path = _private_temporary(path)
     with open(temporary_path, "w", newline="\n") as json_file:
         json.dump(payload, json_file, indent=1)
     os.replace(temporary_path, path)
+
+
+def _private_temporary(path: str) -> str:
+    """A sibling only this thread writes: several processes rewrite the
+    store's JSON files."""
+    return "%s.tmp-%d-%d" % (path, os.getpid(), threading.get_ident())
 
 
 def _region_file(region_id: str) -> str:
@@ -194,7 +193,7 @@ def _refresh_index() -> bool:
         response.raise_for_status()
         payload = response.json()          # validates before storing
         os.makedirs(STORE_DIRECTORY, exist_ok=True)
-        temporary_path = _index_path() + ".tmp"
+        temporary_path = _private_temporary(_index_path())
         with open(temporary_path, "w", newline="\n") as index_file:
             json.dump(payload, index_file)
         os.replace(temporary_path, _index_path())
@@ -518,73 +517,50 @@ def _bounding_boxes_list(bounding_box) -> list:
     return [tuple(boxes)]
 
 
-_region_download_locks: dict = {}
-_region_download_locks_guard = threading.Lock()
-
-
-def _region_download_lock(region_id: str) -> threading.Lock:
-    with _region_download_locks_guard:
-        return _region_download_locks.setdefault(region_id,
-                                                 threading.Lock())
-
-
 def _extract_ready(region_id: str) -> bool:
     path = _region_file(region_id)
     return os.path.isfile(path) and _file_looks_like_pbf(path)
 
 
-def _another_downloader_active(region_id: str) -> bool:
-    """A live concurrent download of this region (fresh sibling ``.tmp``
-    from the maintenance thread or another build process).  Stale
-    temporaries — a crashed downloader's residue — do not count and are
-    removed so they cannot accumulate."""
-    prefix = os.path.basename(_region_file(region_id)) + ".tmp"
+def _extract_resource(region_id: str, url: str) -> DOWNLOADS.Resource:
+    """The region's extract as the download manager knows it: one key per
+    region, whatever address the index gives it now."""
+    return DOWNLOADS.Resource("osm-extract:" + region_id, url,
+                              _region_file(region_id), _file_looks_like_pbf)
+
+
+def extract_download_running(bounding_box) -> bool:
+    """Is a region this box needs missing and being downloaded right now?
+    The build that needs it joins that transfer; nobody need fetch for it
+    ahead of time.  Never raises."""
     try:
-        names = os.listdir(STORE_DIRECTORY)
-    except OSError:
+        regions = covering_regions(bounding_box) or []
+        missing = set(_stored_regions_missing(regions))
+        return any(DOWNLOADS.in_flight(_extract_resource(region_id, url or ""))
+                   for (region_id, url) in regions if region_id in missing)
+    except Exception:
         return False
-    now = time.time()
-    active = False
-    for name in names:
-        if not name.startswith(prefix):
-            continue
-        path = _store_path(name)
-        try:
-            if now - os.path.getmtime(path) < CONCURRENT_TMP_FRESH_SECONDS:
-                active = True
-            else:
-                os.remove(path)
-        except OSError:
-            continue
-    return active
 
 
 def _ensure_extracts_foreground(regions) -> bool:
-    """Make every ``(region_id, pbf_url)`` present in the store, waiting
-    on (or starting) downloads in the FOREGROUND.  True only when all
-    are ready; False on stop (red_flag), download failure, or a region
-    with no usable url — callers fall back to Overpass exactly as with
-    the lazy path."""
-    for (region_id, pbf_url) in regions:
-        lock = _region_download_lock(region_id)
-        while not _extract_ready(region_id):
+    """Make every ``(region_id, pbf_url)`` present in the store, joining
+    or starting its one download.  The step holds no scheduler slot
+    meanwhile (``O4_Step_Wait``).  True only when all are ready; False on
+    stop (red_flag), download failure, or a region with no usable url —
+    callers fall back to Overpass exactly as with the lazy path."""
+    with STEP_WAIT.waiting():
+        for (region_id, pbf_url) in regions:
+            if _extract_ready(region_id):
+                continue
             if UI.red_flag:
                 return False
-            if lock.acquire(blocking=False):
-                try:
-                    if _extract_ready(region_id):
-                        break
-                    if not _another_downloader_active(region_id):
-                        url = pbf_url or _url_for_region(region_id)
-                        if url is None and _refresh_index():
-                            url = _url_for_region(region_id)
-                        if not _acquire_extract(
-                                region_id, url, foreground=True):
-                            return False
-                finally:
-                    lock.release()
+            url = pbf_url or _url_for_region(region_id)
+            if url is None and _refresh_index():
+                url = _url_for_region(region_id)
+            if not _acquire_extract(region_id, url, foreground=True):
+                return False
             if not _extract_ready(region_id):
-                time.sleep(FOREGROUND_POLL_SECONDS)
+                return False
     return True
 
 
@@ -666,25 +642,10 @@ def osm_xml_from_local_extracts(statements, bounding_box,
                     " using Overpass this time.",
                 )
             return None
-        import O4_OSM_Extract_Filter as FILTER
-
-        label = f" ({request_description})" if request_description else ""
-        clip_files = _clip_for_query(regions, boxes)
-        if clip_files is not None:
-            served = _filter_through_clip(
-                regions, boxes, clip_files, statements, label)
-            if served is not None:
-                return served
-        UI.vprint(
-            1,
-            f"      Filtering OSM data{label} from regional extract(s):",
-            ", ".join(region_id for (region_id, _url) in regions),
-        )
-        return FILTER.filter_extracts_to_osm_xml(
-            [_region_file(region_id) for (region_id, _url) in regions],
-            statements,
-            boxes,
-        )
+        # Real work, also when an Overpass backoff polls this function.
+        with STEP_WAIT.working():
+            return _filter_stored_extracts(
+                regions, boxes, statements, request_description)
     except Exception as error:
         if UI.red_flag:
             return None
@@ -695,145 +656,154 @@ def osm_xml_from_local_extracts(statements, bounding_box,
         return None
 
 
+def _filter_stored_extracts(regions, boxes, statements,
+                            request_description) -> Optional[bytes]:
+    """The statements' OSM XML from the stored extracts, through the area
+    clip when one can be had."""
+    import O4_OSM_Extract_Filter as FILTER
+
+    label = f" ({request_description})" if request_description else ""
+    clip_files = _clip_for_query(regions, boxes)
+    if clip_files is not None:
+        served = _filter_through_clip(
+            regions, boxes, clip_files, statements, label)
+        if served is not None:
+            return served
+    UI.vprint(
+        1,
+        f"      Filtering OSM data{label} from regional extract(s):",
+        ", ".join(region_id for (region_id, _url) in regions),
+    )
+    return FILTER.filter_extracts_to_osm_xml(
+        [_region_file(region_id) for (region_id, _url) in regions],
+        statements,
+        boxes,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Background maintenance (application process only)
 # ---------------------------------------------------------------------------
+class _ExtractWatcher(DOWNLOADS.Watcher):
+    """One extract request's console lines, meter and progress bar."""
+
+    def __init__(self, region_id: str, foreground: bool) -> None:
+        self.region_id = region_id
+        self.foreground = foreground
+        self.metering = False              # the meter module imported
+        self.metered = False               # registered with its ETA
+        self.next_report = DOWNLOAD_PROGRESS_EVERY_BYTES
+        self.chunk_started = 0.0
+
+    def joined(self) -> None:
+        UI.vprint(1, "   OSM regional extract", self.region_id,
+                  "is already downloading for another tile; waiting for it.")
+
+    def leading(self) -> None:
+        UI.vprint(0, "   Downloading OSM regional extract", self.region_id,
+                  "(needed by this build)..." if self.foreground
+                  else "in the background...")
+
+    def started(self, total_bytes: int) -> None:
+        self.chunk_started = time.time()
+        try:
+            from o4_engine import download_meter as METER
+        except Exception:
+            return
+        self.metering = True
+        if self.foreground:
+            # Foreground downloads block the build: register with the
+            # meter so the ETA prices the unmoved bytes at the measured
+            # throughput.
+            METER.begin("extract:" + self.region_id, total_bytes)
+            self.metered = True
+
+    def chunk(self, size: int, received: int, total_bytes: int) -> None:
+        if self.metering:
+            from o4_engine import download_meter as METER
+            now = time.time()
+            METER.record(size, now - self.chunk_started)
+            self.chunk_started = now
+            if self.metered:
+                METER.update("extract:" + self.region_id, received)
+        if self.foreground and total_bytes > 0:
+            # An in-band download blocks the vector step: drive its bar
+            # so the front ends' progress ring moves.
+            UI.progress_bar(1, int(min(received * 100 // total_bytes, 99)))
+        if received >= self.next_report:
+            UI.vprint(1, "      ...", self.region_id, "%d%s MB so far" % (
+                received >> 20,
+                "/%d" % (total_bytes >> 20) if total_bytes else ""))
+            self.next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
+
+    def finished(self) -> None:
+        if self.metered:
+            from o4_engine import download_meter as METER
+            with contextlib.suppress(Exception):
+                METER.end("extract:" + self.region_id)
+
+
+def _record_extract_downloaded(region_id: str, pbf_url: str) -> None:
+    """Note the install in ``state.json`` (several processes write it)."""
+    from O4_File_Lock import hold_file_lock
+
+    with _store_lock, hold_file_lock(_store_path("state.json")):
+        state = _read_json(_store_path("state.json")) or {}
+        state[region_id] = {"downloaded_at": time.time(), "url": pbf_url}
+        _write_json_atomic(_store_path("state.json"), state)
+
+
 def _download_extract(region_id: str, pbf_url: str,
                       foreground: bool = False) -> bool:
-    """Stream one extract to the store (atomic; resumes are simple
-    re-downloads — CDN throughput makes ranged resume not worth its
-    edge cases).  The temporary path is unique per downloader (pid +
-    thread), so a concurrent download of the same region can never
-    corrupt another's stream — last atomic rename wins."""
-    target = _region_file(region_id)
-    temporary_path = "%s.tmp-%d-%d" % (
-        target, os.getpid(), threading.get_ident())
-    try:
-        UI.vprint(
-            0,
-            "   Downloading OSM regional extract", region_id,
-            "(needed by this build)..." if foreground
-            else "in the background...",
-        )
-        received = 0
-        next_report = DOWNLOAD_PROGRESS_EVERY_BYTES
-        cancelled = False
-        with requests.get(
-            pbf_url, stream=True, timeout=HTTP_TIMEOUT_SECONDS
-        ) as response:
-            response.raise_for_status()
-            try:
-                total_mb = int(getattr(response, "headers", {}).get(
-                    "Content-Length", 0)) >> 20
-            except (AttributeError, TypeError, ValueError):
-                total_mb = 0
-            os.makedirs(STORE_DIRECTORY, exist_ok=True)
-            try:
-                total_bytes = int(getattr(response, "headers", {}).get(
-                    "Content-Length", 0))
-            except (AttributeError, TypeError, ValueError):
-                total_bytes = 0
-            try:
-                from o4_engine import download_meter as METER
-            except Exception:
-                METER = None
-            if METER is not None and foreground:
-                # Foreground downloads block the build: register with
-                # the meter so the ETA prices the unmoved bytes at the
-                # measured throughput.
-                METER.begin("extract:" + region_id, total_bytes)
-            chunk_t0 = time.time()
-            with open(temporary_path, "wb") as extract_file:
-                for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
-                    if UI.red_flag:
-                        # The user pressed Stop: the network goes quiet
-                        # NOW, background or not.  The region is NOT
-                        # re-queued: the app respawns an engine right
-                        # after a hard stop, and its maintenance thread
-                        # would start the download again after the stop
-                        # (#704).  The next build that needs the region
-                        # acquires it in the foreground or queues it.
-                        cancelled = True
-                        break
-                    extract_file.write(chunk)
-                    received += len(chunk)
-                    if METER is not None:
-                        now = time.time()
-                        METER.record(len(chunk), now - chunk_t0)
-                        chunk_t0 = now
-                        if foreground:
-                            METER.update("extract:" + region_id, received)
-                    if foreground and total_bytes > 0:
-                        # In-band download blocks the vector step: drive
-                        # its bar so the front ends' progress ring moves
-                        # (and the live-rate ETA gets a signal) instead
-                        # of sitting at zero for the whole download.
-                        UI.progress_bar(
-                            1, int(min(received * 100 // total_bytes, 99)))
-                    if received >= next_report:
-                        UI.vprint(
-                            1,
-                            "      ...", region_id,
-                            "%d%s MB so far" % (
-                                received >> 20,
-                                "/%d" % total_mb if total_mb else ""),
-                        )
-                        next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
-        if cancelled:
-            os.remove(temporary_path)
-            UI.vprint(
-                0,
-                "   OSM regional extract download for", region_id,
-                "stopped with the build.",
-            )
-            return False
-        if not _file_looks_like_pbf(temporary_path):
-            # Some indexed regions answer with an HTML page under HTTP
-            # 200 (no extract published at that address).  Installing
-            # it would poison the store: every later request covering
-            # the region errors on it instead of using Overpass.
-            os.remove(temporary_path)
-            UI.vprint(
-                0,
-                "   The download for OSM regional extract", region_id,
-                "returned something other than pbf data (no extract is"
-                " published at its address); builds in this region use"
-                " Overpass instead.",
-            )
-            return False
-        os.replace(temporary_path, target)
-        with _store_lock:
-            state = _read_json(_store_path("state.json")) or {}
-            state[region_id] = {
-                "downloaded_at": time.time(), "url": pbf_url,
-            }
-            _write_json_atomic(_store_path("state.json"), state)
-        UI.vprint(
-            0,
-            "   OSM regional extract", region_id,
-            "ready (%d MB); future builds in this region skip Overpass."
-            % (received >> 20),
-        )
+    """Fetch one extract through the download manager: one transfer per
+    region across every process, joined by whoever else needs it.  A
+    background call refreshes a stored extract; a Stop leaves nothing
+    queued (the app respawns an engine after a hard stop, and its
+    maintenance thread would start the download again, #704)."""
+    os.makedirs(STORE_DIRECTORY, exist_ok=True)
+    result = DOWNLOADS.fetch(
+        _extract_resource(region_id, pbf_url),
+        refresh=not foreground,
+        should_stop=lambda: UI.red_flag,
+        watcher=_ExtractWatcher(region_id, foreground),
+        open_stream=lambda url, **options: requests.get(url, **options),
+    )
+    if result.ok:
+        if result.transferred:
+            _record_extract_downloaded(region_id, pbf_url)
+            UI.vprint(0, "   OSM regional extract", region_id,
+                      "ready (%d MB); future builds in this region skip"
+                      " Overpass." % (result.received >> 20))
+            UI.vprint(1, "      Requests made for this extract so far:",
+                      DOWNLOADS.request_counts(STORE_DIRECTORY).get(
+                          "osm-extract:" + region_id, 0))
         return True
-    except Exception as error:
-        if _is_not_found(error):
+    _report_extract_failure(region_id, pbf_url, result)
+    return False
+
+
+def _report_extract_failure(region_id: str, pbf_url: str,
+                            result: DOWNLOADS.Result) -> None:
+    """Say why the request ended without a file; remember a 404."""
+    if result.status == DOWNLOADS.STOPPED:
+        UI.vprint(0, "   OSM regional extract download for", region_id,
+                  "stopped with the build.")
+    elif result.status == DOWNLOADS.INVALID:
+        # Some indexed regions answer with an HTML page under HTTP 200
+        # (no extract published at that address).
+        UI.vprint(0, "   The download for OSM regional extract", region_id,
+                  "returned something other than pbf data (no extract is"
+                  " published at its address); builds in this region use"
+                  " Overpass instead.")
+    elif result.error is not None:
+        if _is_not_found(result.error):
             _remember_not_found(region_id, pbf_url, transient=True,
-                                redirected=_redirected(error))
-        UI.vprint(
-            1, "   Extract download for", region_id, "failed:", str(error),
-        )
-        try:
-            os.remove(temporary_path)
-        except OSError:
-            pass
-        return False
-    finally:
-        if foreground:
-            try:
-                from o4_engine import download_meter as METER
-                METER.end("extract:" + region_id)
-            except Exception:
-                pass
+                                redirected=_redirected(result.error))
+        UI.vprint(1, "   Extract download for", region_id, "failed:",
+                  str(result.error))
+    else:
+        UI.vprint(1, "   The download of extract", region_id,
+                  "this tile waited for failed.")
 
 
 def _is_not_found(error) -> bool:
@@ -972,21 +942,31 @@ def _url_for_region(region_id: str) -> Optional[str]:
     return None
 
 
-def _maintenance_loop() -> None:
+def _refresh_stale_store() -> None:
+    """Re-read a stale index and re-download extracts past their age."""
     if _index_is_stale():
         _refresh_index()
     for (region_id, pbf_url) in _regions_to_refresh():
-        if UI.red_flag:
-            # A stop is in flight: keep the network quiet.  Refreshes
-            # resume at the next application start.
+        if UI.red_flag or not extracts_enabled():
+            # Keep the network quiet.  Refreshes resume at the next
+            # application start.
             break
         # The index's address first: a stored one may predate a move.
         _acquire_extract(region_id, _url_for_region(region_id) or pbf_url)
+
+
+def _maintenance_loop() -> None:
+    DOWNLOADS.sweep_stale_temporaries(STORE_DIRECTORY)
+    refreshed = False
     while True:
         # While a stop is in flight the wanted list is left untouched —
         # consuming it and aborting would drop the regions until some
-        # later build re-recorded them.
-        if not UI.red_flag:
+        # later build re-recorded them.  With the backend switched off
+        # nothing here touches the network.
+        if extracts_enabled() and not UI.red_flag:
+            if not refreshed:
+                refreshed = True
+                _refresh_stale_store()
             for region_id in _consume_wanted_regions():
                 if os.path.isfile(_region_file(region_id)):
                     continue

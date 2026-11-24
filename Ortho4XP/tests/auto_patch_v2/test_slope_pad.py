@@ -49,3 +49,43 @@ def test_the_witness_reads_the_law_and_the_dem():
     fn, t = slope_witness(ap, law)
     assert t == 0.5 and fn(box(0, 0, 10, 10)) == 0.0
     assert slope_witness(types.SimpleNamespace(dem=None), law) is None
+
+
+def test_the_array_read_is_the_point_read():
+    """#2206: ``z_many`` reads every sample in one call and gives the float
+    the per-point reads give, bit for bit; the witness hands it on."""
+    import numpy as np
+    from shapely.geometry import Polygon
+
+    def z(x, y):
+        return 100.0 + 0.137 * x - 0.0291 * y + 1e-3 * x * y
+    calls = []
+
+    def many(xs, ys):
+        calls.append(len(xs))
+        return np.array([z(x, y) for x, y in zip(xs, ys, strict=True)])
+    u = Polygon([(0, 0), (37.3, 2.1), (41.9, 29.7), (12.2, 33.3), (3.1, 17.7)])
+    assert seat_float_m(u, z, many) == seat_float_m(u, z) > 0.0 and len(calls) == 1
+    law = Law.for_airport("KASE")
+    ap = types.SimpleNamespace(dem=types.SimpleNamespace(z=z, z_many=many))
+    w = slope_witness(ap, law)
+    assert w.z_many is many and w[0](u) == seat_float_m(u, z)
+
+
+def test_the_grid_is_the_per_point_grid():
+    """#2206: the grid read in one ``contains`` call keeps the per-point
+    loop's samples, in its order (i outer, j inner), on a concave outline
+    and a multi-part one."""
+    from shapely.geometry import MultiPolygon, Point, Polygon
+    u = Polygon([(0, 0), (40, 0), (40, 30), (20, 8), (0, 30)])
+    m = MultiPolygon([box(0, 0, 9, 9), box(13.3, 2.1, 30.7, 17.9)])
+    for g in (u, m):
+        seen: list = []
+        seat_float_m(g, lambda x, y, seen=seen: seen.append((x, y)) or 1.0)
+        x0, y0, x1, y1 = g.bounds
+        want = [c for p in getattr(g, "geoms", [g]) for c in list(p.exterior.coords)[:-1]]
+        want += [(x0 + (i + 0.5) * (x1 - x0) / 8, y0 + (j + 0.5) * (y1 - y0) / 8)
+                 for i in range(8) for j in range(8)
+                 if g.contains(Point(x0 + (i + 0.5) * (x1 - x0) / 8,
+                                     y0 + (j + 0.5) * (y1 - y0) / 8))]
+        assert seen == want

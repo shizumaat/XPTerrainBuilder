@@ -1,7 +1,7 @@
-"""#1229: a custom patch is always honoured, and the build log says so at
-verbosity 0 even when no auto patch file exists beside it (before, the only
-trace of a custom patch replacing the auto patch was printed when an old
-``<ICAO>_auto.patch.osm`` also sat in the folder)."""
+"""#1229 / #2179: the build log says at verbosity 0, once per airport, how
+a custom patch is used -- as made (with the higher-resolution warning,
+RULINGS 2026-11-23f) or kept while our auto patch builds the airport --
+even when no auto patch file exists beside it."""
 import types
 
 import O4_File_Names as FNAMES
@@ -32,19 +32,32 @@ def _include(tmp_path, monkeypatch, names):
 def test_custom_patch_alone_is_announced(tmp_path, monkeypatch, capsys):
     _include(tmp_path, monkeypatch, ["ZZZZ.patch.osm"])
     out = capsys.readouterr().out
-    assert "ZZZZ: using the CUSTOM patch ZZZZ.patch.osm" in out
-    assert "not auto-patched" in out
+    assert "ZZZZ: custom patch ZZZZ.patch.osm used as made" in out
+    assert "requires our auto patch" in out
 
 
 def test_custom_patch_beside_auto_is_announced_once(tmp_path, monkeypatch,
                                                     capsys):
     _include(tmp_path, monkeypatch, ["ZZZZ.patch.osm", "ZZZZ_auto.patch.osm"])
-    assert capsys.readouterr().out.count("using the CUSTOM patch") == 1
+    assert capsys.readouterr().out.count("custom patch ZZZZ.patch.osm") == 1
+
+
+def test_our_auto_patch_is_announced_and_the_file_not_read(
+        tmp_path, monkeypatch, capsys):
+    import O4_Custom_Patch_Use as USE
+
+    USE.set_use(str(tmp_path), "ZZZZ", USE.AUTO_PATCH)
+    _include(tmp_path, monkeypatch, ["ZZZZ.patch.osm", "ZZZZ_auto.patch.osm"])
+    out = capsys.readouterr().out
+    assert ("ZZZZ: our auto patch is used; your custom patch ZZZZ.patch.osm "
+            "is kept, not applied.") in out
+    assert "Patching ZZZZ.patch.osm" not in out
+    assert "used as made" not in out
 
 
 def test_auto_patch_alone_is_not_announced(tmp_path, monkeypatch, capsys):
     _include(tmp_path, monkeypatch, ["ZZZZ_auto.patch.osm"])
-    assert "CUSTOM patch" not in capsys.readouterr().out
+    assert "custom patch" not in capsys.readouterr().out
 
 
 def _edited(tmp_path, monkeypatch, made, running):

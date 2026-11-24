@@ -158,7 +158,6 @@ enum SettingsLayout {
             // asked, not a property of a tile (spec §C.4, RULINGS 18a).
             SettingItem("auto_patch_boundary", "What if an airport crosses a tile edge?", .app, summary: "Its ground shape needs the elevation of the tile next door too."),
             SettingItem("modify_custom_airports", "Fit custom airport buildings to the new ground", .tile, summary: "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
-            SettingItem("rebase_custom_patches", "Move custom airport ground shapes onto this build's elevation?", .tile, summary: "Moves a ground shape made for other elevation data onto this build's ground, as drawn."),
             SettingItem("airport_elevation_insets", "High-resolution airport elevation", .tile, summary: "Downloads meter-class elevation for the airports where it exists."),
             SettingItem("airport_elevation_level", "How detailed should airport elevation be?", .tile, summary: "Auto takes the finest available, down to 0.5 m."),
             SettingItem("approach_rings", "Add finer elevation on the approaches?", .tile, summary: "10 m out to 10 km around each airport with high-resolution elevation, then 30 m to 20 km."),
@@ -181,6 +180,8 @@ enum SettingsLayout {
         ]),
         SettingCategory(key: "water", title: "Water & Coastlines", icon: "drop", items: [
             SettingItem("water_tech", "Which water should X-Plane draw?", .tile, summary: "XP12 uses X-Plane 12's water; XP11 + bathy blends the older way."),
+            SettingItem("water_imagery", "Should the photo lie on top of the water or under it?", .tile, summary: "Under shows the photo as the floor of lakes, rivers and shallow sea."),
+            SettingItem("water_imagery_alpha", "Under the water, should the photo fade with depth?", .tile, summary: "Only for a photo under the water; compare both in the sim."),
             SettingItem("ratio_water", "How much photo should show through lakes and rivers?", .tile, summary: "0 is plain X-Plane water, 1 is the photo only."),
             SettingItem("masking_mode", "What should the shoreline look like?", .tile, summary: "How the land fades into the sea."),
             SettingItem("coastal_foam_edge", "Draw a wavy shoreline with a foam band?", .tile, summary: "Replaces the straight land-to-water fade with a more natural edge."),

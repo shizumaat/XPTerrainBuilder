@@ -173,23 +173,34 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
     cx, cy = int(x // cell), int(y // cell)
     span = int(math.ceil(reach_m / cell)) + 1
     best: tuple[int, float, float] | None = None
+    # #2206 step 4: an edge whose squared foot distance is no less than the
+    # best's cannot replace it (``exact.hypot`` is the correctly rounded,
+    # hence non-decreasing, square root of exactly this sum), so it is
+    # neither measured nor sized; the visiting order, and so every tie, is
+    # the whole scan's
+    best_s = math.inf
+    xy = vw.xy
     for dx in range(-span, span + 1):
         for dy in range(-span, span + 1):
             for k in grid.get((cx + dx, cy + dy), ()):
                 if admit is not None and not admit(k):
                     continue
                 a, b = edges[k][0], edges[k][1]
-                (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
+                (ax, ay), (bx, by) = xy[a], xy[b]
                 vx, vy = bx - ax, by - ay
                 l2 = vx * vx + vy * vy
                 t = 0.0 if l2 < 1e-18 else max(0.0, min(
                     1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
-                d = exact.hypot(x - (ax + t * vx), y - (ay + t * vy))
+                px, py = x - (ax + t * vx), y - (ay + t * vy)
+                s2 = px * px + py * py
+                if s2 >= best_s:
+                    continue
+                d = exact.hypot(px, py)
                 half = half_of(edges[k])
                 if half is None or d > half:
                     continue
                 if best is None or d < best[2]:
-                    best = (k, t, d)
+                    best, best_s = (k, t, d), s2
     return best
 
 

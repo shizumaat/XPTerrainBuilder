@@ -476,7 +476,8 @@ def _kept(rep: ProjectionReport, x: np.ndarray, t0: float, status: str,
 def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
                    *, stacked: tuple[sp.csr_matrix, np.ndarray] | None = None,
                    memo: dict | None = None,
-                   verbose: bool = False) -> tuple[np.ndarray, ProjectionReport]:
+                   verbose: bool = False,
+                   raw: tuple | None = None) -> tuple[np.ndarray, ProjectionReport]:
     """Project the design solve's ``x`` onto the runway family's hard rows
     (module docstring).  Returns the projected column vector and the report;
     on anything but an optimal QP the DESIGN vector is returned unchanged
@@ -541,6 +542,14 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     if stacked is not None and not eq_i:
         A1, b1 = stacked
         Ah, bh = A1[hard], b1[hard]
+    elif raw is not None and eq_i and raw[2] == eq_i[0]:
+        # #1270: ``raw`` is the stage's own ``_one_matrix(base.one, red)``
+        # (``(A1, b1, len(base.one))``); the equality pairs are rows of
+        # their own, so the stack is that matrix over theirs, row for row
+        A_eq, b_eq = _one_matrix(one[raw[2]:], red)
+        A1 = sp.vstack([raw[0], A_eq], format="csr")
+        b1 = np.concatenate([raw[1], b_eq])
+        Ah, bh = _scaled(A1, b1, hard)
     else:
         A1, b1 = _one_matrix(one, red)
         Ah, bh = _scaled(A1, b1, hard)
@@ -1103,7 +1112,7 @@ def project_after_solve(planar: PlanarMap, law: Law, base: _t.Any,
                         x: np.ndarray, *,
                         stacked: tuple[sp.csr_matrix, np.ndarray] | None = None,
                         memo: dict | None = None,
-                        verbose: bool = False
+                        verbose: bool = False, raw: tuple | None = None
                         ) -> tuple[np.ndarray, ProjectionReport, ZoneClampReport]:
     """THE TWO PROJECTIONS, in their one lawful order (§16 then §32).
 
@@ -1121,6 +1130,6 @@ def project_after_solve(planar: PlanarMap, law: Law, base: _t.Any,
     rationale is here, beside the code it describes.
     """
     x, rwy = project_runway(planar, law, base, x, stacked=stacked,
-                            memo=memo, verbose=verbose)
+                            memo=memo, verbose=verbose, raw=raw)
     x, zone = project_zone_bands(planar, law, base, x, verbose=verbose)
     return x, rwy, zone

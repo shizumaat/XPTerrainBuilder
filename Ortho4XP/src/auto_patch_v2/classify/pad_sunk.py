@@ -56,6 +56,7 @@ import numpy as np
 from shapely import contains_xy
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.sunk_cluster import closed_outline
@@ -99,17 +100,47 @@ def _cluster_tops(c: _t.Any) -> tuple[float, float]:
             sum(float(r[3]) for r in rows))
 
 
-def _authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy) -> float | None:
-    """The area-weighted AUTHORED TOP (m over the objects' own grade) of
-    the components of every cluster whose outline lies mostly inside
-    ``pad``; ``None`` where no such cluster carries measured tops."""
-    num = den = 0.0
+class _Tops:
+    """The clusters carrying measured tops with their outlines, in cluster
+    order, and a tree of the outlines -- built on the first pad that asks
+    (#2206: each pad re-read every cluster's outline, 194,000 outlines for
+    40 pads at HECA)."""
+
+    def __init__(self, clusters: _t.Sequence[_t.Any], to_xy) -> None:
+        self._clusters, self._to_xy = clusters, to_xy
+        self._rows: list | None = None
+        self._tree: STRtree | None = None
+
+    def rows(self, pad: Polygon) -> list:
+        """``[(n, d, outline)]`` of the clusters whose outline's box meets
+        ``pad``'s, in cluster order (no other outline can meet ``pad``)."""
+        if self._rows is None:
+            self._rows = list(_top_rows(self._clusters, self._to_xy))
+            self._tree = STRtree([r[2] for r in self._rows]) if self._rows else None
+        if self._tree is None:
+            return []
+        return [self._rows[i] for i in sorted(self._tree.query(pad).tolist())]
+
+
+def _top_rows(clusters: _t.Sequence[_t.Any], to_xy) -> _t.Iterator[tuple]:
     for c in clusters or ():
         n, d = _cluster_tops(c)
         if d <= 0.0:
             continue
         u = closed_outline(c, to_xy, 0.0)
-        if u is None or u.is_empty or not u.intersects(pad):
+        if u is not None and not u.is_empty:
+            yield n, d, u
+
+
+def _authored_top_m(pad: Polygon, clusters: _t.Sequence[_t.Any], to_xy,
+                    tops: "_Tops | None" = None) -> float | None:
+    """The area-weighted AUTHORED TOP (m over the objects' own grade) of
+    the components of every cluster whose outline lies mostly inside
+    ``pad``; ``None`` where no such cluster carries measured tops.
+    ``tops``: the witness's held outlines of ``clusters`` (:class:`_Tops`)."""
+    num = den = 0.0
+    for n, d, u in (tops.rows(pad) if tops is not None else _top_rows(clusters, to_xy)):
+        if not u.intersects(pad):
             continue
         if u.intersection(pad).area * 2.0 < u.area:
             continue
@@ -145,21 +176,22 @@ def _witness(cells: _t.Sequence[_t.Any], airport: _t.Any, law: Law):
     if dem is None or not air:
         return None
     air_u = unary_union(air)
+    clusters, to_xy = getattr(airport, "clusters", None) or (), airport.frame.entry()
     return (dem, air_u, air_u.buffer(float(law.tables.emit.design.pad_frontage_m)),
-            getattr(airport, "clusters", None) or (), airport.frame.entry())
+            clusters, to_xy, _Tops(clusters, to_xy))
 
 
 def _held_parts(P: Polygon, wit, law: Law, min_area: float
                 ) -> tuple[list[Polygon], dict] | None:
     """The cut-back parts of pad ``P`` and their evidence when it is a
     HELD terrace (module docstring), else ``None``."""
-    dem, air_u, wide, clusters, to_xy = wit
+    dem, air_u, wide, clusters, to_xy, tops = wit
     r = float(law.tables.emit.design.pad_frontage_m)
     if P.distance(air_u) > r:
         return None
     lvl = _median_dem(P.boundary.intersection(wide), dem, r)
     own = _ground_dem_m(P, dem)
-    top = _authored_top_m(P, clusters, to_xy)
+    top = _authored_top_m(P, clusters, to_xy, tops)
     steps = [s for s in ((None if lvl is None or own is None else lvl - own),
                          (None if top is None else -top)) if s is not None and s > 0.0]
     if not any(is_held_step(law, s) for s in steps):
@@ -203,7 +235,6 @@ def _unit_held_parts(P: Polygon, ref: str, unit, wit, law: Law, min_area: float
     below the pads of its own unit (module docstring, #2195), else
     ``None``.  ``unit`` is ``(siblings, outlines, pads, own grounds)``."""
     sib, outlines, pads, own_of = unit
-    dem, _air_u, _wide, _clusters, _to_xy = wit
     r = float(law.tables.emit.design.pad_frontage_m)
     own = own_of(ref)
     if own is None:

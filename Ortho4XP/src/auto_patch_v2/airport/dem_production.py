@@ -305,6 +305,26 @@ class _BakedTile:
         return (a[iy, ix] * (1 - rx) * (1 - ry) + a[iy, ixp] * rx * (1 - ry)
                 + a[iyp, ix] * (1 - rx) * ry + a[iyp, ixp] * rx * ry)
 
+    def sample_one(self, lat: float, lon: float) -> float:
+        """:meth:`sample` at ONE finite point, in plain floats: the same
+        IEEE operations in the same order (``baked_cell``'s clip, scale,
+        truncation and fractions; the bilinear sum left to right), so the
+        value is bit-equal -- without the array set-up a point read paid
+        (#2206: 590k point reads at KATL's planar stage)."""
+        ny, nx = self.alt.shape
+        x0, x1, y0, y1 = self.x0, self.x1, self.y0, self.y1
+        Nx, Ny = nx - 1, ny - 1
+        x = min(max(float(lon) - self.lon, x0), x1)
+        y = min(max(float(lat) - self.lat, y0), y1)
+        px = (x - x0) / (x1 - x0) * Nx
+        py = (y1 - y) / (y1 - y0) * Ny
+        ix, iy = min(int(px), Nx), min(int(py), Ny)
+        ixp, iyp = min(ix + 1, Nx), min(iy + 1, Ny)
+        rx, ry = px - ix, py - iy
+        a = self.alt
+        return float(float(a[iy, ix]) * (1 - rx) * (1 - ry) + float(a[iy, ixp]) * rx * (1 - ry)
+                     + float(a[iyp, ix]) * (1 - rx) * ry + float(a[iyp, ixp]) * rx * ry)
+
 
 class TileWater:
     """ONE TILE'S WATER WITNESS (owner RULINGS 2026-09-09m; mechanism 09o
@@ -578,7 +598,19 @@ class ProductionDem:
 
     # ── DemSample protocol ──────────────────────────────────────────
     def z(self, x: float, y: float) -> float:
-        return float(self.z_many(np.array([x]), np.array([y]))[0])
+        """:meth:`z_many` at one point (its transform, its tile, and the
+        tile's :meth:`_BakedTile.sample_one`, bit-equal to the array read)."""
+        xs, ys = np.array([x]), np.array([y])
+        lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
+                                       np.asarray(ys, dtype=np.float64))
+        lo, la = float(np.asarray(lon)[0]), float(np.asarray(lat)[0])
+        if not (math.isfinite(lo) and math.isfinite(la)):
+            return float(self.z_many(xs, ys)[0])
+        tile = self.tile(math.floor(la), math.floor(lo))
+        if tile is None:
+            return math.nan
+        one = getattr(tile, "sample_one", None)
+        return one(la, lo) if one is not None else float(self.z_many(xs, ys)[0])
 
     def bounds(self) -> tuple[float, float, float, float]:
         lat, lon = self.frame.origin
@@ -758,7 +790,13 @@ class ProductionDem:
         out = np.full(lat.shape, np.nan)
         tl = np.floor(lat).astype(int)
         tn = np.floor(lon).astype(int)
-        for key in sorted(set(zip(tl.tolist(), tn.tolist()))):
+        keys = sorted(set(zip(tl.tolist(), tn.tolist())))
+        if len(keys) == 1:              # one tile: every point is its read (no mask)
+            tile = self.tile(*keys[0])
+            if tile is not None:
+                out[...] = tile.sample(lat, lon)
+            return out
+        for key in keys:
             tile = self.tile(*key)
             if tile is None:
                 continue

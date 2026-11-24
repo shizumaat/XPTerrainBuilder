@@ -37,7 +37,7 @@ def test_the_entry_is_where_the_mesh_step_enters_the_stage():
     text = (SRC / "O4_Mesh_Utils.py").read_text(encoding="utf-8")
     assert "OBJECT_STAGE.run(tile)" in text
     text = (SRC / "O4_Object_Stage.py").read_text(encoding="utf-8")
-    assert "object_stage.rebake_after_mesh(tile)" in text
+    assert "object_stage.rebake_after_mesh(tile, failed=failed)" in text
     assert STAGE.rebake_after_mesh.__module__ == OSC.ENTRY_MODULES[0]
 
 

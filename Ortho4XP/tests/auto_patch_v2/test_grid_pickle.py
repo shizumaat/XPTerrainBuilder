@@ -1,5 +1,5 @@
 """issue #1092 — a gridded geometry survives the stage-cache record and the
-arrangement-memo front copy WITH its precision grid, so a cache hit (or a
+deep copy WITH its precision grid, so a cache hit (or a
 served front) overlays exactly as the fresh computation does.
 
 shapely 2.x pickles a geometry as bare WKB: without
@@ -9,13 +9,13 @@ off-grid vertices).  Synthetic throughout (no corpus).
 """
 from __future__ import annotations
 
+import copy
 import pickle
 
 import shapely
 from auto_patch_v2.airport import stage_cache as SC
 from auto_patch_v2.geom import grid_pickle as GP
 from auto_patch_v2.pipeline import front_cache as FC
-from auto_patch_v2.planar import arrangement_memo as AM
 from shapely.geometry import Polygon
 
 GRID = 0.01
@@ -55,10 +55,10 @@ def test_a_stage_cache_hit_keeps_the_grid_and_overlays_as_the_cold_run(tmp_path)
     assert hit["plat"]["face"] is hit["faces"][0], "shared references stay shared"
 
 
-def test_an_arrangement_memo_front_copy_keeps_the_grid():
+def test_a_deep_copy_keeps_the_grid():
     cold = _cold()
     front = {"pad_clip": {"faces": cold["faces"]}, "plat": cold["plat"], "rows": [1]}
-    fresh = AM._fresh(front)
+    fresh = copy.deepcopy(front)
     got = {"faces": fresh["pad_clip"]["faces"]}
     assert shapely.get_precision(fresh["plat"]["face"]) == GRID
     assert _downstream(got) == _downstream(cold)

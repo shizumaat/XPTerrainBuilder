@@ -30,7 +30,7 @@ the mod cache, and a candidate without one is not chosen.
 """
 from __future__ import annotations
 
-import functools
+import hashlib
 import math
 import os
 import typing as _t
@@ -110,8 +110,8 @@ def find(xplane_root: str, icao: str, apt_dat_path: str,
     block = _apt.read_airport_block(apt_dat_path, icao)
     if not block:
         return None
-    lat0, lon0 = _apt.parse_airport_block(block).reference_point()
-    lat, lon = math.floor(lat0), math.floor(lon0)
+    digest = hashlib.sha1("\n".join(block).encode("utf-8")).hexdigest()
+    lat, lon = _ref_tile(block, digest)
     dumps = []
     for root in candidates(xplane_root, lat, lon):
         dump = pristine_dump(mod_cache_root, root, lat, lon)
@@ -119,7 +119,7 @@ def find(xplane_root: str, icao: str, apt_dat_path: str,
             dumps.append((root, dump, os.path.getmtime(dump)))
     if not dumps:
         return None
-    return _first_placing(icao.upper(), tuple(block), tuple(dumps))
+    return _placing(icao.upper(), tuple(block), tuple(dumps), digest)
 
 
 def pristine_dump(mod_cache_root: str, root: str, lat: int, lon: int) -> str | None:
@@ -130,11 +130,43 @@ def pristine_dump(mod_cache_root: str, root: str, lat: int, lon: int) -> str | N
                                dsf_path=pristine)
 
 
-@functools.lru_cache(maxsize=64)
+#: :func:`_first_placing`'s answers, keyed on the airport, its block's
+#: digest and the dumps' mtimes (#2268: a 64-entry LRU keyed on the whole
+#: block was evicted by every Library staleness check of more than 64
+#: Global-block airports, and each check re-read every dump: ~70 s of
+#: the engine's own process per check on the owner's 709-tile library)
+_PLACING: dict = {}
+#: the tile of a block's reference point, keyed on the block's digest
+_REF_TILE: dict = {}
+#: a session that outgrows this many answers starts the maps again
+_PLACING_MAX = 20000
+
+
+def _ref_tile(block: _t.Sequence[str], digest: str) -> tuple[int, int]:
+    """The tile of the block's reference point (memoised on its digest)."""
+    if digest not in _REF_TILE:
+        if len(_REF_TILE) >= _PLACING_MAX:
+            _REF_TILE.clear()
+        lat0, lon0 = _apt.parse_airport_block(block).reference_point()
+        _REF_TILE[digest] = (math.floor(lat0), math.floor(lon0))
+    return _REF_TILE[digest]
+
+
+def _placing(icao: str, block: tuple[str, ...],
+             dumps: tuple[tuple[str, str, float], ...], digest: str) -> str | None:
+    """:func:`_first_placing`, memoised in :data:`_PLACING`."""
+    key = (icao, digest, dumps)
+    if key not in _PLACING:
+        if len(_PLACING) >= _PLACING_MAX:
+            _PLACING.clear()
+        _PLACING[key] = _first_placing(icao, block, dumps)
+    return _PLACING[key]
+
+
 def _first_placing(icao: str, block: tuple[str, ...],
                    dumps: tuple[tuple[str, str, float], ...]) -> str | None:
     """The first ``root`` of ``dumps`` (``(root, dump, mtime)``) placing a
-    pack-local object inside the airport; memoised on the dumps' mtimes."""
+    pack-local object inside the airport (memoised by :func:`_placing`)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
 

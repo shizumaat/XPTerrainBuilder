@@ -22,14 +22,13 @@ DEM digests into the later ones' inputs (``dem_before``), so a record
 never hides a question a memo asked for it.
 
 A :class:`Codec` turns an output into the payload bytes and its output
-digest: :data:`PICKLE` (the sha256 of the pickle), or the columnar
+digest: :data:`PICKLE` (the output's value digest), or the columnar
 constraint codec (``pipeline/constraint_records``).  Each record's entry
 in ``report["cache"]["stages"]`` is ``hit`` / ``miss`` / ``refused:
 <reason>`` / ``bypass: <reason>`` with the key prefix, the bytes and the
 miss arm's ``encode_s`` / ``digest_s`` / ``write_s`` (spec §4b.8)."""
 from __future__ import annotations
 
-import hashlib
 import pickle
 import time
 import typing as _t
@@ -38,7 +37,7 @@ from ..airport import dem_record as _dem
 from ..airport import file_witness as _files
 from ..airport import stage_cache as _store
 
-__all__ = ["Codec", "PICKLE", "Got", "record"]
+__all__ = ["Codec", "PICKLE", "pickle_codec", "Got", "record"]
 
 
 class Codec(_t.NamedTuple):
@@ -49,13 +48,17 @@ class Codec(_t.NamedTuple):
     decode: _t.Callable[[bytes], _t.Any]
 
 
-def _pickle_encode(out: _t.Any) -> tuple[bytes, _t.Callable[[], str]]:
-    blob = pickle.dumps(out, protocol=5)
-    return blob, lambda: hashlib.sha256(blob).hexdigest()
+def pickle_codec(view: _t.Callable[[_t.Any], _t.Any] | None = None) -> Codec:
+    """A record stored as its pickle, named by its VALUE (#2205) — of
+    ``view(out)`` when the output carries clocks that are not its answer."""
+    def encode(out: _t.Any) -> tuple[bytes, _t.Callable[[], str]]:
+        blob = pickle.dumps(out, protocol=5)
+        return blob, lambda: _store.value_digest(out if view is None else view(out))
+    return Codec(encode, pickle.loads)
 
 
-#: A record stored as its pickle, named by the pickle's sha256.
-PICKLE = Codec(_pickle_encode, pickle.loads)
+#: A record stored as its pickle, named by its value.
+PICKLE = pickle_codec()
 
 
 class Got(_t.NamedTuple):

@@ -7,6 +7,7 @@ orchestrator is driven with fake children (no worker processes).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import threading
@@ -20,7 +21,7 @@ import O4_Imagery_Prefetch as PREFETCH
 import O4_UI_Utils as UI
 import pytest
 from o4_engine import parallel
-from o4_engine.events import ImageryDownloadsDone
+from o4_engine.events import ImageryDownloadsDone, ImageryJobDone
 from o4_engine.session import EngineSession
 
 LAT, LON = 45, 7
@@ -39,6 +40,27 @@ def _grid(zoom, count):
     """``count`` texture origins of the tile's grid at ``zoom``."""
     (x0, y0) = GEO.wgs84_to_orthogrid(LAT + 0.5, LON + 0.5, zoom)
     return [(x0 + 16 * i, y0) for i in range(count)]
+
+
+@pytest.fixture(autouse=True)
+def no_jobs_left():
+    PREFETCH._JOBS.clear()
+    yield
+    for job in PREFETCH._JOBS.values():
+        job.stop(0)
+    PREFETCH._JOBS.clear()
+
+
+@contextlib.contextmanager
+def alongside(tile, on_done=None, fetch=None, find=PREFETCH.candidates):
+    """A job over the block, one orthophoto at a time, stopped at its end."""
+    job = PREFETCH.open_job(tile, on_done=on_done, fetch=fetch, find=find,
+                            plan=None, slots=1)
+    try:
+        yield job
+    finally:
+        job.stop()
+        PREFETCH.end_job(tile)
 
 
 @pytest.fixture
@@ -124,7 +146,7 @@ def test_nothing_to_prefetch(tile, case):
 def test_downloads_drain_and_report_once(tile):
     fetched, reports = [], []
     textures = [(i, i, 16, "NEW") for i in range(4)]
-    with PREFETCH.alongside(
+    with alongside(
             tile, on_done=lambda d, f: reports.append((d, f)),
             fetch=lambda t, texture: fetched.append(texture) or
             (texture[0] != 2),
@@ -144,7 +166,7 @@ def test_stop_at_the_step_end_starts_nothing_new(tile):
         return 1
 
     textures = [(i, i, 16, "NEW") for i in range(5)]
-    with PREFETCH.alongside(tile, on_done=lambda d, f: reports.append(d),
+    with alongside(tile, on_done=lambda d, f: reports.append(d),
                             fetch=fetch, find=lambda t: textures):
         while not started:
             threading.Event().wait(0.01)
@@ -161,7 +183,7 @@ def test_stop_flag_ends_the_prefetch(tile):
         UI.red_flag = True
         return 1
 
-    with PREFETCH.alongside(tile, fetch=fetch,
+    with alongside(tile, fetch=fetch,
                             find=lambda t: [(i, i, 16, "NEW")
                                             for i in range(3)]) as p:
         for thread in p._threads:
@@ -174,7 +196,7 @@ def test_nothing_to_fetch_reports_at_the_airport_fetch_or_the_step_end(tile):
     so with an empty queue the token comes back after that fetch — or at
     the step's end when no fetch comes (no auto-patch)."""
     reports = []
-    with PREFETCH.alongside(tile, on_done=lambda d, f: reports.append(d),
+    with alongside(tile, on_done=lambda d, f: reports.append(d),
                             find=lambda t: []):
         assert reports == [], "held for the airport fetch"
     assert reports == [0]
@@ -186,7 +208,7 @@ def test_a_failing_candidate_scan_prefetches_nothing(tile):
     def broken(t):
         raise OSError("unreadable")
 
-    with PREFETCH.alongside(tile, on_done=lambda d, f: reports.append(d),
+    with alongside(tile, on_done=lambda d, f: reports.append(d),
                             find=broken):
         pass
     assert reports == [0]
@@ -218,13 +240,14 @@ def test_an_incomplete_orthophoto_is_not_kept(tmp_path, monkeypatch):
 @pytest.fixture
 def spied(monkeypatch):
     calls = []
-    original = PREFETCH.alongside
+    original = PREFETCH.open_job
 
-    def spy(tile, on_done=None, **kw):
+    def spy(tile, on_done=None, token=True, **kw):
         calls.append(tile)
-        return original(tile, on_done=on_done, find=lambda t: [])
+        return original(tile, on_done=on_done, token=token,
+                        find=lambda t: [], plan=None)
 
-    monkeypatch.setattr(PREFETCH, "alongside", spy)
+    monkeypatch.setattr(PREFETCH, "open_job", spy)
     return calls
 
 
@@ -232,7 +255,7 @@ def _plan(*keys):
     return [(key, 0.0, 1.0) for key in keys]
 
 
-def test_in_process_vector_step_prefetches_and_reports(spied):
+def test_in_process_vector_step_opens_the_job_with_no_token_to_return(spied):
     session = EngineSession()
     events = []
     session.subscribe(events.append)
@@ -241,7 +264,20 @@ def test_in_process_vector_step_prefetches_and_reports(spied):
     assert session._run_step(lambda t: 1, "vector", tile,
                              _plan("vector", "imagery")) == 1
     assert spied == [tile]
-    done = [e for e in events if isinstance(e, ImageryDownloadsDone)]
+    assert not [e for e in events
+                if isinstance(e, (ImageryDownloadsDone, ImageryJobDone))]
+
+
+def test_a_worker_hands_its_token_back(spied, monkeypatch):
+    from O4_Machine_Slots import ENV_BUILD_WORKER
+    monkeypatch.setenv(ENV_BUILD_WORKER, "1")
+    session = EngineSession()
+    events = []
+    session.subscribe(events.append)
+    session._prefetch_imagery = True
+    session._run_step(lambda t: 1, "vector", SimpleNamespace(lat=LAT, lon=LON),
+                      _plan("vector", "imagery"))
+    done = [e for e in events if isinstance(e, ImageryJobDone)]
     assert [(e.lat, e.lon, e.downloaded) for e in done] == [(LAT, LON, 0)]
 
 
@@ -312,7 +348,7 @@ def _vector_run(tiles, flags=(True, True, False), imagery_busy=0):
 
 def _drained(run, child):
     run._on_child_event(child, {
-        "event": "ImageryDownloadsDone", "lat": child.tile[0],
+        "event": "ImageryJobDone", "lat": child.tile[0],
         "lon": child.tile[1], "downloaded": 2, "failed": 0})
 
 
@@ -327,10 +363,13 @@ def test_vector_step_borrows_an_imagery_token_and_drain_returns_it():
     assert run._class_active["imagery"] == 0, "no double release"
 
 
-def test_step_end_or_crash_returns_the_lent_token():
+def test_the_token_outlives_the_step_and_returns_with_the_tile():
     run, (child,) = _vector_run([(30, 1)])
     with run._lock:
         run._release_step_resources_locked(child)
+    assert run._class_active["imagery"] == 1, "the job goes on after the step"
+    with run._lock:
+        run._close_imagery_job_locked(child)
     assert run._class_active["imagery"] == 0
     run, (child,) = _vector_run([(30, 2)])
     run._on_child_exit(child)
@@ -341,7 +380,7 @@ def test_no_token_lent_when_the_imagery_class_is_full():
     limit = parallel.class_limits(8)["imagery"]
     run, (child,) = _vector_run([(31, 1)], imagery_busy=limit)
     assert child.running_step == "vector", "the step itself is not held"
-    assert "prefetch" not in child.arguments[0]
+    assert child.arguments[0]["token_lent"] is False
     assert run._class_active["imagery"] == limit
 
 
@@ -559,7 +598,7 @@ def test_the_background_never_blocks_the_airport_fetch(tile, monkeypatch):
             released.wait(5)
         return plain(t, texture)
 
-    prefetch = PREFETCH.Prefetch(tile, background, fetch=fetch).start()
+    prefetch = PREFETCH.Prefetch(tile, background, fetch=fetch, slots=1).start()
     deadline = threading.Event()
     for _ in range(100):                        # the first background photo is in flight
         if started:

@@ -1097,6 +1097,59 @@ def _seed_pack_walks(tasks: list) -> dict:
     return walks
 
 
+def _airport_flight_path(task: dict) -> str | None:
+    """The lock file of the ONE build of a straddling airport across tiles
+    (#2206 item 7), ``None`` for an airport only one tile builds.
+
+    Every tile holding a runway threshold of the airport builds it
+    (``task["threshold_tiles"]``, #2129), and each build is the whole
+    airport: LFPG built twice at once, 5,662 s and 5,607 s.  The tiles'
+    builds of one airport take turns under this lock, so the second runs
+    after the first and the stage cache serves it the first's records (the
+    records' keys and witnesses decide whether its inputs are the same; a
+    stage whose input differs runs again)."""
+    if len(task.get("threshold_tiles") or ()) < 2:
+        return None
+    return os.path.join(FNAMES.airport_mod_cache_root(),
+                        "o4_airport_flight_%s.lock" % task["icao"])
+
+
+def _one_flight_build(task: dict) -> dict:
+    """``build_write_verify_one_v2`` as the one flight of its airport across
+    the tiles that build it (:func:`_airport_flight_path`); the wait is
+    named in the result's log and ``flight_wait_s``."""
+    import time as _time
+    path = _airport_flight_path(task)
+    if path is None:
+        return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+    import O4_Download_Manager as _DM
+    from . import progress as _progress
+    beat = []
+
+    def _joined() -> None:              # the app sees the wait, and beats
+        bp = _progress.BuildProgress(task["icao"], [
+            "Waiting for this airport's build on another tile"])
+        bp.step()
+        beat.append(_progress.Heartbeat(bp.heartbeat, bp.running_step).start())
+    t0 = _time.time()
+    try:
+        with _DM.hold_flight(path, on_join=_joined):
+            for hb in beat:
+                hb.stop()
+            waited = _time.time() - t0
+            result = _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+    finally:
+        for hb in beat:
+            hb.stop()
+    result["flight_wait_s"] = round(waited, 1)
+    if beat:
+        result.setdefault("log_lines", []).insert(0, (
+            "%s: waited %.0f s for another tile's build of this airport "
+            "(one build per airport across tiles; this build reads its "
+            "stage records)" % (task["icao"], waited)))
+    return result
+
+
 def _build_write_verify_one(task: dict) -> dict:
     """Build ONE airport, write its ``*_auto.patch.osm``, and verify it.
 
@@ -1127,10 +1180,12 @@ def _build_write_verify_one(task: dict) -> dict:
         # ONE machine slot for the whole build (issue #1225): taken by the
         # parent before this worker process was started, or here on the
         # serial path, where the tile's own process waits for it.
+        # #2267: this process's slots (its pools' too) carry its airport
+        _SLOTS.name_process("airport %s" % icao)
         if _SLOT_HELD_BY_PARENT:
-            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+            return _one_flight_build(task)
         with _SLOTS.take(1):
-            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+            return _one_flight_build(task)
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
@@ -1393,6 +1448,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
                                set() if fut.done() else {fut})
 
             _GATED.run(tasks, width=n, start=_start, on_done=_done,
+                       label=lambda t: "airport %s" % t["icao"],
                        teardown=_teardown, on_tick=_drain_progress,
                        on_wait=lambda: UI.lvprint(
                            0, "   Auto-patch: waiting for a machine slot "

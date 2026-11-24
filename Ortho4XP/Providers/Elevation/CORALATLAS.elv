@@ -11,10 +11,9 @@
 # the non-US Caribbean, the Red Sea).
 #
 # Downloads are FREE but account-gated, so this provider serves a LOCAL
-# LIBRARY instead of a live URL: packages the user downloads (in-app
-# guided fetch under Tools > Allen Coral Atlas, or manually from the
-# website) land in Elevation_data/AllenCoralAtlas/ and are indexed from
-# there. A tile has coverage exactly when a downloaded package overlaps
+# LIBRARY instead of a live URL: packages the user downloads by hand
+# from the Atlas website (its Terms of Use bar automated retrieval) are
+# dropped into Elevation_data/AllenCoralAtlas/ and indexed from there. A tile has coverage exactly when a downloaded package overlaps
 # it; until then discovery reports no coverage and the other bathymetry
 # providers (or the OpenStreetMap reef fallback) apply.
 role=bathymetry

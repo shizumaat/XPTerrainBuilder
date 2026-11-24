@@ -35,6 +35,7 @@ import O4_Text_Files as TEXT
 import O4_Triangle_Run as TRIANGLE_RUN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
+import O4_Water_Imagery as WATERIMG
 import requests
 from O4_Parallel_Utils import effective_download_slots, parallel_execute
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -2672,6 +2673,14 @@ def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
                 til_x_left, til_y_top, zoomlevel, provider_code))
 
 
+def imagery_step_source(tile, til_x_left, til_y_top, zoomlevel, provider_code):
+    """``(folder, file name, drop)`` of the JPEG the imagery step reads for
+    this texture, and the tier it fetches it at (#2254)."""
+    (folder, name) = _source_jpeg_location(
+        tile, til_x_left, til_y_top, zoomlevel, provider_code)
+    return (folder, name, _placeholder_drop(tile, provider_code))
+
+
 def collect_color_statistics_for_harmonization(
     tile, til_x_left, til_y_top, zoomlevel, provider_code
 ):
@@ -3065,7 +3074,7 @@ def _run_converter(conv_cmd):
     """One subprocess conversion attempt; ``True`` when the converter succeeded."""
     return not subprocess.call(
         conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-        **UI.external_tool_keyword_arguments())
+        **UI.external_tool_keyword_arguments(conv_cmd))
 
 
 def _dds_tool_cmd(source_path, dxt5, dds_partial):
@@ -3161,7 +3170,15 @@ def convert_texture(
     cache_key = None
     dxt5 = False
     masked_texture = False
-    if tile.imprint_masks_to_dds and type == "dds":
+    if WATERIMG.draws_under(tile) and type == "dds":
+        # The photo under the water (RULINGS 2026-11-24f): no mask PNG;
+        # the ``depth`` alpha is the depth-graded mask itself.
+        mask_im = WATERIMG.imprints_alpha(tile) and MASK.needs_mask(
+            tile, til_x_left, til_y_top, zoomlevel)
+        masked_texture = bool(mask_im)
+        if masked_texture:
+            mask_im = mask_im.convert("L")
+    elif tile.imprint_masks_to_dds and type == "dds":
         masked_texture = os.path.exists(
             os.path.join(
                 tile.build_dir,
@@ -3379,7 +3396,7 @@ def convert_texture(
             erase_tmp_tif = True
             if subprocess.call(
                 geotag_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                **UI.external_tool_keyword_arguments()
+                **UI.external_tool_keyword_arguments(geotag_cmd)
             ):
                 UI.vprint(
                     1,

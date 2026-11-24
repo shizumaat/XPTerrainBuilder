@@ -1,0 +1,52 @@
+"""A step's side task, run beside the step's own work on a machine slot of
+its own (issue #1264: one tile used one core while Triangle4XP ran).
+
+The step's process holds one slot for itself (``O4_Machine_Slots.step``);
+work it starts beside that takes another slot first, never waiting
+(:func:`O4_Machine_Slots.try_take`).  With none free, :func:`beside`
+answers ``None`` and the caller runs the task inline, as before.
+"""
+from __future__ import annotations
+
+import threading
+
+import O4_Machine_Slots as MACHINE_SLOTS
+
+__all__ = ["beside"]
+
+
+class _Beside:
+    """A task running in a thread; :meth:`result` waits for it, gives its
+    slot back and returns (or raises) what the task did."""
+
+    def __init__(self, held, task, args) -> None:
+        self._held = held
+        self._value = None
+        self._error = None
+        self._thread = threading.Thread(
+            target=self._run, args=(task, args), daemon=True)
+        self._thread.start()
+
+    def _run(self, task, args) -> None:
+        try:
+            self._value = task(*args)
+        except BaseException as error:            # handed to result()
+            self._error = error
+        finally:
+            self._held.release()
+
+    def result(self):
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+        return self._value
+
+
+def beside(task, *args, what: str = "") -> "_Beside | None":
+    """``task(*args)`` started in a thread on a free machine slot, or
+    ``None`` (nothing started) when no slot is free."""
+    held = MACHINE_SLOTS.try_take(1, what=what)
+    if not held.count:
+        held.release()
+        return None
+    return _Beside(held, task, args)

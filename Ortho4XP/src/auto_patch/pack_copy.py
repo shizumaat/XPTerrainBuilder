@@ -96,8 +96,9 @@ def ensure_copy(pack_root: str) -> str | None:
         source = os.path.realpath(pack_root)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         if sys.platform == "darwin":
-            subprocess.run(["cp", "-cRL", source, target], check=True,
-                           **UI.external_tool_keyword_arguments())
+            command = ["cp", "-cRL", source, target]
+            subprocess.run(command, check=True,
+                           **UI.external_tool_keyword_arguments(command))
         else:
             shutil.copytree(source, target, symlinks=False)
     write_guard(target)

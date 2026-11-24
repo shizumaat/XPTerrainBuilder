@@ -154,3 +154,24 @@ def test_a_hard_deck_beside_it_over_another_road_or_beyond_the_run_leaves_it_our
     assert _beside_refusal(off_road) == ""
     far = box(150, -40, 300, 40)                         # over the road, past the run
     assert _beside_refusal(far, LineString([(-60, 0), (400, 0)])) == ""
+
+
+def test_a_resources_cover_is_read_once_and_placed_per_object(monkeypatch):
+    # #2206 step 2: the authored-frame union is held per geometry; every
+    # placement is the one a fresh read gives
+    import types as _ty
+
+    from auto_patch_v2.planar import deck_pack_cover as dpc
+    g = _geom([_quad(0.5, 10.0), _pit(6.0, 10.0)])
+    objs = [_ty.SimpleNamespace(id=f"o{i}", xy=(30.0 * i, 5.0), heading_deg=17.0 * i)
+            for i in range(3)]
+    fresh = [dpc._placed(o, dpc._local_cover(g, 2.0, None, float(
+        LAW.tables.structures.bridge.deck_plate_normal_y_min)), LAW) for o in objs]
+    calls = []
+    real = dpc._local_cover
+    monkeypatch.setattr(dpc, "_local_cover", lambda *a: calls.append(1) or real(*a))
+    got = [dpc._cover_plan(o, g, LAW, 2.0) for o in objs]
+    assert len(calls) == 1
+    assert [p.wkb_hex for p in got] == [p.wkb_hex for p in fresh]
+    dpc._cover_plan(objs[0], g, LAW, 2.0, 0.25)
+    assert len(calls) == 2                    # another floor is another reading

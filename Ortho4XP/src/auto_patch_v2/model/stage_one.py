@@ -19,10 +19,11 @@ from __future__ import annotations
 import contextlib
 import typing as _t
 
-__all__ = ["stage_one", "deriving", "from_full", "full_map"]
+__all__ = ["stage_one", "deriving", "from_full", "full_map", "on_full_decks", "full_decks"]
 
 _DERIVING: list[bool] = []
 _FULL: list = []
+_DECK_LISTENERS: list[_t.Callable[[tuple], None]] = []
 
 
 @contextlib.contextmanager
@@ -55,3 +56,28 @@ def full_map():
     """The full map stage 1's map is derived from (:func:`from_full`), or
     ``None`` outside one."""
     return _FULL[-1] if _FULL else None
+
+
+@contextlib.contextmanager
+def on_full_decks(fn: _t.Callable[[tuple], None]) -> _t.Iterator[None]:
+    """Inside, ``fn(decks)`` hears the FULL map's decks the moment its planar
+    stage has made them final (:func:`full_decks`; the build hands them to
+    stage 1's derive run ahead, ``pipeline/stage_one_ahead``, #2206 item 5)."""
+    _DECK_LISTENERS.append(fn)
+    try:
+        yield
+    finally:
+        _DECK_LISTENERS.remove(fn)
+
+
+def full_decks(decks: tuple) -> None:
+    """The planar stage's decks are final (its structures step): said to the
+    listeners when this is the FULL map (never stage 1's own).  A listener
+    never raises into the build."""
+    if _FULL or _DERIVING:
+        return
+    for fn in list(_DECK_LISTENERS):
+        try:
+            fn(tuple(decks))
+        except Exception:
+            pass

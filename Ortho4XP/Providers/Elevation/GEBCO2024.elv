@@ -21,12 +21,18 @@ role=bathymetry
 access_strategy=direct_cog
 
 # Global GEBCO 2024 15 arc-second grid as a single COG. This is a THIRD-PARTY
-# MIRROR (Source Cooperative / alexgleith) of the official GEBCO 2024 release;
-# the data are identical to the GEBCO Compilation Group (2024) grid, only the
-# hosting differs. Verified live 2026-07-16: HEAD returns 200 and GDAL opens it
-# as an 86400 x 43200 single-band COG with 8 overview levels, geotransform
-# origin (-180, 90), 15 arc-second (~450 m) pixels.
-cog_urls=https://data.source.coop/alexgleith/gebco-2024/GEBCO_2024.tif
+# MIRROR (Source Cooperative / ausantarctic) of the official GEBCO 2024
+# release; only the hosting differs from the GEBCO Compilation Group (2024)
+# grid. Verified live 2026-11-24: HTTP 200, an 86400 x 43200 Int16 WGS84 COG
+# with 512 px blocks, 15 arc-second (~450 m) pixels. The earlier mirror
+# (alexgleith/gebco-2024) now answers 404.
+cog_urls=https://data.source.coop/ausantarctic/gebco/GEBCO_2024.tif
+
+# Raised when the SOURCE changes in a way that voids recorded answers: band
+# cells recorded "no coverage" under an older revision are asked again, once
+# (O4_Bathymetry_Source_Revision). 1 = the 404 of the old mirror was recorded
+# as no coverage on every cell (#2265).
+source_revision=1
 
 # Native ground resolution of the source raster, in metres. 15 arc-second is
 # ~450 m at the equator.

@@ -244,10 +244,6 @@ _LAYOUT: list = [
          "Its ground shape needs the elevation of the tile next door too."),
         ("modify_custom_airports", "Fit custom airport buildings to the new ground", "tile", False,
          "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
-        ("rebase_custom_patches",
-         "Move custom airport ground shapes onto this build's elevation?", "tile", False,
-         "Moves a ground shape made for other elevation data onto this build's "
-         "ground, as drawn."),
         ("airport_elevation_insets", "High-resolution airport elevation", "tile", False,
          "Downloads meter-class elevation for the airports where it exists."),
         ("airport_elevation_level", "How detailed should airport elevation be?", "tile", False,
@@ -276,6 +272,10 @@ _LAYOUT: list = [
     ("water", "Water & Coastlines", [
         ("water_tech", "Which water should X-Plane draw?", "tile", False,
          "XP12 uses X-Plane 12's water; XP11 + bathy blends the older way."),
+        ("water_imagery", "Should the photo lie on top of the water or under it?", "tile", False,
+         "Under shows the photo as the floor of lakes, rivers and shallow sea."),
+        ("water_imagery_alpha", "Under the water, should the photo fade with depth?", "tile", False,
+         "Only for a photo under the water; compare both in the sim."),
         ("ratio_water", "How much photo should show through lakes and rivers?", "tile", False,
          "0 is plain X-Plane water, 1 is the photo only."),
         ("masking_mode", "What should the shoreline look like?", "tile", False,

@@ -1051,32 +1051,38 @@ def _pack_journalled(stage):
     import functools
 
     @functools.wraps(stage)
-    def journalled(tile) -> dict:
+    def journalled(tile, **kwargs) -> dict:
         import O4_File_Names as FNAMES
         from auto_patch_v2.airport import pack_journal as _pj
         restore_stopped_build(tile.build_dir, tile.lat, tile.lon)
         _pj.begin(tile.build_dir, FNAMES.short_latlon(tile.lat, tile.lon))
         try:
-            return stage(tile)
+            return stage(tile, **kwargs)
         finally:
             _pj.end()
     return journalled
 
 
 @_pack_journalled
-def rebake_after_mesh(tile) -> dict:
+def rebake_after_mesh(tile, failed: "list | None" = None) -> dict:
     """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
-    (the mesh hook wraps it too); returns the counts for the summary."""
-    return _object_stage(tile)
+    (the mesh hook wraps it too); returns the counts for the summary.
+    ``failed``: appended one row per airport (or the whole stage) whose
+    objects were NOT fitted (#2186) — ``O4_Object_Stage.run`` publishes
+    them as the tile's warnings."""
+    return _object_stage(tile, failed=failed)
 
 
-def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
+def _object_stage(tile, only: "frozenset[str] | None" = None,
+                  failed: "list | None" = None) -> dict:
     """:func:`rebake_after_mesh`'s stage.  ``only``: the airports a
     neighbour's build re-seats (#2129, ``guest_stage.reseat_guests``) —
     their plans (main and companions) alone run, never served from the
     reuse, with no unpatched-airport restore, no re-seat of its own and no
-    tile-wide adjust step (they are the build that asked's)."""
+    tile-wide adjust step (they are the build that asked's).  ``failed``:
+    see :func:`rebake_after_mesh` (a list the stage only appends to)."""
+    failed = [] if failed is None else failed
     import glob
 
     import O4_File_Names as FNAMES
@@ -1165,6 +1171,8 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
             dsf = _guests.own_ground(tile, plans)
             if not dsf:
                 UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
+                failed.append(_not_fitted(
+                    "", "", f"no mesh at {mesh_path} to fit the objects to"))
                 return counts
             UI.vprint(0, f"  [v2 rebake] mesh not found at {mesh_path}; the tile's "
                          f"built DSF is its ground ({dsf})")
@@ -1172,6 +1180,8 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
         if not _mesh_is_newer_than_alt(tile, mesh_path):
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
                          "placement SKIPPED; rebuild the mesh after the elevation step")
+            failed.append(_not_fitted(
+                "", "", "the mesh predates the tile's elevation (.alt)"))
             return counts
         # the user's switch stood the whole stage down above; what is left
         # here are the ENV arms, which keep the measurement
@@ -1406,13 +1416,17 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                 raise
             except Exception as exc:
                 counts["airports_failed"] += 1
+                failed.append(_not_fitted(
+                    icao if icao != "?" else _plan_icao(plan_path),
+                    _plan_pack(plan_), f"{exc}"))
                 UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); "
                             f"continuing (a failed write leaves the pack as it was)")
                 UI.vprint(2, traceback.format_exc())
         if only is None and write_enabled and not measure_only:
             # #2129: the guest rows other tiles' builds seated on another
             # ground than this mesh are re-seated by those tiles' plans
-            for k, v in _guests.reseat_guests(tile, mesh_path).items():
+            for k, v in _guests.reseat_guests(tile, mesh_path,
+                                                  failed=failed).items():
                 counts[k] = counts.get(k, 0) + v
         counts["packs_written"] = len(written_packs)
         if reuse is not None:
@@ -1426,6 +1440,7 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
                          "(originals kept as .anchor_bak) — restart X-Plane, objects are cached")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] failed: {exc}")
+        failed.append(_not_fitted("", "", f"{exc}"))
         UI.vprint(2, traceback.format_exc())
     finally:
         if only is None:
@@ -1434,6 +1449,29 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
             _adjust.tile_stage(tile, asked=asked, writes=(
                 not _pack_stand_down(tile) and _pack_copy.copy_dir() is None))
     return counts
+
+
+#: The catalogue code of an airport whose objects the stage did not fit
+#: (#2186, ``O4_Tile_Failures``; a DEGRADED warning of a built tile).
+NOT_FITTED_CODE = "pack_objects_not_fitted"
+
+
+def _not_fitted(icao: str, pack: str, detail: str) -> dict:
+    """One ``O4_Unpatched_Airports.record_degraded`` row: ``icao``'s
+    objects (every airport's, when empty) were not fitted to the mesh."""
+    row = {"code": NOT_FITTED_CODE, "detail": detail}
+    if icao and icao != "?":
+        row["airport"] = icao
+    if pack:
+        row["pack"] = pack
+    return row
+
+
+def _plan_pack(plan_) -> str:
+    """The pack a failed plan writes, by folder name ("" when the plan
+    never loaded)."""
+    root = getattr(plan_, "pack_root", "") or ""
+    return os.path.basename(os.path.normpath(root)) if root else ""
 
 
 def reuse_enabled(environ=None) -> bool:
@@ -1559,17 +1597,12 @@ def _custom_patch_airports(patch_dir: str) -> dict:
     ``<ICAO>_edited.patch.osm`` (owner RULINGS 2026-11-18k).  Such an
     airport's pack is used unmodified — the patch was likely designed for
     it; an edited patch keeps 2026-11-03e (13), its objects re-placed.
-    Here, not in ``selection``: that module is in the patch code key."""
-    import O4_File_Names as FNAMES
+    Only an airport that uses its custom patch "As made" (#2179,
+    ``O4_Custom_Patch_Use``): one on "Our auto patch" is auto-patched,
+    its objects placed as for any other airport."""
+    import O4_Custom_Patch_Use as CUSTOM_USE
 
-    out: dict = {}
-    if not os.path.isdir(patch_dir):
-        return out
-    for f in sorted(os.listdir(patch_dir)):
-        icao = FNAMES.patch_file_icao(f) if FNAMES.is_manual_patch_name(f) else None
-        if icao and f != FNAMES.edited_patch_name(icao):
-            out.setdefault(icao, []).append(f)
-    return out
+    return CUSTOM_USE.as_made_files(patch_dir)
 
 
 def _pack_stand_down(tile, icao: str | None = None) -> str:

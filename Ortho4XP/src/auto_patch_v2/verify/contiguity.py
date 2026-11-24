@@ -18,6 +18,7 @@ from ..constraints.contiguity import _cross_section
 from ..constraints.geometry import long_axis
 from ..constraints.roads import road_family_roles
 from .frame import Patch, Row, row
+from .nearest import FirstNearest
 
 __all__ = ["lateral_contiguity"]
 
@@ -54,6 +55,8 @@ def lateral_contiguity(p: Patch) -> list[Row]:
     tree = STRtree(polys)
     published = [(p.to_m(float(e[0]), float(e[1])), float(e[2]))
                  for e in (p.publication.get("station_caps") or [])]
+    # #2206 item 1: the nearest station cap by tree, first on a tie as ``min``
+    near = FirstNearest(published, lambda e: e[0])
     out: list[Row] = []
     for k, sh in enumerate(shapes):
         if sh.role not in roads:
@@ -83,7 +86,7 @@ def lateral_contiguity(p: Patch) -> list[Row]:
             law_cap = min(caps[j] for j in present)
             b = built
             if published:
-                pc = min(published, key=lambda e: (e[0][0] - px) ** 2 + (e[0][1] - py) ** 2)[1]
+                pc = published[near.index(px, py)][1]
                 b = min(b, pc)
             if b <= law_cap + 1e-12:
                 continue

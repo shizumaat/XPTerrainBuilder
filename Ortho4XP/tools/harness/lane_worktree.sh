@@ -840,13 +840,22 @@ down)
         [ -f "$ENGINE/$f" ] && rm -f "$ENGINE/$f"
         git -C "$WT" checkout -- "Ortho4XP/$f" 2>/dev/null || true
     done
+    # The registry tool of THIS script's checkout: the main checkout can
+    # sit on an older ref whose frames.py has no prune.  Resolved before the
+    # removal; a script running from the tree being removed has none left.
+    _self_root=$(cd "$(dirname "$0")/../../.." && pwd -P)
+    _wt_root=$(cd "$WT" && pwd -P)
     git -C "$MAIN_REPO" worktree remove "$WT" || die "worktree remove failed"
     echo "  [ritual] $WT removed."
     # Age out the durable frames store on every lane completion (owner
     # 2026-11-16): uncited lane dirs > 7 days deleted, cited ones moved to
     # the storage tier.  Best effort: a prune failure never fails teardown.
-    "${O4_HARNESS_PYTHON:-$MAIN_ENGINE/venv/bin/python}" \
-        "$MAIN_REPO/tools/harness/frames.py" prune --apply 2>&1 | sed 's/^/  [prune] /' || true
+    if [ "$_self_root" = "$_wt_root" ]; then
+        echo "  [prune] skipped: this script ran from the removed tree"
+    else
+        "${O4_HARNESS_PYTHON:-$MAIN_ENGINE/venv/bin/python}" \
+            "$_self_root/tools/harness/frames.py" prune --apply 2>&1 | sed 's/^/  [prune] /' || true
+    fi
     ;;
 
 *)

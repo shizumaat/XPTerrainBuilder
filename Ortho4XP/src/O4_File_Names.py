@@ -676,15 +676,19 @@ def is_manual_patch_name(fname):
 
 
 def manual_patch_icaos_in(directory):
-    """The ICAOs a patch directory covers by hand: every manual
-    ``*.patch.osm`` file's ICAO, plus every sub-directory's name."""
+    """The ICAOs a patch directory covers by hand: every APPLIED manual
+    ``*.patch.osm`` file's ICAO (``O4_Custom_Patch_Use``: a custom patch
+    whose airport uses "Our auto patch" is kept, not applied; #2179), plus
+    every sub-directory's name."""
+    import O4_Custom_Patch_Use as CUSTOM_USE
+
     out = set()
     if not os.path.isdir(directory):
         return out
+    out.update(patch_file_icao(f)
+               for f in CUSTOM_USE.applied_manual_files(directory))
     for fname in os.listdir(directory):
-        if is_manual_patch_name(fname):
-            out.add(patch_file_icao(fname))
-        elif os.path.isdir(os.path.join(directory, fname)):
+        if os.path.isdir(os.path.join(directory, fname)):
             out.add(fname.upper())
     return out
 

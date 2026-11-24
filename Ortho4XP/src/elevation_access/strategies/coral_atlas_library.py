@@ -26,7 +26,7 @@ class CoralAtlasLibraryStrategy:
     served from the user-populated library under
     ``Elevation_data/AllenCoralAtlas/`` instead of a live URL — see
     ``O4_Coral_Atlas`` for the library, the unit conversion (positive
-    centimetres -> negative metres) and the guided in-app fetch.
+    centimetres -> negative metres).
     Discovery consults only the local index: a tile has coverage exactly
     when the user has downloaded a package that overlaps it.
     """

@@ -871,13 +871,13 @@ def test_corrupt_archive_member_is_contained(tmp_path, monkeypatch):
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     zip_bytes = _viewfinder_zip_with_corrupt_member()
-    monkeypatch.setattr(
-        DEM,
-        "http_request",
-        lambda url, source, verbose=False: types.SimpleNamespace(
-            content=zip_bytes
-        ),
-    )
+    def _served(url, source, verbose=False, destination=None):
+        # the body streams to the destination the caller names (#2258)
+        with open(destination, "wb") as handle:
+            handle.write(zip_bytes)
+        return types.SimpleNamespace(content=zip_bytes)
+
+    monkeypatch.setattr(DEM, "http_request", _served)
     # Requesting the GOOD tile: succeeds, extracts it, and the corrupt
     # neighbour member is skipped without an exception and WITHOUT
     # leaving a zero-byte cache file behind.
@@ -903,7 +903,8 @@ def test_zero_byte_cache_file_is_not_recycled(tmp_path, monkeypatch):
     os.makedirs(os.path.dirname(poisoned), exist_ok=True)
     open(poisoned, "wb").close()
     monkeypatch.setattr(
-        DEM, "http_request", lambda url, source, verbose=False: None
+        DEM, "http_request",
+        lambda url, source, verbose=False, destination=None: None
     )
     assert DEM.ensure_elevation("NED1", 36, -87) == 0
     # The same guard heals the manual drop strategy's covers() test.

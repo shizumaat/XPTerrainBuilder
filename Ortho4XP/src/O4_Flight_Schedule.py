@@ -315,7 +315,7 @@ def _estimated(job: Job) -> bool:
 #: their deadlines, a tile projected late is warned of
 #: (:func:`projected_late`).  Replaces the 2026-11-10 "every row" rule.
 READY_KEYS = ("world", "budget", "network", "prefetch", "departure",
-              "first_window")
+              "first_window", "core")
 #: Added to the departure area's high-estimate finish (conservative).
 DEPARTURE_MARGIN_S = 60.0
 
@@ -424,6 +424,9 @@ class Facts:
     build_alternate: bool = False
     flight_loaded: bool = False             # X-Plane has a flight loaded
     loaded_real: Optional[bool] = None      # the witness read our real tiles
+    #: The follow job's count of the departure core (#2256,
+    #: ``imagery_follow_core``); None: no follow job, nothing to sharpen.
+    departure_core: Optional[dict] = None
 
 
 class Item(NamedTuple):
@@ -470,6 +473,32 @@ def _deadline_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
     return item._replace(eta_s=late)
 
 
+def _core_item(core: Optional[dict]) -> Item:
+    """The departure's sharp imagery (#2256): done only when every square
+    the spawn wants has landed; else what is still running, in words."""
+    if core is None:
+        return Item("core", "done", 0.0, "")
+    left, total = int(core.get("left") or 0), int(core.get("total") or 0)
+    state = core.get("state")
+    if state == "done":
+        failed = int(core.get("failed") or 0)
+        return Item("core", "done", 0.0, "" if not failed else
+                    "%d square(s) could not be fetched and stay coarser"
+                    % failed)
+    count = "%d of %d squares left" % (left, total) if total else "counting"
+    if state == "offline":
+        return Item("core", "blocked", None, "Offline: departure imagery "
+                    "is still sharpening (%s)" % count)
+    if state == "held":
+        return Item("core", "working", None, "Departure imagery waits for "
+                    "a build of its tile (%s)" % count)
+    if state == "stalled":
+        return Item("core", "working", None, "Departure imagery is still "
+                    "sharpening; the server is slow (%s)" % count)
+    return Item("core", "working", core.get("eta_s"),
+                "Departure imagery is still sharpening (%s)" % count)
+
+
 def readiness_items(facts: Facts) -> List[Item]:
     """The rows of §6.2, in order.  The flight is ready when every row
     of :data:`READY_KEYS` is ``done`` (the departure area); the others
@@ -494,7 +523,8 @@ def readiness_items(facts: Facts) -> List[Item]:
             else Item("prefetch", "working", None, ""),
             _jobs_item("departure", role("departure"), ends),
             _jobs_item("first_window", [j for j in role("enroute") if j.klass == P0],
-                       ends)]
+                       ends),
+            _core_item(facts.departure_core)]
     flying = facts.flight_slots or facts.slots
     in_air = ({id(j): end for j, end in finish_times(jobs, flying)}
               if flying != facts.slots else ends)

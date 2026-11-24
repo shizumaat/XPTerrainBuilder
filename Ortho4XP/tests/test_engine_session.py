@@ -69,6 +69,13 @@ def install_stub_pipeline(monkeypatch, results=None, hooks=None):
     """
     results = results or {}
     hooks = hooks or {}
+    # The run's Gateway and overlap offers read this machine's real apt.dat
+    # and packs on threads of their own: not a stub build's business, and
+    # on a loaded machine they starve it past its deadline.
+    import o4_engine.session as _SESSION
+    monkeypatch.setattr(_SESSION, "_offer_gateway_early", lambda tiles: None)
+    monkeypatch.setattr(_SESSION, "_offer_gateway_airports", lambda *a: None)
+    monkeypatch.setattr(_SESSION, "_offer_pack_overlaps", lambda *a: None)
 
     def make_step(step_key):
         def step(tile):

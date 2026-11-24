@@ -199,6 +199,15 @@ Resolution at `build_masks` start:
   (byte-identical legacy masks) when no fine provider covers the tile.
 * `False` — off; no DEM refinement, no depth ramp.
 
+Amended by RULINGS 2026-11-24a and the owner's 2026-11-24T02:08Z/02:10Z
+widening: in `"auto"` the coarse source no longer stays out of the masks.
+`O4_Bathymetry_Coarse` fetches ONE raster per sea tile at the source's
+native resolution (tile plus 0.1 degree) and adds a soft alpha over sea
+pixels wherever the water is shallower than `reef_visibility_depth`, with
+no airport, corridor or shoreline-distance gate. It never refines land,
+is zero on fine data (rising over 900 m from it), and stays at or below
+0.85 opacity. Fine sources keep the 50 m bar and their airport gate.
+
 ### 4.2 Depth-graded water alpha
 
 New `build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path)` in
@@ -311,6 +320,26 @@ national-server fetches for a result OSM provides — and only explicit
 unmapped). An intertidal twin ahead of a real bathymetry source in the
 priority walk never starves it on the automatic paths.
 
+### 4.6 The photo under the water (`water_imagery`, RULINGS 2026-11-24f)
+
+Tile settings `water_imagery` (`mask` default, `under`) and
+`water_imagery_alpha` (`opaque` default, `depth`; read only with
+`under`), resolved in `src/O4_Water_Imagery.py`. `mask` is everything
+above, byte for byte. `under` (X-Plane 12 water only) draws the photo as
+the floor beneath the water: each water triangle that shows it is ONE
+physical `WATER_COLOR_MASK` + `WET` triangle (band 1, nine planes: lon,
+lat, elev, nx, ny, fetch ratio 1, the `set_depth_ratio` depth ratio, s,
+t) with no mask PNG, no `BORDER_TEX` and no second `terrain_Water`
+triangle. Sea: a triangle gets it when the depth-graded mask of its
+texture (`needs_mask`, max-pooled to 256 cells a side) rises above
+`ALL_WATER_MAX` inside the triangle's pixel box; the others stay plain
+`terrain_Water`. Inland: every inland triangle, its depth ratio from the
+inland bed (`node_scale`) or the shore-distance ramp. `opaque` writes the
+textures DXT1; `depth` writes the masked ones DXT5 with the mask as
+alpha, read from `needs_mask` at conversion (never from a PNG). How
+X-Plane reads that alpha under its water is undocumented; the owner
+compares the arms in the sim.
+
 ## 5. DSF `sea_level` raster (Step 3)
 
 `extract_elevation_and_bathymetry_data(lat, lon)` grows a companion
@@ -384,16 +413,10 @@ strategy `coral_atlas_library`), not a live URL:
   `convert_centimeter_depths_to_metres` negates/scales, non-positive →
   nodata. A successful rescan drops every tile's bathymetry-band stamp
   so previously-negative tiles re-check coverage.
-* Guided fetch (`O4_Coral_Atlas.guided_fetch_for_tile`, Qt dialog under
-  Tools → Allen Coral Atlas): drives the Atlas's own web API —
-  `POST auth/login` (bearer token; password used once, never stored),
-  `POST mapping/aois` (tile polygon), `GET mapping/aois/<id>/products`,
-  `POST download/aois/<id>` `{datasets:{...}}` — downloads the package
-  when the reply carries a link, else surfaces the server's own
-  message (asynchronous email delivery) and points at the manual path.
-  Endpoints were reverse-verified from the Atlas frontend 2026-07-16;
-  the authenticated leg is exercised the first time a real account
-  runs it, so every server message is surfaced verbatim.
+* No automated fetch (owner 2026-11-24, #2265): the Atlas Terms of Use
+  bar automated retrieval, so the guided sign-in fetch was removed. The
+  Qt dialog (Tools → Allen Coral Atlas) gives manual instructions, opens
+  the website and the library folder, and rescans.
 * Provider fallthrough: coverage claims may exceed data (the library
   before any download), so `select_bathymetry_definitions` returns ALL
   covering providers priority-sorted and `ensure_bathymetry_band` walks

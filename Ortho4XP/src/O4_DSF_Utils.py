@@ -22,6 +22,7 @@ import O4_DEM_Utils as DEM
 import O4_DSF_Pools as POOLS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Geo_Arrays as GEO_ARRAYS
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
@@ -29,6 +30,7 @@ import O4_Overlay_Utils as OVL
 import O4_Tile_Build_Log as TILELOG
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
+import O4_Water_Imagery as WATERIMG
 from PIL import Image, ImageDraw
 
 quad_init_level = 3
@@ -89,12 +91,16 @@ def _patch_triangle_commands(indices, opcode, words_per_cmd):
 QUAD_MAX_LEVEL = 14
 QQUAD_BITS = 32
 assert QUAD_MAX_LEVEL + 16 <= QQUAD_BITS
+_QQUAD_FORMAT = "0%db" % QQUAD_BITS
 
 
 def float2qquad(x):
+    """The ``QQUAD_BITS``-digit binary quadtree address of a tile-relative
+    coordinate ``x`` (the digits ``numpy.binary_repr(...).zfill`` wrote,
+    through ``format``: it is called twice per mesh node)."""
     if x >= 1:
         return "1" * QQUAD_BITS
-    return numpy.binary_repr(int((1 << QQUAD_BITS) * x)).zfill(QQUAD_BITS)
+    return format(int((1 << QQUAD_BITS) * x), _QQUAD_FORMAT)
 
 
 def pool_icoord(qquad, level):
@@ -475,6 +481,45 @@ def remap_water_tri_type(raw_tri_type, use_masks_for_inland, has_water=7):
 
 
 ################################################################################
+def _remap_water_tri_types(raw_tri_types, use_masks_for_inland, has_water=7):
+    """:func:`remap_water_tri_type` of every element of the array
+    ``raw_tri_types``, by one call per DISTINCT attribute value."""
+    (values, where) = numpy.unique(raw_tri_types, return_inverse=True)
+    classes = numpy.array(
+        [remap_water_tri_type(int(value), use_masks_for_inland, has_water)
+         for value in values.tolist()],
+        dtype=raw_tri_types.dtype)
+    return classes[where.reshape(-1)]
+
+
+def _triangle_rows(node_coords, tri_idx, tri_types, nbr_tris, zoomlevel,
+                   chunk=1 << 16):
+    """``(n1, n2, n3, tri_type, square)`` of each of the first
+    ``nbr_tris`` triangles, in order, as Python ints; ``square`` is the
+    ``GEO.wgs84_to_orthogrid`` key of the triangle's barycentre at
+    ``zoomlevel`` (the texture square the loops look up).
+
+    The DSF triangle loops read one element at a time; a numpy element
+    read and the arithmetic on the numpy scalar it returns cost several
+    times a list's, and the square one call per triangle (#850).  The
+    values are the same (``O4_Geo_Arrays``), and a chunk bounds the lists
+    held at once."""
+    lons = node_coords[0::5]
+    lats = node_coords[1::5]
+    for start in range(0, nbr_tris, chunk):
+        stop = min(start + chunk, nbr_tris)
+        corners = tri_idx[3 * start:3 * stop].reshape(-1, 3)
+        lon = lons[corners]
+        lat = lats[corners]
+        (til_x, til_y) = GEO_ARRAYS.wgs84_to_orthogrid(
+            (lat[:, 0] + lat[:, 1] + lat[:, 2]) / 3,
+            (lon[:, 0] + lon[:, 1] + lon[:, 2]) / 3, zoomlevel)
+        yield from zip(corners[:, 0].tolist(), corners[:, 1].tolist(),
+                       corners[:, 2].tolist(), tri_types[start:stop].tolist(),
+                       zip(til_x.tolist(), til_y.tolist(), strict=True),
+                       strict=True)
+
+
 def extract_elevation_and_bathymetry_data(lat, lon):
     UI.vprint(1, "     Extracting some rasters from X-Plane's Global Scenery")
     global_scenery_dsf = os.path.join(
@@ -518,7 +563,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     if dsfid == "7z":
         UI.vprint(2, "     The original DSF is a 7z archive, uncompressing...")
         os.replace(tmp_file, tmp_file + ".7z")
-        subprocess.run([OVL.unzip_cmd, "e", f"-o{FNAMES.Tmp_dir}", f"{tmp_file}.7z"], **UI.external_tool_keyword_arguments())
+        command = [OVL.unzip_cmd, "e", f"-o{FNAMES.Tmp_dir}", f"{tmp_file}.7z"]
+        subprocess.run(command, **UI.external_tool_keyword_arguments(command))
         os.remove(tmp_file + '.7z')
     file_len = os.path.getsize(tmp_file)
     f = open(tmp_file, "rb")
@@ -930,9 +976,8 @@ def _build_dsf_body(tile, download_queue):
 
     # 2 Remap tri_types in (0,1,2)
     has_water = 7 if (mesh_version >= 1.3) else 3
-    for i in range(nbr_tris):
-        tri_types[i] = remap_water_tri_type(
-            tri_types[i], tile.use_masks_for_inland, has_water)
+    tri_types[:nbr_tris] = _remap_water_tri_types(
+        tri_types[:nbr_tris], tile.use_masks_for_inland, has_water)
 
     # 3 Recut water tris for XP12
     UI.vprint(1, "-> Adapting water triangles to XP12 requirements")
@@ -964,10 +1009,15 @@ def _build_dsf_body(tile, download_queue):
     else:
         quad_capacity = quad_capacity_high
     pool_quadtree = QuadTree(quad_init_level, quad_capacity)
+    # The quadtree and the triangle loops below read node longitudes and
+    # latitudes one at a time: from lists, the same floats, several times
+    # faster than numpy element reads (#850).
+    lons = node_coords[0::5].tolist()
+    lats = node_coords[1::5].tolist()
     for i in range(nbr_nodes):
         pool_quadtree.insert(
-                float2qquad(node_coords[5 * i + 0] - tile.lon),
-                float2qquad(node_coords[5 * i + 1] - tile.lat),
+                float2qquad(lons[i] - tile.lon),
+                float2qquad(lats[i] - tile.lat),
                 quad_init_level)
     pool_quadtree.clean()
     pool_quadtree.statistics()
@@ -995,9 +1045,7 @@ def _build_dsf_body(tile, download_queue):
             pool_icoord(pool_quadtree.nodes[idx_node][1], level)
             for idx_node in plist
         ]
-        altitudes = numpy.array(
-            [node_coords[5 * idx_node + 2] for idx_node in plist]
-        )
+        altitudes = node_coords[5 * numpy.array(plist) + 2]
         altmin = floor(altitudes.min())
         altmax = ceil(altitudes.max())
         if altmax - altmin < 770:
@@ -1145,6 +1193,89 @@ def _build_dsf_body(tile, download_queue):
 
     # Fade masks are rasterised once per texture tile (airport_ortho mode).
     fade_masks_written = set()
+
+    # The photo UNDER the water (``water_imagery`` ``under``, RULINGS
+    # 2026-11-24f, ``O4_Water_Imagery``): one physical WATER_COLOR_MASK
+    # triangle per water triangle that shows the photo, no mask PNG, no
+    # overlay, no second terrain_Water triangle.
+    under_water = WATERIMG.draws_under(tile)
+    under_crops = {}
+
+    def treat_under_texture(texture_attributes):
+        """Queue an ``under`` tile's texture when it is missing or its
+        alpha form is not the one asked for, and drop a mask PNG an
+        earlier build left beside it (``under`` references none)."""
+        texture_file_name = FNAMES.dds_file_name_from_attributes(
+            *texture_attributes)
+        textures_dir = os.path.join(tile.build_dir, "textures")
+        target_tex = os.path.join(textures_dir, texture_file_name)
+        mask_png = os.path.join(
+            textures_dir, FNAMES.mask_file(*texture_attributes))
+        if os.path.exists(mask_png):
+            os.remove(mask_png)
+        rebuild = PLACEHOLDER.needs_build(tile, target_tex)
+        if not rebuild:
+            wants_alpha = WATERIMG.imprints_alpha(tile) and bool(
+                MASK.needs_mask(tile, *texture_attributes))
+            rebuild = TIERS.is_dxt5(target_tex) != wants_alpha
+        if rebuild:
+            download_queue.put(texture_attributes)
+            textures_queued_count[0] += 1
+        else:
+            UI.vprint(2, "   Texture file " + texture_file_name
+                      + " already present.")
+        treated_textures.add(texture_attributes)
+
+    def under_sea_shows_imagery(texture_attributes, n1, n2, n3):
+        """True when the depth-graded mask of the triangle's texture shows
+        imagery anywhere inside this sea triangle."""
+        if texture_attributes not in under_crops:
+            crop = MASK.needs_mask(tile, *texture_attributes)
+            under_crops[texture_attributes] = (
+                WATERIMG.coarse_mask(numpy.asarray(crop.convert("L")))
+                if crop else None)
+        crop = under_crops[texture_attributes]
+        if crop is None:
+            return False
+        st_points = [
+            GEO.st_coord(node_coords[5 * n + 1], node_coords[5 * n],
+                         *texture_attributes)
+            for n in (n1, n2, n3)]
+        return WATERIMG.triangle_has_imagery(
+            crop, st_points, MASK.ALL_WATER_MAX)
+
+    def under_terrain(texture_attributes, tri_type):
+        """The WATER_COLOR_MASK terrain of ``texture_attributes`` for
+        ``tri_type`` water, its ``.ter`` written on first use."""
+        nonlocal bTERT
+        terrain_attributes = (texture_attributes, tri_type)
+        if terrain_attributes in dico_terrains:
+            return dico_terrains[terrain_attributes]
+        terrain_idx = len(dico_terrains)
+        textured_tris[terrain_idx] = defaultdict(lambda: array.array("H"))
+        dico_terrains[terrain_attributes] = terrain_idx
+        if texture_attributes not in treated_textures:
+            treat_under_texture(texture_attributes)
+        terrain_file_name = create_terrain_file(
+            tile, FNAMES.dds_file_name_from_attributes(*texture_attributes),
+            *texture_attributes, tri_type, False)
+        bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
+        return terrain_idx
+
+    def water_color_vertex(n, idx_pool, s, t):
+        """A new WATER_COLOR_MASK vertex (band 1, 9 planes: lon, lat,
+        elev, nx, ny, fetch ratio, depth ratio, s, t)."""
+        (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_pool + pool_nbr)
+        dsf_pools[idx_dsfpool].extend(node_icoords[5 * n : 5 * n + 5])
+        # TODO (improve fetch values)
+        ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
+                                            node_bathy, tile, node_scale)
+        ratio_fetch = 1
+        dsf_pools[idx_dsfpool].extend(
+            (int(65535 * ratio_fetch), int(65535 * ratio_bathy),
+             int(round(s * 65535)), int(round(t * 65535)))
+        )
+        return (idx_dsfpool, pos_in_pool)
 
     def _tri_centroid(n1, n2, n3):
         """Absolute (lon, lat) centroid of a triangle, for mode routing."""
@@ -1359,11 +1490,7 @@ def _build_dsf_body(tile, download_queue):
             if node_hash in textured_nodes:
                 (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
             else:
-                (s, t) = GEO.st_coord(
-                    node_coords[5 * n + 1],
-                    node_coords[5 * n],
-                    *texture_attributes
-                )
+                (s, t) = GEO.st_coord(lats[n], lons[n], *texture_attributes)
                 # band 1: (lon, lat, elev, nx, ny, s, t, s, t) -- the border
                 # (fade) mask shares the ortho tile's texture coordinates.
                 (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_pool + pool_nbr)
@@ -1403,11 +1530,10 @@ def _build_dsf_body(tile, download_queue):
     
 
     # First potentially masked water tris
-    for tri in range(nbr_tris):
-        tri_type = tri_types[tri]
+    for (n1, n2, n3, tri_type, square) in _triangle_rows(
+            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl):
         if (tri_type != 2):
             continue
-        (n1, n2, n3) = tri_idx[3 * tri: 3 * tri + 3]
         if done % step == 0:
             UI.progress_bar(1, int(done / step * 0.9))
             if done and not done % (10 * step):
@@ -1432,25 +1558,19 @@ def _build_dsf_body(tile, download_queue):
             terrain_idx = 0
             is_overlay = False
         else:
-            bary_lon = (
-                node_coords[5 * n1 + 0]
-                + node_coords[5 * n2 + 0]
-                + node_coords[5 * n3 + 0]
-            ) / 3
-            bary_lat = (
-                node_coords[5 * n1 + 1]
-                + node_coords[5 * n2 + 1]
-                + node_coords[5 * n3 + 1]
-            ) / 3
-            texture_attributes = dico_customzl[
-                GEO.wgs84_to_orthogrid(bary_lat, bary_lon, tile.mesh_zl)
-            ]
+            texture_attributes = dico_customzl[square]
             # The entries for the terrain and texture main dictionnaries
             terrain_attributes = (texture_attributes, tri_type)
             is_overlay = False
 
             # Do we need to build new terrain file(s) ?
-            if terrain_attributes in dico_terrains:
+            if under_water:
+                # the photo under the water where the mask shows it
+                terrain_idx = (
+                    under_terrain(texture_attributes, tri_type)
+                    if under_sea_shows_imagery(texture_attributes, n1, n2, n3)
+                    else 0)
+            elif terrain_attributes in dico_terrains:
                 terrain_idx = dico_terrains[terrain_attributes]
                 is_overlay = terrain_idx in overlay_terrains
             else:
@@ -1565,9 +1685,7 @@ def _build_dsf_body(tile, download_queue):
                     (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
                 else:
                     (s, t) = GEO.st_coord(
-                        node_coords[5 * n + 1],
-                        node_coords[5 * n],
-                        *texture_attributes
+                        lats[n], lons[n], *texture_attributes
                     )
                     # BEWARE : normal coordinates are pointing (EAST,SOUTH)
                     # in X-Plane, not (EAST,NORTH) ! (cfr DSF specs), so v -> -v
@@ -1585,19 +1703,9 @@ def _build_dsf_body(tile, download_queue):
                                 int(round(t * 65535)),
                             )
                         )
-                    else:  # dtx5 dds with mask included
-                        (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_pool + pool_nbr)
-                        dsf_pools[idx_dsfpool].extend(
-                            node_icoords[5 * n : 5 * n + 5]
-                        )
-                        # TODO (improve fetch values)
-                        ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                            node_bathy, tile, node_scale)
-                        ratio_fetch = 1
-                        dsf_pools[idx_dsfpool].extend(
-                            (int(65535 * ratio_fetch), int(65535 * ratio_bathy), 
-                             int(round(s * 65535)), int(round(t * 65535)))
-                        )
+                    else:  # physical water: dxt5 with the mask, or under
+                        (idx_dsfpool, pos_in_pool) = water_color_vertex(
+                            n, idx_pool, s, t)
                     len_textured_nodes += 1
                     textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
                 tri_p.extend((idx_dsfpool, pos_in_pool))
@@ -1652,11 +1760,10 @@ def _build_dsf_body(tile, download_queue):
                 textured_tris[0]["cross-pool"].extend(tri_p)
 
     # Second land and inland water tris with no mask
-    for tri in range(nbr_tris):
-        tri_type = tri_types[tri]
+    for (n1, n2, n3, tri_type, square) in _triangle_rows(
+            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl):
         if (tri_type == 2):
             continue
-        (n1, n2, n3) = tri_idx[3 * tri: 3 * tri + 3]
         
         if done % step == 0:
             UI.progress_bar(1, int(done / step * 0.9))
@@ -1693,23 +1800,15 @@ def _build_dsf_body(tile, download_queue):
             if not covered:
                 emit_plain_water(n1, n2, n3)
                 continue
-        bary_lon = (
-            node_coords[5 * n1] + node_coords[5 * n2] + node_coords[5 * n3]
-        ) / 3
-        bary_lat = (
-            node_coords[5 * n1 + 1]
-            + node_coords[5 * n2 + 1]
-            + node_coords[5 * n3 + 1]
-        ) / 3
-        texture_attributes = dico_customzl[
-            GEO.wgs84_to_orthogrid(bary_lat, bary_lon, tile.mesh_zl)
-        ]
+        texture_attributes = dico_customzl[square]
         # The entries for the terrain and texture main dictionnaries
         terrain_attributes = (texture_attributes, tri_type)
         is_overlay = False
 
         # Do we need to build new terrain file(s) ?
-        if terrain_attributes in dico_terrains:
+        if under_water and tri_type == 1:
+            terrain_idx = under_terrain(texture_attributes, tri_type)
+        elif terrain_attributes in dico_terrains:
             terrain_idx = dico_terrains[terrain_attributes]
             is_overlay = terrain_idx in overlay_terrains
         else:
@@ -1743,6 +1842,8 @@ def _build_dsf_body(tile, download_queue):
                 *texture_attributes
             )
             # do we need to download a new texture ?
+            if under_water and texture_attributes not in treated_textures:
+                treat_under_texture(texture_attributes)
             if texture_attributes not in treated_textures:
                 target_tex = os.path.join(
                             tile.build_dir, "textures", texture_file_name
@@ -1772,22 +1873,21 @@ def _build_dsf_body(tile, download_queue):
             bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
         # We put the tri in the right terrain
         # First the ones associated to the dico_customzl
-        tri_p = array.array("H")
+        # Each corner's (dsf pool, position): tuples, compared and
+        # emitted as the 16-bit triangle record did (#850).
+        corners = []
         for n in (n1, n3, n2):  # beware of ordering for orientation !
             idx_pool = idx_node_to_idx_pool[n]
             node_hash = (
                 idx_pool,
-                *node_icoords[5 * n : 5 * n + 2],
+                node_icoords[5 * n],
+                node_icoords[5 * n + 1],
                 terrain_idx,
             )
             if node_hash in textured_nodes:
                 (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
             else:
-                (s, t) = GEO.st_coord(
-                    node_coords[5 * n + 1],
-                    node_coords[5 * n],
-                    *texture_attributes
-                )
+                (s, t) = GEO.st_coord(lats[n], lons[n], *texture_attributes)
                 # BEWARE : normal coordinates are pointing (EAST,SOUTH) in 
                 # X-Plane, not (EAST,NORTH) ! (cfr DSF specs), so v -> -v
                 if not tri_type:  # land
@@ -1798,6 +1898,9 @@ def _build_dsf_body(tile, download_queue):
                     dsf_pools[idx_dsfpool].extend(
                         (int(round(s * 65535)), int(round(t * 65535)))
                     )
+                elif under_water:  # inland water, the photo under it
+                    (idx_dsfpool, pos_in_pool) = water_color_vertex(
+                        n, idx_pool, s, t)
                 elif terrain_idx in masked_inland_terrains:
                     # Feathered inland shore: the mask is the border
                     # texture, sampled at the ortho coordinates — the
@@ -1832,22 +1935,20 @@ def _build_dsf_body(tile, download_queue):
                     )
                 len_textured_nodes += 1
                 textured_nodes[node_hash] = (idx_dsfpool, pos_in_pool)
-            tri_p.extend((idx_dsfpool, pos_in_pool))
+            corners.append((idx_dsfpool, pos_in_pool))
+        (first, second, third) = corners
         # some triangles could be reduced to nothing by the pool snapping,
         # we skip them (possible killer to X-Plane's drapping of roads ?)
-        if (
-            tri_p[:2] == tri_p[2:4]
-            or tri_p[2:4] == tri_p[4:]
-            or tri_p[4:] == tri_p[:2]
-        ):
+        if first == second or second == third or third == first:
             continue
-        if tri_p[0] == tri_p[2] == tri_p[4]:
-            textured_tris[terrain_idx][tri_p[0]].extend(
-                (tri_p[1], tri_p[3], tri_p[5])
+        if first[0] == second[0] == third[0]:
+            textured_tris[terrain_idx][first[0]].extend(
+                (first[1], second[1], third[1])
             )
         else:
             total_cross_pool += 1
-            textured_tris[terrain_idx]["cross-pool"].extend(tri_p)
+            textured_tris[terrain_idx]["cross-pool"].extend(
+                first + second + third)
         
         # XP water
         if is_overlay: 

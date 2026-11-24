@@ -117,7 +117,7 @@ def profile_job(unit: _t.Any, member_ix: _t.Sequence[int], law: ProfileLaw,
     return (rows, lower, placed, law)
 
 
-def compose_job(job: tuple) -> "tuple[dict, str]":
+def compose_job(job: tuple, reads: "dict | None" = None) -> "tuple[dict, str]":
     """One :func:`profile_job` composed: ``(the profile as its publication
     dict, the composition label)`` — ``"composed"``, or ``"vertical_only"``
     where the plan carried no origins (the per-member upper bound).
@@ -130,10 +130,14 @@ def compose_job(job: tuple) -> "tuple[dict, str]":
     composes the members into ONE frame and RE-RUNS the roof test there,
     and those floors read ROOF.  A plane pad minted for one of them is
     §6's "a plane pad whose polygon contains lower geometry of its unit
-    after composition (a roof pad)"."""
+    after composition (a roof pad)".
+
+    ``reads`` (a dict the caller holds across its jobs) keeps each
+    published profile's READ (``obj8_grade.profile_from_json``) for the
+    next job naming the same dict (:func:`_read`)."""
     rows, lower, placed, law = job
     comp = _og.compose_profiles(
-        [(_og.profile_from_json(d), off, hdg) for d, off, hdg in rows],
+        [(_read(d, reads), off, hdg) for d, off, hdg in rows],
         pad_terrace_floor_m=law.pad_terrace_floor_m,
         pad_frontage_m=law.pad_frontage_m,
         roof_support_fraction=(law.roof_support_fraction if lower is not None
@@ -142,6 +146,21 @@ def compose_job(job: tuple) -> "tuple[dict, str]":
         min_distinct_spacing_m=law.min_distinct_spacing_m,
         input_quantum_m=law.input_quantum_m)
     return (_og.profile_to_json(comp), "composed" if placed else "vertical_only")
+
+
+def _read(d: "dict | None", reads: "dict | None") -> _t.Any:
+    """``obj8_grade.profile_from_json(d)``, read once per dict OBJECT
+    over the jobs sharing ``reads`` (issue #2176: MMUN's 2,214 jobs name
+    74 profiles, one of them 1,937 times, a 3,831-piece plane re-read from
+    its JSON each time).  The read is a frozen record of immutable
+    geometry, which :func:`compose_job` only reads; the dict is held
+    beside it, so its ``id`` cannot be reused while the entry stands."""
+    if reads is None:
+        return _og.profile_from_json(d)
+    got = reads.get(id(d))
+    if got is None or got[0] is not d:
+        got = reads[id(d)] = (d, _og.profile_from_json(d))
+    return got[1]
 
 
 def cluster_base_profile(unit: _t.Any, member_ix: _t.Sequence[int],
@@ -162,10 +181,19 @@ def _weight(job: tuple) -> float:
     return float(planes) * float(1 + (0 if lower is None else lower.shape[0]))
 
 
-def _compose_task(_state: _t.Any, job: tuple) -> "tuple[dict, str]":
-    """:func:`compose_job` as a work-pool task (the worker state is unused:
-    a job carries its own law)."""
-    return compose_job(job)
+def _compose_task(_state: _t.Any, batch: list) -> "list[tuple[dict, str]]":
+    """:func:`compose_job` of each job of ``batch`` as ONE work-pool task,
+    reading each profile once (the worker state is unused: a job carries
+    its own law).  A batch is pickled once, so a profile dict its jobs
+    share travels once and stays one object in the worker."""
+    reads: dict = {}
+    return [compose_job(j, reads) for j in batch]
+
+
+#: jobs per work-pool task (:func:`compose_jobs`): enough that a shared
+#: profile is read once a batch, few enough that the heaviest-first order
+#: still spreads the batches over every worker (a cost rule only)
+BATCH = 16
 
 
 def _same_job(job: tuple) -> tuple:
@@ -200,10 +228,14 @@ def compose_jobs(jobs: _t.Sequence[tuple], pool: _t.Any = None
             todo[k] = j
     got = None
     if pool is not None and len(todo) > 1:
-        got = pool.try_map(_compose_task, todo, weights=[_weight(j) for j in todo],
-                           what="terminal clusters: base profiles", unit="clusters")
+        batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
+        done = pool.try_map(_compose_task, batches,
+                            weights=[sum(_weight(j) for j in b) for b in batches],
+                            what="terminal clusters: base profiles", unit="batches")
+        got = None if done is None else [a for b in done for a in b]
     if got is None:
-        got = [compose_job(j) for j in todo]
+        reads: dict = {}
+        got = [compose_job(j, reads) for j in todo]
     seen: set[int] = set()
     out = []
     for k in slot:

@@ -10,6 +10,8 @@ import requests
 import numpy
 from shapely import geometry, ops
 import O4_Cfg_Module_Values as MODULE_VALUES
+import O4_Download_Manager as DOWNLOADS
+import O4_Step_Wait as STEP_WAIT
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
@@ -310,14 +312,19 @@ class OSM_layer:
         )
         return 1
 
-    def write_to_file(self, filename, header_attributes=None):
+    def write_to_file(self, filename, header_attributes=None,
+                      compressed=None):
+        """``compressed``: bzip2 the file (default: when ``filename``
+        ends in ``.bz2``; a temporary of a ``.bz2`` cache says so)."""
+        if compressed is None:
+            compressed = filename[-4:] == ".bz2"
         try:
             # The cache warmer writes a tile's layers before its build
             # has created the tile's OSM folder (#1329).
             folder = os.path.dirname(filename)
             if folder:
                 os.makedirs(folder, exist_ok=True)
-            if filename[-4:] == ".bz2":
+            if compressed:
                 fout = bz2.open(filename, "wt", encoding="utf-8", newline="\n")
             else:
                 fout = open(filename, "w", encoding="utf-8", newline="\n")
@@ -423,7 +430,8 @@ class OSM_layer:
         return 1
 
 
-def _cached_osm_schema_matches(cached_data_filename, cache_schema) -> bool:
+def _cached_osm_schema_matches(cached_data_filename, cache_schema,
+                               compressed=None) -> bool:
     """True when the cached OSM file carries the expected tag-schema
     marker (``o4_tag_schema="..."`` on the ``<osm`` root tag).  An
     empty ``cache_schema`` accepts any cache (legacy behaviour).  A
@@ -433,8 +441,10 @@ def _cached_osm_schema_matches(cached_data_filename, cache_schema) -> bool:
     if not cache_schema:
         return True
     marker = 'o4_tag_schema="' + cache_schema + '"'
+    if compressed is None:
+        compressed = cached_data_filename[-4:] == ".bz2"
     try:
-        if cached_data_filename[-4:] == ".bz2":
+        if compressed:
             pfile = bz2.open(cached_data_filename, "rt", encoding="utf-8")
         else:
             pfile = open(cached_data_filename, "r", encoding="utf-8")
@@ -443,6 +453,57 @@ def _cached_osm_schema_matches(cached_data_filename, cache_schema) -> bool:
         return marker in head
     except (OSError, UnicodeDecodeError):
         return False
+
+
+def cache_layer_once(cache_path, cache_schema, download, osm_layer):
+    """Fill ``osm_layer`` with ``download()`` and cache it at
+    ``cache_path`` ONCE across every process (``O4_Download_Manager``):
+    the file is written to a private temporary and installed with one
+    rename, and a caller that waited on another process's download
+    recycles what that one installed.
+
+    ``download()`` fills ``osm_layer`` and returns true when it got
+    data.  Returns ``"made"`` (this caller's ``download`` filled the
+    layer; the cache is written when it got data), ``"joined"`` (another
+    process installed a current cache: recycle it) or ``""`` (nothing:
+    the download failed or the build stopped).  What ``download()``
+    raises is raised here."""
+    compressed = cache_path[-4:] == ".bz2"
+
+    def is_current(path):
+        return os.path.isfile(path) and _cached_osm_schema_matches(
+            path, cache_schema, compressed)
+
+    got = []
+
+    def transfer(temporary, _stop):
+        got.append(download())
+        if not got[0]:
+            return DOWNLOADS.FAILED
+        osm_layer.write_to_file(
+            temporary,
+            header_attributes=({"o4_tag_schema": cache_schema}
+                               if cache_schema else None),
+            compressed=compressed)
+        return DOWNLOADS.READY
+
+    name = os.path.basename(cache_path)
+    # The flight's lock and request count live in the engine's tmp
+    # folder, not in a ``.download_manager`` folder of the tile: the
+    # shared-repo guard classes that folder as ``osm_layers``, so the
+    # parking and shore feeds' own refreshes could not write it.
+    state = (os.path.join(FNAMES.Tmp_dir, "download_manager", "osm_layers")
+             if FNAMES.Tmp_dir else None)
+    result = DOWNLOADS.fetch(
+        DOWNLOADS.Resource("osm-layer:" + name, "overpass:" + name,
+                           cache_path, is_current, shares_failure=False,
+                           state_dir=state),
+        should_stop=lambda: UI.red_flag, transfer=transfer)
+    if result.transferred and result.error is not None:
+        raise result.error        # what download() raised, as before
+    if got:
+        return "made" if got[0] else ""
+    return "joined" if result.ok else ""
 
 
 # Concurrent callers of the SAME cached query (the bathymetry-band
@@ -475,7 +536,12 @@ def OSM_queries_to_OSM_layer(
     bbox_margin_degrees=0.0,
 ):
     if cached_suffix:
-        with _osm_cache_lock(FNAMES.osm_cached(lat, lon, cached_suffix)):
+        cache_lock = _osm_cache_lock(FNAMES.osm_cached(lat, lon, cached_suffix))
+        if not cache_lock.acquire(blocking=False):
+            # Another thread of this step is fetching this very layer.
+            with STEP_WAIT.joining():
+                cache_lock.acquire()
+        try:
             return _OSM_queries_to_OSM_layer_serialized(
                 queries,
                 osm_layer,
@@ -487,6 +553,8 @@ def OSM_queries_to_OSM_layer(
                 cache_schema,
                 bbox_margin_degrees,
             )
+        finally:
+            cache_lock.release()
     return _OSM_queries_to_OSM_layer_serialized(
         queries,
         osm_layer,
@@ -558,6 +626,28 @@ def _OSM_queries_to_OSM_layer_serialized(
             cached_data_filename,
             "predates the current tag schema, re-downloading.",
         )
+
+    def download():
+        return _download_statements(queries, osm_layer, lat, lon,
+                                    input_tags, target_tags, cached_suffix,
+                                    bbox_margin_degrees)
+
+    if not cached_suffix:
+        return download()
+    made = cache_layer_once(cached_data_filename, cache_schema, download,
+                            osm_layer)
+    if made == "joined":
+        UI.vprint(1, "    * Recycling OSM data from", cached_data_filename)
+        return osm_layer.update_dicosm(
+            cached_data_filename, input_tags, target_tags)
+    return 1 if made else 0
+
+
+def _download_statements(queries, osm_layer, lat, lon, input_tags,
+                         target_tags, cached_suffix, bbox_margin_degrees):
+    """Fill ``osm_layer`` with ``queries`` over the tile (plus margin):
+    the pre-1.30 per-query caches, then the regional extracts, then
+    Overpass.  1 when it got data, 0 on no answer or Stop."""
     # Recycle per-query cached files from the pre-1.30 cache layout when
     # present, and collect every remaining statement so they can all be
     # downloaded in ONE batched Overpass request (see build_overpass_query
@@ -658,11 +748,6 @@ def _OSM_queries_to_OSM_layer_serialized(
             )
             return 0
         osm_layer.update_dicosm(response, input_tags, target_tags)
-    if cached_suffix:
-        osm_layer.write_to_file(
-            cached_data_filename,
-            header_attributes=({"o4_tag_schema": cache_schema}
-                               if cache_schema else None))
     return 1
 
 
@@ -940,6 +1025,8 @@ def _describe_overpass_response_problem(response):
 
 # How often to reassure the user that a slow request is still alive.
 progress_update_interval_seconds = 10
+#: How often the wait for an Overpass answer looks at Stop.
+stop_poll_interval_seconds = 0.25
 
 # The alternative source (a regional-extract lookup) does real work on
 # every call, so while an Overpass request is waiting it is polled no more
@@ -1030,13 +1117,20 @@ def _post_overpass_query_reporting_progress(server_key, overpass_query,
     request_thread = threading.Thread(target=send_request, daemon=True)
     request_thread.start()
     seconds_waited = 0
+    next_tick = time.monotonic() + progress_update_interval_seconds
     while True:
-        request_thread.join(timeout=progress_update_interval_seconds)
+        # Stop is looked at every quarter second; the progress line and
+        # the alternative source keep their own interval.
+        request_thread.join(timeout=min(stop_poll_interval_seconds,
+                                        progress_update_interval_seconds))
         if not request_thread.is_alive():
             break
-        seconds_waited += progress_update_interval_seconds
         if UI.red_flag:
             return None
+        if time.monotonic() < next_tick:
+            continue
+        next_tick += progress_update_interval_seconds
+        seconds_waited += progress_update_interval_seconds
         if alternative_source is not None:
             produced_bytes = _alternative_source_bytes(
                 alternative_source, poll_state
@@ -1160,10 +1254,14 @@ def get_overpass_data(query, bbox, request_description="",
                 if alternative_source is not None
                 else {}
             )
-            response = _post_overpass_query_reporting_progress(
-                current_server_key, overpass_query, request_label,
-                **wait_loop_kwargs,
-            )
+            # One slot of this server's budget, shared by every process
+            # of the session (O4_Download_Manager.server_slot).
+            with DOWNLOADS.server_slot(overpass_servers[current_server_key],
+                                       lambda: UI.red_flag) as held:
+                response = (_post_overpass_query_reporting_progress(
+                    current_server_key, overpass_query, request_label,
+                    **wait_loop_kwargs,
+                ) if held else None)
             if response is None:
                 # The user interrupted the build while we were waiting.
                 return 0
@@ -1223,17 +1321,19 @@ def get_overpass_data(query, bbox, request_description="",
             )
         failed_server_keys.add(current_server_key)
         # Sleep in one-second slices so the GUI stop button stays
-        # responsive during a long backoff wait.
-        for _ in range(wait_seconds):
-            if UI.red_flag:
-                return 0
-            if alternative_source is not None:
-                produced_bytes = _alternative_source_bytes(
-                    alternative_source, alternative_source_poll_state
-                )
-                if produced_bytes is not None:
-                    return _leave_overpass_queue_with(produced_bytes)
-            time.sleep(1)
+        # responsive during a long backoff wait.  A backoff is no work:
+        # the step's slots are free for other tiles meanwhile (#2254).
+        with STEP_WAIT.waiting():
+            for _ in range(wait_seconds):
+                if UI.red_flag:
+                    return 0
+                if alternative_source is not None:
+                    produced_bytes = _alternative_source_bytes(
+                        alternative_source, alternative_source_poll_state
+                    )
+                    if produced_bytes is not None:
+                        return _leave_overpass_queue_with(produced_bytes)
+                time.sleep(1)
     return 0
 
 

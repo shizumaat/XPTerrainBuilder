@@ -1458,11 +1458,12 @@ class MainWindow(QMainWindow):
         ig.addRow(CUSTOM_SETTINGS + ":", self.custom_settings_row)
         self._custom_settings_labels = []
         self._custom_settings_tile = None
-        # Custom patch (#1229, RULINGS 2026-10-26c; mac-app parity:
-        # BuildPane's "Custom patch" row): the custom patch files the
-        # build applies instead of the auto patch, and "Use auto patch",
-        # which sets them aside (never deletes them).
+        # Custom patch (#1229, #2179; RULINGS 2026-10-26c, 2026-11-23d/f;
+        # mac-app parity: BuildPane's "Custom patch" row): the tile's
+        # custom patch files, and per airport with a hand-made one a
+        # picker, "As made" or "Our auto patch".  Nothing is renamed.
         import O4_Custom_Patches as CUSTOM_PATCHES
+        import O4_Qt_Custom_Patch_Use as QTCUSTOMUSE
 
         self.custom_patch_row = QWidget()
         custom_patch_rows = QVBoxLayout(self.custom_patch_row)
@@ -1471,13 +1472,9 @@ class MainWindow(QMainWindow):
         self.custom_patch_label = QLabel()
         _wrap_and_never_widen(self.custom_patch_label)
         custom_patch_rows.addWidget(self.custom_patch_label)
-        self.use_auto_patch_btn = QPushButton(
-            CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE)
-        self.use_auto_patch_btn.setToolTip(
-            CUSTOM_PATCHES.use_auto_patch_help())
-        self.use_auto_patch_btn.clicked.connect(self._use_auto_patch)
-        _never_widen(self.use_auto_patch_btn)
-        custom_patch_rows.addWidget(self.use_auto_patch_btn)
+        self.custom_patch_use = QTCUSTOMUSE.CustomPatchUseList(
+            self._set_custom_patch_use)
+        custom_patch_rows.addWidget(self.custom_patch_use)
         ig.addRow(CUSTOM_PATCHES.CUSTOM_PATCH_TITLE + ":",
                   self.custom_patch_row)
         self._custom_patch_tile = None
@@ -1543,6 +1540,9 @@ class MainWindow(QMainWindow):
         # The headline (#818): grading and object fitting, per build.
         self.airports_card = QTAIRPORTS.AirportsCard()
         self.airports_card.on_card_changed = self._update_build_summary
+        # #2179: a choice on the card shows in the tile pane's row too
+        self.airports_card.on_custom_patch_use = (
+            lambda _tile: self._refresh_custom_patch(self._custom_patch_tile))
         self.chk_grade_airports = self.airports_card.chk_grade
         self.chk_modify_airports = self.airports_card.chk_fit
         bg.addWidget(self.airports_card)
@@ -2232,13 +2232,7 @@ class MainWindow(QMainWindow):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""
         import O4_Qt_Coral_Atlas as QTCORAL
 
-        tile = self.map.active_tile() or (
-            int(self.prefs.get("last_lat", 0)),
-            int(self.prefs.get("last_lon", 0)),
-        )
-        dialog = QTCORAL.CoralAtlasDialog(
-            self, initial_lat=tile[0], initial_lon=tile[1]
-        )
+        dialog = QTCORAL.CoralAtlasDialog(self)
         dialog.show()
 
     def open_msfs_convert_dialog(self):
@@ -4082,7 +4076,7 @@ class MainWindow(QMainWindow):
     def _ask_custom_patch_notices(self, rows):
         """Once per custom patch (#2179; the Mac app's
         ``CustomPatchNoticeAlert``): which elevation it was built for, and
-        "Use auto patch" or "Keep custom patch".  Either answer is
+        "Use our auto patch" or "Keep as made".  Either answer is
         remembered (``O4_Custom_Patches.notice_seen``)."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
@@ -4107,7 +4101,9 @@ class MainWindow(QMainWindow):
                     except (OSError, ValueError):
                         pass
                     if box.clickedButton() is use:
-                        self._use_auto_patch(tile, notice["icao"])
+                        self._set_custom_patch_use(
+                            {"tile": list(tile), "icao": notice["icao"]},
+                            "auto_patch")
         finally:
             self._asking_custom_patch = False
 
@@ -4116,15 +4112,17 @@ class MainWindow(QMainWindow):
         import O4_Custom_Patches as CUSTOM_PATCHES
 
         self._custom_patch_tile = tile
-        files = []
+        (files, rows) = ([], [])
         if tile is not None:
             try:
                 files = CUSTOM_PATCHES.custom_patches(tile[0], tile[1])
+                rows = CUSTOM_PATCHES.airport_uses(tile[0], tile[1])
             except Exception:
-                files = []
+                (files, rows) = ([], [])
         self.custom_patch_label.setText(
             CUSTOM_PATCHES.info_text(files) if files else "")
-        self._sync_use_auto_patch_btn()
+        self.custom_patch_use.set_rows(rows)
+        self._sync_custom_patch_use()
         self._info_layout.setRowVisible(self.custom_patch_row, bool(files))
         if tile is not None:
             bands = self.map.custom_patched()
@@ -4148,31 +4146,34 @@ class MainWindow(QMainWindow):
         return any(cell is not None and self._tile_in_run(cell)
                    for cell in cells)
 
-    def _sync_use_auto_patch_btn(self):
-        """Use auto patch waits only while ITS tile is in the run."""
-        tile = getattr(self, "_custom_patch_tile", None)
-        self.use_auto_patch_btn.setEnabled(
-            tile is not None and not self._tile_in_run(tile))
+    def _sync_custom_patch_use(self):
+        """The custom-patch pickers wait only while THEIR tile is in the
+        run (#1922)."""
+        self.custom_patch_use.set_enabled_for(self._tile_in_run)
 
-    def _use_auto_patch(self, tile=None, icao=None):
-        """Use auto patch: set the active tile's custom patches aside (or
-        *tile*'s, *icao*'s only, from the custom-patch notice)."""
+    def _set_custom_patch_use(self, row, mode):
+        """The custom-patch picker (#2179): *row*'s airport uses its
+        custom patch *mode* from the next build on; the tile pane and the
+        Build box's card are read again."""
         import O4_Custom_Patches as CUSTOM_PATCHES
 
-        tile = tile if isinstance(tile, tuple) else self._custom_patch_tile
-        if tile is None or self._tile_in_run(tile):
+        tile = tuple(row["tile"])
+        if self._tile_in_run(tile):
+            self._refresh_custom_patch(self._custom_patch_tile)
             return
         try:
-            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1], icao)
+            done = CUSTOM_PATCHES.set_use(tile[0], tile[1], row["icao"], mode)
         except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
+            QMessageBox.warning(self, CUSTOM_PATCHES.CUSTOM_PATCH_TITLE,
                                 str(exc))
-            moved = []
-        for path in moved:
-            print("Tile %s: set the custom patch aside as %s; the next "
-                  "build uses the auto patch."
-                  % (FNAMES.short_latlon(*tile), os.path.basename(path)))
-        self._refresh_custom_patch(tile)
+        else:
+            print("Tile %s: %s uses its custom patch: %s, from the next "
+                  "build on." % (FNAMES.short_latlon(*tile), done["icao"],
+                                 CUSTOM_PATCHES.use_title(done["use"])))
+        self._refresh_custom_patch(self._custom_patch_tile)
+        card = getattr(self, "airports_card", None)
+        if card is not None and card._pending:
+            card.request(*card._pending)
 
     def _edit_tile_settings(self):
         """Edit settings…: Settings scoped to the active tile, showing
@@ -5273,7 +5274,7 @@ class MainWindow(QMainWindow):
         self._paint_row_state(tile)
         self._sync_row_order()
         if tile == self._custom_patch_tile:
-            self._sync_use_auto_patch_btn()
+            self._sync_custom_patch_use()
         self._sync_pack_rows_busy()
 
     def _sync_pack_rows_busy(self):
@@ -6025,7 +6026,7 @@ class MainWindow(QMainWindow):
 
     def _on_run_done(self, event):
         self._building = False
-        self._sync_use_auto_patch_btn()
+        self._sync_custom_patch_use()
         self._sync_pack_rows_busy()
         self._storage_auto_clean()
         for box in list(self._slow_step_boxes.values()):

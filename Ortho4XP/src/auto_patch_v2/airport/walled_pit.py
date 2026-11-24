@@ -64,6 +64,7 @@ import numpy as np
 import shapely
 from shapely import STRtree
 
+from ..geom.line_walk import points_along as _points_along
 from ..geom.plane_groups import plane_groups as _plane_groups
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -156,17 +157,28 @@ class Walls:
         return STRtree(lines[k]), hi[k]
 
 
-def _on_ring(foot, walls, tk: float, step: float) -> tuple[float, "float | None"]:
-    """``(share, rim_y)``: the share of ``foot``'s outline samples within
-    ``tk`` of a wall, and the median over those samples of the highest wall
-    top there."""
-    tree, tops = walls
+def _ring_samples(foot, step: float) -> np.ndarray:
+    """``foot``'s outline sampled every ``step`` (at most): ``n`` points at
+    the middles of ``n`` equal runs of its boundary -- read ONCE per floor,
+    every mate's :func:`_on_ring` and :func:`_hung` ask the same points
+    (#2206: re-interpolated per mate on a long ring, HECA 103 s), walked
+    in ONE pass (``geom/line_walk``, GEOS's points bit for bit)."""
     ring = foot.boundary
     L = ring.length
     if L <= 0.0:
-        return 0.0, None
+        return np.empty(0, dtype=object)
     n = max(1, int(math.ceil(L / step)))
-    pts = shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (L / n))
+    return _points_along(ring, (np.arange(n) + 0.5) * (L / n))
+
+
+def _on_ring(pts: np.ndarray, walls, tk: float) -> tuple[float, "float | None"]:
+    """``(share, rim_y)``: the share of the outline samples ``pts``
+    (:func:`_ring_samples`) within ``tk`` of a wall, and the median over
+    those samples of the highest wall top there."""
+    tree, tops = walls
+    n = len(pts)
+    if not n:
+        return 0.0, None
     si, wi = tree.query(pts, predicate="dwithin", distance=tk)
     if not len(si):
         return 0.0, None
@@ -280,6 +292,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     tk = float(ob.wall_face_max_thickness_m)
     box = shapely.box(*outline.bounds).buffer(tk)
     covers, rims = [], []
+    pts = None
     for p in mates:
         y0, y1 = cache.y_range(p.resolved)[:2]
         bb = getattr(p, "plan_bbox", None)
@@ -290,7 +303,9 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         w = walls.reaching(p, floor_y + ob.cover_flush_m, floor_y + ob.floor_sunken_min_m, box)
         if w is None:
             continue
-        share, rim_y = _on_ring(outline, w, tk, float(ob.wall_sample_m))
+        if pts is None:
+            pts = _ring_samples(outline, float(ob.wall_sample_m))
+        share, rim_y = _on_ring(pts, w, tk)
         if share >= ob.floor_walled_min_share and rim_y is not None:
             covers.append(p)
             rims.append((share, rim_y))
@@ -378,7 +393,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     fz = float(faces[:, :, 2].min())
     # rule 7 (owner RULINGS 2026-11-17 (a)): only an OPEN TRENCH banks its open
     # edges -- its floor under no roof
-    hung = _hung(outline, (o, *covers), walls, _floor_y_at(o, v, under, floor_y, tk), law)
+    hung = _hung(outline, pts, (o, *covers), walls, _floor_y_at(o, v, under, floor_y, tk), law)
     trench = _open_trench(roofed, hung, law)
     inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
@@ -405,8 +420,9 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                        rim_proud_m=proud + lift, rim_tops=tops, rim_banks=bool(tops))
 
 
-def _hung(outline, frame, walls: Walls, floor, law) -> float:
-    """Rule 7: the share of ``outline`` (every ``wall_sample_m``) along
+def _hung(outline, pts: np.ndarray, frame, walls: Walls, floor, law) -> float:
+    """Rule 7: the share of ``outline`` (its samples ``pts``, every
+    ``wall_sample_m``: :func:`_ring_samples`) along
     which a wall of ``frame`` (the floor object and the pit's walls) hangs
     more than ``cover_flush_m`` UNDER the floor beside it (``floor(xs, ys)``,
     OBJ y) and rises to it: there the plate stands on its walls -- a roof,
@@ -414,9 +430,7 @@ def _hung(outline, frame, walls: Walls, floor, law) -> float:
     down: they hang under no part of it."""
     ob = law.tables.structures.tunnel.object
     tk, flush = float(ob.wall_face_max_thickness_m), float(ob.cover_flush_m)
-    ring = outline.boundary
-    n = max(1, int(math.ceil(ring.length / float(ob.wall_sample_m))))
-    pts = shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (ring.length / n))
+    n = len(pts)
     xy = shapely.get_coordinates(pts)
     fl = floor(xy[:, 0], xy[:, 1]) - flush
     box = shapely.box(*outline.bounds).buffer(tk)

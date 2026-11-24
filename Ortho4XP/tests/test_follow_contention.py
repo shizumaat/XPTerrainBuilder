@@ -47,11 +47,22 @@ def session(tmp_path, monkeypatch):
     monkeypatch.delenv(S.ENV_DIR, raising=False)
     monkeypatch.setenv(S.ENV_CAPACITY, "4")
     monkeypatch.setenv(S.ENV_UNGATED, "1")
+    # A mark stands until _lapse_demand ages it: how long the runner takes
+    # between two calls never decides who gets a slot (#2248).
+    monkeypatch.setattr(S, "DEMAND_TTL_S", 30.0)
     yield
     monkeypatch.delenv(S.ENV_DIR, raising=False)
 
 
 # --- the camera's requests go first --------------------------------------
+
+
+def _lapse_demand(name):
+    """Age the class's demand marks past their life (no sleep)."""
+    folder = S._demand_dir(S._class_dir(name))
+    old = time.time() - S.DEMAND_TTL_S - 1.0
+    for mark in os.listdir(folder) if os.path.isdir(folder) else ():
+        os.utime(os.path.join(folder, mark), (old, old))
 
 
 def test_a_waiting_priority_request_takes_the_next_free_slot(session):
@@ -64,7 +75,7 @@ def test_a_waiting_priority_request_takes_the_next_free_slot(session):
     mine = S.try_take_class(name, 1, 1, priority=True)
     assert mine.count == 1
     mine.release()
-    time.sleep(S.DEMAND_TTL_S + 0.1)                  # no camera demand now
+    _lapse_demand(name)                               # no camera demand now
     again = S.try_take_class(name, 1, 1)
     assert again.count == 1
     again.release()
@@ -100,54 +111,80 @@ def test_the_async_budget_carries_the_callers_priority(session):
     slot.release()
 
 
-def test_a_drape_run_yields_to_the_camera_and_the_limit_holds(session):
-    """Six drape threads keep a 4-slot class full; the camera's thread asks
-    for 20 requests: with its priority it waits for none of theirs, and the
-    class never has more than 4 requests in flight."""
+def _freed_slots_won_by_camera(name, limit, priority, rounds=20):
+    """A full class, the camera asking: each round one drape request ends
+    and a waiting drape asks before the camera does.  How many of the
+    ``rounds`` freed slots the camera got."""
+    drapes = [S.try_take_class(name, 1, limit, priority=False)
+              for _ in range(limit)]
+    assert all(held.count == 1 for held in drapes)
+    won = 0
+    for _ in range(rounds):
+        assert S.try_take_class(name, 1, limit, priority=priority).count == 0
+        drapes.pop().release()
+        drape = S.try_take_class(name, 1, limit, priority=False)
+        if drape.count:
+            drapes.append(drape)
+            continue
+        camera = S.try_take_class(name, 1, limit, priority=priority)
+        assert camera.count == 1
+        won += 1
+        camera.release()                 # the request done, the mark aged:
+        _lapse_demand(name)              # the drapes refill the class
+        drapes.append(S.try_take_class(name, 1, limit, priority=False))
+        assert drapes[-1].count == 1
+    for held in drapes:
+        held.release()
+    return won
+
+
+def test_a_drape_run_yields_to_the_camera(session):
+    """Every slot a drape frees goes to the waiting camera with its
+    priority, and to the next drape without it: the order of the grants,
+    which no runner's speed moves (#2248: this compared two wall times)."""
+    assert _freed_slots_won_by_camera("net:yield.test", 4, True) == 20
+    assert _freed_slots_won_by_camera("net:plain.test", 4, False) == 0
+
+
+def test_the_class_limit_holds_beside_a_drape_run(session, monkeypatch):
+    """Six drape threads keep a 4-slot class full while the camera's thread
+    makes 20 requests: all are served, never more than 4 in flight."""
+    monkeypatch.setattr(S, "DEMAND_TTL_S", 0.05)     # real threads, real marks
     name, limit = "net:share.test", 4
-    flight, peak, guard = [0], [0], threading.Lock()
+    flight, peak, served, guard = [0], [0], [0], threading.Lock()
     stop = threading.Event()
 
     def request(seconds):
         with S.hold_class(name, limit, poll_s=0.005) as held:
-            assert held.count == 1
+            if not held.count:
+                return False
             with guard:
                 flight[0] += 1
                 peak[0] = max(peak[0], flight[0])
             time.sleep(seconds)
             with guard:
                 flight[0] -= 1
+            return True
 
     def drape():
         while not stop.is_set():
-            request(0.02)
+            request(0.005)
 
-    def camera(out, priority):
-        t0 = time.monotonic()
-        for _ in range(20):
-            if priority:
-                with S.net_priority():
-                    request(0.02)
-            else:
-                request(0.02)
-        out.append(time.monotonic() - t0)
+    def camera():
+        with S.net_priority():
+            served[0] = sum(request(0.005) for _ in range(20))
 
     drapes = [threading.Thread(target=drape, daemon=True) for _ in range(6)]
     for thread in drapes:
         thread.start()
-    time.sleep(0.2)
-    timed = {}
-    for priority in (False, True):
-        out = []
-        cam = threading.Thread(target=camera, args=(out, priority))
-        cam.start()
-        cam.join(60)
-        timed[priority] = out[0]
+    cam = threading.Thread(target=camera)
+    cam.start()
+    cam.join(120)
     stop.set()
     for thread in drapes:
-        thread.join(5)
-    assert peak[0] <= limit
-    assert timed[True] < timed[False]
+        thread.join(30)
+    assert not cam.is_alive() and served[0] == 20
+    assert 1 <= peak[0] <= limit
 
 
 # --- the house: the index work off the tick --------------------------------
@@ -191,10 +228,13 @@ def test_a_slow_reread_never_holds_the_tick(tmp_path, monkeypatch):
                            clock=clock, cap_bytes=0, log_path=None)
     job.open()
     real, gate = HOUSE._read_rows, threading.Event()
+    reading, returned = threading.Event(), threading.Event()
 
     def slow(conn):
         rows = real(conn)
-        gate.wait(10)
+        reading.set()
+        gate.wait(120)                       # opened below, after the ticks
+        returned.set()
         return rows
     monkeypatch.setattr(HOUSE, "_read_rows", slow)
     job.house.start()
@@ -203,20 +243,20 @@ def test_a_slow_reread_never_holds_the_tick(tmp_path, monkeypatch):
         clock.t = times[0]
         job.tick()
         job.house.want_rows()                # the reread starts and waits
-        time.sleep(0.3)
-        longest = 0.0
+        assert reading.wait(30)
         for t in times[1:]:
             clock.t = t
-            t0 = time.monotonic()
             job.tick()
-            longest = max(longest, time.monotonic() - t0)
-            time.sleep(0.01)
+            _settle(job)
         landed = {lnd["square"] for lnd in job.landings}
-        assert landed and longest < 1.0
+        # Forty ticks ended with the read still inside: none waited for it
+        # (#2248: this bounded each tick's wall time).
+        assert landed and not returned.is_set()
         gate.set()                           # the stale read lands now
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 60
         while time.monotonic() < deadline and job.house._snapshot is None:
-            time.sleep(0.05)
+            time.sleep(0.01)
+        assert job.house._snapshot is not None
         job.tick()
         for key in landed:                   # the job's rows, not the read's
             assert job._rows[key]["state"] == "upgraded"

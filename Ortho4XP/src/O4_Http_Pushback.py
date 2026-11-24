@@ -90,15 +90,18 @@ def host_pause_remaining(url: str) -> float:
 
 
 def interruptible_sleep(seconds: float) -> bool:
-    """Sleep in short slices; False as soon as UI.red_flag is raised."""
-    deadline = time.monotonic() + seconds
-    while True:
+    """Sleep in short slices; False as soon as UI.red_flag is raised.
+
+    The slices are counted, not timed against the clock, so a stubbed
+    ``time.sleep`` (the suite's) never turns the wait into a spin."""
+    whole = int(max(0.0, seconds) // SLEEP_SLICE)
+    for pause in [SLEEP_SLICE] * whole + [max(0.0, seconds) - whole
+                                          * SLEEP_SLICE]:
         if UI.red_flag:
             return False
-        left = deadline - time.monotonic()
-        if left <= 0:
-            return True
-        time.sleep(min(SLEEP_SLICE, left))
+        if pause > 0:
+            time.sleep(pause)
+    return not UI.red_flag
 
 
 def wait_for_host(url: str) -> bool:

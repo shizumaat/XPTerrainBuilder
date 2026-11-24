@@ -15,6 +15,7 @@ import math
 import numpy
 import os
 
+import O4_Http_Pushback as PUSHBACK
 import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderUnavailable, TransientFetchError
@@ -163,6 +164,14 @@ def _source_linear_unit_m(source_epsg):
     return units if units > 0 else 1.0
 
 
+def _rest_before_retry(code):
+    """The pause between two askings of one chunk, ended by a Stop
+    (download census finding 5), which raises the stop as transient."""
+    if not PUSHBACK.interruptible_sleep(EXPORT_IMAGE_RETRY_DELAY_S):
+        raise TransientFetchError(
+            "%s exportImage stopped with the build" % code)
+
+
 @register_access_strategy("arcgis_export_image")
 class ArcgisExportImageStrategy:
     """Chunked ``exportImage`` against an ArcGIS ImageServer with no tile
@@ -292,7 +301,7 @@ class ArcgisExportImageStrategy:
                         "%s: exportImage request failed (%s)"
                         % (code, error)) from error
                 last_reason = str(error)
-                _time.sleep(EXPORT_IMAGE_RETRY_DELAY_S)
+                _rest_before_retry(code)
                 continue
             status = int(getattr(response, "status_code", 200))
             if discovery_status_is_transient(status):
@@ -301,7 +310,7 @@ class ArcgisExportImageStrategy:
                     raise _export_image_oversize_error(code, expected_px,
                                                        body)
                 last_reason = "HTTP %d" % status
-                _time.sleep(EXPORT_IMAGE_RETRY_DELAY_S)
+                _rest_before_retry(code)
                 continue
             if not 200 <= status < 300:
                 body = _response_head_text(response)
@@ -318,6 +327,10 @@ class ArcgisExportImageStrategy:
             try:
                 with open(path, "wb") as handle:
                     for block in response.iter_content(1 << 20):
+                        if UI.red_flag:      # census finding 9
+                            raise TransientFetchError(
+                                "%s exportImage stopped with the build"
+                                % code)
                         if not block:
                             continue
                         if len(head) < 512:
@@ -329,6 +342,8 @@ class ArcgisExportImageStrategy:
                             last_line = now
                             UI.vprint(1, _las_progress_line(
                                 label, moved, 0, moved, now - started))
+            except TransientFetchError:
+                raise
             except Exception as error:
                 if not error_message_indicates_transient_network_failure(
                         error):
@@ -336,7 +351,7 @@ class ArcgisExportImageStrategy:
                         "%s: exportImage body read failed (%s)"
                         % (code, error)) from error
                 last_reason = str(error)
-                _time.sleep(EXPORT_IMAGE_RETRY_DELAY_S)
+                _rest_before_retry(code)
                 continue
             text = head.decode("latin-1", "replace")
             if _export_image_oversize(text):
@@ -348,12 +363,12 @@ class ArcgisExportImageStrategy:
                 # an outage artefact, never a coverage answer (SQ3).
                 last_reason = "a 200 body that is not a TIFF (%r)" % (
                     text[:120],)
-                _time.sleep(EXPORT_IMAGE_RETRY_DELAY_S)
+                _rest_before_retry(code)
                 continue
             if export_format == "lerc" and head.lstrip().startswith(b"{"):
                 last_reason = "a 200 body that is not LERC (%r)" % (
                     text[:120],)
-                _time.sleep(EXPORT_IMAGE_RETRY_DELAY_S)
+                _rest_before_retry(code)
                 continue
             UI.vprint(1, _las_progress_line(
                 label, moved, moved, moved, _time.monotonic() - started,

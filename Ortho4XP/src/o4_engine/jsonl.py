@@ -218,6 +218,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "enqueue_build": session.enqueue_build,
         "cancel": session.cancel,
         "cancel_tile": session.cancel_tile,
+        # A parent run lends a worker's imagery job a token (#2254).
+        "imagery_token": session.imagery_token,
         # The answer to a SlowStep alert (protocol 1.26, #1351).
         "slow_step_choice": session.slow_step_choice,
         "siblings": session.set_parallel_siblings,
@@ -313,7 +315,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # one (the map band, the tile info) and setting a tile's aside so
         # the auto patch runs again.  Synchronous file work.
         "custom_patches": patch_commands.custom_patches,
-        "use_auto_patch": patch_commands.use_auto_patch,
+        "custom_patch_use": patch_commands.custom_patch_use,
         "custom_patch_notice_seen": patch_commands.custom_patch_notice_seen,
         # Patches dropped on the map or the app icon (#1979, capability
         # patch_drop): the plan (airport, tile, destination; writes

@@ -8,7 +8,11 @@ runs stage 1's derive in ONE spawned pool worker the moment the channels
 are done.  It must equal the serial arm — the stage-1 map, rows, strips and
 registries, the derive's run count and record — on a HIT, when the
 finished map's decks moved (refused: derived here), and with the stage
-cache on, where the worker's records serve a later serial build."""
+cache on, where the worker's records serve a later serial build.
+
+#2206 item 5: the same, started at classify's end (``start_early``) and
+handed the full map's decks at its structures step and its anchors after
+its channels."""
 from __future__ import annotations
 
 import dataclasses as dc
@@ -87,7 +91,8 @@ def _arm(ahead: bool, root=None, bind=None) -> dict:
                                pre.pm.registries, full=pre.pm, split=a.split)
         a.close()
     return {"s1": s1, "runs": derive.runs, "last": derive.last, "lines": lines,
-            "outcome": None if a is None else a.outcome, "states": _states(fc.finish())}
+            "outcome": None if a is None else a.outcome, "states": _states(fc.finish()),
+            "clock": None if a is None else a.clock(), "clocks": derive.clocks}
 
 
 def _same(a: dict, b: dict) -> None:
@@ -100,11 +105,25 @@ def _same(a: dict, b: dict) -> None:
     assert a["last"].airport.flat_site == b["last"].airport.flat_site
 
 
+def _clocked(arm: dict, outcome: str, where: str, started: str) -> None:
+    """#2206 step 0: the run ahead's record and the derive's one prefix
+    clock (``report.json["prefix_clocks"]``)."""
+    c = arm["clock"]
+    assert c["outcome"] == outcome and c["started"] == started, c
+    for k in ("worker_s", "ready_s", "waited_s"):     # a refused run is never taken
+        assert (c[k] is not None) == (outcome == "hit"), c
+    assert [(r["run"], r["where"]) for r in arm["clocks"]] == [(1, where)]
+    assert "planar" in arm["clocks"][0]["wall_s"]
+
+
 def test_a_hit_is_the_serial_derive(two_cores):
     ahead = _arm(True)
     assert ahead["outcome"] == "hit", ahead["lines"]
     assert any("run ahead beside the main pass" in ln for ln in ahead["lines"])
-    _same(ahead, _arm(False))
+    _clocked(ahead, "hit", "worker", "after channels")
+    serial = _arm(False)
+    assert [(r["run"], r["where"]) for r in serial["clocks"]] == [(1, "here")]
+    _same(ahead, serial)
 
 
 def test_a_moved_deck_refuses_the_workers_run(two_cores):
@@ -113,6 +132,7 @@ def test_a_moved_deck_refuses_the_workers_run(two_cores):
     ahead = _arm(True, bind=lambda pm: dc.replace(pm, decks=("moved",)))
     assert ahead["outcome"] == "miss", ahead["lines"]
     assert any("moved a deck" in ln for ln in ahead["lines"])
+    _clocked(ahead, "miss", "here", "after channels")
     _same(ahead, _arm(False))
 
 
@@ -130,3 +150,58 @@ def test_the_workers_records_serve_a_later_serial_build(two_cores, tmp_path):
     _same(writer, reader)
     s1 = {k: v for k, v in reader["states"].items() if k.endswith("@prefix1")}
     assert s1 and set(s1.values()) == {"hit"}, reader["states"]
+
+
+def _early_arm(bind=None) -> dict:
+    """#2206 item 5: the worker starts before the main pass's planar stage."""
+    from auto_patch_v2.model.stage_one import on_full_decks
+    law = Law.for_airport("SYNT")
+    airport = dc.replace(_with(_way(-3, RWY_END, highway="tertiary")), dem=_BulkFlat())
+    cl = classify(airport, law)
+    fc = FC.FrontCache(ICAO, airport, law, enabled=False, mod_cache_root=None)
+    airport = fc.airport(airport)
+    common = fc.common_inputs(None, None)
+    lines: list[str] = []
+    derive = Deriver(airport, law, INPUTS, PACK, cache=fc, common=common)
+    a = SA.start_early(cl, derive, out=lines.append)
+    assert a is not None, lines
+    with on_full_decks(a.hand_decks):
+        pre = run_prefix(airport, cl, law, INPUTS, PACK, fc, common=common,
+                         cl_digest=fc.digest(cl),
+                         after_channels=lambda _ap, pm_ch: a.hand_anchors(pm_ch))
+    a.rebind(pre.airport)
+    assert derive.airport is pre.airport
+    s1 = stage_one_problem(cl, a.bind(pre.pm if bind is None else bind(pre.pm)),
+                           pre.pm.registries, full=pre.pm, split=a.split)
+    a.close()
+    return {"s1": s1, "runs": derive.runs, "last": derive.last, "lines": lines,
+            "outcome": a.outcome, "states": _states(fc.finish()),
+            "clock": a.clock(), "clocks": derive.clocks}
+
+
+def test_started_at_classify_end_a_hit_is_the_serial_derive(two_cores):
+    ahead = _early_arm()
+    assert ahead["outcome"] == "hit", ahead["lines"]
+    assert any("from classify's end" in ln for ln in ahead["lines"])
+    _clocked(ahead, "hit", "worker", "early")
+    _same(ahead, _arm(False))
+
+
+def test_started_at_classify_end_a_moved_deck_is_derived_here(two_cores):
+    ahead = _early_arm(bind=lambda pm: dc.replace(pm, decks=("moved",)))
+    assert ahead["outcome"] == "miss", ahead["lines"]
+    _same(ahead, _arm(False))
+
+
+def test_the_lazy_full_map_waits_for_its_hand_over_and_stops_on_abort(tmp_path):
+    import pickle
+    lz = SA._LazyFull(str(tmp_path), stall_s=5.0)
+    got: list = []
+    lz.on_decks = got.append
+    (tmp_path / SA._hand_name("decks")).write_bytes(pickle.dumps({"decks": ("d",), "placed": {"k": 1}}))
+    assert lz.decks == ("d",) and lz.decks == ("d",)
+    assert got == [{"k": 1}]                       # the readings once, before the decks
+    (tmp_path / "abort").write_bytes(b"")
+    with pytest.raises(RuntimeError, match="handed no anchors"):
+        _ = lz.deck_anchors
+    assert pickle.loads(pickle.dumps(lz)).on_decks is None

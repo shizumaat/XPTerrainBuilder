@@ -476,7 +476,23 @@ def v2_report_to_store_record(report: dict, finished_at: float) -> dict:
              else sum(phase_seconds.values()))
     return {"finished_at": finished_at, "engine": "v2",
             "phase_seconds": phase_seconds,
+            "sub_seconds": v2_sub_seconds(report),
             "total_seconds": round(total, 3)}
+
+
+def v2_sub_seconds(report: dict) -> dict:
+    """The stage clocks' parts (#2206 6a): ``planar.<step>`` from the planar
+    stage's laps, ``solve.<label>.<part>`` from the stage solves' clock
+    summary.  Inside a phase, never one: their sum is not the total."""
+    out = {f"planar.{k}": float(v)
+           for k, v in ((report.get("planar") or {}).get("step_s") or {}).items()
+           if isinstance(v, (int, float))}
+    by_label = (report.get("solve_clocks") or {}).get("by_label") or {}
+    for label, parts in by_label.items():
+        for part, v in parts.items():
+            if part.endswith("_s") and isinstance(v, (int, float)):
+                out[f"solve.{label}.{part[:-2]}"] = float(v)
+    return out
 
 
 def append_store_record(store_directory: str, name: str,

@@ -414,8 +414,13 @@ def test_the_driver_stamps_the_engine_into_every_task_and_freshness_block():
         and '"apt_dat_path": apt_dat_selected' in src
     assert "resolved_auto_patch_engine(tile)" in inspect.getsource(
         DRIVER._freshness_stamps_now)
-    assert "return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)" \
+    # the step runs as its airport's one flight across tiles (#2206 item 7)
+    assert "return _one_flight_build(task)" \
         in inspect.getsource(DRIVER._build_write_verify_one), \
+        "v2 is the ONE per-airport step — no selector (RULINGS 2026-09-13au)"
+    flight = inspect.getsource(DRIVER._one_flight_build)
+    assert flight.count("_engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)") == 2 \
+        and "engine" not in flight.replace("_engine_v2", ""), \
         "v2 is the ONE per-airport step — no selector (RULINGS 2026-09-13au)"
 
 

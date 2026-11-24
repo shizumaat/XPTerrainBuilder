@@ -5,6 +5,8 @@ A strategy must never turn "the network hiccupped" into a durable
 message and build the refusals every strategy words the same way.
 """
 
+import contextlib
+import contextvars
 import os
 
 import O4_UI_Utils as UI
@@ -17,6 +19,8 @@ __all__ = [
     "product_refused_unavailable",
     "error_message_indicates_grid_configuration_failure",
     "error_message_indicates_transient_network_failure",
+    "warp_failure_is_transient",
+    "warp_failures_are_transient",
 ]
 
 
@@ -121,6 +125,29 @@ def error_message_indicates_transient_network_failure(message):
         fragment in lowered
         for fragment in _TRANSIENT_NETWORK_ERROR_FRAGMENTS
     )
+
+
+_WARP_FAILURE_IS_TRANSIENT = contextvars.ContextVar(
+    "warp_failure_is_transient", default=False)
+
+
+@contextlib.contextmanager
+def warp_failure_is_transient():
+    """In this block a failed warp RAISES :class:`TransientFetchError`
+    instead of returning ``False``, which strategies report as "no
+    coverage".  The bathymetry band fetch holds it (#2265: a 404 on the
+    GEBCO mirror became a durable negative); per thread, so other
+    fetchers keep their own answer."""
+    token = _WARP_FAILURE_IS_TRANSIENT.set(True)
+    try:
+        yield
+    finally:
+        _WARP_FAILURE_IS_TRANSIENT.reset(token)
+
+
+def warp_failures_are_transient() -> bool:
+    """Is the calling thread inside :func:`warp_failure_is_transient`?"""
+    return _WARP_FAILURE_IS_TRANSIENT.get()
 
 
 # GDAL failures that describe the RETURNED GRID rather than the data.  The

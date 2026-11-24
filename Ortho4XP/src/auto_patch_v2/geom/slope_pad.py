@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Point, Polygon
+import numpy as np
+import shapely
+from shapely.geometry import Polygon
 
 __all__ = ["seat_float_m", "slope_witness", "SlopeWitness"]
 
@@ -27,22 +29,32 @@ __all__ = ["seat_float_m", "slope_witness", "SlopeWitness"]
 GRID_N = 8
 
 
-def seat_float_m(outline: Polygon, dem_z: _t.Callable[[float, float], float]) -> float:
+def seat_float_m(outline: Polygon, dem_z: _t.Callable[[float, float], float],
+                 z_many: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None" = None
+                 ) -> float:
     """How far a building seated at the MEDIAN ground under ``outline``
-    stands above the LOWEST ground under it (metres, >= 0)."""
+    stands above the LOWEST ground under it (metres, >= 0).  ``z_many``,
+    the DEM's own array read (``dem.z_many``, its point read ``dem.z``
+    element for element), reads every sample in ONE call (#2206: MMUN 50 s
+    of per-point reads); without it each sample is a ``dem_z`` call."""
     if outline is None or outline.is_empty:
         return 0.0
     polys = list(getattr(outline, "geoms", [outline]))
     pts = [c for p in polys for c in list(p.exterior.coords)[:-1]]
     x0, y0, x1, y1 = outline.bounds
-    for i in range(GRID_N):
-        for j in range(GRID_N):
-            x = x0 + (i + 0.5) * (x1 - x0) / GRID_N
-            y = y0 + (j + 0.5) * (y1 - y0) / GRID_N
-            if outline.contains(Point(x, y)):
-                pts.append((x, y))
-    zs = sorted(float(z) for z in (dem_z(float(x), float(y)) for x, y in pts)
-                if z is not None and z == z)
+    # the grid, i outer and j inner, each cell's middle; ONE contains call
+    # over its points (the same predicate per point as ``contains(Point)``)
+    k = np.arange(GRID_N, dtype=np.float64) + 0.5
+    gx = np.repeat(x0 + k * (x1 - x0) / GRID_N, GRID_N)
+    gy = np.tile(y0 + k * (y1 - y0) / GRID_N, GRID_N)
+    inside = shapely.contains(outline, shapely.points(gx, gy))
+    pts.extend(zip(gx[inside].tolist(), gy[inside].tolist(), strict=True))
+    if z_many is not None and pts:
+        xy = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
+        raw = np.asarray(z_many(xy[:, 0], xy[:, 1]), dtype=np.float64).tolist()
+    else:
+        raw = (dem_z(float(x), float(y)) for x, y in pts)
+    zs = sorted(float(z) for z in raw if z is not None and z == z)
     if not zs:
         return 0.0
     n = len(zs)
@@ -67,13 +79,14 @@ class SlopeWitness:
     over 1,757 m2, and the shared datum left its low end 0.63 m up."""
 
     def __init__(self, dem_z, threshold: float,
-                 groups: _t.Mapping[str, tuple[str, Polygon]] | None = None):
-        self.dem_z = dem_z
+                 groups: _t.Mapping[str, tuple[str, Polygon]] | None = None,
+                 z_many=None):
+        self.dem_z, self.z_many = dem_z, z_many
         self.threshold = float(threshold)
         self._groups = dict(groups or {})
 
     def floats(self, u: Polygon) -> bool:
-        return seat_float_m(u, self.dem_z) > self.threshold
+        return seat_float_m(u, self.dem_z, self.z_many) > self.threshold
 
     def group_of(self, cid: str) -> "tuple[str, Polygon] | None":
         """``(the group's representative cluster id, its footprint union)``
@@ -81,13 +94,13 @@ class SlopeWitness:
         return self._groups.get(str(cid))
 
     def __getitem__(self, k):          # the ``(fn, threshold)`` spelling
-        return ((lambda u: seat_float_m(u, self.dem_z)), self.threshold)[k]
+        return ((lambda u: seat_float_m(u, self.dem_z, self.z_many)), self.threshold)[k]
 
 
 _MEMO: list[tuple[int, _t.Any, SlopeWitness]] = []
 
 
-def _groups(airport: _t.Any, st: _t.Any, dem_z, threshold: float
+def _groups(airport: _t.Any, st: _t.Any, dem_z, threshold: float, z_many=None
             ) -> dict[str, tuple[str, Polygon]]:
     from shapely.ops import unary_union
     from shapely.strtree import STRtree
@@ -135,7 +148,7 @@ def _groups(airport: _t.Any, st: _t.Any, dem_z, threshold: float
         x0, y0, x1, y1 = u.bounds
         if span_max > 0.0 and ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 >= span_max:
             continue
-        if seat_float_m(u, dem_z) <= threshold:
+        if seat_float_m(u, dem_z, z_many) <= threshold:
             continue
         rep = str(cl[max(walled, key=lambda i: polys[i].area)].id)
         for i in idx:
@@ -156,9 +169,10 @@ def slope_witness(airport: _t.Any, law: _t.Any) -> "SlopeWitness | None":
     for k, ap, w in _MEMO:
         if k == id(airport) and ap is airport and w.threshold == t:
             return w
-    groups = (_groups(airport, st, dem.z, t)
+    z_many = getattr(dem, "z_many", None)
+    groups = (_groups(airport, st, dem.z, t, z_many)
               if getattr(airport, "frame", None) is not None else {})
-    w = SlopeWitness(dem.z, t, groups)
+    w = SlopeWitness(dem.z, t, groups, z_many)
     _MEMO.append((id(airport), airport, w))
     del _MEMO[:-2]
     return w

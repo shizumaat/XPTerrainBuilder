@@ -287,6 +287,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -375,6 +376,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
         "auto_patch_v2.geom.lens",
+        "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -595,6 +597,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.portal_floor",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
@@ -712,8 +715,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.exact",
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
-        "auto_patch_v2.geom.grid_pickle",
         "auto_patch_v2.geom.lens",
+        "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -767,6 +770,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.clocks",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_bank",
         "auto_patch_v2.model.deck_ends",
@@ -797,7 +801,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.agp_ground",
         "auto_patch_v2.planar.apron_shelf",
-        "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.bank_cut",
         "auto_patch_v2.planar.basin_author_ground",
         "auto_patch_v2.planar.basin_datum",
@@ -1091,6 +1094,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -1137,6 +1141,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.diameter",
         "auto_patch_v2.geom.exact",
         "auto_patch_v2.geom.foot_planes",
+        "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -1317,6 +1322,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
@@ -1403,6 +1409,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.end_line",
         "auto_patch_v2.geom.exact",
         "auto_patch_v2.geom.foot_planes",
+        "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -1614,6 +1621,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -1791,6 +1799,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
         "auto_patch_v2.geom.lens",
+        "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -2433,6 +2442,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class geom.plane_groups
+    geom.line_walk
     constraints.agp_plate geom.agp_plate model.agp_plate
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
@@ -2493,7 +2503,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.pool_memory airport.rebake_plan airport.deck_plane_ring
+    airport.pool airport.pool_memory airport.pool_slots airport.rebake_plan airport.deck_plane_ring
     airport.pack_patch_witness airport.riders airport.ring_contact_batch
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
@@ -2588,6 +2598,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.wall_class airport.sunk_frame
     airport.wall_sheets airport.wall_sides airport.wall_top model.wall_reach
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class geom.plane_groups
+    geom.line_walk
     airport.below_grade_witness airport.hanging_objects airport.object_cut
     airport.shell_ground airport.wall_geometry geom.author_ground geom.vector
     law.agp_schema
@@ -2635,6 +2646,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.lowest_face airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.pool_memory
+    airport.pool_slots
     airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness airport.riders
     airport.ring_contact_batch airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.topology_cache constraints.apron
@@ -2697,7 +2709,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.agp_foot_pads airport.floor_deck_ends airport.stack_end_seat
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     geom.lowest_face geom.plate_heights
-    airport.walled_pit airport.portal_floor airport.pit_frame
+    airport.walled_pit geom.line_walk airport.portal_floor airport.pit_frame
     geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2750,7 +2762,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool airport.pool_memory
+    airport.plate_ground airport.pool airport.pool_memory airport.pool_slots
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness
     airport.riders airport.road_profile
@@ -2804,7 +2816,7 @@ CODE_MODULES["solve"] = _mods("""
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
-    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf
     planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
@@ -2842,7 +2854,8 @@ CODE_MODULES["solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
+    solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -2878,8 +2891,10 @@ CODE_MODULES["solve"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
     geom.plate_bands model.floor_ground planar.road_wall_witness
     model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    pipeline.registry_writes
     geom.deck_spans planar.deck_span_cut planar.route_lines
     pipeline.late_view
     geom.channel_declared planar.channel_ramp
@@ -2901,7 +2916,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     geom.lowest_face geom.plate_heights
     constraints.deck_stack
-    airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
+    airport.walled_pit geom.line_walk airport.portal_floor airport.pit_frame constraints.airside_top
     geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
@@ -2955,7 +2970,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool airport.pool_memory
+    airport.plate_ground airport.pool airport.pool_memory airport.pool_slots
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness
     airport.riders airport.road_profile
@@ -3029,7 +3044,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.car_lot_stage constraints.car_lot_follow
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
-    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf
     planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
@@ -3067,7 +3082,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed
+    solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
+    solve.wall_cut solve.warm_seed
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
@@ -3104,6 +3120,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
     constraints.road_bridge_ceiling model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["emit"] = _mods("""
     geom.deck_spans planar.deck_span_cut planar.route_lines
@@ -3128,7 +3145,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     geom.lowest_face geom.plate_heights
-    airport.walled_pit airport.pit_frame constraints.airside_top geom.plane_groups
+    airport.walled_pit geom.line_walk airport.pit_frame constraints.airside_top geom.plane_groups
     geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground airport.road_bridge_ground
     airport.bore_ground airport.object_ground
@@ -3184,6 +3201,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.rebake_screen airport.riders
+    airport.pool_slots
     airport.deck_plane_ring airport.pack_patch_witness
     airport.plate_ground airport.public_road
     airport.road_descent airport.road_joint airport.road_profile airport.road_ramp
@@ -3242,7 +3260,8 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
-    solve.project_strip solve.rows solve.runway_first solve.wall_cut solve.warm_seed verify.roads
+    solve.project_strip solve.round_normal solve.rows solve.runway_first solve.wall_cut
+    solve.warm_seed verify.roads
     classify.reachability
     geom.slope_pad
     airport.riser_wall
@@ -3287,6 +3306,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_plates airport.obj8_band airport.split_level_forecourt classify.apron_gate
     constraints.public_road_release geom.plate_bands model.floor_ground
     model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.channel_declared
@@ -3305,7 +3325,7 @@ CODE_MODULES["verify"] = _mods("""
     model.yard_run geom.slope_bound solve.project_yard
     classify.fence_yard classify.floor_yard geom.capped_plane
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
-    airport.object_floor airport.wall_geometry airport.walled_pit geom.plane_groups
+    airport.object_floor airport.wall_geometry airport.walled_pit geom.line_walk geom.plane_groups
     geom.author_ground geom.lowest_face geom.shape_class geom.vector
     airport.pit_frame
     geom.runway_contact
@@ -3352,7 +3372,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.pool_memory airport.rebake_plan airport.deck_plane_ring
+    airport.pool airport.pool_memory airport.pool_slots airport.rebake_plan airport.deck_plane_ring
     airport.pack_patch_witness airport.riders
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
@@ -3433,6 +3453,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
     geom.plate_bands model.floor_ground
     model.road_clearance
+    verify.nearest
 """)
 
 #: #2188: the held terrace's level reads the pads' own derivations

@@ -643,17 +643,25 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     would consume the whole plane leaves it untrimmed and says so through
     :attr:`BasePlane.trimmed_m2` staying 0 — a plane that is ALL
     threshold is not a plane with a threshold."""
+    import shapely
     from shapely.geometry import MultiPoint
     poly = p.polygon
     area = float(poly.area)
     if area <= 0.0:
         return None
-    inner = _eroded(poly, erode_m) if erode_m > 0.0 else poly
-    if inner.is_empty:
-        inner = poly
     below = v[used][v[used][:, 1] <= p.y - contact_band_m]
     if below.shape[0] == 0:
         return p
+    # NO LOWER VERTEX ON THE PLANE AT ALL: the interior below is a subset
+    # of the closed polygon, so nothing of it can hold one -- the plane is
+    # returned as it is, without the erosion (issue #2176: MMUN composed
+    # one 3,831-piece plane 1,937 times, each against four feet standing
+    # outside it; the erosion was half of its 750 s of base profiles)
+    if not np.any(shapely.intersects_xy(poly, below[:, 0], below[:, 2])):
+        return p
+    inner = _eroded(poly, erode_m) if erode_m > 0.0 else poly
+    if inner.is_empty:
+        inner = poly
     pts = MultiPoint([(float(a), float(b)) for a, b in zip(below[:, 0], below[:, 2])])
     inside = pts.intersection(inner)
     if inside.is_empty:

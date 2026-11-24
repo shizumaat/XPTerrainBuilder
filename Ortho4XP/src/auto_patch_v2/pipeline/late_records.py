@@ -29,11 +29,11 @@ from __future__ import annotations
 
 import array as _array
 import dataclasses as _dc
-import hashlib
 import pickle
 import time
 import typing as _t
 
+from ..airport import stage_cache as _store
 from . import back_cache as _bc
 from . import solve_record as _sr
 from .constraint_records import from_delta, kinds_of, set_delta
@@ -64,6 +64,10 @@ class _Teed:
         self.out(m)
 
 
+#: a cut is named without its clock and the lines quoting it (#2205)
+_CUT_CODEC = _bc.pickle_codec(lambda o: _dc.replace(o[0], wall_s=0.0))
+
+
 def _late_codec(pm_d, cs_d, cut, strips) -> _bc.Codec:
     base = kinds_of(cs_d)
 
@@ -77,7 +81,8 @@ def _late_codec(pm_d, cs_d, cut, strips) -> _bc.Codec:
                              "cs": set_delta(rep["cs"], base),
                              "cs_full": set_delta(rep["cs_full"], base),
                              "cert": cert, "lines": lines}, protocol=5)
-        return blob, lambda: hashlib.sha256(blob).hexdigest()
+        z = _array.array("d", sol.z).tobytes()      # the answer, not its clocks (#2205)
+        return blob, lambda: _store.value_digest((z, cert))
 
     def decode(blob: bytes):
         rec = pickle.loads(blob)
@@ -120,6 +125,7 @@ class LateRecords:
         got = _bc.record(self.fc, f"late.cut.{self.passes}",
                          {**self.inputs, "cl": self.fc.digest(cl), "base": self.base,
                           "stage": stage}, fn, code="late_cut",
+                         codec=_CUT_CODEC,
                          as_served=True)     # the next pass digests its cl
         self._cut = got.digest
         self._cuts[stage] = (self.passes, got.digest)

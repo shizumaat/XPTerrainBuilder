@@ -296,11 +296,16 @@ def test_a_killed_holder_releases(machine, monkeypatch, tmp_path):
     monkeypatch.setitem(MEMORY.BUDGET, "fresh_s", 0.0)
     env = dict(os.environ, **{MEMORY.ENV_SESSION: "K",
                               MEMORY.ENV_ROLE: "lane"})
+    # The first reserve of a process tree announces the ledger on stdout
+    # (#2248: whether this child was first hung on which tests had run in
+    # this worker); it always is here, and "held" is waited for by name.
+    env.pop(MEMORY._ENV_ANNOUNCED, None)
     holder = subprocess.Popen(
         [sys.executable, "-c", _HOLDER, str(Path(MEMORY.__file__).parent)],
         stdout=subprocess.PIPE, text=True, env=env)
     try:
-        assert holder.stdout.readline().strip() == "held"
+        lines = iter(holder.stdout.readline, "")     # ends at the child's EOF
+        assert any(line.strip() == "held" for line in lines)
         snap = MEMORY.snapshot()
         assert "K" in snap.sessions
         assert snap.outstanding_gb == pytest.approx(40.0)   # pid not in table

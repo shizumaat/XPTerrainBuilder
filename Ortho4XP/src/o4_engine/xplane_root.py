@@ -22,10 +22,11 @@ def xplane_pids() -> list:
     pids = []
     for name in sorted(MEMORY.XPLANE_NAMES):
         with contextlib.suppress(OSError):
-            done = subprocess.run(["pgrep", "-x", name], capture_output=True,
+            command = ["pgrep", "-x", name]
+            done = subprocess.run(command, capture_output=True,
                                   check=False, text=True, encoding="utf-8",
                                   errors="replace",
-                                  **UI.external_tool_keyword_arguments())
+                                  **UI.external_tool_keyword_arguments(command))
             if done.returncode == 0:
                 pids += [int(pid) for pid in done.stdout.split()
                          if pid.isdigit()]

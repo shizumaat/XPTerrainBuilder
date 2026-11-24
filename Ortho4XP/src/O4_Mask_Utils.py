@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from scipy.ndimage import uniform_filter1d
 import skfmm
 import O4_Bathymetry_Band as BATHYBAND
+import O4_Bathymetry_Coarse as COARSE
 import O4_Coastal_Foam_Edge as FOAM
 import O4_Shore_Feather as SHORE
 import O4_DEM_Utils as DEM
@@ -22,7 +23,9 @@ import O4_Imagery_Utils as IMG
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_Triangle_Run as TRIANGLE_RUN
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mesh_IO as MESH_IO
+import O4_Mask_Water_Squares as WATER_SQUARES
 import O4_Unpatched_Airports as UNPATCHED
 from O4_Parallel_Utils import parallel_execute
 
@@ -78,10 +81,13 @@ SHALLOW_WATER_CACHE_SCHEMA = "margin-0.5"
 BATHYMETRY_COVERAGE_FADE_M = 150.0
 # Mask workers spend nearly all their time in GIL-releasing numpy/scipy/PIL
 # calls (profiled 2026-07-15), so threads scale with cores; capped to keep
-# the per-worker image working set (a few hundred MB) in check.  Full width
-# even under concurrent tile builds (2026-07-17 ruling: the operating
-# system arbitrates processor contention).
+# the per-worker image working set (a few hundred MB) in check.  Each
+# worker past the first holds a machine slot (#1225; RULINGS 2026-10-22l:
+# slots are demand-allocated and returned promptly), which replaced the
+# 2026-07-17 full-width rule.
 masks_build_slots = max(2, min(12, (os.cpu_count() or 4) - 2))
+#: The memory a mask worker's slot reserves on the machine ledger.
+MASK_WORKER_GB = 1.0
 
 ################################################################################
 def mask_name_for_texture(tile, til_x_left, til_y_top, zl, *args):
@@ -314,6 +320,13 @@ def build_masks(tile, for_imagery=False):
             intertidal_ok=(masks_dem_setting == "True"),
         )
     legacy_dem_refinement = masks_dem_setting == "True"
+    # Auto mode: the global depth source fills the water no fine
+    # source covers, wherever the sea is shallow (O4_Bathymetry_Coarse).
+    coarse_fill = (
+        COARSE.ensure_coarse_fill(tile, bathymetry_band_vrt)
+        if masks_dem_setting == "auto" and dico_sea and coastline_sea_present
+        else None
+    )
 
     # OpenStreetMap shallow-water fallback (spec section 4.4): only where
     # measured bathymetry is unavailable — atolls, reef coasts and tidal
@@ -421,6 +434,11 @@ def build_masks(tile, for_imagery=False):
             shallow_water_alpha = build_shallow_water_alpha(
                 til_x, til_y, tile, shallow_water_categories)
 
+        coarse_alpha = None
+        if coarse_fill is not None:
+            coarse_alpha = COARSE.square_alpha(
+                til_x, til_y, tile, coarse_fill, pre_mask == 0)
+
         if custom_extent_code:
             custom_array = build_custom_pre_mask(
                 til_x, til_y, sea_level, tile, custom_extent_code)
@@ -433,6 +451,7 @@ def build_masks(tile, for_imagery=False):
                 shallow_water_alpha is None
                 or shallow_water_alpha.max() == 0
             )
+            and coarse_alpha is None
         ):
             # Nothing to mask — but an offshore shallow (an atoll in a
             # full-sea square) still deserves a mask via the depth ramp
@@ -485,6 +504,10 @@ def build_masks(tile, for_imagery=False):
             # maximum semantics as the measured ramp.
             blured_mask = numpy.maximum(blured_mask, shallow_water_alpha)
 
+        if coarse_alpha is not None:
+            # Zero wherever a fine source has data: fine pixels are final.
+            blured_mask = numpy.maximum(blured_mask, coarse_alpha)
+
         if not (blured_mask.max() == 0 or blured_mask.min() == 255):
             mask_im = Image.fromarray(blured_mask)
             mask_im.save(os.path.join(
@@ -524,8 +547,17 @@ def build_masks(tile, for_imagery=False):
             masks_queue.put(key)
     dico_progress = {"done": 0, "bar": 1}
 
-    parallel_execute(build_mask, masks_queue, masks_build_slots,
-                     progress=dico_progress)
+    # The step's own slot covers one mask worker; each other one is a
+    # machine slot of its own, never more than there are squares, given
+    # back after the join (#1225, #2269).  The workers are threads whose
+    # numpy/scipy work releases the GIL (measured on +37-009: 59
+    # thread-seconds in 6 s of wall), about 0.3 GB each (the masks
+    # step's 3.7 GB peak with twelve on +21-087).
+    workers = max(1, min(masks_build_slots, masks_queue.qsize()))
+    with MACHINE_SLOTS.try_take(workers - 1, gb=MASK_WORKER_GB,
+                                what="mask workers") as extra:
+        parallel_execute(build_mask, masks_queue, 1 + extra.count,
+                         progress=dico_progress)
 
     UI.progress_bar(1, 100)
     UI.timings_and_bottom_line(timer)
@@ -1012,40 +1044,9 @@ def build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path):
         from osgeo import gdal
     except ImportError:
         return (None, None)
-    (latm0, lonm0) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
-    (px0, py0) = GEO.wgs84_to_pix(latm0, lonm0, tile.mask_zl)
-    px0 -= 1024
-    py0 -= 1024
-    (latmax, lonmin) = GEO.pix_to_wgs84(px0, py0, tile.mask_zl)
-    (latmin, lonmax) = GEO.pix_to_wgs84(px0 + 6144, py0 + 6144, tile.mask_zl)
-    (web_x_min, web_y_max) = GEO.geo_to_webm(lonmin, latmax)
-    (web_x_max, web_y_min) = GEO.geo_to_webm(lonmax, latmin)
-    try:
-        gdal.UseExceptions()
-        warped = gdal.Warp(
-            "",
-            band_vrt_path,
-            options=gdal.WarpOptions(
-                format="MEM",
-                outputType=gdal.GDT_Float32,
-                dstSRS="EPSG:3857",
-                outputBounds=(web_x_min, web_y_min, web_x_max, web_y_max),
-                width=6144,
-                height=6144,
-                resampleAlg="bilinear",
-                dstNodata=-32768.0,
-            ),
-        )
-        if warped is None:
-            return (None, None)
-        values = warped.GetRasterBand(1).ReadAsArray()
-        warped = None
-    except Exception as error:
-        UI.vprint(
-            2, "   Bathymetry window read failed for one mask square:",
-            str(error),
-        )
-        return (None, None)
+    (latm0, _) = GEO.gtile_to_wgs84(til_x, til_y, tile.mask_zl)
+    values = BATHYBAND.read_band_window(
+        til_x, til_y, tile.mask_zl, band_vrt_path)
     if values is None:
         return (None, None)
     valid = values > -32000.0
@@ -1055,11 +1056,8 @@ def build_bathymetry_arrays(til_x, til_y, tile, band_vrt_path):
     land_array = (
         ((values >= mask_altitude_above) & valid).astype(numpy.uint8) * 255
     )
-    reef_depth = max(
-        float(getattr(tile, "reef_visibility_depth", 25.0)), 0.01
-    )
-    shallowness = numpy.clip(1.0 + values / reef_depth, 0.0, 1.0)
-    spline = shallowness * shallowness * (3.0 - 2.0 * shallowness)
+    spline = BATHYBAND.depth_spline(
+        values, getattr(tile, "reef_visibility_depth", 25.0))
     # The ramp reaches up to the land threshold, not just to 0: the
     # intertidal strip is opaque imagery (values above 0 clip to full
     # shallowness), and beyond the threshold the land pre-mask takes
@@ -1216,31 +1214,6 @@ def _inland_shore_feather_m(tile):
     return float(getattr(tile, "inland_shore_feather_m", 120.0))
 
 
-def _mask_squares_for_tri(til_x, til_y, a, b):
-    """The mask squares a water triangle paints into: its own square
-    (``til_x, til_y`` at ``mask_zl``) plus the neighbours whose 1024 px
-    pre-mask margin it reaches.  ``a``/``b`` are the quarter (0..3) of
-    the square holding the barycentre, along x and y."""
-    keys = [(til_x, til_y)]
-    if a == 0:
-        keys.append((til_x - 16, til_y))
-        if b == 0:
-            keys.append((til_x - 16, til_y - 16))
-        elif b == 3:
-            keys.append((til_x - 16, til_y + 16))
-    elif a == 3:
-        keys.append((til_x + 16, til_y))
-        if b == 0:
-            keys.append((til_x + 16, til_y - 16))
-        elif b == 3:
-            keys.append((til_x + 16, til_y + 16))
-    if b == 0:
-        keys.append((til_x, til_y - 16))
-    elif b == 3:
-        keys.append((til_x, til_y + 16))
-    return keys
-
-
 ################################################################################
 def record_water_tris(tile):
     mesh_list = []
@@ -1276,7 +1249,8 @@ def record_water_tris(tile):
     [til_x_max, til_y_max] = GEO.wgs84_to_orthogrid(
         tile.lat, tile.lon + 1, tile.mask_zl
     )
-    for mesh_file_name in mesh_list:
+    bounds = (til_x_min, til_y_min, til_x_max, til_y_max)
+    for (mesh_number, mesh_file_name) in enumerate(mesh_list):
         try:
             mesh = MESH_IO.read_mesh(mesh_file_name)
             UI.vprint(1, "   * ", mesh_file_name)
@@ -1285,102 +1259,39 @@ def record_water_tris(tile):
                 1, "Mesh file ", mesh_file_name, " could not be read. Skipped."
             )
             continue
+        UI.progress_bar(1, int(50 * mesh_number / len(mesh_list)))
+        if UI.red_flag:
+            UI.exit_message_and_bottom_line()
+            return 0
         has_water = 7 if mesh.version >= 1.3 else 3
-        # Only lon/lat (the first two of five) are read below.
-        pt_in = mesh.coords.ravel()
-        mesh_tris = mesh.triangles.tolist()
-        mesh_tri_types = mesh.attributes.tolist()
-        nbr_tri_in = len(mesh_tris)
-        step_stones = max(1, nbr_tri_in // 100)
-        percent = -1
+        water_bits = mesh.attributes & has_water
+        # water_type_is_inland, per triangle.
+        inland = ((water_bits & 1) != 0) & ((water_bits & 4) == 0)
         UI.vprint(
             2,
             " Attribution process of masks buffers to water triangles for "
             + str(mesh_file_name)
             + ".",
         )
-        for i in range(0, nbr_tri_in):
-            if i % step_stones == 0:
-                percent += 1
-                UI.progress_bar(1, int(percent * 5 / 10))
-                if UI.red_flag:
-                    UI.exit_message_and_bottom_line()
-                    return 0
-            (n1, n2, n3) = mesh_tris[i]
-            tri_type = mesh_tri_types[i]
-            water_bits = tri_type & has_water
-            if (not water_bits) or (
-                water_type_is_inland(water_bits)
-                and not tile.use_masks_for_inland
-            ):
-                continue
-            (lon1, lat1) = pt_in[5 * n1 : 5 * n1 + 2]
-            (lon2, lat2) = pt_in[5 * n2 : 5 * n2 + 2]
-            (lon3, lat3) = pt_in[5 * n3 : 5 * n3 + 2]
-            bary_lat = (lat1 + lat2 + lat3) / 3
-            bary_lon = (lon1 + lon2 + lon3) / 3
-            (til_x, til_y) = GEO.wgs84_to_orthogrid(
-                bary_lat, bary_lon, tile.mask_zl
-            )
-            if (
-                til_x < til_x_min - 16
-                or til_x > til_x_max + 16
-                or til_y < til_y_min - 16
-                or til_y > til_y_max + 16
-            ):
-                continue
-            if (water_bits & 2) and not water_type_is_inland(water_bits):
-                coastline_sea_present = True
-            (til_x2, til_y2) = GEO.wgs84_to_orthogrid(
-                bary_lat, bary_lon, tile.mask_zl + 2
-            )
-            a = (til_x2 // 16) % 4
-            b = (til_y2 // 16) % 4
-            tri = (lat1, lon1, lat2, lon2, lat3, lon3)
-            for key in _mask_squares_for_tri(til_x, til_y, a, b):
-                dico_sea.setdefault(key, []).append(tri)
+        sea_rows = numpy.flatnonzero(
+            (water_bits != 0) & ~(inland & (not tile.use_masks_for_inland)))
+        (kept, groups) = WATER_SQUARES.water_tris_by_square(
+            mesh.coords, mesh.triangles, sea_rows, tile.mask_zl, bounds)
+        if numpy.any(((water_bits[kept] & 2) != 0) & ~inland[kept]):
+            coastline_sea_present = True
+        for (key, tris) in groups:
+            dico_sea.setdefault(key, []).extend(tris)
         if not tile.use_masks_for_inland:
             UI.vprint(2, "   Taking care of inland water near shoreline")
-            step_stones = max(1, nbr_tri_in // 100)
-            percent = -1
-            for i in range(0, nbr_tri_in):
-                if i % step_stones == 0:
-                    percent += 1
-                    UI.progress_bar(1, int(percent * 5 / 10))
-                    if UI.red_flag:
-                        UI.exit_message_and_bottom_line()
-                        return 0
-                (n1, n2, n3) = mesh_tris[i]
-                tri_type = mesh_tri_types[i]
-                if not water_type_is_inland(tri_type & has_water):
-                    continue
-                (lon1, lat1) = pt_in[5 * n1 : 5 * n1 + 2]
-                (lon2, lat2) = pt_in[5 * n2 : 5 * n2 + 2]
-                (lon3, lat3) = pt_in[5 * n3 : 5 * n3 + 2]
-                bary_lat = (lat1 + lat2 + lat3) / 3
-                bary_lon = (lon1 + lon2 + lon3) / 3
-                (til_x, til_y) = GEO.wgs84_to_orthogrid(
-                    bary_lat, bary_lon, tile.mask_zl
-                )
-                if (
-                    til_x < til_x_min - 16
-                    or til_x > til_x_max + 16
-                    or til_y < til_y_min - 16
-                    or til_y > til_y_max + 16
-                ):
-                    continue
-                (til_x2, til_y2) = GEO.wgs84_to_orthogrid(
-                    bary_lat, bary_lon, tile.mask_zl + 2
-                )
-                a = (til_x2 // 16) % 4
-                b = (til_y2 // 16) % 4
-                # With the shore feather on (#1981) every square holding
-                # inland water gets it, sea or no sea; with it off an
-                # inland tri only greys a square the sea already masks.
-                tri = (lat1, lon1, lat2, lon2, lat3, lon3)
-                for key in _mask_squares_for_tri(til_x, til_y, a, b):
-                    if feather_everywhere or key in dico_sea:
-                        dico_inland.setdefault(key, []).append(tri)
+            # With the shore feather on (#1981) every square holding
+            # inland water gets it, sea or no sea; with it off an
+            # inland tri only greys a square the sea already masks.
+            (_kept, groups) = WATER_SQUARES.water_tris_by_square(
+                mesh.coords, mesh.triangles, numpy.flatnonzero(inland),
+                tile.mask_zl, bounds)
+            for (key, tris) in groups:
+                if feather_everywhere or key in dico_sea:
+                    dico_inland.setdefault(key, []).extend(tris)
 
     return (dico_sea, dico_inland, coastline_sea_present)
 ################################################################################

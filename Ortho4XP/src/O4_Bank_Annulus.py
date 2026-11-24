@@ -45,26 +45,26 @@ BANK_RINGS_STATS = {}
 
 def patch_paths_read(tile):
     """The patch files the tile's mesh reads, as paths, in
-    ``include_patches``' order: the manual patches, then each auto patch
-    the auto-patch mode admits and no manual patch replaces.  A custom
-    patch is read from the copy its build wrote (``O4_Patch_Rebase.
-    read_path``: re-based, with the blend band's foot rings, #2173)."""
+    ``include_patches``' order: the manual patches the build applies
+    (``O4_Custom_Patch_Use.applied_manual_files``, #2179), then each auto
+    patch the auto-patch mode admits and no applied manual patch
+    replaces."""
     import O4_Airport_Modes as MODES
-    import O4_Patch_Rebase as PATCH_REBASE
+    import O4_Custom_Patch_Use as CUSTOM_USE
     from auto_patch import selection as SELECTION
 
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
     if not os.path.exists(patch_dir):
         return []
     all_files = [f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"]
-    manual = [f for f in all_files if "_auto.patch.osm" not in f]
+    manual = CUSTOM_USE.applied_manual_files(patch_dir)
     manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
     mode = SELECTION.resolved_auto_patch_mode(tile)
     files = manual + [
         f for f in all_files if "_auto.patch.osm" in f
         and MODES.mode_admits(f[:-15].upper(), mode)
         and f[:-15].upper() not in manual_icao]
-    return [PATCH_REBASE.read_path(tile, patch_dir, name) for name in files]
+    return [os.path.join(patch_dir, name) for name in files]
 
 
 def _bank_rings_from_patches(tile):
@@ -75,7 +75,7 @@ def _bank_rings_from_patches(tile):
     cannot be read.  All three are empty for a tile with no patch, and
     ``foot_polygons`` is empty for a patch with no ``bank_foot`` way (every
     v2 auto patch since RULINGS 2026-10-04c (3)) — the caller then does
-    nothing at all; a custom patch's copy carries them (#2173).
+    nothing at all.
 
     ``open_foot_lines`` (RULINGS 2026-09-13cp) are the ``bank_foot`` ways
     that are OPEN — a ring straddling a tile seam.  They are LINEWORK, not
@@ -151,11 +151,11 @@ def bank_annulus_polygon(tile):
 
     A ``bank_foot`` way is one RING of the banked region: a ring inside
     an even number of other foot rings is an EXTERIOR, inside an odd
-    number a HOLE (the custom-patch band's grass enclosed by pavement,
-    #2173, and an island of pavement inside that grass), applied from the
-    outermost in (:func:`_nested`), and the annulus is ``banked -
-    design_coverage``.  Any error in that classification leaves vertices
-    to the harmonic extension, never the other way round.
+    number a HOLE (grass enclosed by pavement, and an island of pavement
+    inside that grass), applied from the outermost in (:func:`_nested`),
+    and the annulus is ``banked - design_coverage``.  Any error in that
+    classification leaves vertices to the harmonic extension, never the
+    other way round.
     """
     from shapely import geometry, ops
 

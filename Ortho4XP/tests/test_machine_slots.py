@@ -102,12 +102,15 @@ def test_threads_opening_the_first_session_at_once_share_one(monkeypatch):
 def test_take_queues_until_a_holder_releases(session):
     session(1)
     first = SLOTS.try_take(1)
-    waited = []
-    threading.Timer(0.3, first.release).start()
-    t0 = time.monotonic()
+    waited, released = [], threading.Event()
+
+    def release():
+        released.set()                   # before the slot comes free
+        first.release()
+    threading.Timer(0.3, release).start()
     with SLOTS.take(1, poll_s=0.05, on_wait=lambda: waited.append(1)) as got:
-        assert got.count == 1
-    assert waited == [1] and time.monotonic() - t0 >= 0.25
+        assert got.count == 1 and released.is_set()
+    assert waited == [1]
 
 
 def test_take_never_asks_for_more_than_the_capacity(session):
@@ -144,6 +147,12 @@ def derived_budget():
 
 
 def test_a_pool_takes_what_is_free_and_gives_it_back(session, derived_budget):
+    # The executor's first queue forks this process's resource tracker; until
+    # that child execs it shares the slots' flocks, so a release right after
+    # reads "held" (#2248).  Started first, it never forks with a slot held.
+    if os.name == "posix":
+        from multiprocessing import resource_tracker
+        resource_tracker.ensure_running()
     session(3)
     wp = POOL.WorkPool(workers=8)
     try:
@@ -365,3 +374,115 @@ def test_builds_run_below_the_command_process():
     assert command == max(start, SLOTS.COMMAND_NICE)
     assert worker == max(start, SLOTS.NICE)
 
+
+
+# ── #2267: who holds the slots, who waits, and the wait's two lines ────
+
+def _until(cond, tries=400):
+    for _ in range(tries):                 # bounded: never a wall-time assert
+        if cond():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_a_held_slot_names_its_holder_until_it_is_released(session):
+    session(3)
+    SLOTS.name_process("airport ZZZZ")
+    try:
+        a = SLOTS.try_take(2, what="airport ZZZZ pool")
+        b = SLOTS.try_take(1)                          # named by the process
+        assert SLOTS._slot_holders() == {"airport ZZZZ pool": 2, "airport ZZZZ": 1}
+        assert SLOTS._holders_text() == "3 of 3 held: airport ZZZZ pool 2, airport ZZZZ 1"
+        assert a.shed(1) == 1 and a.count == 1
+        assert SLOTS._slot_holders()["airport ZZZZ pool"] == 1
+        a.release()
+        b.release()
+        assert SLOTS._slot_holders() == {}
+    finally:
+        SLOTS.name_process("")
+
+
+def test_a_waiting_take_is_counted_and_its_mark_goes_with_it(session):
+    session(1)
+    hold = SLOTS.try_take(1)
+    got = []
+    t = threading.Thread(target=lambda: got.append(SLOTS.take(1, poll_s=0.01)))
+    t.start()
+    assert _until(lambda: SLOTS.slot_waiters() == 1)
+    hold.release()
+    t.join(10)
+    assert got and got[0].count == 1
+    assert SLOTS.slot_waiters() == 0                   # gone at once, not by age
+    got[0].release()
+
+
+def test_a_waiting_step_says_who_holds_the_slots_and_when_it_starts(session,
+                                                                  monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    hold = SLOTS.try_take(1, what="airport ZZZZ pool")
+
+    def run():
+        with SLOTS.step(what="tile +36-008 vector step"):
+            pass
+    t = threading.Thread(target=run)
+    t.start()
+    assert _until(lambda: lines)
+    hold.release()
+    t.join(10)
+    assert lines[0] == ("Machine slots: tile +36-008 vector step waits for a "
+                        "slot — 1 of 1 held: airport ZZZZ pool 1.")
+    assert lines[1].startswith("Machine slots: tile +36-008 vector step starts after ")
+    assert len(lines) == 2
+
+
+def test_a_step_that_never_waits_says_nothing(session, monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    with SLOTS.step(what="tile +36-008 masks step"):
+        pass
+    assert lines == []
+
+
+def test_a_step_retaking_its_lent_slot_says_it_waits_too(session, monkeypatch):
+    session(1)
+    lines = []
+    monkeypatch.setattr(SLOTS, "_say", lines.append)
+    with SLOTS.step(what="tile +21-087 vector step"):
+        lent = SLOTS.lend_step()                       # its airports build
+        airport = SLOTS.try_take(1, what="airport ZZZZ")
+        t = threading.Thread(target=SLOTS.retake_step, args=(lent,))
+        t.start()
+        assert _until(lambda: lines)
+        airport.release()
+        t.join(10)
+        assert lent.count == 1                         # the step owns it again
+    assert lines[0] == ("Machine slots: tile +21-087 vector step waits for a "
+                        "slot — 1 of 1 held: airport ZZZZ 1.")
+    assert lines[1].startswith("Machine slots: tile +21-087 vector step goes on after ")
+
+
+def test_a_queued_airport_is_a_waiter_the_pools_see(session):
+    import concurrent.futures as cf
+    from auto_patch import slot_gated_pool as GATED
+    session(1)
+    hold = SLOTS.try_take(1, what="airport ZZZA pool")
+    seen = []
+
+    def start(task):
+        f = cf.Future()
+        f.set_result(task)
+        return None, f
+
+    def tick():
+        seen.append(SLOTS.slot_waiters())
+        if len(seen) == 2:
+            hold.release()                             # the pool yields its slot
+    GATED.run(["ZZZB"], width=1, start=start, on_done=lambda t, f: None,
+              teardown=lambda e, f, t: None, on_tick=tick, poll_s=0.01,
+              label=lambda t: "airport " + t)
+    assert seen[0] == 1                                # it waited, and said so
+    assert SLOTS.slot_waiters() == 0                   # and no longer does

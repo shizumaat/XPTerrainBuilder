@@ -189,7 +189,11 @@ def build_airports(cells, custom_build_dir: str = "",
             "total_s": total,
             "custom_patches": custom, "fit_buildings": fit,
             "fit_confirm": CUSTOM_PATCHES.fit_confirm_text(custom),
-            "fit_airports": rows}
+            "fit_airports": rows,
+            "custom_patch_use": [
+                row for (lat, lon) in sorted({(int(c[0]), int(c[1]))
+                                              for c in cells})
+                for row in CUSTOM_PATCHES.airport_uses(lat, lon)]}
 
 
 def _fit_airports(homes: dict, custom_build_dir: str = "") -> list:

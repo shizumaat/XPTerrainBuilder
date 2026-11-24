@@ -403,6 +403,10 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     members: dict[tuple[int, int], Member] = {
         (ui, mi): m for ui, u in enumerate(plan.units) for mi, m in enumerate(u.members)}
     part_of: dict[int, Part] = {p.pid: p for m in members.values() for p in m.parts}
+    # ONE eligibility reading per MEMBER (issue #2176): it was asked once per
+    # abutment side and once per body, and a member's reading walks all of
+    # its parts -- MMUN asked 93,072 times over 1.9 G parts, 26 s of 26 s
+    eligible = {k: _eligible(m) for k, m in members.items()}
 
     counts = {"bodies": len(bodies), "abutment_pairs": len(plan.abutments),
               "cross_pairs": 0, "refused_ineligible": 0, "refused_building": 0,
@@ -435,7 +439,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
         if ba is None or bb is None or ba[:2] == bb[:2]:
             continue                     # same placement: already one file
         ma, mb = members[ba[:2]], members[bb[:2]]
-        if not (_eligible(ma) and _eligible(mb)):
+        if not (eligible[ba[:2]] and eligible[bb[:2]]):
             counts["refused_ineligible"] += 1
             continue
         if not (ma.elevated_deck or mb.elevated_deck):
@@ -515,7 +519,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     counts["cross_groups"] = len(groups)
 
     for k in sorted(bodies):
-        if k in seen or not _eligible(members[k[:2]]):
+        if k in seen or not eligible[k[:2]]:
             continue
         feet = _feet_of([part_of[q] for q in bodies[k]])
         if not feet:

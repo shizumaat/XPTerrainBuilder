@@ -425,6 +425,20 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
         inputs["insets"] = _content(_CONTENT_KEYS["insets"](tile, osm_files))
         inputs["terrain_cut"] = _terrain_cut(tile)
         inputs["inset_cifp"] = _content(_inset_cifp_files(tile))
+        # #2179: how each airport uses its custom patch decides which
+        # patches the mesh applies.  Keyed only when a choice is recorded,
+        # so a tile without one keeps its earlier record.
+        import O4_Custom_Patch_Use as CUSTOM_USE
+        use = CUSTOM_USE.read(FNAMES.patch_dir(tile.lat, tile.lon))
+        if use:
+            inputs["custom_patch_use"] = use
+    if step == "masks":
+        # #2265: only a band from a provider with a declared source
+        # revision is keyed; every other tile's record stays valid.
+        import O4_Bathymetry_Band as BATHYBAND
+        band_source = BATHYBAND.masks_source_state(tile)
+        if band_source is not None:
+            inputs["band_source"] = band_source
     return inputs
 
 
@@ -595,9 +609,10 @@ def _object_stage_code() -> "str | None":
 
 def object_stage_stale(tile) -> str | None:
     """Over a REUSED mesh step (#1901): None when the object stage's code
-    is the one the mesh step's record was cut under, else why it must run
-    again — its own per-airport reuse (``object_stage_reuse``) then
-    decides airport by airport.  Never raises (an unreadable record means
+    is the one the mesh step's record was cut under and its last run
+    fitted every airport's objects (#2186), else why it must run again —
+    its own per-airport reuse (``object_stage_reuse``) then decides
+    airport by airport.  Never raises (an unreadable record means
     "run it")."""
     try:
         entry = committed_entry(tile, "mesh")
@@ -606,7 +621,10 @@ def object_stage_stale(tile) -> str | None:
             return "the object stage has no code identity"
         if entry.get("object_code") != live:
             return "the object stage's code changed"
-        return None
+        # #2186: a run that left objects unfitted is not done — its
+        # warning says "build the tile again", so the next build must
+        import O4_Object_Stage as OBJECT_STAGE
+        return OBJECT_STAGE.failed_last_run(tile)
     except Exception as error:
         return "its record could not be checked (%s)" % (error,)
 
@@ -666,6 +684,8 @@ def stale_reason(tile, step: str) -> str | None:
                        entry.get("osm_files"))
         recorded = {k: v for k, v in (entry.get("inputs") or {}).items()
                     if k not in _RETIRED_KEYS}
+        if live.get("band_source") == "pending":
+            return "its bathymetry band has cells to fetch again"
         trusted = _trusted(entry)
         for key in sorted(set(live) | set(recorded)):
             if key in _KEYS_EQUAL_WHEN_ABSENT and key not in recorded:

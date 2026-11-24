@@ -88,6 +88,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// The condensed overlapping-packs question (#2190): `PackOverlaps`
     /// rows' `prefer` / `keep`, its `default`, and `pack_overlaps` `default`.
     public static let packOverlapsDefault = "pack_overlaps_default"
+    /// How each airport uses its custom patch (#2179): `custom_patch_use`,
+    /// `custom_patches` rows' `airports`, `BuildAirportsReady.custom_patch_use`.
+    public static let customPatchUse = "custom_patch_use"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

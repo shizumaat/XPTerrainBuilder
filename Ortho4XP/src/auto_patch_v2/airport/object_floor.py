@@ -533,6 +533,10 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
     pitted = {pid for f in out for pid, _r, _z in f.seats}
     hollows: dict[str, bool] = {}
     bore_tree = STRtree(list(bores)) if len(bores) else None
+    if bore_tree is not None:
+        from .pack_work import read_hollows_ahead
+        read_hollows_ahead(cache, law, _hollow_candidates(
+            placed, cache, law, shares, near, set(taken) | floored | pitted, bore_tree), hollows)
     for o in placed:
         if bore_tree is None:
             break
@@ -681,9 +685,36 @@ def _open_hollow(res: str, g: "_obj8.ObjGeometry", law, memo: dict[str, bool]) -
     inner plan?  A trench's floor and walls in one object are; a roofed
     building is covered, a solid block convex."""
     if res not in memo:
-        F = g.vertices[g.solid][:, :, [0, 2, 1]]
-        memo[res] = bool(len(F)) and _shape_of(F, law)[0]["class"] == _shape.CONCAVE
+        memo[res] = open_hollow_of(g, law)
     return memo[res]
+
+
+def open_hollow_of(g: "_obj8.ObjGeometry", law) -> bool:
+    """:func:`_open_hollow`'s reading of one OBJ, unmemoised (a pack
+    worker's, ``pack_work.read_hollows_ahead``)."""
+    F = g.vertices[g.solid][:, :, [0, 2, 1]]
+    return bool(len(F)) and _shape_of(F, law)[0]["class"] == _shape.CONCAVE
+
+
+def _hollow_candidates(placed, cache, law, shares, near, skip, bore_tree) -> list[str]:
+    """The resources the open-hollow pass of :func:`read_object_floors`
+    may ask :func:`_open_hollow` of -- every placement past its gates
+    (:func:`_walled_pit`'s) save the pits it finds on the way, so a
+    superset: read ahead, they answer the pass's own asks."""
+    ob = law.tables.structures.tunnel.object
+    out = []
+    for o in placed:
+        bb = getattr(o, "plan_bbox", None)
+        if o.id in skip or (bb is not None
+                            and not len(bore_tree.query(bb, predicate="intersects"))):
+            continue
+        g = cache.geometry(o.resolved)
+        if g is None or not len(g.solid) \
+                or _mate_share(o, cache, law, shares) >= ob.floor_object_min_share:
+            continue
+        if any(_mate_share(p, cache, law, shares) < ob.floor_object_min_share for p in near(o)):
+            out.append(o.resolved)
+    return out
 
 
 def _concave(o, g, msl, law, mates, ground, notes: list[str],

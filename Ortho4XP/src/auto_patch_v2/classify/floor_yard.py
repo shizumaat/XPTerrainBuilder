@@ -160,20 +160,34 @@ def _yard_keys() -> tuple:
 def _floor_pads(cells, ur, upper_key: str) -> list[int]:
     """F1: the indices of the building cells (no upper pad) whose unit
     parts stand at the unit's floor."""
+    from shapely.strtree import STRtree
+
     from ..airport.split_level import BAND_M
-    from ..airport.unit_storey import _on
     out = []
     bx0, by0, bx1, by1 = ur.bounds
+    # the unit's parts by box (#2206: ``unit_storey._on`` asked every part
+    # of the unit of every building cell, 5.5 M intersects at HECA)
+    tree = STRtree([g for _p, g in ur.parts]) if ur.parts else None
     for k, c in enumerate(cells):
         if c.role != "building" or upper_key in (c.evidence or {}):
             continue
         xs, ys = [p[0] for p in c.ring], [p[1] for p in c.ring]
         if min(xs) > bx1 or max(xs) < bx0 or min(ys) > by1 or max(ys) < by0:
             continue
-        on = _on(ur, Polygon(c.ring, c.holes))
+        on = _on_near(ur, tree, Polygon(c.ring, c.holes))
         if on and abs(min(p.base_y for p, _g in on) - ur.t) <= BAND_M:
             out.append(k)
     return sorted(out, key=lambda k: str(cells[k].ref))
+
+
+def _on_near(ur, tree, P) -> list:
+    """``unit_storey._on(ur, P)`` over the parts whose box meets ``P``'s
+    (no other part can meet ``P``), in the unit's part order."""
+    if tree is None:
+        return []
+    near = sorted(int(i) for i in tree.query(P))
+    return [(p, g) for p, g in (ur.parts[i] for i in near) if g.intersects(P)
+            and g.intersection(P).area >= 0.5 * g.area]
 
 
 def _floor_yard(airport, cells, law, rules, P, own, t: float, air):

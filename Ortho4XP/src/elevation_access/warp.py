@@ -13,6 +13,7 @@ import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.failures import (
+    warp_failures_are_transient,
     error_message_indicates_grid_configuration_failure,
     error_message_indicates_transient_network_failure,
 )
@@ -258,6 +259,9 @@ def warp_vsicurl_sources_to_geotiff(
                 "elevation warp refused the server's returned grid: "
                 + str(error)
             ) from error
+        if warp_failures_are_transient():
+            raise TransientFetchError(
+                "elevation warp failed: " + str(error)) from error
         UI.vprint(1, "   WARNING: elevation warp failed:", str(error))
         if failure_reasons is not None:
             failure_reasons.append(str(error))
@@ -265,6 +269,8 @@ def warp_vsicurl_sources_to_geotiff(
     if dataset is None:
         if UI.red_flag:
             raise TransientFetchError("elevation warp stopped with the build")
+        if warp_failures_are_transient():
+            raise TransientFetchError("the warp returned no dataset")
         if failure_reasons is not None:
             failure_reasons.append("the warp returned no dataset")
         return False

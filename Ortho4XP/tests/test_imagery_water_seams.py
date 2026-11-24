@@ -95,17 +95,19 @@ def test_a_natural_curved_edge_and_a_gradient_are_left_alone():
 
 
 def test_red_cast_square_is_tinted_with_its_luminance_kept():
+    """A reddish source tile ~350 m across (40 work px, as over the KEYW
+    flats), its cast 30 counts R-G over the water around it."""
     a = _water()
-    square = (slice(400, 528), slice(400, 528))
+    square = (slice(400, 440), slice(400, 440))
     a[square] += (24.0, -6.0, -6.0)
     image, mask = _image(a), _mask()
     seams = WS._find_water_seams(image, mask)
     assert seams.tinted.any()
     repaired, _ = WS.repair_water_seams(image, mask, METRES_PER_PX, seams=seams)
-    inner = (slice(424, 504), slice(424, 504))
+    inner = (slice(410, 430), slice(410, 430))
     before = numpy.asarray(image, numpy.float32)[inner].reshape(-1, 3).mean(0)
     after = numpy.asarray(repaired, numpy.float32)[inner].reshape(-1, 3).mean(0)
-    around = numpy.asarray(image, numpy.float32)[400:528, 600:700].reshape(-1, 3).mean(0)
+    around = numpy.asarray(image, numpy.float32)[400:440, 600:700].reshape(-1, 3).mean(0)
     cast = lambda c: c[0] - c[1]  # noqa: E731
     assert cast(before) - cast(around) > 25.0
     assert abs(cast(after) - cast(around)) < 6.0

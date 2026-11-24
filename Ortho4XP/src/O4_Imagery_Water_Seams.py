@@ -22,11 +22,13 @@ Web Mercator tiles), but not on any fixed grid of the texture.
   with :data:`COHERENCE` (a ground edge crossing at an angle, or the
   ground's own texture, averages out), is the strongest across the line,
   lies in water, and belongs to a straight run of :data:`MIN_RUN` px; the
-  run then grows along its line through weaker points (hysteresis).  Red-
-  cast squares (:func:`_red_squares`): patches of census cells whose R-G
-  cast over their surroundings reaches :data:`RED_EXCESS`, bright and
-  square enough to be a source tile.  Outlier, red and cloud-like cells
-  are counted for the report.
+  run then grows along its line through weaker points (hysteresis); a
+  shorter run counts where it turns a square corner (:data:`MIN_CORNER_RUN`).
+  Red-cast squares (:func:`_red_squares`): patches of census cells whose
+  R-G cast over their surroundings reaches :data:`RED_EXCESS`, bright and
+  square enough to be a source tile; around them the lines measure
+  brightness only (the tint owns the cast).  Outlier, red and cloud-like
+  cells are counted for the report.
 * :func:`repair_water_seams` -- one offset per :data:`CELL`, the screened
   Poisson solution whose jumps cancel the flagged steps and decay over
   :data:`SCREEN_CELLS` cells, held at 0 on the border ring (the texture
@@ -135,6 +137,8 @@ TINT_FILL = 0.6
 # ... where the patch is bright enough for a cast to read as red (on dark
 # water a 10-count R-G excess is no colour at all) ...
 TINT_MIN_LUMA = 70.0
+# ... each cell tinted by its own cast, softened over this many cells ...
+TINT_SOFTEN = 0.75
 # ... and its edge is hidden by a blur band this wide (the tint lies on the
 # census cells, up to half a cell off the square's own edge).
 TINT_BAND_SIGMA_M = 20.0
@@ -151,9 +155,8 @@ class _WaterSeams:
     line before column ``x``, averaged along it over :data:`LINE` rows;
     ``evidence_y[y, x]`` across the horizontal line before row ``y``.
     ``flag_x`` / ``flag_y`` mark the line points flagged as seams.
-    ``tint`` is the ``(cells, cells, 3)`` offset (census cells of
-    :data:`CENSUS_CELL` work px) that removes the cast of every red-cast
-    square, ``tinted`` its cells.  ``cells`` is the texture's mean colour
+    ``tint`` is the ``(WORK, WORK, 3)`` offset that removes the cast of
+    every red-cast square, ``tinted`` its pixels.  ``cells`` is the texture's mean colour
     per :data:`CELL`.
     """
 
@@ -168,7 +171,7 @@ class _WaterSeams:
 
     @property
     def flagged(self) -> int:
-        """Flagged line points plus tinted (census) cells."""
+        """Flagged line points plus tinted pixels."""
         return int(self.flag_x.sum() + self.flag_y.sum() + self.tinted.sum())
 
     def runs(self) -> List[int]:
@@ -254,16 +257,19 @@ def _shift(a: numpy.ndarray, k: int) -> numpy.ndarray:
     return out
 
 
-def _vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray):
+def _vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray,
+                    grey: Optional[numpy.ndarray] = None):
     """``(evidence, strong, weak)`` of the vertical lines of ``a``: the
     averaged excess step (see :class:`_WaterSeams`) and the points passing
     the strong and the weak test; the horizontal ones are this on the
-    transpose."""
+    transpose.  Where ``grey`` is set the step is its luminance only."""
     s = STRIP
     after = sum(_shift(a, k) for k in range(s)) / s
     before = sum(_shift(a, -1 - k) for k in range(s)) / s
     step = after - before
     excess = step - 0.5 * (_shift(step, -2 * s) + _shift(step, 2 * s))
+    if grey is not None:  # brightness only: (l, l, l), l the luminance step
+        excess[grey] = (excess[grey] @ _LUMA)[:, None]
     evidence = ndimage.uniform_filter1d(excess, LINE, axis=0, mode="nearest")
     spread = ndimage.uniform_filter1d(numpy.linalg.norm(excess, axis=-1),
                                       LINE, axis=0, mode="nearest")
@@ -410,35 +416,58 @@ def _opacity(mask: numpy.ndarray) -> numpy.ndarray:
 
 
 def _red_squares(a: numpy.ndarray, w: numpy.ndarray):
-    """``(tint, tinted)`` on the census cells: every red-cast square's cells
-    and the offset that removes its median cast, luminance kept."""
-    cell = _reduce(a, CENSUS_CELL)
-    water = _reduce(w, CENSUS_CELL) >= MIN_WATER
+    """``(tint, tinted)`` on the :data:`WORK` grid: every red-cast square's
+    census cells and the offset that removes each cell's cast over the
+    water just around the square, luminance kept, softened over
+    :data:`TINT_SOFTEN` cells (the square's own edge is up to half a cell
+    off; the tint band hides that)."""
+    k = CENSUS_CELL
+    cell = _reduce(a, k)
+    water = _reduce(w, k) >= MIN_WATER
     chroma = numpy.stack([cell[..., 0] - cell[..., 1],
                           cell[..., 2] - cell[..., 1]], axis=-1)
     # the surroundings' median on cells twice as coarse (a quarter of the
     # cost; the reference is smooth by construction)
     coarse = _reduce(chroma, 2)
-    ref = numpy.stack([ndimage.median_filter(coarse[..., k],
+    ref = numpy.stack([ndimage.median_filter(coarse[..., c],
                                              TINT_REFERENCE // 2 + 1,
-                                             mode="nearest") for k in range(2)],
+                                             mode="nearest") for c in range(2)],
                       axis=-1)
-    ref = numpy.kron(ref, numpy.ones((2, 2, 1), numpy.float32))
-    excess = chroma - ref
+    excess = chroma - numpy.kron(ref, numpy.ones((2, 2, 1), numpy.float32))
     tint = numpy.zeros(cell.shape, dtype=numpy.float32)
     tinted = numpy.zeros(water.shape, dtype=bool)
-    labels, count = ndimage.label(water & (excess[..., 0] >= RED_EXCESS))
-    for k, box in enumerate(ndimage.find_objects(labels), start=1):
-        part = labels[box] == k
+    labels, _count = ndimage.label(water & (excess[..., 0] >= RED_EXCESS))
+    for label, box in enumerate(ndimage.find_objects(labels), start=1):
+        part = labels[box] == label
         if (part.sum() < TINT_MIN_CELLS or part.mean() < TINT_FILL
                 or float(numpy.median(cell[box][part] @ _LUMA)) < TINT_MIN_LUMA):
             continue
-        e_red, e_blue = numpy.median(excess[box][part], axis=0)
+        # each cell's own cast (a square is rarely one flat cast) over the
+        # patch with its holes filled, against the water just around it
+        grown = tuple(slice(max(b.start - 2, 0), b.stop + 2) for b in box)
+        region = numpy.zeros(water[grown].shape, dtype=bool)
+        inner = tuple(slice(b.start - g.start, b.stop - g.start)
+                      for b, g in zip(box, grown, strict=True))
+        # a large square shows only its rim against a local median: close
+        # the rim's corners, then fill it
+        closed = ndimage.binary_closing(numpy.pad(part, 2), iterations=2)[2:-2, 2:-2]
+        region[inner] = ndimage.binary_fill_holes(closed | part) & water[box]
+        ring = ndimage.binary_dilation(region, iterations=2) & ~region & (
+            water[grown])
+        if not ring.any():
+            continue
+        around = numpy.median(chroma[grown][ring], axis=0)
+        e_red = numpy.maximum(chroma[grown][..., 0] - around[0], 0.0)
+        e_blue = numpy.where(e_red > 0.0, chroma[grown][..., 1] - around[1], 0.0)
         green = 0.299 * e_red + 0.114 * e_blue
-        region = water[box]
-        tint[box][region] = (green - e_red, green, green - e_blue)
-        tinted[box] |= region
-    return tint, tinted
+        cast = numpy.stack([green - e_red, green, green - e_blue], axis=-1)
+        tint[grown][region] = cast[region]
+        tinted[grown] |= region
+    # soften the cell steps inside a square and at its edge
+    tint = ndimage.gaussian_filter(tint, (TINT_SOFTEN, TINT_SOFTEN, 0),
+                                   mode="nearest")
+    block = numpy.ones((k, k), bool)
+    return numpy.kron(tint, block[..., None]), numpy.kron(tinted, block)
 
 
 def _work_image(image: Image.Image) -> numpy.ndarray:
@@ -461,14 +490,21 @@ def _find_water_seams(image: Image.Image, mask: numpy.ndarray,
     mask = numpy.asarray(mask)
     w = _water_weight(mask) if weight is None else weight
     opacity = _opacity(mask)
-    ex, strong_x, weak_x = _vertical_lines(a, w, opacity)
-    ey, strong_y, weak_y = _vertical_lines(a.transpose(1, 0, 2), w.T,
-                                           opacity.T)
+    # the red squares first: around them the lines see brightness only,
+    # so a square's brightness step is matched and its cast (the tint's)
+    # not twice
+    tint, tinted = _red_squares(a, w)
+    grey = None
+    if tinted.any():
+        grey = ndimage.binary_dilation(tinted, iterations=SUPPRESS + STRIP)
+    ex, strong_x, weak_x = _vertical_lines(a, w, opacity, grey)
+    ey, strong_y, weak_y = _vertical_lines(
+        a.transpose(1, 0, 2), w.T, opacity.T,
+        None if grey is None else grey.T)
     strong_x, strong_y = _straight_pairs(strong_x, strong_y.T, ex,
                                          ey.transpose(1, 0, 2))
     fx = _grown(strong_x, weak_x)
     fy = _grown(strong_y.T, weak_y).T
-    tint, tinted = _red_squares(a, w)
     return _WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy, tint, tinted,
                       _reduce(a, CELL), _census(a, w) if census else {})
 
@@ -544,9 +580,8 @@ def _band(seams: _WaterSeams, cell_m: float) -> numpy.ndarray:
     the tinted squares' edges, falling off as a Gaussian of
     :data:`BAND_SIGMA_M` (:data:`TINT_BAND_SIGMA_M`) either side."""
     lines = _reduce((seams.flag_x | seams.flag_y).astype(numpy.float32), CELL)
-    edge = seams.tinted ^ ndimage.binary_erosion(seams.tinted)
-    k = CENSUS_CELL // CELL
-    edge = numpy.kron(edge, numpy.ones((k, k), numpy.float32))
+    edge = _reduce((seams.tinted ^ ndimage.binary_erosion(seams.tinted))
+                   .astype(numpy.float32), CELL)
     return numpy.maximum(_gauss_band(lines > 0, BAND_SIGMA_M / cell_m),
                          _gauss_band(edge > 0, TINT_BAND_SIGMA_M / cell_m))
 
@@ -568,6 +603,14 @@ def _water_blur(a: numpy.ndarray, w: numpy.ndarray, sigma: float) -> numpy.ndarr
         out[..., c] = numpy.where(den > 1e-3, num / numpy.maximum(den, 1e-3),
                                   a[..., c])
     return out
+
+
+def _upsampled(field: numpy.ndarray, n: int) -> numpy.ndarray:
+    """``(n, n, 3)`` float32: a field bilinearly resampled (pixel centres
+    aligned, as ``apply_color_field`` upsamples)."""
+    return numpy.stack([numpy.asarray(Image.fromarray(
+        numpy.ascontiguousarray(field[..., c], dtype=numpy.float32), "F")
+        .resize((n, n), Image.BILINEAR)) for c in range(3)], axis=-1)
 
 
 def _plane(values: numpy.ndarray, size, resample) -> Image.Image:
@@ -596,14 +639,12 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
         return image, seams
     rgb = image.convert("RGB")
     size = rgb.size
-    k = CENSUS_CELL // CELL
-    offsets = _cell_offsets(seams) + numpy.kron(
-        seams.tint, numpy.ones((k, k, 1), numpy.float32))
+    offsets = _upsampled(_cell_offsets(seams), WORK) + seams.tint
     matched = HARMONIZE.apply_color_field(rgb, offsets)
     # the blur and its band, on the cell grid (the blur is wide): the cell
     # means of the matched texture are the source's plus the offsets
     cell_m = metres_per_px * size[0] / float(WORK) * CELL
-    cells = seams.cells + numpy.rint(offsets)
+    cells = seams.cells + _reduce(numpy.rint(offsets), CELL)
     blurred = _water_blur(numpy.clip(cells, 0, 255), _reduce(w, CELL),
                           BLUR_SIGMA_M / cell_m)
     blurred_im = Image.fromarray(

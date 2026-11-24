@@ -14,9 +14,11 @@ import-order trap).  No GUI toolkit imports, per the core-module rule.
 """
 
 import collections
+import contextlib
 import datetime
 import json
 import os
+import threading
 
 import numpy
 
@@ -1780,7 +1782,53 @@ def _definition_covers_box(definition, box):
     return bool(ea_footprints.covers_box(definition, box))
 
 
+#: The scope of :func:`neighbour_boundaries_read_once`, per thread.
+_NEIGHBOUR_MEMO = threading.local()
+
+
+@contextlib.contextmanager
+def neighbour_boundaries_read_once():
+    """Inside this block :func:`_neighbour_boundary_polygons` reads each
+    neighbour set ONCE: the tile's DEM prep resolves its ring plan three
+    times (``ensure_approach_rings`` twice, the bake once), and each
+    resolution re-parsed every neighbour's cached airports layer and
+    rebuilt its airport dictionary — 2 x 1.2 s of the vector step's serial
+    prelude on +33-112 (measured 2026-11-24).  The answer is keyed on the
+    neighbours' cached layers' identity, so a layer that changed inside
+    the block is read again; outside any block nothing is kept."""
+    outer = getattr(_NEIGHBOUR_MEMO, "answers", None)
+    if outer is None:
+        _NEIGHBOUR_MEMO.answers = {}
+    try:
+        yield
+    finally:
+        if outer is None:
+            _NEIGHBOUR_MEMO.answers = None
+
+
 def _neighbour_boundary_polygons(lat, lon, reach_m):
+    """:func:`_read_neighbour_boundary_polygons`, read once per
+    :func:`neighbour_boundaries_read_once` block; a fresh dict and list
+    each call."""
+    answers = getattr(_NEIGHBOUR_MEMO, "answers", None)
+    if answers is None:
+        return _read_neighbour_boundary_polygons(lat, lon, reach_m)
+    layers = []
+    for d_lat, d_lon in APPROACH_RING_NEIGHBOUR_OFFSETS:
+        cached = FNAMES.osm_cached(lat + d_lat, lon + d_lon, "airports")
+        try:
+            st = os.stat(cached)
+            layers.append((cached, st.st_mtime_ns, st.st_size))
+        except OSError:
+            layers.append((cached, None, None))
+    key = (lat, lon, reach_m, tuple(layers))
+    if key not in answers:
+        answers[key] = _read_neighbour_boundary_polygons(lat, lon, reach_m)
+    polygons, unknown = answers[key]
+    return dict(polygons), list(unknown)
+
+
+def _read_neighbour_boundary_polygons(lat, lon, reach_m):
     """Aerodrome boundaries of the eight neighbour tiles that reach into this
     tile, read ONLY from the cached airports layers.
 

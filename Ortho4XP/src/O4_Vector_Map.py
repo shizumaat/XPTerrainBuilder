@@ -1690,9 +1690,12 @@ def load_airports_and_prepare_dem(tile):
     # inset-holding aerodrome of this tile (and of a cached neighbour).
     # No-op -- and a byte-identical build -- when approach_rings is off,
     # no aerodrome on the tile holds an inset, or custom_dem is set.
-    ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
-    _record_coarsened_rings(tile)
-    compose_tile_dem_from_disk(tile, dico_airports)
+    # The ring plan is resolved three times here (the fetch twice, the
+    # bake once); its neighbour aerodromes are read once.
+    with ELEVATION_LEVEL.neighbour_boundaries_read_once():
+        ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
+        _record_coarsened_rings(tile)
+        compose_tile_dem_from_disk(tile, dico_airports)
     return (airport_layer, dico_airports)
 
 
@@ -2520,7 +2523,9 @@ def write_levelled_roads_sidecar(tile, levelled_roads):
         os.makedirs(build_dir, exist_ok=True)
         path = FNAMES.levelled_roads_file(build_dir, tile.lat, tile.lon)
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(levelled_roads.sidecar(tile.lat, tile.lon), handle)
+            # dumps, not dump: the same bytes through the C encoder
+            # (json.dump streams through the pure-Python one)
+            handle.write(json.dumps(levelled_roads.sidecar(tile.lat, tile.lon)))
     except (OSError, TypeError, ValueError) as e:
         UI.vprint(1, "      Could not write", path, ":", e)
         return None

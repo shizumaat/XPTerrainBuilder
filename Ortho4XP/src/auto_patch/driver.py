@@ -1373,6 +1373,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
     worker each, or serially — and return their status records."""
     from . import config as _cfg
     from . import slot_gated_pool as _GATED
+    from .start_order import longest_first
     results: list[dict] = []
     if _cfg.PARALLEL_AIRPORTS and len(tasks) > 1:
         import concurrent.futures as _cf
@@ -1447,7 +1448,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
                 _teardown_pool(ex, results, {fut: t["icao"]},
                                set() if fut.done() else {fut})
 
-            _GATED.run(tasks, width=n, start=_start, on_done=_done,
+            _GATED.run(longest_first(tasks), width=n, start=_start, on_done=_done,
                        label=lambda t: "airport %s" % t["icao"],
                        teardown=_teardown, on_tick=_drain_progress,
                        on_wait=lambda: UI.lvprint(

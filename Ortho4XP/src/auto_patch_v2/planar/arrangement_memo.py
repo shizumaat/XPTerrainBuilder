@@ -12,12 +12,8 @@ HECA, about 40 s per derive.
 The front is therefore held for the build (:func:`scoped`, which wraps
 ``pipeline/build.build``) and served again when its inputs are the same
 OBJECTS of the same build and the same VALUES: the non-late cells, the
-keepouts and the cut lines (a pickled digest), the grid, the law (by
-identity, held weakly) and the airport FIELD BY FIELD (by identity) but its
-flat-site verdict, which the front reads only through its ground class
-(``law.inset_class.ground_class``, compared by value) — the late stage's
-derives are handed the main pass's airport WITH its verdict, a new object
-(#2206 step 1; the test ``stage_one_ahead.Ahead.rebind`` applies).  A hit hands back the front's product with
+keepouts and the cut lines (a pickled digest), the grid, the airport and the
+law (by identity, held weakly).  A hit hands back the front's product with
 every mutable container copied — the registries, the edge report and the
 pad-clip record are deep-copied, the lists shallow (a ``Region`` and a
 shapely geometry are immutable) — so the passes after it write into fresh
@@ -26,7 +22,6 @@ containers exactly as they would after computing it.  Outside a build
 from __future__ import annotations
 
 import copy
-import dataclasses as _dc
 import functools
 import hashlib
 import pickle
@@ -79,29 +74,14 @@ def front_key(non_late: tuple, classification, grid: float) -> bytes | None:
 FRONTS_HELD = 3
 
 
-def _airport_reads(airport, law) -> tuple:
-    """What the front reads of ``airport``: every field but ``flat_site``
-    (compared by identity) and the ground class that verdict names."""
-    from ..law.inset_class import ground_class
-    return (tuple(getattr(airport, f.name) for f in _dc.fields(airport)
-                  if f.name != "flat_site"), ground_class(airport, law))
-
-
-def _same_airport(held: tuple, airport, law) -> bool:
-    fields, ground = _airport_reads(airport, law)
-    return (len(fields) == len(held[0]) and all(a is b for a, b in zip(fields, held[0]))
-            and ground == held[1])
-
-
 def served(key: bytes | None, airport, law) -> dict | None:
-    """The front held under ``key`` for this airport (field by field, its
-    flat-site verdict by ground class) and law, copied for a fresh use;
-    ``None`` on a miss."""
+    """The front held under ``key`` for this airport and law, copied for a
+    fresh use; ``None`` on a miss."""
     memo = getattr(_STATE, "memo", None)
     got = memo.get(key) if (key is not None and memo) else None
-    if got is None or got["law"]() is not law or not _same_airport(got["airport"], airport, law):
+    if got is None or got["airport"]() is not airport or got["law"]() is not law:
         _note("computed" if got is None else
-              "held_other_law" if got["law"]() is not law else "held_other_airport")
+              "held_other_airport" if got["airport"]() is not airport else "held_other_law")
         return None
     memo[key] = memo.pop(key)                       # most recently used last
     _note("served")
@@ -132,13 +112,11 @@ def hold(key: bytes | None, airport, law, front: dict) -> None:
     if key is None or memo is None:
         return
     try:
-        law_ref = weakref.ref(law)
+        refs = (weakref.ref(airport), weakref.ref(law))
     except TypeError:                                   # pragma: no cover
         return
     memo.pop(key, None)
-    # the airport's fields are the build's own objects, alive for the build
-    memo[key] = {"airport": _airport_reads(airport, law), "law": law_ref,
-                 "front": _fresh(front)}
+    memo[key] = {"airport": refs[0], "law": refs[1], "front": _fresh(front)}
     while len(memo) > FRONTS_HELD:
         memo.pop(next(iter(memo)))
 

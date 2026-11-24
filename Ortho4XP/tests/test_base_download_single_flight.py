@@ -22,8 +22,8 @@ import O4_Machine_Slots as SLOTS  # noqa: E402
 import O4_UI_Utils as UI  # noqa: E402
 from elevation_access import registry as ea_registry  # noqa: E402
 
-from test_viewfinder_base_archive import (  # noqa: E402,F401
-    KGEG_ZONE, MEMBER_PAYLOAD, _definition, _zone_archive, fake_viewfinder)
+from test_viewfinder_base_archive import (  # noqa: E402
+    KGEG_ZONE, MEMBER_PAYLOAD, _ArchiveHandler, _definition, _zone_archive)
 
 #: Two cells of the L11 zone (44-48N, 120-114W).
 CELLS = [(47, -118), (46, -117)]
@@ -40,25 +40,39 @@ def _session(tmp_path, monkeypatch):
     UI.red_flag = False
 
 
+@pytest.fixture
+def archive_server():
+    """The viewfinder twin's loopback archive server."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ArchiveHandler)
+    server.status = 200
+    server.body = b""
+    server.requested_paths = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
 def _temporaries(root):
     return [name for (_d, _s, names) in os.walk(root) for name in names
             if ".tmp-" in name]
 
 
-def test_the_cells_of_one_archive_share_one_download(fake_viewfinder,
+def test_the_cells_of_one_archive_share_one_download(archive_server,
                                                      tmp_path):
-    fake_viewfinder.body = _zone_archive(KGEG_ZONE, CELLS)
+    archive_server.body = _zone_archive(KGEG_ZONE, CELLS)
     strategy = ea_registry.ACCESS_STRATEGIES["viewfinder_zip"]()
     results = []
     threads = [threading.Thread(target=lambda cell=cell: results.append(
-        strategy.ensure_tile(_definition(fake_viewfinder), *cell,
+        strategy.ensure_tile(_definition(archive_server), *cell,
                              verbose=False))) for cell in CELLS]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(30)
     assert results == [1, 1]
-    assert fake_viewfinder.requested_paths == ["/dem3/%s.zip" % KGEG_ZONE]
+    assert archive_server.requested_paths == ["/dem3/%s.zip" % KGEG_ZONE]
     for cell in CELLS:
         with open(FNAMES.viewfinderpanorama(*cell), "rb") as handle:
             assert handle.read() == MEMBER_PAYLOAD
@@ -114,10 +128,10 @@ def test_stop_ends_a_usgs_transfer_and_installs_nothing(slow_server,
     assert _temporaries(tmp_path / "elev") == []
 
 
-def test_http_request_streams_to_its_destination(fake_viewfinder, tmp_path):
-    fake_viewfinder.body = b"payload" * 100
+def test_http_request_streams_to_its_destination(archive_server, tmp_path):
+    archive_server.body = b"payload" * 100
     path = str(tmp_path / "body")
-    host, port = fake_viewfinder.server_address
+    host, port = archive_server.server_address
     response = DEM.http_request("http://%s:%d/x.zip" % (host, port), "View",
                                 destination=path)
     assert response

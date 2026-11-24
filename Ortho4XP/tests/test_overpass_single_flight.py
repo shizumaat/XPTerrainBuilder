@@ -125,3 +125,13 @@ def test_stop_is_heard_within_a_poll_while_overpass_works(cache,
         timer.cancel()
     assert answer is None
     assert time.monotonic() - started < 1.5
+
+
+def test_what_the_download_raises_is_raised(cache, monkeypatch):
+    def broken(*_a, **_k):
+        raise ValueError("parser")
+
+    monkeypatch.setattr(OSM, "get_overpass_data", broken)
+    with pytest.raises(ValueError):
+        _layer()
+    assert not cache.exists()

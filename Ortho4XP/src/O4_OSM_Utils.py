@@ -466,7 +466,8 @@ def cache_layer_once(cache_path, cache_schema, download, osm_layer):
     data.  Returns ``"made"`` (this caller's ``download`` filled the
     layer; the cache is written when it got data), ``"joined"`` (another
     process installed a current cache: recycle it) or ``""`` (nothing:
-    the download failed or the build stopped)."""
+    the download failed or the build stopped).  What ``download()``
+    raises is raised here."""
     compressed = cache_path[-4:] == ".bz2"
 
     def is_current(path):
@@ -498,6 +499,8 @@ def cache_layer_once(cache_path, cache_schema, download, osm_layer):
                            cache_path, is_current, shares_failure=False,
                            state_dir=state),
         should_stop=lambda: UI.red_flag, transfer=transfer)
+    if result.transferred and result.error is not None:
+        raise result.error        # what download() raised, as before
     if got:
         return "made" if got[0] else ""
     return "joined" if result.ok else ""

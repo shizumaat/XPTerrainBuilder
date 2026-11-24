@@ -5038,10 +5038,18 @@ def ensure_airport_insets(
 
     if not airport_bounding_boxes:
         return run()
-    lock = os.path.join(FNAMES.airport_inset_directory(lat, lon),
-                        ".insets.lock")
-    with DOWNLOADS.hold_flight(lock, lambda: UI.red_flag) as held:
+    with DOWNLOADS.hold_flight(_inset_pass_lock(lat, lon),
+                               lambda: UI.red_flag) as held:
         return run() if held else _read_index(lat, lon)
+
+
+def _inset_pass_lock(lat, lon):
+    """The tile's inset-pass lock: in its ``Elevation_data`` block beside
+    the base cells' locks, not in the inset folder, whose identity
+    (mtime, size) readers use as the insets' stamp."""
+    return os.path.join(
+        FNAMES.Elevation_dir, FNAMES.round_latlon(lat, lon),
+        ".lock_insets_" + FNAMES.hem_latlon(lat, lon) + ".lock")
 
 
 def _ensure_airport_insets_held(

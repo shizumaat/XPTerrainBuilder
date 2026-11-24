@@ -48,9 +48,7 @@ def test_a_second_pass_waits_for_the_tile_s_flight_and_stops(monkeypatch):
         json.dump({"KBNA": {"usgs3dep": "ok"}}, handle)
     monkeypatch.setattr(INSETS, "_ensure_airport_insets_held",
                         lambda *a, **k: pytest.fail("fetched"))
-    lock = os.path.join(FNAMES.airport_inset_directory(36, -87),
-                        ".insets.lock")
-    with DOWNLOADS.hold_flight(lock):
+    with DOWNLOADS.hold_flight(INSETS._inset_pass_lock(36, -87)):
         _stop_in(0.3)
         started = time.monotonic()
         index = INSETS.ensure_airport_insets(
@@ -63,9 +61,7 @@ def test_the_tile_s_pass_runs_under_its_flight(monkeypatch):
     seen = []
 
     def held(lat, lon, *_a, **_k):
-        lock = os.path.join(FNAMES.airport_inset_directory(lat, lon),
-                            ".insets.lock")
-        flight = SLOTS.try_os_lock(lock)
+        flight = SLOTS.try_os_lock(INSETS._inset_pass_lock(lat, lon))
         seen.append(flight is None)          # someone (we) holds it
         if flight is not None:
             SLOTS.release_os_lock(flight)
@@ -74,8 +70,7 @@ def test_the_tile_s_pass_runs_under_its_flight(monkeypatch):
     monkeypatch.setattr(INSETS, "_ensure_airport_insets_held", held)
     assert INSETS.ensure_airport_insets(
         36, -87, {"KBNA": (-86.7, 36.1, -86.6, 36.2)}, [], None) == {}
-    assert not os.path.exists(os.path.join(
-        FNAMES.airport_inset_directory(36, -87), ".insets.lock"))
+    assert not os.path.exists(INSETS._inset_pass_lock(36, -87))
     assert seen == [True]
 
 

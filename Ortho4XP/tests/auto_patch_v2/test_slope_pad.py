@@ -70,3 +70,22 @@ def test_the_array_read_is_the_point_read():
     ap = types.SimpleNamespace(dem=types.SimpleNamespace(z=z, z_many=many))
     w = slope_witness(ap, law)
     assert w.z_many is many and w[0](u) == seat_float_m(u, z)
+
+
+def test_the_grid_is_the_per_point_grid():
+    """#2206: the grid read in one ``contains`` call keeps the per-point
+    loop's samples, in its order (i outer, j inner), on a concave outline
+    and a multi-part one."""
+    from shapely.geometry import MultiPolygon, Point, Polygon
+    u = Polygon([(0, 0), (40, 0), (40, 30), (20, 8), (0, 30)])
+    m = MultiPolygon([box(0, 0, 9, 9), box(13.3, 2.1, 30.7, 17.9)])
+    for g in (u, m):
+        seen: list = []
+        seat_float_m(g, lambda x, y, seen=seen: seen.append((x, y)) or 1.0)
+        x0, y0, x1, y1 = g.bounds
+        want = [c for p in getattr(g, "geoms", [g]) for c in list(p.exterior.coords)[:-1]]
+        want += [(x0 + (i + 0.5) * (x1 - x0) / 8, y0 + (j + 0.5) * (y1 - y0) / 8)
+                 for i in range(8) for j in range(8)
+                 if g.contains(Point(x0 + (i + 0.5) * (x1 - x0) / 8,
+                                     y0 + (j + 0.5) * (y1 - y0) / 8))]
+        assert seen == want

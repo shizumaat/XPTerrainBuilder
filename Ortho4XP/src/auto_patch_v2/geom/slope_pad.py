@@ -20,7 +20,8 @@ from __future__ import annotations
 import typing as _t
 
 import numpy as np
-from shapely.geometry import Point, Polygon
+import shapely
+from shapely.geometry import Polygon
 
 __all__ = ["seat_float_m", "slope_witness", "SlopeWitness"]
 
@@ -41,12 +42,13 @@ def seat_float_m(outline: Polygon, dem_z: _t.Callable[[float, float], float],
     polys = list(getattr(outline, "geoms", [outline]))
     pts = [c for p in polys for c in list(p.exterior.coords)[:-1]]
     x0, y0, x1, y1 = outline.bounds
-    for i in range(GRID_N):
-        for j in range(GRID_N):
-            x = x0 + (i + 0.5) * (x1 - x0) / GRID_N
-            y = y0 + (j + 0.5) * (y1 - y0) / GRID_N
-            if outline.contains(Point(x, y)):
-                pts.append((x, y))
+    # the grid, i outer and j inner, each cell's middle; ONE contains call
+    # over its points (the same predicate per point as ``contains(Point)``)
+    k = np.arange(GRID_N, dtype=np.float64) + 0.5
+    gx = np.repeat(x0 + k * (x1 - x0) / GRID_N, GRID_N)
+    gy = np.tile(y0 + k * (y1 - y0) / GRID_N, GRID_N)
+    inside = shapely.contains(outline, shapely.points(gx, gy))
+    pts.extend(zip(gx[inside].tolist(), gy[inside].tolist(), strict=True))
     if z_many is not None and pts:
         xy = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
         raw = np.asarray(z_many(xy[:, 0], xy[:, 1]), dtype=np.float64).tolist()

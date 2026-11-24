@@ -2989,16 +2989,19 @@ def solve_color_field(tile):
 
 
 def color_harmonization_field_for_texture(
-    tile, til_x_left, til_y_top, zoomlevel, provider_code
+    tile, til_x_left, til_y_top, zoomlevel, provider_code, water=False
 ):
     """The correction field for one texture — a ``(FIELD_SIZE, FIELD_SIZE,
     3)`` float32 array — or ``None``.
 
     ``None`` when the feature is off, the texture is not in the solved
-    grid (no source JPEG of its own), the texture is ALL WATER (spec §4
-    bar 4: an invisible texture is never shifted, though its node keeps
-    the harmonic value its neighbours interpolate toward) or the whole
-    field rounds to zero.
+    grid (no source JPEG of its own), the texture has NO LAND (spec §4
+    bar 4: its node keeps the harmonic value its neighbours interpolate
+    toward) or the whole field rounds to zero.  ``water=True`` returns
+    the field of a texture with no land as well: its imagery may show
+    under shallow water, where :func:`convert_texture` applies the field
+    to the water pixels only, so it never steps against a neighbour that
+    has land (owner 2026-11-24).
     """
     fields = getattr(tile, "color_harmonization_fields", None)
     if not fields:
@@ -3013,7 +3016,7 @@ def color_harmonization_field_for_texture(
     fraction = land.get(
         (til_x_left, til_y_top, zoomlevel, provider_code)
     )
-    if fraction is not None and fraction <= 0.0:
+    if fraction is not None and fraction <= 0.0 and not water:
         return None
     values = HARMONIZE.bilinear_field(field, key)
     if not numpy.rint(values).any():
@@ -3057,12 +3060,20 @@ def water_seam_mask(tile, til_x_left, til_y_top, zoomlevel):
     except Exception as error:
         UI.vprint(2, "      Water seam mask skipped:", str(error))
         return None
-    return crop if land_class == "mask" else None
+    if land_class != "mask" or not WATER_SEAMS.shows_water(crop):
+        return None
+    return crop
 
 
-def repair_water_seams_in_texture(big_image, water_mask, til_y_top, zoomlevel):
-    """Colour-match and blur the straight seams of the provider's mosaic
+def repair_water_seams_in_texture(big_image, water_mask, water_field,
+                                  til_y_top, zoomlevel):
+    """The colour field of a texture with no land (``water_field``), then
+    the straight seams of the provider's mosaic, colour-matched and blurred
     under water (``O4_Imagery_Water_Seams``); land pixels never change."""
+    if water_field is not None:
+        big_image = WATER_SEAMS.apply_on_water(
+            big_image, HARMONIZE.apply_color_field(big_image, water_field),
+            water_mask)
     lat = GEO.gtile_to_wgs84(0, til_y_top + 8, zoomlevel)[0]
     metres_per_px = (GEO.webmercator_pixel_size(lat, zoomlevel)
                      * 4096.0 / big_image.size[0])
@@ -3269,6 +3280,10 @@ def convert_texture(
                                            zoomlevel)
     # the provider's own seams under shallow water (owner 2026-11-24)
     water_mask = water_seam_mask(tile, til_x_left, til_y_top, zoomlevel)
+    water_field = None
+    if water_mask is not None and harmonization_field is None:
+        water_field = color_harmonization_field_for_texture(
+            tile, til_x_left, til_y_top, zoomlevel, provider_code, water=True)
     if (provider_code in local_combined_providers_dict) and (
         (provider_code not in providers_dict)
         or not os.path.exists(os.path.join(file_dir, jpeg_file_name))
@@ -3282,7 +3297,7 @@ def convert_texture(
             )
         if water_mask is not None:
             big_image = repair_water_seams_in_texture(
-                big_image, water_mask, til_y_top, zoomlevel)
+                big_image, water_mask, water_field, til_y_top, zoomlevel)
         if masked_texture:
             if tile.sea_nodata_fill:
                 big_image = repair_sea_nodata_in_texture(
@@ -3333,7 +3348,7 @@ def convert_texture(
             )
         if water_mask is not None:
             big_image = repair_water_seams_in_texture(
-                big_image, water_mask, til_y_top, zoomlevel)
+                big_image, water_mask, water_field, til_y_top, zoomlevel)
         if masked_texture:
             if tile.sea_nodata_fill:
                 big_image = repair_sea_nodata_in_texture(

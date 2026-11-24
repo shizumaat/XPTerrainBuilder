@@ -1,40 +1,41 @@
-"""Grid-aligned colour steps in the imagery under shallow water, and their
-repair: colour match first, then a strong blur along the line, never on land.
+"""Straight colour steps and red-cast squares in the imagery under shallow
+water, and their repair: colour match first, then a strong blur along the
+line only -- never on land.
 
-A photo provider's mosaic over shallow water is a patchwork: squares of one
-source tile (one tile of a zoom level up to three above the texture's) next
-to another flown on a different day, a reddish or pale square, a scene
-boundary that stairs down the tile grid (owner, 2026-11-24, tile +24-082).
-Over land those steps hide in the ground's own texture; under water, where
-the ground is a smooth gradient, every one shows.  Their lines lie on the
-provider's tile grid, which is the texture's own pixel grid: a texture
-covers 16 tiles of its zoom level, so the finest source tile it can carry
-is 1/128 of its edge (:data:`GRID_DIVISIONS`).
+A photo provider's mosaic over shallow water is a patchwork: squares from
+another flight, reddish squares, a scene edge that stairs down the map
+(owner, 2026-11-24, tile +24-082: "under water we can get away with a lot
+softer blurring").  Over land those steps hide in the ground's texture;
+under water, where the ground is a smooth gradient, every one shows.  They
+are STRAIGHT and run along the map's axes (the mosaic is assembled from
+Web Mercator tiles), but not on any fixed grid of the texture.
 
-* :func:`water_weight` -- 0 on land (the mask's opaque 255) and one mask
-  pixel around it, rising to 1 over :data:`LAND_RAMP` pixels into the water.
-  Every change this module makes is multiplied by it, so a land pixel
-  never changes, and the blur is weighted by it, so land colour never
-  bleeds into the water.
-* :func:`find_water_seams` -- on a :data:`WORK`-px copy of the texture,
-  the colour step across every grid line, segment by segment (one grid
-  cell long), in EXCESS of the gradient on either side (a smooth slope is
-  not a step); a segment is flagged when its excess is at least
-  :data:`MIN_STEP` counts, :data:`NOISE_RATIO` times the steps on the
-  off-grid lines beside it (a ground edge crossing the cell steps there
-  too), and its water weight is at least :data:`MIN_WATER`.  It also counts
-  cells far from their neighbours' median colour, red-cast and cloud-like
-  cells (reported; the repair needs no separate rule for them, since a
-  square's four edges are flagged lines).
-* :func:`repair_water_seams` -- colour first: one offset per grid cell, the
-  screened Poisson solution whose jumps cancel the flagged steps and decay
-  over :data:`SCREEN_CELLS` cells away from them, held at 0 on the texture's
-  border ring (the texture never steps against its neighbour), applied with
-  ``O4_Color_Harmonization.apply_color_field``.  Then a water-weighted
-  Gaussian blur of :data:`BLUR_SIGMA_M` metres blended in along the flagged
-  lines only (a band of :data:`BAND_SIGMA_M`), hiding what the colour match
-  left of the step.  Last, the result is composited over the original by
-  :func:`water_weight`.
+* :func:`water_weight` -- 0 on land (the mask's opaque 255) and one DXT
+  block around it, rising to 1 over :data:`LAND_RAMP` px into the water.
+  Every change is composited by it, so a land pixel (and every
+  compressed block holding one) never changes, and the blur is weighted
+  by it, so land colour never bleeds into the water.
+* :func:`find_water_seams` -- on a :data:`WORK`-px copy, the colour step
+  across every vertical and horizontal line in EXCESS of the slope either
+  side, averaged along the line over :data:`LINE` px.  A point is a seam
+  where that step, times the mask's opacity, reaches :data:`MIN_STEP`
+  with :data:`COHERENCE` (a ground edge crossing at an angle, or the
+  ground's own texture, averages out), is the strongest across the line,
+  lies in water, and belongs to a straight run of :data:`MIN_RUN` px; the
+  run then grows along its line through weaker points (hysteresis).  Red-
+  cast squares (:func:`_red_squares`): patches of census cells whose R-G
+  cast over their surroundings reaches :data:`RED_EXCESS`, bright and
+  square enough to be a source tile.  Outlier, red and cloud-like cells
+  are counted for the report.
+* :func:`repair_water_seams` -- one offset per :data:`CELL`, the screened
+  Poisson solution whose jumps cancel the flagged steps and decay over
+  :data:`SCREEN_CELLS` cells, held at 0 on the border ring (the texture
+  never steps against its neighbour), plus the tint that removes each red
+  square's cast with its luminance kept, applied with
+  ``O4_Color_Harmonization.apply_color_field``; then a water-weighted
+  Gaussian blur of :data:`BLUR_SIGMA_M` blended in along the flagged lines
+  (:data:`BAND_SIGMA_M`) and the squares' edges (:data:`TINT_BAND_SIGMA_M`).
+* :func:`apply_on_water` -- any change composited by :func:`water_weight`.
 
 Pure leaf: numpy, scipy and PIL; no I/O, no state but a cached matrix
 factorisation, no randomness.  No tile or airport is named here.
@@ -55,8 +56,10 @@ import O4_Color_Harmonization as HARMONIZE
 
 __all__ = [
     "WaterSeams",
+    "apply_on_water",
     "find_water_seams",
     "repair_water_seams",
+    "shows_water",
     "water_weight",
 ]
 
@@ -76,12 +79,18 @@ LINE = 16
 MIN_STEP = 8.0
 # ... it is this coherent (|mean step| / mean |step| along the line) ...
 COHERENCE = 0.7
-# ... it is the strongest within this many work px across the line ...
-SUPPRESS = 3
+# ... it is the strongest within this many work px across the line (past
+# the control lines two strips away, where the excess echoes the step) ...
+SUPPRESS = 2 * STRIP + 1
 # ... both sides are at least this much water ...
 MIN_WATER = 0.5
-# ... and it belongs to a straight run at least this long (work px).
-MIN_RUN = 28
+# ... and it belongs to a straight run at least this long (work px, ~490 m
+# at ZL16) -- or this long (~140 m) where it turns a square corner with a
+# perpendicular run within CORNER_GAP px (a source tile's side).
+MIN_RUN = 56
+MIN_CORNER_RUN = 24
+CORNER_GAP = 3
+CORNER_COSINE = 0.8
 # A run grows along its line through points that step at least this much
 # (visible counts) with this coherence: a scene edge keeps its line while
 # the ground on either side changes how much it steps.
@@ -107,6 +116,10 @@ BLUR_SIGMA_M = 120.0
 BAND_SIGMA_M = 45.0
 # The band is fully blurred out to about one band sigma from the line.
 BAND_GAIN = 1.6
+# A texture is repaired only when at least this fraction of it is water
+# that shows (mask opacity at least VISIBLE_ALPHA, below land's 255).
+VISIBLE_ALPHA = 64
+MIN_VISIBLE_WATER = 0.01
 # Cell census (reported): on cells of 8 work px, a cell is an outlier when
 # its colour is this far from the median of the 5x5 cells around it;
 # red-cast when its R-G excess over that median is this large;
@@ -143,7 +156,8 @@ class WaterSeams:
     ``flag_x`` / ``flag_y`` mark the line points flagged as seams.
     ``tint`` is the ``(cells, cells, 3)`` offset (census cells of
     :data:`CENSUS_CELL` work px) that removes the cast of every red-cast
-    square, ``tinted`` its cells.
+    square, ``tinted`` its cells.  ``cells`` is the texture's mean colour
+    per :data:`CELL`.
     """
 
     evidence_x: numpy.ndarray
@@ -152,6 +166,7 @@ class WaterSeams:
     flag_y: numpy.ndarray
     tint: numpy.ndarray
     tinted: numpy.ndarray
+    cells: numpy.ndarray
     census: Dict[str, int] = field(default_factory=dict)
 
     @property
@@ -163,9 +178,9 @@ class WaterSeams:
         """Lengths (work px) of every straight run of flagged points."""
         lengths: List[int] = []
         for flags in (self.flag_x, self.flag_y.T):
-            labels, count = ndimage.label(flags, structure=_VERTICAL)
-            if count:
-                lengths += numpy.bincount(labels.ravel())[1:].tolist()
+            labels, _count = ndimage.label(flags, structure=_DRIFT)
+            lengths += [box[0].stop - box[0].start
+                        for box in ndimage.find_objects(labels)]
         return lengths
 
     def step_stats(self, flags_x=None, flags_y=None) -> Tuple[float, float]:
@@ -182,6 +197,17 @@ class WaterSeams:
 
 
 _VERTICAL = numpy.array([[0, 1, 0], [0, 1, 0], [0, 1, 0]], dtype=bool)
+# A reported run continues to the next row one column either side.
+_DRIFT = numpy.array([[1, 1, 1], [0, 1, 0], [1, 1, 1]], dtype=bool)
+
+
+def shows_water(mask) -> bool:
+    """Whether enough of a texture is water that shows (see
+    :data:`MIN_VISIBLE_WATER`) for a repair to matter."""
+    m = numpy.asarray(mask.convert("L") if isinstance(mask, Image.Image)
+                      else mask)
+    visible = (m >= VISIBLE_ALPHA) & (m < LAND_VALUE)
+    return float(visible.mean()) >= MIN_VISIBLE_WATER
 
 
 def _land_at(mask: numpy.ndarray, n: int) -> numpy.ndarray:
@@ -232,8 +258,10 @@ def _shift(a: numpy.ndarray, k: int) -> numpy.ndarray:
 
 
 def _vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray):
-    """``(evidence, flags)`` of the vertical lines of ``a`` (see
-    :class:`WaterSeams`); the horizontal ones are this on the transpose."""
+    """``(evidence, strong, weak)`` of the vertical lines of ``a``: the
+    averaged excess step (see :class:`WaterSeams`) and the points passing
+    the strong and the weak test; the horizontal ones are this on the
+    transpose."""
     s = STRIP
     after = sum(_shift(a, k) for k in range(s)) / s
     before = sum(_shift(a, -1 - k) for k in range(s)) / s
@@ -251,26 +279,111 @@ def _vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray):
     candidate[:, :margin] = False
     candidate[:, -margin:] = False
     visible = magnitude * opacity
-    strong = _runs_at_least(candidate & (visible >= MIN_STEP)
-                            & (magnitude >= COHERENCE * spread), MIN_RUN)
+    strong = candidate & (visible >= MIN_STEP) & (
+        magnitude >= COHERENCE * spread)
     weak = candidate & (visible >= WEAK_STEP) & (
         magnitude >= WEAK_COHERENCE * spread)
-    # hysteresis: a weak run is kept where it carries a strong one
-    labels, count = ndimage.label(weak | strong, structure=_VERTICAL)
+    return evidence.astype(numpy.float32), strong, weak
+
+
+def _thick(flags: numpy.ndarray) -> numpy.ndarray:
+    """``flags`` widened by one column each side: a line whose strongest
+    point wanders by a pixel stays whole in its own column."""
+    return flags | _shift(flags, 1) | _shift(flags, -1)
+
+
+def _column_runs(flags: numpy.ndarray):
+    """Labels of the runs of ``flags`` down each column (count, labels)."""
+    labels, count = ndimage.label(flags, structure=_VERTICAL)
+    return labels, count
+
+
+def _runs(flags: numpy.ndarray):
+    """``(labels, table)``: the straight vertical runs of ``flags`` (down
+    one column of :func:`_thick`) and per label ``[column, first row, end
+    row]`` (row 0 of the table unused)."""
+    labels, count = _column_runs(_thick(flags))
+    table = numpy.zeros((count + 1, 3), dtype=int)
+    for k, box in enumerate(ndimage.find_objects(labels), start=1):
+        if box is not None:
+            table[k] = (box[1].start, box[0].start, box[0].stop)
+    return labels, table
+
+
+def _touching(runs: numpy.ndarray, others: numpy.ndarray, steps: numpy.ndarray,
+              other_steps: numpy.ndarray) -> numpy.ndarray:
+    """Per run (vertical, ``[column, row0, row1]``), whether one of its ends
+    meets a perpendicular run (``[row, column0, column1]``) -- at the
+    other's end or on its line, within :data:`CORNER_GAP` -- stepping the
+    same colour (|cosine| of the two mean steps at least
+    :data:`CORNER_COSINE`: the one patch of another flight on both
+    sides)."""
+    if not len(runs) or not len(others):
+        return numpy.zeros(len(runs), dtype=bool)
+    unit = steps / numpy.maximum(numpy.linalg.norm(steps, axis=1), 1e-6)[:, None]
+    other_unit = other_steps / numpy.maximum(
+        numpy.linalg.norm(other_steps, axis=1), 1e-6)[:, None]
+    alike = numpy.abs(unit @ other_unit.T) >= CORNER_COSINE
+    g = CORNER_GAP
+    c, r0, r1 = (runs[:, k, None] for k in range(3))
+    r, c0, c1 = (others[None, :, k] for k in range(3))
+    on_other = (c >= c0 - g) & (c <= c1 - 1 + g)
+    end_meets = on_other & ((numpy.abs(r - r0) <= g)
+                            | (numpy.abs(r - (r1 - 1)) <= g))
+    on_run = (r >= r0 - g) & (r <= r1 - 1 + g)
+    other_end_meets = on_run & ((numpy.abs(c0 - c) <= g)
+                                | (numpy.abs(c1 - 1 - c) <= g))
+    return ((end_meets | other_end_meets) & alike).any(axis=1)
+
+
+def _mean_steps(evidence: numpy.ndarray, flags: numpy.ndarray,
+                labels: numpy.ndarray, count: int) -> numpy.ndarray:
+    """``(count + 1, 3)``: each run's mean step over its flagged points."""
+    marked = numpy.where(flags, labels, 0).ravel()
+    counts = numpy.maximum(numpy.bincount(marked, minlength=count + 1), 1)
+    return numpy.stack([numpy.bincount(marked, evidence[..., c].ravel(),
+                                       minlength=count + 1) / counts
+                        for c in range(3)], axis=-1)
+
+
+def _straight_pairs(strong_x: numpy.ndarray, strong_y: numpy.ndarray,
+                    evidence_x: numpy.ndarray, evidence_y: numpy.ndarray):
+    """The strong points of each orientation on a run long enough ALONE
+    (:data:`MIN_RUN`), or long enough to be a square's side
+    (:data:`MIN_CORNER_RUN`) and meeting a perpendicular one at a corner:
+    a source tile's edges are straight AND turn square, a channel bank that
+    is straight for a while does neither for long."""
+    labels_x, runs_x = _runs(strong_x)
+    labels_y, runs_y = _runs(strong_y.T)
+    length_x = runs_x[:, 2] - runs_x[:, 1]
+    length_y = runs_y[:, 2] - runs_y[:, 1]
+    side_x = length_x >= MIN_CORNER_RUN
+    side_y = length_y >= MIN_CORNER_RUN
+    side_x[0] = side_y[0] = False
+    keep_x = length_x >= MIN_RUN
+    keep_y = length_y >= MIN_RUN
+    steps_x = _mean_steps(evidence_x, strong_x, labels_x, len(runs_x) - 1)
+    steps_y = _mean_steps(evidence_y.transpose(1, 0, 2), strong_y.T,
+                          labels_y, len(runs_y) - 1)
+    keep_x[side_x] |= _touching(runs_x[side_x], runs_y[side_y],
+                                steps_x[side_x], steps_y[side_y])
+    keep_y[side_y] |= _touching(runs_y[side_y], runs_x[side_x],
+                                steps_y[side_y], steps_x[side_x])
+    keep_x[0] = keep_y[0] = False
+    return strong_x & keep_x[labels_x], strong_y & keep_y[labels_y].T
+
+
+def _grown(strong: numpy.ndarray, weak: numpy.ndarray) -> numpy.ndarray:
+    """Hysteresis: the weak points on the same straight run as a strong
+    one, so a seam keeps its line where its step weakens."""
+    either = strong | weak
+    labels, count = _column_runs(_thick(either))
+    if not count:
+        return strong
     keep = numpy.zeros(count + 1, dtype=bool)
     keep[numpy.unique(labels[strong])] = True
     keep[0] = False
-    return evidence.astype(numpy.float32), keep[labels]
-
-
-def _runs_at_least(flags: numpy.ndarray, length: int) -> numpy.ndarray:
-    """``flags`` without the vertical runs shorter than ``length``."""
-    labels, count = ndimage.label(flags, structure=_VERTICAL)
-    if not count:
-        return flags
-    keep = numpy.bincount(labels.ravel()) >= length
-    keep[0] = False
-    return keep[labels]
+    return either & keep[labels]
 
 
 def _census(a: numpy.ndarray, w: numpy.ndarray) -> Dict[str, int]:
@@ -306,9 +419,14 @@ def _red_squares(a: numpy.ndarray, w: numpy.ndarray):
     water = _reduce(w, CENSUS_CELL) >= MIN_WATER
     chroma = numpy.stack([cell[..., 0] - cell[..., 1],
                           cell[..., 2] - cell[..., 1]], axis=-1)
-    ref = numpy.stack([ndimage.median_filter(chroma[..., k], TINT_REFERENCE,
+    # the surroundings' median on cells twice as coarse (a quarter of the
+    # cost; the reference is smooth by construction)
+    coarse = _reduce(chroma, 2)
+    ref = numpy.stack([ndimage.median_filter(coarse[..., k],
+                                             TINT_REFERENCE // 2 + 1,
                                              mode="nearest") for k in range(2)],
                       axis=-1)
+    ref = numpy.kron(ref, numpy.ones((2, 2, 1), numpy.float32))
     excess = chroma - ref
     tint = numpy.zeros(cell.shape, dtype=numpy.float32)
     tinted = numpy.zeros(water.shape, dtype=bool)
@@ -337,18 +455,25 @@ def _reduce(a: numpy.ndarray, k: int) -> numpy.ndarray:
 
 
 def find_water_seams(image: Image.Image, mask: numpy.ndarray,
-                     weight: Optional[numpy.ndarray] = None) -> WaterSeams:
+                     weight: Optional[numpy.ndarray] = None,
+                     census: bool = False) -> WaterSeams:
     """The flagged seams of one texture (see the module doc).  ``mask`` is
-    the texture's water mask (any square size, 255 = land)."""
+    the texture's water mask (any square size, 255 = land); ``census``
+    also counts the outlier, red and cloud-like cells (a report)."""
     a = _work_image(image)
     mask = numpy.asarray(mask)
     w = water_weight(mask) if weight is None else weight
     opacity = _opacity(mask)
-    ex, fx = _vertical_lines(a, w, opacity)
-    ey, fy = _vertical_lines(a.transpose(1, 0, 2), w.T, opacity.T)
+    ex, strong_x, weak_x = _vertical_lines(a, w, opacity)
+    ey, strong_y, weak_y = _vertical_lines(a.transpose(1, 0, 2), w.T,
+                                           opacity.T)
+    strong_x, strong_y = _straight_pairs(strong_x, strong_y.T, ex,
+                                         ey.transpose(1, 0, 2))
+    fx = _grown(strong_x, weak_x)
+    fy = _grown(strong_y.T, weak_y).T
     tint, tinted = _red_squares(a, w)
-    return WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy.T, tint, tinted,
-                      _census(a, w))
+    return WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy, tint, tinted,
+                      _reduce(a, CELL), _census(a, w) if census else {})
 
 
 _FACTOR_LOCK = threading.Lock()
@@ -462,8 +587,8 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
     ``mask`` is the texture's water mask (``L`` image or 2-D array, any
     square size; 255 is land); ``metres_per_px`` the ground size of one
     texture px.  The input image is never mutated; when nothing is
-    flagged it is returned as is.  Every pixel whose mask is land, and
-    every pixel within one mask px of land, is returned byte-identical.
+    flagged it is returned as is.  Every land pixel (mask 255), and every
+    pixel of a DXT block that holds one, is returned byte-identical.
     """
     mask = numpy.asarray(mask.convert("L") if isinstance(mask, Image.Image)
                          else mask)
@@ -472,26 +597,46 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
         seams = find_water_seams(image, mask, weight=w)
     if not seams.flagged:
         return image, seams
-    mode = image.mode
     rgb = image.convert("RGB")
     size = rgb.size
     k = CENSUS_CELL // CELL
     offsets = _cell_offsets(seams) + numpy.kron(
         seams.tint, numpy.ones((k, k, 1), numpy.float32))
     matched = HARMONIZE.apply_color_field(rgb, offsets)
-    # the blur and its band, on the cell grid (the blur is wide)
+    # the blur and its band, on the cell grid (the blur is wide): the cell
+    # means of the matched texture are the source's plus the offsets
     cell_m = metres_per_px * size[0] / float(WORK) * CELL
-    blurred = _water_blur(_reduce(_work_image(matched), CELL),
-                          _reduce(w, CELL), BLUR_SIGMA_M / cell_m)
+    cells = seams.cells + numpy.rint(offsets)
+    blurred = _water_blur(numpy.clip(cells, 0, 255), _reduce(w, CELL),
+                          BLUR_SIGMA_M / cell_m)
     blurred_im = Image.fromarray(
         numpy.clip(numpy.rint(blurred), 0, 255).astype(numpy.uint8),
-        "RGB").resize(size, Image.BICUBIC)
+        "RGB").resize(size, Image.BILINEAR)
     band = _band(seams, cell_m)
     mixed = Image.composite(blurred_im, matched,
                             _plane(band, size, Image.BILINEAR))
-    result = Image.composite(mixed, rgb, _plane(w, size, Image.BILINEAR))
+    return _composite_on_water(mixed, image, w), seams
+
+
+def apply_on_water(image: Image.Image, changed: Image.Image,
+                   mask) -> Image.Image:
+    """``changed`` where the texture is water, ``image`` on land, blended by
+    :func:`water_weight` (exactly ``image`` on land and one DXT block
+    around it).  ``mask`` as in :func:`repair_water_seams`."""
+    mask = numpy.asarray(mask.convert("L") if isinstance(mask, Image.Image)
+                         else mask)
+    return _composite_on_water(changed, image,
+                               water_weight(mask, texture_px=image.size[0]))
+
+
+def _composite_on_water(changed: Image.Image, image: Image.Image,
+                        w: numpy.ndarray) -> Image.Image:
+    mode = image.mode
+    rgb = image.convert("RGB")
+    result = Image.composite(changed.convert("RGB"), rgb,
+                             _plane(w, rgb.size, Image.BILINEAR))
     if mode == "RGBA":
         result.putalpha(image.getchannel("A"))
     elif mode != "RGB":
         result = result.convert(mode)
-    return result, seams
+    return result

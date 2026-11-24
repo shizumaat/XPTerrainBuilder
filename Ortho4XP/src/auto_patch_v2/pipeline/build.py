@@ -25,7 +25,6 @@ from ..model import clocks as _clocks
 from ..model import pulse as _pulse
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
-from ..planar import arrangement_memo as _arr_memo
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
 from . import emit_records as _emit_records
@@ -491,7 +490,6 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             "pool": _wpool.report()}
 
 
-@_arr_memo.scoped   # the arrangement's front, read once per build (#803)
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
           config: Config | None = None, law: Law | None = None,
           out: _t.Callable[[str], None] = print) -> BuildResult:
@@ -1020,8 +1018,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "main_run_s": round(_main_run_s, 3),
         "main_digest_s": round(_main_digest_s, 3),
         "runs": list(derive.clocks),
-        # each ``build_arrangement`` front read's outcome, in call order
-        "front_memo": _arr_memo.outcomes(),
         "stage_one_ahead": None if _s1_box.get("ahead") is None
         else _s1_box["ahead"].clock()}
     _staged = sum(wall.values())

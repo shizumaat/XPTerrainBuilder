@@ -712,7 +712,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.exact",
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
-        "auto_patch_v2.geom.grid_pickle",
         "auto_patch_v2.geom.lens",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
@@ -798,7 +797,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.agp_ground",
         "auto_patch_v2.planar.apron_shelf",
-        "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.bank_cut",
         "auto_patch_v2.planar.basin_author_ground",
         "auto_patch_v2.planar.basin_datum",
@@ -2805,7 +2803,7 @@ CODE_MODULES["solve"] = _mods("""
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
-    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf
     planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
@@ -3032,7 +3030,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.car_lot_stage constraints.car_lot_follow
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
-    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf
     planar.basin_datum planar.basin_floor_width
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel

@@ -4,8 +4,7 @@ shapely 2.x pickles a geometry as its WKB alone, so ``pickle`` and
 ``copy.deepcopy`` hand back the shape with ``get_precision == 0``: the grid
 set by ``shapely.set_precision(g, grid)`` is dropped, and a later overlay of
 the copy nodes differently from the original.  Every stage-cache record
-(``airport/stage_cache``), every arrangement-memo front copy
-(``planar/arrangement_memo``) and every worker hand-off pickles or deep-copies
+(``airport/stage_cache``) and every worker hand-off pickles or deep-copies
 such geometry, so a cache hit could differ from the fresh computation.
 
 Importing this module registers, once and process-wide, a ``copyreg``

@@ -1006,7 +1006,6 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar",
     "auto_patch_v2.planar.agp_ground",
     "auto_patch_v2.planar.apron_shelf",
-    "auto_patch_v2.planar.arrangement_memo",
     "auto_patch_v2.planar.bank_cut",
     "auto_patch_v2.planar.basin_author_ground",
     "auto_patch_v2.planar.basin_datum",

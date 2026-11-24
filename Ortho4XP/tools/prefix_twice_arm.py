@@ -2,16 +2,14 @@
 derive, then the late one, as ``pipeline/build`` orders them.
 
 ``tools/v2_solve_replay.py --replay PKL --from classify --prefix-twice
-on|off`` runs ``pipeline/prefix.Deriver`` (no stage cache) on the base
+off`` runs ``pipeline/prefix.Deriver`` (no stage cache) on the base
 classification (``stage_one_map.gap_free``: the gap pieces, pad roads and
 car lots withheld) and then on the whole one, the second with the airport
 the first returned (its flat-site verdict), exactly as the build hands the
-late stage its ``derive``.  ``on`` runs both under
-``planar/arrangement_memo.scoped`` (a build), ``off`` outside it.  Printed:
-each run's step clocks (``prefix_clocks``), the memo's outcomes and the late
-map's digest — equal for ``on`` and ``off`` when serving the front changes
-nothing.  It solves nothing.  The late classification is the uncut one: the
-front reads only the non-late cells, which the cut never changes.
+late stage its ``derive``.  Printed: each run's step clocks
+(``prefix_clocks``) and the late map's digest, whole and per field.  It
+solves nothing.  (The ``on`` arm, the arrangement front memo, was deleted
+in #2206 step 1: it served no late derive, and served it changed the map.)
 
 Promoted from the lonemap lane's scratch ``warmprof.py`` (its second use)."""
 from __future__ import annotations
@@ -46,13 +44,12 @@ def _fields(obj: _t.Any) -> dict[str, str]:
     return {f.name: _digest(getattr(obj, f.name)) for f in _dc.fields(obj)}
 
 
-def prefix_twice(icao: str, airport, cl, law, inputs, pack, *, memo: bool,
+def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
                  out: _t.Callable[[str], None] = print) -> dict:
-    """The two derives (module docstring); returns the clocks, the memo's
-    outcomes (``None`` with ``memo`` off) and the late map's digests."""
+    """The two derives (module docstring); returns the clocks and the late
+    map's digests."""
     from auto_patch_v2.pipeline.prefix import Deriver
     from auto_patch_v2.pipeline.stage_one_map import gap_free
-    from auto_patch_v2.planar import arrangement_memo as _arr_memo
 
     def both() -> dict:
         derive = Deriver(airport, law, inputs, pack)
@@ -65,15 +62,13 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *, memo: bool,
             derive.airport = derive.last.airport
         pm, cs = derive.last.pm, derive.last.cs
         return {"walls": walls, "clocks": list(derive.clocks),
-                "outcomes": _arr_memo.outcomes(),
                 "late_pm": _digest(pm), "late_cs": _digest(cs),
                 "late_pm_fields": _fields(pm)}
-    got = (_arr_memo.scoped(both) if memo else both)()
+    got = both()
     for (what, s), clock in zip(got["walls"], got["clocks"]):
         steps = ", ".join(f"{k} {v:.1f}" for k, v in clock["wall_s"].items())
-        out(f"[{icao}] PREFIX TWICE ({'memo on' if memo else 'memo off'}) {what} derive "
+        out(f"[{icao}] PREFIX TWICE {what} derive "
             f"{s:.1f} s, steps sum {clock['total_s']:.1f} s: {steps}")
-    out(f"[{icao}] PREFIX TWICE front memo outcomes: {got['outcomes']}")
     out(f"[{icao}] PREFIX TWICE late map digest pm {got['late_pm']} cs {got['late_cs']}")
     out(f"[{icao}] PREFIX TWICE late map fields "
         + " ".join(f"{k}={v}" for k, v in got["late_pm_fields"].items()))

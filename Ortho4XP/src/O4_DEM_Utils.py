@@ -18,6 +18,7 @@ import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Download_Manager as DOWNLOADS
 import O4_Http_Pushback as PUSHBACK
 import O4_Machine_Slots as MACHINE_SLOTS
+import O4_Transfer_Floor as TRANSFER_FLOOR
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 
@@ -1407,6 +1408,17 @@ HTTP_REQUEST_ATTEMPT_CAP = 6
 #: Seconds one base-tile GET may take.
 HTTP_REQUEST_TIMEOUT_S = 10
 
+#: Attempts that moved below the throughput floor
+#: (``O4_Transfer_Floor``) before :func:`http_request` gives the source
+#: up (#2211).  A server that trickles once trickles again: two slow
+#: attempts and the source is refused on the transport -- the refusal
+#: the base fallback covers -- about two minutes in, never after six
+#: attempts that each could trickle for hours.
+HTTP_REQUEST_SLOW_ATTEMPT_CAP = 2
+
+#: The clock the throughput floor reads; named so a twin drives it.
+HTTP_REQUEST_CLOCK = time.monotonic
+
 #: Redirect hops :func:`http_request` follows before refusing (issue
 #: #193).  Named so a twin can prove the bound instead of waiting out
 #: ``requests``' own 30-hop default.  Five is far above what any real
@@ -1503,9 +1515,17 @@ def http_request(url, source, verbose=False, destination=None):
     # module level.  It owns the ONE answer-outcome classifier (SQ3: a
     # second convention at a call site is the defect, not a refinement).
     from elevation_access import discovery as ea_discovery
+    from elevation_access import fallback_choice as ea_fallback_choice
     from elevation_access import fetch_slots as ea_fetch_slots
+
+    # The user's "Use <fallback> instead" on the slow-step alert (#2211):
+    # this source is given up at once, as a transport refusal.
+    def abandoned():
+        return ea_fallback_choice.fallback_requested(url)
+
     s = requests.Session()
     tentative = 0
+    slow = 0
     last_failure = None
     last_error = None
     while True:
@@ -1515,6 +1535,8 @@ def http_request(url, source, verbose=False, destination=None):
         # caller already treats as "download failed".
         if UI.red_flag:
             return 0
+        if abandoned():
+            raise _abandoned_refusal(source, url)
         try:
             # One slot of the server's budget for the whole build session
             # (#1236): every tile's base downloads from this host share it.
@@ -1531,8 +1553,13 @@ def http_request(url, source, verbose=False, destination=None):
                 written = None
                 if (destination is not None
                         and outcome == ea_discovery.HTTP_OUTCOME_OK):
+                    # The floor fails an attempt that trickles (#2211).
                     (status, written) = DOWNLOADS.write_body(
-                        r, destination, lambda: UI.red_flag)
+                        r, destination, lambda: UI.red_flag,
+                        TRANSFER_FLOOR.ThroughputFloor(
+                            clock=lambda: HTTP_REQUEST_CLOCK(),
+                            abandoned=abandoned),
+                        chunk_bytes=TRANSFER_FLOOR.FLOOR_CHUNK_BYTES)
                     if status != DOWNLOADS.READY:
                         return 0
                 elapsed = time.time() - t0
@@ -1585,6 +1612,16 @@ def http_request(url, source, verbose=False, destination=None):
             # transport failure and RETRY it five more times before
             # raising a vaguer refusal of its own.
             raise
+        except TRANSFER_FLOOR.TransferAbandoned:
+            raise _abandoned_refusal(source, url) from None
+        except TRANSFER_FLOOR.TransferTooSlow as e:
+            slow += 1
+            last_failure = "too slow: %s" % e
+            last_error = None
+            UI.vprint(1, "    ", source, "download too slow:", e)
+            if slow >= HTTP_REQUEST_SLOW_ATTEMPT_CAP and not UI.red_flag:
+                raise _transport_refusal(source, url, tentative + 1,
+                                         last_failure, None) from e
         except Exception as e:
             last_failure = "%s: %s" % (type(e).__name__, e)
             last_error = e
@@ -1594,25 +1631,16 @@ def http_request(url, source, verbose=False, destination=None):
         tentative += 1
         if tentative >= HTTP_REQUEST_ATTEMPT_CAP:
             if last_failure is not None and not UI.red_flag:
-                refusal = ElevationTransportRefused(
-                    "the %s elevation download of %s failed %d times on "
-                    "the transport (last: %s) -- REFUSING to build this "
-                    "tile on an all-zero elevation raster; check the "
-                    "network / TLS (antivirus or proxy HTTPS inspection) "
-                    "and rebuild" % (source, url, tentative, last_failure))
-                # A PROXY refused it (the user's side, not the server's):
-                # named by the exception's class, never its text.
-                if last_error is not None and any(
-                        k.__name__ == "ProxyError"
-                        for k in type(last_error).__mro__):
-                    refusal.failure_code = "proxy_refused"
-                raise refusal
+                raise _transport_refusal(source, url, tentative,
+                                         last_failure, last_error)
             return 0
         # Cancellation before the exponential back-off sleep: Stop must
         # not be blocked for up to 2**tentative seconds waiting to retry
         # a source the user no longer wants.  Same 0 failure convention.
         if UI.red_flag:
             return 0
+        if abandoned():
+            raise _abandoned_refusal(source, url)
         UI.vprint(
             1,
             "    ",
@@ -1624,6 +1652,33 @@ def http_request(url, source, verbose=False, destination=None):
         # In slices, so a Stop ends the wait at once (census finding 5).
         if not PUSHBACK.interruptible_sleep(2 ** tentative):
             return 0
+
+
+def _transport_refusal(source, url, attempts, last_failure, last_error):
+    """The :class:`ElevationTransportRefused` :func:`http_request` raises
+    when every attempt failed (or trickled below the floor)."""
+    refusal = ElevationTransportRefused(
+        "the %s elevation download of %s failed %d times on "
+        "the transport (last: %s) -- REFUSING to build this "
+        "tile on an all-zero elevation raster; check the "
+        "network / TLS (antivirus or proxy HTTPS inspection) "
+        "and rebuild" % (source, url, attempts, last_failure))
+    # A PROXY refused it (the user's side, not the server's):
+    # named by the exception's class, never its text.
+    if last_error is not None and any(
+            k.__name__ == "ProxyError"
+            for k in type(last_error).__mro__):
+        refusal.failure_code = "proxy_refused"
+    return refusal
+
+
+def _abandoned_refusal(source, url):
+    """The refusal for a source the user gave up on the slow-step alert
+    (#2211): a transport refusal, so the base fallback takes the cell."""
+    return ElevationTransportRefused(
+        "the %s elevation download of %s was given up: the user chose "
+        "the fallback source instead on the slow-step alert"
+        % (source, url))
 
 ################################################################################
 def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata,

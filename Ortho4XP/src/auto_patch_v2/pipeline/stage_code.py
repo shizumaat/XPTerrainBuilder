@@ -287,6 +287,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -595,6 +596,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.portal_floor",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
@@ -1090,6 +1092,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -1316,6 +1319,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
@@ -1613,6 +1617,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_targets",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
@@ -2492,7 +2497,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.pool_memory airport.rebake_plan airport.deck_plane_ring
+    airport.pool airport.pool_memory airport.pool_slots airport.rebake_plan airport.deck_plane_ring
     airport.pack_patch_witness airport.riders airport.ring_contact_batch
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
@@ -2634,6 +2639,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.lowest_face airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.pool_memory
+    airport.pool_slots
     airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness airport.riders
     airport.ring_contact_batch airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.topology_cache constraints.apron
@@ -2749,7 +2755,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool airport.pool_memory
+    airport.plate_ground airport.pool airport.pool_memory airport.pool_slots
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness
     airport.riders airport.road_profile
@@ -2956,7 +2962,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
-    airport.plate_ground airport.pool airport.pool_memory
+    airport.plate_ground airport.pool airport.pool_memory airport.pool_slots
     airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.deck_plane_ring airport.pack_patch_witness
     airport.riders airport.road_profile
@@ -3186,6 +3192,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.rebake_screen airport.riders
+    airport.pool_slots
     airport.deck_plane_ring airport.pack_patch_witness
     airport.plate_ground airport.public_road
     airport.road_descent airport.road_joint airport.road_profile airport.road_ramp
@@ -3355,7 +3362,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.pool_memory airport.rebake_plan airport.deck_plane_ring
+    airport.pool airport.pool_memory airport.pool_slots airport.rebake_plan airport.deck_plane_ring
     airport.pack_patch_witness airport.riders
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates

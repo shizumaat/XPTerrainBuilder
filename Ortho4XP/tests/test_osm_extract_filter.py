@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import O4_Held_File as HELD  # noqa: E402
 import O4_OSM_Extract_Filter as FILTER  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers: build tiny .osm XML documents on disk.
 # ---------------------------------------------------------------------------

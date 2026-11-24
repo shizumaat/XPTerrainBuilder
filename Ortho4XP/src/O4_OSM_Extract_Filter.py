@@ -67,10 +67,9 @@ import tempfile
 import threading
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-import osmium
-
 import O4_External_Writes as EXTWRITE
 import O4_Held_File as HELD
+import osmium
 
 
 class ExtractFilterError(Exception):

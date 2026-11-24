@@ -52,14 +52,14 @@ def _scene_edge() -> numpy.ndarray:
 
 def test_straight_scene_edge_is_found_and_closed():
     image, mask = _image(_scene_edge()), _mask()
-    seams = WS.find_water_seams(image, mask)
+    seams = WS._find_water_seams(image, mask)
     columns = numpy.nonzero(seams.flag_x.any(axis=0))[0]
     assert 598 <= columns.min() and columns.max() <= 602
     assert max(seams.runs()) >= 600  # one run along most of the edge
     before = seams.step_stats()[0]
     assert before > 20.0
     repaired, _ = WS.repair_water_seams(image, mask, METRES_PER_PX, seams=seams)
-    after = WS.find_water_seams(repaired, mask)
+    after = WS._find_water_seams(repaired, mask)
     assert after.step_stats(seams.flag_x, seams.flag_y)[0] < 3.0
     assert after.flagged == 0
 
@@ -88,7 +88,7 @@ def test_a_natural_curved_edge_and_a_gradient_are_left_alone():
     channel = numpy.abs(x - (500 + 120 * numpy.sin(y / 90.0))) < 25
     a[channel] -= (0.0, 30.0, 25.0)
     image, mask = _image(a), _mask()
-    seams = WS.find_water_seams(image, mask)
+    seams = WS._find_water_seams(image, mask)
     assert seams.flagged == 0
     repaired, _ = WS.repair_water_seams(image, mask, METRES_PER_PX, seams=seams)
     assert repaired is image
@@ -99,7 +99,7 @@ def test_red_cast_square_is_tinted_with_its_luminance_kept():
     square = (slice(400, 528), slice(400, 528))
     a[square] += (24.0, -6.0, -6.0)
     image, mask = _image(a), _mask()
-    seams = WS.find_water_seams(image, mask)
+    seams = WS._find_water_seams(image, mask)
     assert seams.tinted.any()
     repaired, _ = WS.repair_water_seams(image, mask, METRES_PER_PX, seams=seams)
     inner = (slice(424, 504), slice(424, 504))

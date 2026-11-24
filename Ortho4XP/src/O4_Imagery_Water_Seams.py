@@ -10,12 +10,12 @@ under water, where the ground is a smooth gradient, every one shows.  They
 are STRAIGHT and run along the map's axes (the mosaic is assembled from
 Web Mercator tiles), but not on any fixed grid of the texture.
 
-* :func:`water_weight` -- 0 on land (the mask's opaque 255) and one DXT
+* :func:`_water_weight` -- 0 on land (the mask's opaque 255) and one DXT
   block around it, rising to 1 over :data:`LAND_RAMP` px into the water.
   Every change is composited by it, so a land pixel (and every
   compressed block holding one) never changes, and the blur is weighted
   by it, so land colour never bleeds into the water.
-* :func:`find_water_seams` -- on a :data:`WORK`-px copy, the colour step
+* :func:`_find_water_seams` -- on a :data:`WORK`-px copy, the colour step
   across every vertical and horizontal line in EXCESS of the slope either
   side, averaged along the line over :data:`LINE` px.  A point is a seam
   where that step, times the mask's opacity, reaches :data:`MIN_STEP`
@@ -35,7 +35,7 @@ Web Mercator tiles), but not on any fixed grid of the texture.
   ``O4_Color_Harmonization.apply_color_field``; then a water-weighted
   Gaussian blur of :data:`BLUR_SIGMA_M` blended in along the flagged lines
   (:data:`BAND_SIGMA_M`) and the squares' edges (:data:`TINT_BAND_SIGMA_M`).
-* :func:`apply_on_water` -- any change composited by :func:`water_weight`.
+* :func:`apply_on_water` -- any change composited by :func:`_water_weight`.
 
 Pure leaf: numpy, scipy and PIL; no I/O, no state but a cached matrix
 factorisation, no randomness.  No tile or airport is named here.
@@ -55,12 +55,9 @@ from scipy.sparse.linalg import factorized
 import O4_Color_Harmonization as HARMONIZE
 
 __all__ = [
-    "WaterSeams",
     "apply_on_water",
-    "find_water_seams",
     "repair_water_seams",
     "shows_water",
-    "water_weight",
 ]
 
 # The working grid: the texture is box-reduced to this square (a 4096-px
@@ -146,8 +143,8 @@ _LUMA = numpy.array([0.299, 0.587, 0.114], dtype=numpy.float32)
 
 
 @dataclass
-class WaterSeams:
-    """What :func:`find_water_seams` measured on one texture, on the
+class _WaterSeams:
+    """What :func:`_find_water_seams` measured on one texture, on the
     :data:`WORK` grid.
 
     ``evidence_x[y, x]`` is the signed RGB excess step across the vertical
@@ -224,7 +221,7 @@ def _land_at(mask: numpy.ndarray, n: int) -> numpy.ndarray:
     return land[numpy.ix_(idx, idx)]
 
 
-def water_weight(mask: numpy.ndarray, n: int = WORK,
+def _water_weight(mask: numpy.ndarray, n: int = WORK,
                  texture_px: int = 4 * WORK) -> numpy.ndarray:
     """``(n, n)`` float32 in [0, 1]: exactly 0 on land and around it,
     rising linearly to 1 over :data:`LAND_RAMP` px into the water.
@@ -259,7 +256,7 @@ def _shift(a: numpy.ndarray, k: int) -> numpy.ndarray:
 
 def _vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray):
     """``(evidence, strong, weak)`` of the vertical lines of ``a``: the
-    averaged excess step (see :class:`WaterSeams`) and the points passing
+    averaged excess step (see :class:`_WaterSeams`) and the points passing
     the strong and the weak test; the horizontal ones are this on the
     transpose."""
     s = STRIP
@@ -454,15 +451,15 @@ def _reduce(a: numpy.ndarray, k: int) -> numpy.ndarray:
     return a.reshape(n, k, n, k, *a.shape[2:]).mean(axis=(1, 3))
 
 
-def find_water_seams(image: Image.Image, mask: numpy.ndarray,
+def _find_water_seams(image: Image.Image, mask: numpy.ndarray,
                      weight: Optional[numpy.ndarray] = None,
-                     census: bool = False) -> WaterSeams:
+                     census: bool = False) -> _WaterSeams:
     """The flagged seams of one texture (see the module doc).  ``mask`` is
     the texture's water mask (any square size, 255 = land); ``census``
     also counts the outlier, red and cloud-like cells (a report)."""
     a = _work_image(image)
     mask = numpy.asarray(mask)
-    w = water_weight(mask) if weight is None else weight
+    w = _water_weight(mask) if weight is None else weight
     opacity = _opacity(mask)
     ex, strong_x, weak_x = _vertical_lines(a, w, opacity)
     ey, strong_y, weak_y = _vertical_lines(a.transpose(1, 0, 2), w.T,
@@ -472,7 +469,7 @@ def find_water_seams(image: Image.Image, mask: numpy.ndarray,
     fx = _grown(strong_x, weak_x)
     fy = _grown(strong_y.T, weak_y).T
     tint, tinted = _red_squares(a, w)
-    return WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy, tint, tinted,
+    return _WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy, tint, tinted,
                       _reduce(a, CELL), _census(a, w) if census else {})
 
 
@@ -512,7 +509,7 @@ def _solver(n: int):
         return _FACTORS[n]
 
 
-def _cell_offsets(seams: WaterSeams) -> numpy.ndarray:
+def _cell_offsets(seams: _WaterSeams) -> numpy.ndarray:
     """``(cells, cells, 3)`` float32: the colour match (module doc).  A
     flagged point before work column ``x`` asks the cells either side of
     the nearest cell boundary to differ by minus its step."""
@@ -542,7 +539,7 @@ def _cell_offsets(seams: WaterSeams) -> numpy.ndarray:
     return out.reshape(n, n, 3).astype(numpy.float32)
 
 
-def _band(seams: WaterSeams, cell_m: float) -> numpy.ndarray:
+def _band(seams: _WaterSeams, cell_m: float) -> numpy.ndarray:
     """``(cells, cells)`` float32 in [0, 1]: 1 along the flagged lines and
     the tinted squares' edges, falling off as a Gaussian of
     :data:`BAND_SIGMA_M` (:data:`TINT_BAND_SIGMA_M`) either side."""
@@ -579,8 +576,8 @@ def _plane(values: numpy.ndarray, size, resample) -> Image.Image:
 
 
 def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
-                       seams: Optional[WaterSeams] = None,
-                       ) -> Tuple[Image.Image, WaterSeams]:
+                       seams: Optional[_WaterSeams] = None,
+                       ) -> Tuple[Image.Image, _WaterSeams]:
     """``(repaired, seams)``: the texture with its flagged water seams
     colour-matched and blurred (see the module doc), and what was found.
 
@@ -592,9 +589,9 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
     """
     mask = numpy.asarray(mask.convert("L") if isinstance(mask, Image.Image)
                          else mask)
-    w = water_weight(mask, texture_px=image.size[0])
+    w = _water_weight(mask, texture_px=image.size[0])
     if seams is None:
-        seams = find_water_seams(image, mask, weight=w)
+        seams = _find_water_seams(image, mask, weight=w)
     if not seams.flagged:
         return image, seams
     rgb = image.convert("RGB")
@@ -621,12 +618,12 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
 def apply_on_water(image: Image.Image, changed: Image.Image,
                    mask) -> Image.Image:
     """``changed`` where the texture is water, ``image`` on land, blended by
-    :func:`water_weight` (exactly ``image`` on land and one DXT block
+    :func:`_water_weight` (exactly ``image`` on land and one DXT block
     around it).  ``mask`` as in :func:`repair_water_seams`."""
     mask = numpy.asarray(mask.convert("L") if isinstance(mask, Image.Image)
                          else mask)
     return _composite_on_water(changed, image,
-                               water_weight(mask, texture_px=image.size[0]))
+                               _water_weight(mask, texture_px=image.size[0]))
 
 
 def _composite_on_water(changed: Image.Image, image: Image.Image,

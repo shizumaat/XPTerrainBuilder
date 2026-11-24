@@ -55,13 +55,14 @@ class RoundNormal:
             N = sp.vstack(list(pool.map(lambda ab: St[int(ab[0]):int(ab[1])] @ S,
                                         zip(cuts[:-1], cuts[1:], strict=True))),
                           format="csr")
-        coo = N.tocoo()
-        on = coo.row == coo.col
+        N = N.tocsc()                   # canonical: rows sorted per column
+        col = np.repeat(np.arange(n), np.diff(N.indptr))
+        on = N.indices == col
         #: ``SᵀS``'s diagonal (0 where the product has none) and the rest
         self.diag = np.zeros(n)
-        self.diag[coo.row[on]] = coo.data[on]
-        self.off = sp.csc_matrix((coo.data[~on], (coo.row[~on], coo.col[~on])),
-                                 shape=(n, n))
+        self.diag[col[on]] = N.data[on]
+        ptr = np.concatenate([[0], np.cumsum(np.bincount(col[~on], minlength=n))])
+        self.off = sp.csc_matrix((N.data[~on], N.indices[~on], ptr), shape=(n, n))
         self._eye = sp.identity(n, format="csr")
         self._fold_ptr = np.arange(0, 2 * n + 1, 2, dtype=np.int64)
         self._fold_idx = np.column_stack([np.arange(n), n + np.arange(n)]).ravel()

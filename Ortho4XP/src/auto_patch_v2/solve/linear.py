@@ -65,6 +65,49 @@ def _factor(M: sp.csc_matrix):
                 options={"SymmetricMode": True})
 
 
+def _bordered(M: sp.csc_matrix, U: sp.csr_matrix) -> sp.csc_matrix:
+    """``bmat([[M, Uᵀ], [U, −I]], format="csc")`` written straight into its
+    canonical arrays (#1270: the ``bmat`` cost 4.5 ms of each 75 ms KATL
+    try).  ``bmat`` goes through COO and sorts each column, so column ``j``
+    is ``M``'s column over ``U``'s (rows shifted by ``n``) and column
+    ``n + i`` is ``U``'s row ``i`` over the ``−1`` — every value a copy.  A
+    matrix not in canonical form (unsorted or duplicate entries, which
+    ``bmat`` would re-order or sum) takes ``bmat`` itself."""
+    k = int(U.shape[0])
+    if not (M.format == "csc" and M.has_canonical_format
+            and U.format == "csr" and U.has_canonical_format):
+        return sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]], format="csc")
+    n = int(M.shape[0])
+    Uc = U.tocsc()
+    mp, up = M.indptr.astype(np.int64), Uc.indptr.astype(np.int64)
+    rp = U.indptr.astype(np.int64)
+    nm, nu = int(mp[-1]), int(up[-1])
+    indptr = np.concatenate([mp + up, nm + nu + rp[1:] + np.arange(1, k + 1)])
+    nnz = int(indptr[-1])
+    idx_t = np.int32 if n + k < np.iinfo(np.int32).max and nnz < np.iinfo(np.int32).max \
+        else np.int64
+    indices = np.empty(nnz, dtype=idx_t)
+    data = np.empty(nnz)
+    # column j < n: M's entries, then U's column j
+    col_m = np.repeat(np.arange(n), np.diff(mp))
+    pos_m = np.arange(nm) + up[col_m]
+    indices[pos_m] = M.indices
+    data[pos_m] = M.data
+    col_u = np.repeat(np.arange(n), np.diff(up))
+    pos_u = np.arange(nu) - up[col_u] + mp[col_u + 1] + up[col_u]
+    indices[pos_u] = n + Uc.indices
+    data[pos_u] = Uc.data
+    # column n + i: U's row i, then −1 on the border's diagonal
+    row_u = np.repeat(np.arange(k), np.diff(rp))
+    pos_r = indptr[n + row_u] + (np.arange(int(rp[-1])) - rp[row_u])
+    indices[pos_r] = U.indices
+    data[pos_r] = U.data
+    pos_d = indptr[n + 1:] - 1
+    indices[pos_d] = n + np.arange(k)
+    data[pos_d] = -1.0
+    return sp.csc_matrix((data, indices, indptr.astype(idx_t)), shape=(n + k, n + k))
+
+
 def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
     """``back(r, rc) -> (M + UᵀU)⁻¹ (r + Uᵀ rc)`` on ONE factorisation of the
     (floored) normal matrix ``M``: the low-rank datum term by ``low_rank``
@@ -78,8 +121,7 @@ def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
         # the border carries ``rc`` itself: eliminating y = U x − rc gives
         # (M + UᵀU) x = r + Uᵀ rc.  ONE sparse solve of the augmented system
         # whose Schur complement onto the border is Woodbury's k × k system
-        lu = _factor(sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]],
-                             format="csc"))
+        lu = _factor(_bordered(M, U))
         return lambda r, rc: np.asarray(
             lu.solve(np.concatenate([r, rc]))[:n], float)
     # the identity applied explicitly: k back-solves against LU(M)

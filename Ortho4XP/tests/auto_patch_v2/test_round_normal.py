@@ -110,3 +110,21 @@ def test_qp_surface_is_the_per_try_path(monkeypatch):
         assert (new.status, new.rounds, new.solves, new.objective) == \
             (old.status, old.rounds, old.solves, old.objective)
         assert old.solves > old.rounds        # the fixture does back off
+
+
+def test_bordered_is_bmat_array_for_array():
+    """``linear._bordered`` writes ``bmat``'s canonical CSC directly."""
+    from auto_patch_v2.solve.linear import _bordered
+    rng = np.random.default_rng(1270)
+    for t in range(12):
+        n, k = int(rng.integers(5, 300)), int(rng.integers(1, 25))
+        M = (sp.random(n, n, density=0.05, random_state=t, format="csc")
+             + sp.identity(n, format="csc")).tocsc()
+        U = sp.random(k, n, density=0.1, random_state=t + 100, format="csr")
+        if t % 3 == 0:
+            U.data[:3] = 0.0                       # explicit zeros are kept
+        want = sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]], format="csc")
+        got = _bordered(M, U)
+        assert np.array_equal(got.indptr, want.indptr)
+        assert np.array_equal(got.indices, want.indices)
+        assert got.data.tobytes() == want.data.tobytes()

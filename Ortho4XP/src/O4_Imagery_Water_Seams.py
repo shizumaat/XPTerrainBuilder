@@ -94,11 +94,12 @@ OUTLIER_STEP = 18.0
 RED_EXCESS = 10.0
 CLOUD_LUMA = 25.0
 # Red-cast squares (repaired by a tint, luminance kept): on the census
-# cells, the R-G cast over the median of the cells within this many cells
-# around reaches RED_EXCESS over a patch of at least TINT_MIN_CELLS cells
-# that fills TINT_FILL of its bounding box (a source tile, not a reef).
-TINT_REFERENCE = 15
-TINT_MIN_CELLS = 9
+# cells, the R-G cast over the median of the cells within this many
+# metres around reaches RED_EXCESS over a patch at least TINT_MIN_SIDE_M
+# on a side (in area) that fills TINT_FILL of its bounding box (a source
+# tile, not a reef or a boat) ...
+TINT_REFERENCE_M = 1110.0
+TINT_MIN_SIDE_M = 210.0
 TINT_FILL = 0.6
 # ... where the patch is bright enough for a cast to read as red (on dark
 # water a 10-count R-G excess is no colour at all) ...
@@ -232,7 +233,7 @@ def _opacity(mask: numpy.ndarray) -> numpy.ndarray:
 
 
 def _red_squares(a: numpy.ndarray, w: numpy.ndarray, weak_x: numpy.ndarray,
-                 weak_y: numpy.ndarray):
+                 weak_y: numpy.ndarray, work_m: float):
     """``(tint, tinted)`` on the :data:`WORK` grid: every red-cast square's
     census cells and the offset that removes each cell's cast over the
     water just around the square, luminance kept, softened over
@@ -249,8 +250,11 @@ def _red_squares(a: numpy.ndarray, w: numpy.ndarray, weak_x: numpy.ndarray,
     # the surroundings' median on cells twice as coarse (a quarter of the
     # cost; the reference is smooth by construction)
     coarse = _reduce(chroma, 2)
-    ref = numpy.stack([ndimage.median_filter(coarse[..., c],
-                                             TINT_REFERENCE // 2 + 1,
+    cell_m = work_m * k
+    window = min(coarse.shape[0], max(3, int(round(TINT_REFERENCE_M
+                                                   / (2.0 * cell_m)))))
+    min_cells = max(4, int(round((TINT_MIN_SIDE_M / cell_m) ** 2)))
+    ref = numpy.stack([ndimage.median_filter(coarse[..., c], window,
                                              mode="nearest") for c in range(2)],
                       axis=-1)
     excess = chroma - numpy.kron(ref, numpy.ones((2, 2, 1), numpy.float32))
@@ -259,7 +263,7 @@ def _red_squares(a: numpy.ndarray, w: numpy.ndarray, weak_x: numpy.ndarray,
     labels, _count = ndimage.label(water & (excess[..., 0] >= RED_EXCESS))
     for label, box in enumerate(ndimage.find_objects(labels), start=1):
         part = labels[box] == label
-        if (part.sum() < TINT_MIN_CELLS or part.mean() < TINT_FILL
+        if (part.sum() < min_cells or part.mean() < TINT_FILL
                 or float(numpy.median(cell[box][part] @ _LUMA)) < TINT_MIN_LUMA):
             continue
         # each cell's own cast (a square is rarely one flat cast) over the
@@ -321,29 +325,35 @@ def _reduce(a: numpy.ndarray, k: int) -> numpy.ndarray:
 
 
 def _find_water_seams(image: Image.Image, mask: numpy.ndarray,
-                     weight: Optional[numpy.ndarray] = None,
-                     census: bool = False) -> _WaterSeams:
+                      metres_per_px: float,
+                      weight: Optional[numpy.ndarray] = None,
+                      census: bool = False) -> _WaterSeams:
     """The flagged seams of one texture (see the module doc).  ``mask`` is
-    the texture's water mask (any square size, 255 = land); ``census``
-    also counts the outlier, red and cloud-like cells (a report)."""
+    the texture's water mask (any square size, 255 = land);
+    ``metres_per_px`` the ground size of one texture px (every length
+    rule is in metres); ``census`` also counts the outlier, red and
+    cloud-like cells (a report)."""
     a = _work_image(image)
     mask = numpy.asarray(mask)
     w = _water_weight(mask) if weight is None else weight
     opacity = _opacity(mask)
-    ex, strong_x, weak_x = LINES.vertical_lines(a, w, opacity)
+    work_m = metres_per_px * image.size[0] / float(WORK)
+    scale = LINES.scale_for(work_m)
+    ex, strong_x, weak_x = LINES.vertical_lines(a, w, opacity, scale)
     ey, strong_y, weak_y = LINES.vertical_lines(a.transpose(1, 0, 2), w.T,
-                                                opacity.T)
-    tint, tinted = _red_squares(a, w, weak_x, weak_y.T)
+                                                opacity.T, scale)
+    tint, tinted = _red_squares(a, w, weak_x, weak_y.T, work_m)
     if tinted.any():
         # around a tinted square the lines see brightness only, so its
         # brightness step is matched and its cast (the tint's) not twice
         grey = ndimage.binary_dilation(
             tinted, iterations=LINES.SUPPRESS + LINES.STRIP)
-        ex, strong_x, weak_x = LINES.vertical_lines(a, w, opacity, grey)
+        ex, strong_x, weak_x = LINES.vertical_lines(a, w, opacity, scale,
+                                                    grey)
         ey, strong_y, weak_y = LINES.vertical_lines(
-            a.transpose(1, 0, 2), w.T, opacity.T, grey.T)
+            a.transpose(1, 0, 2), w.T, opacity.T, scale, grey.T)
     strong_x, strong_y = LINES.straight_pairs(strong_x, strong_y.T, ex,
-                                         ey.transpose(1, 0, 2))
+                                              ey.transpose(1, 0, 2), scale)
     fx = LINES.grown(strong_x, weak_x)
     fy = LINES.grown(strong_y.T, weak_y).T
     return _WaterSeams(ex, ey.transpose(1, 0, 2), fx, fy, tint, tinted,
@@ -475,7 +485,7 @@ def repair_water_seams(image: Image.Image, mask, metres_per_px: float,
                          else mask)
     w = _water_weight(mask, texture_px=image.size[0])
     if seams is None:
-        seams = _find_water_seams(image, mask, weight=w)
+        seams = _find_water_seams(image, mask, metres_per_px, weight=w)
     if not seams.flagged:
         return image, seams
     rgb = image.convert("RGB")

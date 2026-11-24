@@ -4,13 +4,13 @@ provider's mosaic draws (owner 2026-11-24, tile +24-082).
 On a working copy of a texture (``O4_Imagery_Water_Seams.WORK`` px), the
 colour step across every vertical line -- the horizontal ones are the
 same on the transpose -- in EXCESS of the slope either side, averaged
-along the line over :data:`LINE` px (:func:`vertical_lines`).  A point is
+along the line over :data:`LINE_M` metres (:func:`vertical_lines`).  A point is
 STRONG where that step, times the mask's opacity, reaches :data:`MIN_STEP`
 with :data:`COHERENCE`, is the strongest across the line and lies in
 water; WEAK at :data:`WEAK_STEP` / :data:`WEAK_COHERENCE`.
 :func:`straight_pairs` keeps the strong points on a straight run long
-alone (:data:`MIN_RUN`) or turning a square corner
-(:data:`MIN_CORNER_RUN`), and drops a THING: a run stepping harder than
+alone (:data:`MIN_RUN_M`) or turning a square corner
+(:data:`MIN_CORNER_RUN_M`), and drops a THING: a run stepping harder than
 :data:`MAX_RUN_STEP`, or with an opposite twin beside it (a pier, a slip,
 a boat, a seawall, a dredged channel).  :func:`grown` lets a run grow
 along its own line through weak points (hysteresis).
@@ -19,6 +19,7 @@ Pure leaf: numpy and scipy.  No tile or airport is named here.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy
@@ -27,6 +28,7 @@ from scipy import ndimage
 __all__ = [
     "grown",
     "run_lengths",
+    "scale_for",
     "straight_pairs",
     "vertical_lines",
 ]
@@ -34,10 +36,12 @@ __all__ = [
 # Strip width (work px) each side of a line, and the lines beside it whose
 # step is the slope expected there (two strips away each side).
 STRIP = 2
-# The step is averaged along the line over this many work px (~140 m at
-# ZL16): a straight edge keeps its step, a ground edge crossing the line
-# at an angle, or the ground's own texture, averages out.
-LINE = 16
+# The step is averaged along the line over this many metres: a straight
+# edge keeps its step, a ground edge crossing the line at an angle, or the
+# ground's own texture, averages out.  Every length below is GROUND
+# metres (a ZL19 texture resolves piers, slips and boats that a ZL16 one
+# blurs away), turned into work px by :func:`scale_for`.
+LINE_M = 140.0
 # A line point is flagged when the averaged excess step (Euclidean RGB
 # counts) times the mask's opacity there (what shows over the water)
 # reaches this ...
@@ -49,19 +53,20 @@ COHERENCE = 0.7
 SUPPRESS = 2 * STRIP + 1
 # ... both sides are at least this much water ...
 MIN_WATER = 0.5
-# ... and it belongs to a straight run at least this long (work px, ~490 m
-# at ZL16) -- or this long (~140 m) where it turns a square corner with a
-# perpendicular run within CORNER_GAP px (a source tile's side).
-MIN_RUN = 56
-MIN_CORNER_RUN = 24
+# ... and it belongs to a straight run at least this long (metres) -- or
+# this long where it turns a square corner with a perpendicular run within
+# CORNER_GAP px (a source tile's side; the finest such tile in a texture
+# is ~140 m at ZL16).
+MIN_RUN_M = 490.0
+MIN_CORNER_RUN_M = 210.0
 CORNER_GAP = 3
 CORNER_COSINE = 0.8
 # A run whose mean step exceeds this (counts) is a thing, not a seam ...
 MAX_RUN_STEP = 60.0
-# ... and so is one with an opposite twin this close (work px): a pier, a
+# ... and so is one with an opposite twin this close (metres): a pier, a
 # slip, a boat (any run), a channel or causeway (a lone run).
-PAIR_GAP = 16
-LONE_PAIR_GAP = 96
+PAIR_GAP_M = 140.0
+LONE_PAIR_GAP_M = 830.0
 # A run grows along its line through points that step at least this much
 # (visible counts) with this coherence: a scene edge keeps its line while
 # the ground on either side changes how much it steps.
@@ -71,6 +76,28 @@ WEAK_COHERENCE = 0.4
 _LUMA = numpy.array([0.299, 0.587, 0.114], dtype=numpy.float32)
 
 _VERTICAL = numpy.array([[0, 1, 0], [0, 1, 0], [0, 1, 0]], dtype=bool)
+
+
+@dataclass(frozen=True)
+class _Scale:
+    """The metric lengths above in work px of one texture."""
+
+    line: int
+    min_run: int
+    min_corner_run: int
+    pair_gap: int
+    lone_pair_gap: int
+
+
+def scale_for(work_px_m: float) -> _Scale:
+    """:class:`_Scale` for a work px of ``work_px_m`` ground metres."""
+    def px(metres, least):
+        return max(least, int(round(metres / float(work_px_m))))
+
+    return _Scale(line=px(LINE_M, 8), min_run=px(MIN_RUN_M, 28),
+                 min_corner_run=px(MIN_CORNER_RUN_M, 12),
+                 pair_gap=px(PAIR_GAP_M, 4),
+                 lone_pair_gap=px(LONE_PAIR_GAP_M, 16))
 # A reported run continues to the next row one column either side.
 _DRIFT = numpy.array([[1, 1, 1], [0, 1, 0], [1, 1, 1]], dtype=bool)
 
@@ -90,7 +117,7 @@ def _shift(a: numpy.ndarray, k: int) -> numpy.ndarray:
 
 
 def vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray,
-                    grey: Optional[numpy.ndarray] = None):
+                   scale: _Scale, grey: Optional[numpy.ndarray] = None):
     """``(evidence, strong, weak)`` of the vertical lines of ``a``: the
     averaged excess step (see ``O4_Imagery_Water_Seams``) and the points passing
     the strong and the weak test; the horizontal ones are this on the
@@ -102,9 +129,10 @@ def vertical_lines(a: numpy.ndarray, w: numpy.ndarray, opacity: numpy.ndarray,
     excess = step - 0.5 * (_shift(step, -2 * s) + _shift(step, 2 * s))
     if grey is not None:  # brightness only: (l, l, l), l the luminance step
         excess[grey] = (excess[grey] @ _LUMA)[:, None]
-    evidence = ndimage.uniform_filter1d(excess, LINE, axis=0, mode="nearest")
+    evidence = ndimage.uniform_filter1d(excess, scale.line, axis=0,
+                                        mode="nearest")
     spread = ndimage.uniform_filter1d(numpy.linalg.norm(excess, axis=-1),
-                                      LINE, axis=0, mode="nearest")
+                                      scale.line, axis=0, mode="nearest")
     magnitude = numpy.linalg.norm(evidence, axis=-1)
     water = numpy.minimum.reduce([_shift(w, k) for k in range(-s, s)])
     candidate = ((magnitude >= ndimage.maximum_filter1d(
@@ -182,21 +210,22 @@ def _mean_steps(evidence: numpy.ndarray, flags: numpy.ndarray,
 
 
 def straight_pairs(strong_x: numpy.ndarray, strong_y: numpy.ndarray,
-                    evidence_x: numpy.ndarray, evidence_y: numpy.ndarray):
+                   evidence_x: numpy.ndarray, evidence_y: numpy.ndarray,
+                   scale: _Scale):
     """The strong points of each orientation on a run long enough ALONE
-    (:data:`MIN_RUN`), or long enough to be a square's side
-    (:data:`MIN_CORNER_RUN`) and meeting a perpendicular one at a corner:
+    (:data:`MIN_RUN_M`), or long enough to be a square's side
+    (:data:`MIN_CORNER_RUN_M`) and meeting a perpendicular one at a corner:
     a source tile's edges are straight AND turn square, a channel bank that
     is straight for a while does neither for long."""
     labels_x, runs_x = _runs(strong_x)
     labels_y, runs_y = _runs(strong_y.T)
     length_x = runs_x[:, 2] - runs_x[:, 1]
     length_y = runs_y[:, 2] - runs_y[:, 1]
-    side_x = length_x >= MIN_CORNER_RUN
-    side_y = length_y >= MIN_CORNER_RUN
+    side_x = length_x >= scale.min_corner_run
+    side_y = length_y >= scale.min_corner_run
     side_x[0] = side_y[0] = False
-    keep_x = length_x >= MIN_RUN
-    keep_y = length_y >= MIN_RUN
+    keep_x = length_x >= scale.min_run
+    keep_y = length_y >= scale.min_run
     steps_x = _mean_steps(evidence_x, strong_x, labels_x, len(runs_x) - 1)
     steps_y = _mean_steps(evidence_y.transpose(1, 0, 2), strong_y.T,
                           labels_y, len(runs_y) - 1)
@@ -208,15 +237,15 @@ def straight_pairs(strong_x: numpy.ndarray, strong_y: numpy.ndarray,
     keep_y &= side_y
     # a lone run with the opposite step beside it is the other bank of a
     # channel or a causeway (a scene seam has no twin)
-    keep_x &= ~_twinned(runs_x, steps_x, LONE_PAIR_GAP)
-    keep_y &= ~_twinned(runs_y, steps_y, LONE_PAIR_GAP)
+    keep_x &= ~_twinned(runs_x, steps_x, scale.lone_pair_gap)
+    keep_y &= ~_twinned(runs_y, steps_y, scale.lone_pair_gap)
     keep_x[side_x] |= _touching(runs_x[side_x], runs_y[side_y],
                                 steps_x[side_x], steps_y[side_y])
     keep_y[side_y] |= _touching(runs_y[side_y], runs_x[side_x],
                                 steps_y[side_y], steps_x[side_x])
     # and any run with its twin close by is a thin thing: a pier, a slip
-    keep_x &= ~_twinned(runs_x, steps_x, PAIR_GAP)
-    keep_y &= ~_twinned(runs_y, steps_y, PAIR_GAP)
+    keep_x &= ~_twinned(runs_x, steps_x, scale.pair_gap)
+    keep_y &= ~_twinned(runs_y, steps_y, scale.pair_gap)
     keep_x[0] = keep_y[0] = False
     return strong_x & keep_x[labels_x], strong_y & keep_y[labels_y].T
 

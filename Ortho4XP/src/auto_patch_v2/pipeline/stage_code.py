@@ -2479,7 +2479,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2623,7 +2623,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.level_base
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2738,7 +2738,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -2946,7 +2946,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3175,7 +3175,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -3348,7 +3348,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter

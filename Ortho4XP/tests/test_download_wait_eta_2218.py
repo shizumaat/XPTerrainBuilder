@@ -105,7 +105,7 @@ def test_flight_progress_reads_the_leaders_temporary_and_length(tmp_path):
                                   str(target))
     stem = DOWNLOADS._state_stem(resource)
     os.makedirs(os.path.dirname(stem))
-    with open(stem + ".json", "w") as handle:
+    with open(stem + ".json", "w", encoding="utf-8", newline="") as handle:
         json.dump({"outcome": "running", "total_bytes": 1000}, handle)
     (tmp_path / "central-america.osm.pbf.tmp-424242-7").write_bytes(
         b"x" * 400)
@@ -128,7 +128,8 @@ def test_flight_progress_reads_the_leaders_temporary_and_length(tmp_path):
 
 def test_the_leader_notes_its_length_in_the_flight_state(tmp_path):
     state = tmp_path / "flight.json"
-    state.write_text(json.dumps({"outcome": "running", "requests": 1}))
+    state.write_text(json.dumps({"outcome": "running", "requests": 1}),
+                     encoding="utf-8", newline="")
     started = []
 
     class Listener(DOWNLOADS.Watcher):
@@ -137,7 +138,7 @@ def test_the_leader_notes_its_length_in_the_flight_state(tmp_path):
 
     DOWNLOADS._FlightWatcher(Listener(), str(state)).started(758 * MB)
     assert started == [758 * MB]
-    assert json.loads(state.read_text()) == {
+    assert json.loads(state.read_text(encoding="utf-8")) == {
         "outcome": "running", "requests": 1, "total_bytes": 758 * MB}
 
 

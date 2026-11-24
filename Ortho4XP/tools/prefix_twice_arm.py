@@ -55,9 +55,10 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
         derive = Deriver(airport, law, inputs, pack)
         walls = []
         for what, cl_x in (("base", gap_free(cl) or cl), ("late", cl)):
-            t = time.perf_counter()
+            t, c = time.perf_counter(), time.process_time()
             derive(cl_x)
-            walls.append((what, time.perf_counter() - t))
+            walls.append((what, time.perf_counter() - t,
+                          time.process_time() - c))
             # the build's later derives take the main pass's airport
             derive.airport = derive.last.airport
         pm, cs = derive.last.pm, derive.last.cs
@@ -65,10 +66,10 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
                 "late_pm": _digest(pm), "late_cs": _digest(cs),
                 "late_pm_fields": _fields(pm)}
     got = both()
-    for (what, s), clock in zip(got["walls"], got["clocks"]):
+    for (what, s, cpu), clock in zip(got["walls"], got["clocks"]):
         steps = ", ".join(f"{k} {v:.1f}" for k, v in clock["wall_s"].items())
         out(f"[{icao}] PREFIX TWICE {what} derive "
-            f"{s:.1f} s, steps sum {clock['total_s']:.1f} s: {steps}")
+            f"{s:.1f} s (cpu {cpu:.1f} s), steps sum {clock['total_s']:.1f} s: {steps}")
     out(f"[{icao}] PREFIX TWICE late map digest pm {got['late_pm']} cs {got['late_cs']}")
     out(f"[{icao}] PREFIX TWICE late map fields "
         + " ".join(f"{k}={v}" for k, v in got["late_pm_fields"].items()))

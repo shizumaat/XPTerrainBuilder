@@ -83,7 +83,7 @@ def test_the_session_marks_an_answer_and_announces_after_a_run(store,
     state = {"hidden": False}
     monkeypatch.setattr(AE, "tile_state", lambda root: (state["hidden"],))
 
-    def answer(root, action, lat, lon, items=None, shown=None, steps=None):
+    def answer(root, action, lat, lon, items=None, shown=None, steps=None, objects=None):
         state["hidden"] = True
         return {"pack": "Pack", "rebuild": True}
 

@@ -669,6 +669,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.terrain_fill",
     "auto_patch_v2.airport.terrain_mesh_witness",
     "auto_patch_v2.airport.terrain_model",
+    "auto_patch_v2.airport.terrain_shell",
     "auto_patch_v2.airport.terrain_shaped",
     "auto_patch_v2.airport.thin_plates",
     "auto_patch_v2.airport.tilt_float",

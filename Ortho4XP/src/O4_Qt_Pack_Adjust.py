@@ -21,7 +21,9 @@ ADJUST… (``state="adjust"``, capability ``pack_adjust_edit``): the same
 rows, ticked as the pack is now, and the "Optimise pack" steps
 (``O4_Qt_Pack_Optimise``'s words) under :data:`OPTIMISE_HEADING`.
 **Apply** sends ``action="change"`` with ``items``, ``shown`` and
-``steps``; **Cancel** sends nothing.  A row the tile's mesh reads
+``steps`` (and ``objects``: the terrain row lists every terrain object
+the last build recognised, each ticked when the row hides it -- the
+per-object override of #2272, path -> hidden); **Cancel** sends nothing.  A row the tile's mesh reads
 (``rebuild``: the terrain objects) says so (:data:`REBUILD_NOTE`), and
 while its tick differs from how the pack is, Apply reads
 :data:`APPLY_REBUILD_BUTTON` — the window rebuilds the tile when the
@@ -43,7 +45,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialogButtonBox,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
 # --- copy (verbatim; identical to the Swift sheet) ----------------------
@@ -100,6 +104,12 @@ REBUILD_LATER = ("Rebuild tile {tile} to finish the change to "
 REBUILD_QUEUED = ("Tile {tile} will be rebuilt when this run finishes, to "
                   "match the change to {pack}’s terrain objects.")
 REBUILDING = "Rebuilding tile {tile} to match: terrain objects {change} in “{pack}”."
+# the terrain row's per-object choice (#2272, owner 2026-11-24T15:33Z)
+TERRAIN_OBJECTS_HEADING = "Terrain objects to hide:"
+TERRAIN_OBJECT_MATCHED = ("The tile’s detailed elevation matches it: hidden "
+                          "unless you keep it.")
+TERRAIN_OBJECT_KEPT = ("It models detail the tile’s elevation data lacks: "
+                       "kept unless you hide it.")
 
 
 def _rows(event) -> list[dict]:
@@ -168,6 +178,8 @@ class _PackAdjustBox(ChoiceDialog):
         self.step_boxes: dict[str, QCheckBox] = {}
         self.automatic: list[str] = []
         self._rebuild: dict[str, bool] = {}
+        #: the terrain row's objects (#2272): path -> (its box, hidden now)
+        self.object_boxes: dict[str, tuple[QCheckBox, bool]] = {}
         rows = _rows(event)
         for row in sorted(rows, key=lambda r: bool(r.get("automatic"))):
             if row.get("automatic"):
@@ -181,6 +193,8 @@ class _PackAdjustBox(ChoiceDialog):
                     self._rebuild[row["key"]] = _baseline(row, self.edit)
                     head.toggled.connect(self._relabel)
             self._add(lay, head, _detail(row))
+            if row.get("objects") and not row.get("automatic"):
+                self._objects(lay, head, row["objects"])
         steps = _steps(event) if self.edit else []
         if steps:
             lay.addWidget(QLabel(OPTIMISE_HEADING))
@@ -213,10 +227,40 @@ class _PackAdjustBox(ChoiceDialog):
         lay.addWidget(head)
         lay.addWidget(detail)
 
+    def _objects(self, lay, row_box, objects) -> None:
+        """The terrain row's objects, one checkbox each (#2272), usable
+        while the row is ticked."""
+        lay.addWidget(QLabel(TERRAIN_OBJECTS_HEADING))
+        inner = QWidget()
+        ilay = QVBoxLayout(inner)
+        ilay.setContentsMargins(24, 0, 0, 0)
+        for obj in objects:
+            path = str(obj.get("path", ""))
+            box = QCheckBox(path.replace("\\", "/").rsplit("/", 1)[-1])
+            box.setChecked(bool(obj.get("hidden")))
+            box.toggled.connect(self._relabel)
+            self.object_boxes[path] = (box, bool(obj.get("hidden")))
+            self._add(ilay, box, TERRAIN_OBJECT_MATCHED if obj.get("hideable")
+                      else TERRAIN_OBJECT_KEPT)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        scroll.setMaximumHeight(220)
+        inner.setEnabled(row_box.isChecked())
+        row_box.toggled.connect(inner.setEnabled)
+        lay.addWidget(scroll)
+
     def rebuilds(self) -> bool:
-        """A row the tile's mesh reads is ticked otherwise than the pack."""
+        """A row the tile's mesh reads is ticked otherwise than the pack,
+        or (ticked) hides other terrain objects than it does."""
+        moved = any(b.isChecked() != was for b, was in self.object_boxes.values())
         return any(self.item_boxes[k].isChecked() != was
+                   or (moved and self.item_boxes[k].isChecked())
                    for k, was in self._rebuild.items())
+
+    def object_ticks(self) -> dict:
+        """The terrain objects' ticks (path -> hidden); empty with none."""
+        return {p: b.isChecked() for p, (b, _was) in self.object_boxes.items()}
 
     def _relabel(self, *_args) -> None:
         self.apply.setText(APPLY_REBUILD_BUTTON if self.rebuilds()
@@ -236,6 +280,8 @@ class _PackAdjustBox(ChoiceDialog):
         if action == "change":
             extra["steps"] = [k for k, b in self.step_boxes.items()
                               if b.isChecked()]
+            if self.object_boxes:
+                extra["objects"] = self.object_ticks()
         return extra
 
 

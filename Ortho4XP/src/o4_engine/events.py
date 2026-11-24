@@ -256,6 +256,7 @@ CAPABILITIES: tuple = (
     "airport_fit",                  # 2026-11-19, #2182 fit_airports + set_airport_fit
     "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
     "custom_patch_use",             # 2026-11-23, #2179 custom_patch_use + pickers (airports rows)
+    "pack_terrain_objects",         # 2026-11-24, #2272 Adjust… terrain row objects + pack_adjust objects
 )
 
 
@@ -934,7 +935,11 @@ class PackAdjust(EngineEvent):
       recipe carries it).  **Apply** sends ``pack_adjust`` with
       ``action="change"``, ``items`` the rows left checked, ``shown``
       every row shown and ``steps`` the steps left checked; only what
-      differs is written (``auto_patch.adjust_edit``).
+      differs is written (``auto_patch.adjust_edit``).  The ``terrain``
+      row carries ``objects`` (capability ``pack_terrain_objects``, #2272):
+      every terrain object the last build recognised, ``{"path",
+      "hideable", "hidden"}``; Apply also sends ``objects`` (path ->
+      hidden), the user's per-object override.
     * ``"applied"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``
       lists what was rewritten; ``rebuild`` says the answer changed what

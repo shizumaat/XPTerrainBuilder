@@ -86,7 +86,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_P90_SHARE", "WATER_RIM_SHARE", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "member_lift", "seat_records", "log_line",
-           "wet_cap",
+           "wet_cap", "model_paths",
            "hideable_paths", "plan_grid", "plan_solid", "rim_seat", "post_m", "quality"]
 
 MIN_PLAN_M = 500.0
@@ -659,6 +659,10 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                 rec["cut"]["floor_m"] = float(m.cut_floor_m)
             if getattr(m, "fill", False):
                 rec["cut"]["fill"] = True
+            if getattr(m, "small", False):
+                # #2272: seated at its author's height, the ground that
+                # buries its rim is lowered to it (``terrain_fill.rim_tuck``)
+                rec["cut"]["tuck"] = True
             if getattr(m, "plane", ()):
                 from ..geom.terrain_deck import UNDER_M
                 # ``to_ll`` is the frame's: one point, ``(lat, lon)``
@@ -676,6 +680,16 @@ def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
     return tuple(sorted({str(r.get("resource")) for r in records or ()
                          if hasattr(r, "get") and r.get("seat") in (SEAT, HIDDEN_SEAT)
                          and r.get("hideable")}))
+
+
+def model_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
+    """Every terrain object a build's seat records name (#2272: the
+    Adjust… row's per-object list): each model's own row (the one with a
+    ``cut``, not a ground object seated on its bridges) and every
+    resource offered for hiding (sorted)."""
+    own = {str(r.get("resource")) for r in records or ()
+           if hasattr(r, "get") and r.get("seat") == SEAT and "cut" in r and not r.get("by")}
+    return tuple(sorted(own | set(hideable_paths(records))))
 
 
 def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:

@@ -49,11 +49,13 @@ try:
 except ImportError:
     has_gdal = False
 
+import O4_Bathymetry_Source_Revision as SOURCE_REVISION
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Held_File as HELD
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
+from elevation_access.failures import warp_failure_is_transient
 
 # One flat resolution tier: mask pixels at zoomlevel 16 are ~2.4 m but a
 # 10 m depth grid is beyond visually sufficient for water transparency
@@ -136,6 +138,14 @@ def _read_band_stamp(stamp_path: str) -> dict:
             return json.load(stamp_file)
     except (OSError, ValueError):
         return {}
+
+
+def _read_current_stamp(stamp_path: str, definitions) -> dict:
+    """The stamp with negatives from a superseded provider source dropped
+    (:mod:`O4_Bathymetry_Source_Revision`).  In memory only: the file
+    changes when a pass has something new to record."""
+    return SOURCE_REVISION.healed_stamp(
+        _read_band_stamp(stamp_path), definitions, _stem_provider)
 
 
 def _write_band_stamp(stamp_path: str, stamp: dict) -> None:
@@ -375,7 +385,7 @@ def _records_equivalent(existing, record, cells, definitions) -> bool:
 
 
 def _merged_stamp(previous: dict, cells: dict, code: str, gating_key,
-                  record, definitions):
+                  record, definitions, provider_passes=None):
     """The stamp to write, or ``None`` when nothing in it is new.
 
     New information is: a cell outcome that changed (a fetch, a durable
@@ -404,9 +414,15 @@ def _merged_stamp(previous: dict, cells: dict, code: str, gating_key,
         elif not _records_equivalent(existing, record, cells, definitions):
             gatings[key_text] = record
             gating_changed = True
-    if not cells_changed and not gating_changed:
+    (revisions, refetch) = SOURCE_REVISION.provider_state(
+        previous, definitions, provider_passes or {})
+    state_changed = (
+        revisions != (previous.get("source_revisions") or {})
+        or refetch != (previous.get("refetch") or [])
+    )
+    if not cells_changed and not gating_changed and not state_changed:
         return None
-    return {
+    stamp = {
         "provider": code,
         "cells": dict(cells),
         "checked": datetime.date.today().isoformat(),
@@ -414,6 +430,11 @@ def _merged_stamp(previous: dict, cells: dict, code: str, gating_key,
                    float(gating_key[2])],
         "gatings": gatings,
     }
+    if revisions:
+        stamp["source_revisions"] = revisions
+    if refetch:
+        stamp["refetch"] = refetch
+    return stamp
 
 
 def _mosaic_digest(stems) -> str:
@@ -1135,8 +1156,10 @@ def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
         ]
         if not walked:
             return True
-        stamp = _read_band_stamp(
-            FNAMES.bathymetry_band_index(tile.lat, tile.lon))
+        stamp = _read_current_stamp(
+            FNAMES.bathymetry_band_index(tile.lat, tile.lon), definitions)
+        if set(walked) & set(stamp.get("refetch") or ()):
+            return False
         cells = _stamp_cells(stamp)
         if not cells:
             # A landlocked tile never writes a stamp: the pass stops at
@@ -1182,6 +1205,36 @@ def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
         return True
     except Exception:
         return False
+
+
+def masks_source_state(tile) -> Optional[str]:
+    """What the MASKS step's key needs from a revised provider's band:
+    ``None`` when no provider the masks walk declares a source revision
+    or it yields no cells (the step's key is then unchanged), PENDING
+    while cells are still to be asked, else a digest of its mosaic.
+    Disk only."""
+    setting = str(getattr(tile, "masks_use_DEM_too", "False"))
+    if not has_gdal or setting not in ("auto", "True"):
+        return None
+    import O4_Airport_Elevation_Insets as INSETS
+
+    definitions = INSETS.select_bathymetry_definitions(tile.lat, tile.lon)
+    revised = [
+        d["code"] for d in _admitted_definitions(
+            definitions, setting == "auto", setting == "True")[0]
+        if SOURCE_REVISION.declared_revision(d)
+    ]
+    if not revised:
+        return None
+    stamp = _read_current_stamp(
+        FNAMES.bathymetry_band_index(tile.lat, tile.lon), definitions)
+    if set(revised) & set(stamp.get("refetch") or ()):
+        return SOURCE_REVISION.PENDING
+    stems = [
+        stem for (stem, outcome) in _stamp_cells(stamp).items()
+        if outcome == "ok" and _stem_provider(stem, revised)
+    ]
+    return _mosaic_digest(stems) if stems else None
 
 
 def prefetch_bathymetry_band(tile) -> None:
@@ -1564,7 +1617,8 @@ def _ensure_bathymetry_band_now(
     band_directory = FNAMES.bathymetry_band_directory(tile.lat, tile.lon)
     os.makedirs(band_directory, exist_ok=True)
     stamp_path = FNAMES.bathymetry_band_index(tile.lat, tile.lon)
-    previous_stamp = _read_band_stamp(stamp_path)
+    previous_stamp = _read_current_stamp(stamp_path, all_definitions)
+    provider_passes = {}
     # MERGE semantics (2026-09-04): every recorded outcome of every
     # provider carries over — durable negatives AND the other gating's
     # ``ok`` cells — and this pass updates the entries of its own
@@ -1583,7 +1637,7 @@ def _ensure_bathymetry_band_now(
         nonlocal previous_stamp
         stamp = _merged_stamp(
             previous_stamp, cell_outcomes, code, gating_key, record,
-            all_definitions)
+            all_definitions, provider_passes)
         if stamp is None:
             return
         if holding_lock:
@@ -1633,8 +1687,8 @@ def _ensure_bathymetry_band_now(
             if owner_stamp_path not in owner_stamp_negatives:
                 owner_stamp_negatives[owner_stamp_path] = {
                     stem
-                    for (stem, outcome) in _read_band_stamp(
-                        owner_stamp_path
+                    for (stem, outcome) in _read_current_stamp(
+                        owner_stamp_path, all_definitions
                     ).get("cells", {}).items()
                     if outcome == NO_COVERAGE
                 }
@@ -1674,20 +1728,24 @@ def _ensure_bathymetry_band_now(
             )
             try:
                 fetch_t0 = time.monotonic()
-                provenance = INSETS.fetch_inset(
-                    definition,
-                    (
-                        tile.lon
-                        + cell["column"] * BATHYMETRY_CELL_DEGREES,
-                        tile.lat + cell["row"] * BATHYMETRY_CELL_DEGREES,
-                        tile.lon
-                        + (cell["column"] + 1) * BATHYMETRY_CELL_DEGREES,
-                        tile.lat
-                        + (cell["row"] + 1) * BATHYMETRY_CELL_DEGREES,
-                    ),
-                    BATHYMETRY_CELL_RESOLUTION_M,
-                    temporary_path,
-                )
+                # A warp that FAILED (404, GDAL open error) says nothing
+                # about coverage: it raises here instead of answering
+                # "no data" (#2265).
+                with warp_failure_is_transient():
+                    provenance = INSETS.fetch_inset(
+                        definition,
+                        (
+                            tile.lon
+                            + cell["column"] * BATHYMETRY_CELL_DEGREES,
+                            tile.lat + cell["row"] * BATHYMETRY_CELL_DEGREES,
+                            tile.lon
+                            + (cell["column"] + 1) * BATHYMETRY_CELL_DEGREES,
+                            tile.lat
+                            + (cell["row"] + 1) * BATHYMETRY_CELL_DEGREES,
+                        ),
+                        BATHYMETRY_CELL_RESOLUTION_M,
+                        temporary_path,
+                    )
                 fetch_seconds = time.monotonic() - fetch_t0
             except Exception as error:
                 # Transient (network/GDAL) failure: skipped, not recorded
@@ -1797,7 +1855,8 @@ def _ensure_bathymetry_band_now(
                 # Another process may have fetched cells (and recorded
                 # durable negatives) while we waited on its lock:
                 # honour its stamp and rescan before downloading.
-                previous_stamp = _read_band_stamp(stamp_path)
+                previous_stamp = _read_current_stamp(
+                    stamp_path, all_definitions)
                 for stem, outcome in _stamp_cells(previous_stamp).items():
                     cell_outcomes.setdefault(stem, outcome)
                 (resumed, missing_cells) = _scan_cells(missing_cells)
@@ -1863,8 +1922,17 @@ def _ensure_bathymetry_band_now(
         existing_cells = [
             cell for cell in cells if os.path.isfile(cell["path"])
         ]
+        # A cell left without an answer (transient failure) is asked again
+        # next build, so this pass settles nothing for the stamp.
+        answered = all(
+            cell_outcomes.get(cell["stem"]) in ("ok", NO_COVERAGE)
+            for cell in cells
+        )
+        provider_passes[code] = answered
         settled_here = bool(existing_cells) or definition is definitions[-1]
-        if settled_here:
+        if not (settled_here and answered):
+            _persist_stamp(code, None, holding_lock=False)
+        elif settled_here:
             # The pass settles on this provider: record the gating with
             # the providers it walked and the mosaic it yields — the
             # evidence :func:`is_cached` needs to admit a later pass

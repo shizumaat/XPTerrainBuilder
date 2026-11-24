@@ -384,16 +384,10 @@ strategy `coral_atlas_library`), not a live URL:
   `convert_centimeter_depths_to_metres` negates/scales, non-positive →
   nodata. A successful rescan drops every tile's bathymetry-band stamp
   so previously-negative tiles re-check coverage.
-* Guided fetch (`O4_Coral_Atlas.guided_fetch_for_tile`, Qt dialog under
-  Tools → Allen Coral Atlas): drives the Atlas's own web API —
-  `POST auth/login` (bearer token; password used once, never stored),
-  `POST mapping/aois` (tile polygon), `GET mapping/aois/<id>/products`,
-  `POST download/aois/<id>` `{datasets:{...}}` — downloads the package
-  when the reply carries a link, else surfaces the server's own
-  message (asynchronous email delivery) and points at the manual path.
-  Endpoints were reverse-verified from the Atlas frontend 2026-07-16;
-  the authenticated leg is exercised the first time a real account
-  runs it, so every server message is surfaced verbatim.
+* No automated fetch (owner 2026-11-24, #2265): the Atlas Terms of Use
+  bar automated retrieval, so the guided sign-in fetch was removed. The
+  Qt dialog (Tools → Allen Coral Atlas) gives manual instructions, opens
+  the website and the library folder, and rescans.
 * Provider fallthrough: coverage claims may exceed data (the library
   before any download), so `select_bathymetry_definitions` returns ALL
   covering providers priority-sorted and `ensure_bathymetry_band` walks

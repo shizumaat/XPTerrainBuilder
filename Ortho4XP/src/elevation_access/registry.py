@@ -49,6 +49,7 @@ EXPECTED_STRATEGIES: Dict[str, str] = {
     "viewfinder_zip": "ViewfinderZipStrategy",
     "wcs": "WcsStrategy",
     "wcs_kvp": "WcsKvpStrategy",
+    "wcs_subset": "WcsSubsetStrategy",
     "wfs_tile_index": "WfsTileIndexStrategy",
     "xyz_archive_drop": "XyzArchiveDropStrategy",
     "xyz_text_tiles": "XyzTextTileStrategy",

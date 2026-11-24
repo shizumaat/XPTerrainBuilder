@@ -2232,13 +2232,7 @@ class MainWindow(QMainWindow):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""
         import O4_Qt_Coral_Atlas as QTCORAL
 
-        tile = self.map.active_tile() or (
-            int(self.prefs.get("last_lat", 0)),
-            int(self.prefs.get("last_lon", 0)),
-        )
-        dialog = QTCORAL.CoralAtlasDialog(
-            self, initial_lat=tile[0], initial_lon=tile[1]
-        )
+        dialog = QTCORAL.CoralAtlasDialog(self)
         dialog.show()
 
     def open_msfs_convert_dialog(self):

@@ -15,18 +15,23 @@
 role=bathymetry
 
 # EMODnet publishes the harmonized European DTM over an OGC Web Coverage
-# Service. GDAL's WCS driver does the protocol work (version negotiation,
-# DescribeCoverage, windowed GetCoverage) exactly as for the terrestrial WCS
-# terrain providers, so the fetch core is the same warp.
-access_strategy=wcs
+# Service. GDAL's WCS driver fails to open it ("InvalidSubsetting: Empty
+# intersection", HTTP 404, measured 2026-11-24), so wcs_subset asks by the
+# coverage's own axis labels (Long, Lat) and warps the GeoTIFF answer.
+access_strategy=wcs_subset
 
 # WCS endpoint, negotiated version, and the coverage id. Note the DOUBLE
 # underscore in the WCS 2.0.1 CoverageId (emodnet__mean, from GetCapabilities)
-# -- not the emodnet:mean layer name used by the WMS. The module builds the
-# GDAL descriptor "WCS:<url>?version=<v>&coverage=<coverage>".
+# -- not the emodnet:mean layer name used by the WMS.
 wcs_service_url=https://ows.emodnet-bathymetry.eu/wcs
 wcs_version=2.0.1
 wcs_coverage=emodnet__mean
+wcs_lon_axis=Long
+wcs_lat_axis=Lat
+
+# Raised when recorded answers are void (O4_Bathymetry_Source_Revision).
+# 1 = every cell was recorded "no coverage" from the failed open (#2265).
+source_revision=1
 
 # Native ground resolution, in metres. The DTM is published at 1/16 arc-minute
 # (~115 m at mid-European latitudes).

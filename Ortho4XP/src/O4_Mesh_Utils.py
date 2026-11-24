@@ -22,6 +22,7 @@ import O4_Mesh_Pins as MESH_PINS
 import O4_Patch_Voids as PATCH_VOIDS
 import O4_Triangle_IO as TRI_IO
 import O4_Triangle_Binary as TRI_BIN
+import O4_Step_Overlap as OVERLAP
 import O4_Proj_Runtime as PROJRT
 import O4_Sea_Leak_Guard as SEA_LEAK
 import O4_Vector_Utils as VECT
@@ -420,6 +421,22 @@ def hairline_refusals(findings, *, slenderness=HAIRLINE_SLENDERNESS,
     return out
 
 
+def _hairline_mode():
+    """``O4_HAIRLINE_PREFLIGHT``: ``report`` (default), ``refuse`` or ``off``."""
+    return os.environ.get("O4_HAIRLINE_PREFLIGHT", "report").strip().lower()
+
+
+def _hairline_preflight_beside(poly_file, tile):
+    """The pre-flight started beside Triangle4XP, or ``None`` to run it
+    first.  Only a REPORT can wait for the mesher: it never stops the
+    tile, so the seconds it reads the ``.poly`` need not come before the
+    run (#1264); ``refuse`` keeps it in front, where it can end the step."""
+    if _hairline_mode() != "report":
+        return None
+    return OVERLAP.beside(hairline_preflight, poly_file, tile,
+                          what="hairline pre-flight")
+
+
 def hairline_preflight(poly_file, tile):
     """§39 (3): audit the assembled ``.poly`` before Triangle4XP.
 
@@ -433,7 +450,7 @@ def hairline_preflight(poly_file, tile):
     # the findings are printed and censused (`hairline_pair`, CRITICAL).
     # ``O4_HAIRLINE_PREFLIGHT=refuse`` is the law's mode and returns as the
     # default when round 2's bars hold.
-    mode = os.environ.get("O4_HAIRLINE_PREFLIGHT", "report").strip().lower()
+    mode = _hairline_mode()
     if mode == "off":
         return 1
     try:
@@ -2207,37 +2224,34 @@ def post_process_nodes_altitudes(tile):
                 for (tri_idx, attr_text, v1) in degenerate_attr_sample
             ),
         )
+    # The two smoothing passes update altitudes one at a time, in the
+    # sets' order: on a list of the same floats, several times faster
+    # than numpy element reads and writes (#1264), written back after.
+    altitudes = vertices[2::6].tolist()
     if tile.water_smoothing:
         UI.vprint(1, "   Smoothing inland water.")
         for j in range(tile.water_smoothing):
             for v1, v2, v3 in water_tris:
-                zmean = (
-                    vertices[6 * v1 + 2]
-                    + vertices[6 * v2 + 2]
-                    + vertices[6 * v3 + 2]
-                ) / 3
-                vertices[6 * v1 + 2] = zmean
-                vertices[6 * v2 + 2] = zmean
-                vertices[6 * v3 + 2] = zmean
+                zmean = (altitudes[v1] + altitudes[v2] + altitudes[v3]) / 3
+                altitudes[v1] = zmean
+                altitudes[v2] = zmean
+                altitudes[v3] = zmean
     UI.vprint(1, "   Smoothing of sea water.")
     for v1, v2, v3 in sea_tris:
         if tile.sea_smoothing_mode == "zero":
-            vertices[6 * v1 + 2] = 0
-            vertices[6 * v2 + 2] = 0
-            vertices[6 * v3 + 2] = 0
+            altitudes[v1] = 0
+            altitudes[v2] = 0
+            altitudes[v3] = 0
         elif tile.sea_smoothing_mode == "mean":
-            zmean = (
-                vertices[6 * v1 + 2]
-                + vertices[6 * v2 + 2]
-                + vertices[6 * v3 + 2]
-            ) / 3
-            vertices[6 * v1 + 2] = zmean
-            vertices[6 * v2 + 2] = zmean
-            vertices[6 * v3 + 2] = zmean
+            zmean = (altitudes[v1] + altitudes[v2] + altitudes[v3]) / 3
+            altitudes[v1] = zmean
+            altitudes[v2] = zmean
+            altitudes[v3] = zmean
         else:
-            vertices[6 * v1 + 2] = max(vertices[6 * v1 + 2], 0)
-            vertices[6 * v2 + 2] = max(vertices[6 * v2 + 2], 0)
-            vertices[6 * v3 + 2] = max(vertices[6 * v3 + 2], 0)
+            altitudes[v1] = max(altitudes[v1], 0)
+            altitudes[v2] = max(altitudes[v2], 0)
+            altitudes[v3] = max(altitudes[v3], 0)
+    vertices[2::6] = altitudes
     UI.vprint(1, "   Treatment of airports, roads and patches.")
     # R18-1b: give every FREE INTERIOR vertex of an INTERP_ALT face the
     # value its face's PATCH-VALUED vertices imply, BEFORE the
@@ -2877,7 +2891,8 @@ def build_mesh(tile):
     # audit the assembled ``.poly`` BEFORE Triangle4XP, so an unmeshable
     # input fails in seconds instead of after a 40-minute Triangle run and
     # a 2.3 M-triangle DSF X-Plane will not load.
-    if not hairline_preflight(poly_file, tile):
+    preflight = _hairline_preflight_beside(poly_file, tile)
+    if preflight is None and not hairline_preflight(poly_file, tile):
         return 0
     if binary_io:
         mesh_cmd[-1] = TRI_BIN.binary_inputs(node_file, poly_file)
@@ -2887,6 +2902,8 @@ def build_mesh(tile):
     UI.vprint(1, "-> Start of the mesh algorithm Triangle4XP.")
     UI.vprint(2, "   Mesh command:", " ".join(mesh_cmd))
     fingers_crossed = _run_triangulation_process(mesh_cmd)
+    if preflight is not None:
+        preflight.result()                  # a report: it never refuses
     # A Stop click during triangulation terminates the child with a
     # non-zero returncode; report cancellation here so it does not look
     # like a quality failure and (re)start the lower-angle retry loop.

@@ -653,3 +653,27 @@ def test_the_roof_test_reads_a_plane_with_a_zero_size_hole_silently(tmp_path):
         warnings.simplefilter("error")
         got = BP._roof_test(v, used, plane, 1.0, 0.5, 3.0, 0.25)
     assert got is not None and got.trimmed_m2 > 0.0      # a base, trimmed
+
+
+def test_a_plane_with_no_lower_vertex_on_it_is_returned_without_the_erosion(monkeypatch):
+    """Issue #2176: the roof test reads a plane whose lower vertices all
+    stand OFF its polygon as it is -- the interior it would erode is a
+    subset of the polygon, so it cannot hold one -- and never erodes it.
+    A vertex ON the polygon (its boundary included) still takes the whole
+    reading, and the answer is the one the erosion gives."""
+    import numpy as np
+    from shapely.geometry import Polygon
+    plane = BP.BasePlane(3.0, 100.0, Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]))
+    off = np.array([[-1.0, 0.0, 5.0], [12.0, 0.0, 5.0], [5.0, 0.0, 10.5], [5.0, 0.0, -0.1]])
+    used = np.ones(4, dtype=bool)
+    want = BP._roof_test(off, used, plane, 1.0, 0.5, 3.0, 0.25)
+    assert want is plane
+    monkeypatch.setattr(BP, "_eroded", lambda *_a: (_ for _ in ()).throw(AssertionError))
+    assert BP._roof_test(off, used, plane, 1.0, 0.5, 3.0, 0.25) is plane
+    on = np.vstack([off, [[10.0, 0.0, 5.0]]])          # on the boundary
+    try:
+        BP._roof_test(on, np.ones(5, dtype=bool), plane, 1.0, 0.5, 3.0, 0.25)
+    except AssertionError:
+        pass                                          # it went on to erode
+    else:
+        raise AssertionError("a vertex on the polygon must take the full reading")

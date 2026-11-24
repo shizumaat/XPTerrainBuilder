@@ -81,7 +81,9 @@ def test_pooled_clusters_equal_serial(plan, serial, n):
         answered = pool.tasks_done
     assert repr(got) == repr(serial) and got == serial
     assert c1 == c0
-    assert answered == (0 if n == 1 else sum(1 for c in serial if c.composition))
+    # one task per BATCH of distinct compositions (issue #2176)
+    composed = sum(1 for c in serial if c.composition)
+    assert answered == (0 if n == 1 else -(-composed // CP.BATCH))
 
 
 def _jobs(plan):
@@ -282,7 +284,7 @@ def test_an_identical_job_is_composed_once_and_answered_separately(plan, monkeyp
     want = [CP.compose_job(j) for j in twice]
     calls = []
     real = CP.compose_job
-    monkeypatch.setattr(CP, "compose_job", lambda j: calls.append(1) or real(j))
+    monkeypatch.setattr(CP, "compose_job", lambda j, *a: calls.append(1) or real(j, *a))
     got = CP.compose_jobs(twice)
     assert repr(got) == repr(want) and len(calls) <= len(jobs)
     assert got[0][0] is not got[len(jobs)][0] is not got[-1][0]     # no shared record
@@ -292,3 +294,22 @@ def test_an_identical_job_is_composed_once_and_answered_separately(plan, monkeyp
     calls.clear()
     CP.compose_jobs([(rows, lower, placed, law), other, (rows, lower.copy(), placed, law)])
     assert len(calls) == 2
+
+
+def test_a_shared_profile_is_read_once_a_batch_with_the_same_answers(plan, monkeypatch):
+    """Issue #2176: jobs naming ONE published profile dict read it once per
+    batch (``cluster_profile._read``) -- and every answer is the one a
+    fresh read gives, serial and pooled alike."""
+    jobs = [j for j in _jobs(plan) if j[0]]
+    # the same member profile again, placed 7 m east: one dict, two jobs
+    rows, lower, placed, law = jobs[0]
+    moved = [(d, (o[0] + 7.0, o[1], o[2]), h) for d, o, h in rows]
+    jobs = jobs + [(moved, None if lower is None else lower + [7.0, 0.0, 0.0], placed, law)]
+    want = [CP.compose_job(j) for j in jobs]
+    calls = []
+    real = CP._og.profile_from_json
+    monkeypatch.setattr(CP._og, "profile_from_json", lambda d: calls.append(id(d)) or real(d))
+    assert CP.compose_jobs(jobs) == want
+    assert calls and len(calls) == len(set(calls))    # each dict read once
+    with P.WorkPool(workers=2, out=lambda s: None) as pool:
+        assert repr(CP.compose_jobs(jobs, pool)) == repr(want)

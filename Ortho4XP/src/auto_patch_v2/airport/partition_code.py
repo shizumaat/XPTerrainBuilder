@@ -161,9 +161,6 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.placement_seams",
     "auto_patch_v2.airport.placement_seat_tilt",
     "auto_patch_v2.airport.placement_targets",
-    "auto_patch_v2.airport.pool",
-    "auto_patch_v2.airport.pool_memory",
-    "auto_patch_v2.airport.pool_slots",
     "auto_patch_v2.airport.rebake_plan",
     "auto_patch_v2.airport.relief_skin",
     "auto_patch_v2.airport.rider_floor",
@@ -275,11 +272,22 @@ ENTRY_MODULES: tuple[str, ...] = (
 #: of record SHAPE is ``partition_cache.CACHE_VERSION`` / a suffix bump.
 #: ``dem_witness`` (issue #382) is the same class: it passes the DEM's own
 #: answers through untouched and decides only whether a record is served.
+#: THE WORK POOL is the same class (issue #2176): ``pool`` /
+#: ``pool_memory`` / ``pool_slots`` decide WHERE a task runs and how many
+#: workers run it, never its answer (``pool.py``'s contract: the answers
+#: come back in input order, and a pool that cannot answer hands the
+#: caller its serial code, the same computation).  Keyed, they cost the
+#: whole pack reading on every pool edit: 1.0.574 -> 1.0.575 changed ONE
+#: module of this closure, ``pool_memory``'s ``ps`` call (5 lines), and
+#: MMUN re-read and re-partitioned its pack (215 s).
 PLUMBING_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.extension_cache",
     "auto_patch_v2.airport.partition_cache",
     "auto_patch_v2.airport.partition_code",
+    "auto_patch_v2.airport.pool",
+    "auto_patch_v2.airport.pool_memory",
+    "auto_patch_v2.airport.pool_slots",
     "auto_patch_v2.airport.topology_cache",
 )
 

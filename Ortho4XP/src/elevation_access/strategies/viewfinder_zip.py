@@ -7,14 +7,17 @@ shares with other strategies is imported from ``elevation_access``.
 """
 
 import os
+import threading
 
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
+from elevation_access import fetch_scratch
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,
+    fetch_base_file,
     deferranti_archive_code,
 )
 from elevation_access.registry import register_access_strategy
@@ -93,10 +96,6 @@ class ViewfinderZipStrategy:
         return FNAMES.viewfinderpanorama(lat, lon)
 
     def ensure_tile(self, definition, lat, lon, verbose=True):
-        import io
-        import zipfile
-        import zlib
-
         cache_path = self.tile_cache_path(definition, lat, lon)
         if cached_elevation_file_is_valid(cache_path):
             UI.vprint(2, "   Recycling ", cache_path)
@@ -108,17 +107,48 @@ class ViewfinderZipStrategy:
             "from Viewfinderpanoramas (J. de Ferranti).",
         )
         url = self.download_url(definition, lat, lon)
-        response = DEM.http_request(
-            url, definition.get("legacy_keyword", definition["code"]), verbose
-        )
-        if not response:
-            # Every answer but a 404/410 already refused inside
-            # ``http_request``, so reaching here means the server LOOKED
-            # and the archive is not there.  For a land tile this source
-            # covers, that is the #173 mapping defect, never a zero.
-            return refuse_absent_base_archive(
-                definition, lat, lon, url,
-                "the archive is not on the server (404/410)")
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        # One flight per ARCHIVE across processes (#2258): the cells of
+        # one zip wait for the one download, which extracts each of them.
+        return fetch_base_file(
+            "dem-base:%s:%s" % (definition["code"],
+                                deferranti_archive_code(lat, lon)),
+            url, cache_path,
+            lambda temporary: self._download_archive(
+                definition, lat, lon, url, temporary, verbose))
+
+    def _download_archive(self, definition, lat, lon, url, temporary,
+                          verbose):
+        """Download the archive and extract its members: the requested
+        cell's to ``temporary`` (true when it was written), every other
+        one onto its own cache path."""
+        archive = fetch_scratch.scratch_destination(temporary + ".zip")
+        try:
+            response = DEM.http_request(
+                url, definition.get("legacy_keyword", definition["code"]),
+                verbose, destination=archive)
+            if not response:
+                if UI.red_flag:
+                    return 0
+                # Every answer but a 404/410 already refused inside
+                # ``http_request``, so reaching here means the server
+                # LOOKED and the archive is not there.  For a land tile
+                # this source covers, that is the #173 mapping defect,
+                # never a zero.
+                return refuse_absent_base_archive(
+                    definition, lat, lon, url,
+                    "the archive is not on the server (404/410)")
+            return self._extract_members(definition, lat, lon, url, archive,
+                                         temporary)
+        finally:
+            fetch_scratch.discard(archive)
+
+    def _extract_members(self, definition, lat, lon, url, archive,
+                         temporary):
+        import zipfile
+        import zlib
+
+        requested_path = self.tile_cache_path(definition, lat, lon)
         member_names = []
         # Did the archive hold a member for the cell that was ASKED for?
         # The two failures must not be confused (#173): a member that is
@@ -126,7 +156,8 @@ class ViewfinderZipStrategy:
         # present and unreadable is upstream data damage, contained as
         # before (the dem1/P32.zip CRC case).
         requested_member_seen = False
-        with zipfile.ZipFile(io.BytesIO(response.content), "r") as zip_ref:
+        requested_written = False
+        with zipfile.ZipFile(archive, "r") as zip_ref:
             for zipped_file in zip_ref.filelist:
                 member_names.append(zipped_file.filename)
             for zipped_file in zip_ref.filelist:
@@ -177,13 +208,22 @@ class ViewfinderZipStrategy:
                         )
                         continue
                     UI.vprint(2, "      Extracting", out_file_name)
-                    temporary_path = out_file_name + ".part"
+                    if out_file_name == requested_path:
+                        # The download manager installs this one.
+                        with open(temporary, "wb") as out:
+                            out.write(member_bytes)
+                        requested_written = bool(member_bytes)
+                        continue
+                    # A private temporary: another process may extract
+                    # the same member from another archive meanwhile.
+                    temporary_path = "%s.tmp-%d-%d" % (
+                        out_file_name, os.getpid(), threading.get_ident())
                     with open(temporary_path, "wb") as out:
                         out.write(member_bytes)
                     os.replace(temporary_path, out_file_name)
         # Success is judged on the tile actually requested: a corrupt
         # OTHER member in the same archive costs a warning, nothing more.
-        if cached_elevation_file_is_valid(cache_path):
+        if requested_written:
             return 1
         if requested_member_seen:
             # The member WAS in the archive and could not be extracted:

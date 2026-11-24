@@ -15,6 +15,8 @@ except:
     has_gdal = False
 from PIL import Image
 import O4_Cfg_Module_Values as MODULE_VALUES
+import O4_Download_Manager as DOWNLOADS
+import O4_Http_Pushback as PUSHBACK
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -1424,7 +1426,7 @@ HTTP_REQUEST_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 
 
 def http_request_get_following_redirects(session, url, source,
-                                         verbose=False):
+                                         verbose=False, stream=False):
     """One GET, following at most :data:`HTTP_REQUEST_REDIRECT_HOPS`
     redirects EXPLICITLY; ``(response, chain)``.
 
@@ -1441,15 +1443,17 @@ def http_request_get_following_redirects(session, url, source,
 
     A 3xx this function cannot follow (no ``Location``, a 304, a status
     outside :data:`HTTP_REQUEST_REDIRECT_STATUSES`) is returned AS IS,
-    so the one outcome classifier still judges it.
+    so the one outcome classifier still judges it.  ``stream``: the
+    final body is left unread for the caller to stream.
     """
     from urllib.parse import urljoin, urlparse
 
     chain = []
     current = url
+    streaming = {"stream": True} if stream else {}
     for _hop in range(HTTP_REQUEST_REDIRECT_HOPS + 1):
         response = session.get(current, timeout=HTTP_REQUEST_TIMEOUT_S,
-                               allow_redirects=False)
+                               allow_redirects=False, **streaming)
         status = int(response.status_code)
         location = (response.headers or {}).get("Location")
         if status not in HTTP_REQUEST_REDIRECT_STATUSES or not location:
@@ -1481,7 +1485,11 @@ def http_request_get_following_redirects(session, url, source,
         % (source, url, HTTP_REQUEST_REDIRECT_HOPS, " -> ".join(chain)))
 
 
-def http_request(url, source, verbose=False):
+def http_request(url, source, verbose=False, destination=None):
+    """GET a base elevation file under the one outcome law below: the
+    response, ``0`` for an absent file or a Stop, or a refusal raised.
+    ``destination``: the body is streamed to that path, with Stop looked
+    at between chunks (the response returned is then already read)."""
     # Guarded import of the process-wide throughput meter (sanctioned
     # pattern copied from O4_OSM_Extracts): telemetry must never break a
     # download, so a missing engine leaves METER as None and every feed
@@ -1518,7 +1526,15 @@ def http_request(url, source, verbose=False):
                     return 0
                 t0 = time.time()
                 (r, _redirects) = http_request_get_following_redirects(
-                    s, url, source, verbose)
+                    s, url, source, verbose, stream=destination is not None)
+                outcome = ea_discovery.http_answer_outcome(r.status_code)
+                written = None
+                if (destination is not None
+                        and outcome == ea_discovery.HTTP_OUTCOME_OK):
+                    (status, written) = DOWNLOADS.write_body(
+                        r, destination, lambda: UI.red_flag)
+                    if status != DOWNLOADS.READY:
+                        return 0
                 elapsed = time.time() - t0
             # THE ONE OUTCOME LAW, classified on the STATUS INTEGER
             # (issues #124/#173).  The historic test was a substring of
@@ -1528,14 +1544,14 @@ def http_request(url, source, verbose=False):
             # raster for that cell.  A 410/429/451 matched nothing at
             # all, so it was retried six times and then returned 0
             # SILENTLY, with no ``last_failure`` to refuse on.
-            outcome = ea_discovery.http_answer_outcome(r.status_code)
             if outcome == ea_discovery.HTTP_OUTCOME_OK:
                 # Feed the throughput meter with this completed fetch so
                 # the build-time ETA prices elevation downloads from
                 # measurement.  Never raise from telemetry.
                 if METER is not None:
                     try:
-                        METER.record(len(r.content), elapsed)
+                        METER.record(len(r.content) if written is None
+                                     else written, elapsed)
                     except Exception:
                         pass
                 return r
@@ -1605,7 +1621,9 @@ def http_request(url, source, verbose=False):
             2 ** tentative,
             "sec...",
         )
-        time.sleep(2 ** tentative)
+        # In slices, so a Stop ends the wait at once (census finding 5).
+        if not PUSHBACK.interruptible_sleep(2 ** tentative):
+            return 0
 
 ################################################################################
 def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata,

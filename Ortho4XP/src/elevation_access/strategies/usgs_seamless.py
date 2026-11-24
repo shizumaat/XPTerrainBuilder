@@ -15,6 +15,7 @@ import O4_UI_Utils as UI
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,
+    fetch_base_file,
 )
 from elevation_access.registry import register_access_strategy
 
@@ -75,16 +76,13 @@ class UsgsSeamlessStrategy:
             return 1
         UI.vprint(1, "    Downloading ", cache_path, "from USGS.")
         url = self.download_url(definition, lat, lon)
-        response = DEM.http_request(
-            url, definition.get("legacy_keyword", definition["code"]), verbose
-        )
-        if not response:
-            return 0
-        if not os.path.isdir(os.path.dirname(cache_path)):
-            os.makedirs(os.path.dirname(cache_path))
-        with open(cache_path, "wb") as out:
-            try:
-                out.write(response.content)
-            except Exception:
-                return 0
-        return 1
+        source = definition.get("legacy_keyword", definition["code"])
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        # One flight per cell across processes, streamed with Stop and
+        # installed with one rename (#2258; census finding 8).
+        return fetch_base_file(
+            "dem-base:%s:%s" % (definition["code"],
+                                usgs_seamless_tile_identifier(lat, lon)),
+            url, cache_path,
+            lambda temporary: DEM.http_request(url, source, verbose,
+                                               destination=temporary))

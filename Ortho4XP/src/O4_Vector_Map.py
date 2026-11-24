@@ -890,71 +890,59 @@ def _airport_auto_roads_layer_at(lat, lon):
     # 2026-09-17t chip D — and this writer had never stamped its cache
     # nor re-derived it, so every airport at every tile read an
     # unstamped file).  Same predicate the tile-wide layers use
-    # (``_layer_cache_is_current``).  A stale copy is MOVED ASIDE, not
-    # deleted, and put back if the re-derivation yields nothing (the
-    # harness precedent ``build_airport.refresh_stale_osm_layers``: a
-    # stale corpus beats an absent one when Overpass fails).
-    aside_path = None
+    # (``_layer_cache_is_current``).  A stale copy stays where it is
+    # until the re-derived one replaces it, so it is kept when the
+    # re-derivation yields nothing (the harness precedent
+    # ``build_airport.refresh_stale_osm_layers``: a stale corpus beats an
+    # absent one when Overpass fails).
     if os.path.isfile(cache_path):
         if OSM._cached_osm_schema_matches(cache_path, ROAD_CACHE_TAG_SCHEMA):
             UI.vprint(1, "    * Recycling airport-area road data from",
                       cache_path)
             layer.update_dicosm(cache_path, input_tags, target_tags)
             return layer
-        aside_path = cache_path + ".stale"
         UI.vprint(1, "    * Airport-area road cache", cache_path,
                   "predates tag schema", ROAD_CACHE_TAG_SCHEMA,
-                  "- re-deriving it (stale copy set aside).")
-        try:
-            os.replace(cache_path, aside_path)
-        except OSError:
-            aside_path = None
-    got_any = False
-    # Regional-extract backend first, all inset boxes batched into ONE
-    # filtering pass (the pbf filtering cost is dominated by reading the
-    # whole extract, so N boxes in one pass cost one read instead of N).
-    # ``OSM_query_to_OSM_layer`` below has no extract path — before this
-    # attempt existed, a cold cache meant one Overpass round per airport
-    # bbox even with the covering extract already on disk.  Same
-    # accelerator-never-dependency discipline as the tile-wide layers:
-    # any failure falls through to the historic Overpass loop.
-    try:
-        import O4_OSM_Extracts as EXTRACTS
+                  "- re-deriving it (the stale copy is kept until then).")
 
-        xml_bytes = EXTRACTS.osm_xml_from_local_extracts(
-            queries, boxes, request_description="airport_small_roads")
-    except Exception:
-        xml_bytes = None
-    if xml_bytes:
-        layer.update_dicosm(xml_bytes, input_tags, target_tags)
-        got_any = True
-    else:
+    def download():
+        # Regional-extract backend first, all inset boxes batched into
+        # ONE filtering pass (the pbf filtering cost is dominated by
+        # reading the whole extract, so N boxes in one pass cost one read
+        # instead of N).  ``OSM_query_to_OSM_layer`` below has no extract
+        # path — before this attempt existed, a cold cache meant one
+        # Overpass round per airport bbox even with the covering extract
+        # already on disk.  Same accelerator-never-dependency discipline
+        # as the tile-wide layers: any failure falls through to the
+        # historic Overpass loop.
+        try:
+            import O4_OSM_Extracts as EXTRACTS
+
+            xml_bytes = EXTRACTS.osm_xml_from_local_extracts(
+                queries, boxes, request_description="airport_small_roads")
+        except Exception:
+            xml_bytes = None
+        if xml_bytes:
+            layer.update_dicosm(xml_bytes, input_tags, target_tags)
+            return True
+        got_any = False
         for bbox in boxes:
             if OSM.OSM_query_to_OSM_layer(
                     queries, bbox, layer,
                     tags_of_interest=ROADS_TAGS_OF_INTEREST):
                 got_any = True
             if UI.red_flag:
-                return None
-    if not got_any:
-        if aside_path and not os.path.isfile(cache_path):
-            try:
-                os.replace(aside_path, cache_path)
-            except OSError:
-                pass
-        return None
-    try:
-        layer.write_to_file(
-            cache_path,
-            header_attributes={"o4_tag_schema": ROAD_CACHE_TAG_SCHEMA})
-    except OSError:
-        pass
-    if aside_path and os.path.isfile(cache_path):
-        try:
-            os.remove(aside_path)
-        except OSError:
-            pass
-    return layer
+                return False
+        return got_any
+
+    # Once across processes, installed with one rename (#2258).
+    made = OSM.cache_layer_once(cache_path, ROAD_CACHE_TAG_SCHEMA, download,
+                                layer)
+    if made == "joined":
+        UI.vprint(1, "    * Recycling airport-area road data from",
+                  cache_path)
+        layer.update_dicosm(cache_path, input_tags, target_tags)
+    return layer if made else None
 
 
 #: The road feeds auto_patch_v2 reads, and the fallback tile square, used
@@ -1953,7 +1941,7 @@ def ensure_tile_frame(lat, lon, *, reason=""):
 
     Returns True when the tile's frame is warm on return.
     """
-    import O4_File_Lock as LOCK
+    import O4_Download_Manager as DOWNLOADS
 
     stem = "%+03d%+04d" % (lat, lon)
     neighbour = CFG.Tile(lat, lon, "")
@@ -1965,11 +1953,11 @@ def ensure_tile_frame(lat, lon, *, reason=""):
     UI.lvprint(0, "   Airport insets: tile %s%s — warming its frame "
                   "(airports layer + its own inset selection)"
                % (stem, (" (%s)" % reason) if reason else ""))
-    with LOCK.hold_file_lock(lock_path) as held:
+    # One warm per tile across processes (O4_Download_Manager): a dead
+    # holder releases it, and a Stop ends the wait (census finding 3).
+    with DOWNLOADS.hold_flight(lock_path, lambda: UI.red_flag) as held:
         if not held:
-            UI.lvprint(0, "   Airport insets: tile %s — timed out waiting "
-                          "for another build's frame lock; continuing and "
-                          "letting the frame check decide." % stem)
+            return tile_frame_is_warm(lat, lon)
         layer = OSM.OSM_layer()
         OSM.OSM_queries_to_OSM_layer(AIRPORTS_QUERIES, layer, lat, lon,
                                      ["all"], cached_suffix="airports")

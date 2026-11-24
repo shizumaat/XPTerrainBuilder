@@ -1,10 +1,14 @@
-"""Whole base tiles: cache validity, coverage and the manual-drop message.
+"""Whole base tiles: cache validity, coverage, the manual-drop message and
+the download of a base file (through the download manager, #2258).
 
 Shared by the five base-tile strategies and the pipeline's base-tile
 selection.
 """
 
 import os
+
+import O4_Download_Manager as DOWNLOADS
+import O4_UI_Utils as UI
 
 from elevation_access.definitions import (
     ROLE_AIRPORT_INSET,
@@ -18,6 +22,7 @@ __all__ = [
     "base_definition_covers_tile",
     "cached_elevation_file_is_valid",
     "deferranti_archive_code",
+    "fetch_base_file",
 ]
 
 
@@ -148,3 +153,31 @@ def _manual_drop_setup_information(definition, drop_directory, file_kinds):
         "attribution": definition.get("attribution", ""),
         "license": definition.get("license", ""),
     }
+
+
+def fetch_base_file(key, url, cache_path, download):
+    """Make ``cache_path`` present, downloading it at most once at a time
+    across every process; ``1`` when it is there afterwards, else ``0``.
+
+    ``download(temporary)`` writes the file to ``temporary`` and returns
+    true when it did; a falsy answer is an absent file or a Stop.  The
+    download manager installs it with one rename.  What ``download``
+    raises (an ``ElevationDownloadRefused``) is raised here, after the
+    temporary is gone.  A caller waiting on another process's flight for
+    the same ``key`` takes the file that flight installed, or flies
+    itself when it installed none.  The flight locks and request counts
+    live in ``.download_manager`` at the cache's root (the folder above
+    the file's block), so the cells of one archive share one flight
+    wherever their blocks are; tile bundles never pack a hidden folder."""
+    result = DOWNLOADS.fetch(
+        DOWNLOADS.Resource(key, url, cache_path,
+                           cached_elevation_file_is_valid,
+                           shares_failure=False,
+                           state_dir=os.path.join(
+                               os.path.dirname(os.path.dirname(cache_path)),
+                               ".download_manager")),
+        should_stop=lambda: UI.red_flag,
+        transfer=lambda temporary, _stop: bool(download(temporary)))
+    if result.error is not None:
+        raise result.error
+    return 1 if result.ok else 0

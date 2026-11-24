@@ -205,6 +205,11 @@ DIR_SUFFIX_SCOPES = (
 )
 
 
+#: ``O4_Download_Manager``'s temporary beside its target, QUOTED (this
+#: guard must not import the engine).
+MANAGER_TEMPORARY_RE = re.compile(r"\.tmp-\d+-\d+$")
+
+
 def scope_of(relpath: str):
     """The ``--refresh-data`` scope a shared-repo path belongs to, most
     specific prefix first.  ``None`` for a path outside every scope."""
@@ -217,6 +222,11 @@ def scope_of(relpath: str):
     rel = str(relpath).replace(os.sep, "/")
     if os.altsep:
         rel = rel.replace(os.altsep, "/")
+    # A download manager's temporary (``<target>.tmp-<pid>-<thread>``,
+    # installed onto its target with one rename) is its target's: the
+    # parking feed's temporary is a ``parking`` write, not an
+    # ``osm_layers`` one.
+    rel = MANAGER_TEMPORARY_RE.sub("", rel)
     for name, under, suffixes in SUFFIX_SCOPES:
         if rel.startswith(under) and rel.endswith(suffixes):
             return name

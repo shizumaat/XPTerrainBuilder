@@ -12,6 +12,7 @@ import os
 
 import O4_UI_Utils as UI
 
+from elevation_access.base import TransientFetchError
 from elevation_access.definitions import (
     _WEB_MERCATOR_HALF_CIRCUMFERENCE,
     _coverage_bbox_intersects,
@@ -120,6 +121,9 @@ class XyzTextTileStrategy:
         nodata_cells = 0
         for tile_y in range(y_min, y_max + 1):
             for tile_x in range(x_min, x_max + 1):
+                if UI.red_flag:          # download census finding 9
+                    raise TransientFetchError(
+                        "elevation tiles stopped with the build")
                 url = (
                     template.replace("{zoom}", str(zoom))
                     .replace("{x}", str(tile_x))

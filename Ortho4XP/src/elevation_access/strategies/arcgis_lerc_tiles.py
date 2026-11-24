@@ -10,7 +10,9 @@ import datetime
 import numpy
 import os
 
-from elevation_access.base import ProviderUnavailable
+import O4_UI_Utils as UI
+
+from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.capabilities import (
     lerc_decode_available,
     lerc_worker_argv,
@@ -148,6 +150,10 @@ class ArcgisLercTileStrategy:
         try:
             for tile_y in range(y_min, y_max + 1):
                 for tile_x in range(x_min, x_max + 1):
+                    if UI.red_flag:      # download census finding 9
+                        raise TransientFetchError(
+                            "%s LERC tiles stopped with the build"
+                            % definition.get("code"))
                     url = (
                         template.replace("{level}", str(level))
                         .replace("{row}", str(tile_y))

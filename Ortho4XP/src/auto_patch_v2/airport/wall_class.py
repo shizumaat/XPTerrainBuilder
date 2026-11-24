@@ -33,6 +33,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 import unicodedata as _ud
+import weakref
 
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -132,6 +133,15 @@ def _not_a_wall(resource: str) -> bool:
     return any(w in base for w in NOT_WALL_RESOURCE_WORDS)
 
 
+#: THE AIRPORT FIELDS the classifier reads (the consumer census of #2206:
+#: this module, ``sunk_frame``, ``wall_sheets`` and ``airside_floor.
+#: airside_union``); a held answer is served while each is the SAME object
+READS = ("partition", "frame", "dem", "osm_ways", "wall_reseats", "pavements")
+
+#: ``{id(partition): (weakref, [(field objects, cfg, components)])}``
+_HELD: dict[int, tuple] = {}
+
+
 def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
     """THE WALL-CLASS CLASSIFIER, the one implementation: every pack
     component that is thin, at least ``retaining_wall_min_height_m`` tall
@@ -139,13 +149,42 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
     :func:`retaining_pieces` (a wall along a road edge) and by
     ``planar/shore`` (a wall along the shore — owner RULINGS 2026-09-29a
     (2)).  Retaining / sea-wall classes only: a fence resource is never
-    wall-class (RULINGS 2026-09-29h, Q-72b)."""
+    wall-class (RULINGS 2026-09-29h, Q-72b).
+
+    Read once per airport (#2206: HECA read it four times, a minute each):
+    the answer is held for as long as the partition lives and served to a
+    caller whose :data:`READS` fields are the same objects and whose
+    ``cfg`` is equal -- an airport ``dataclasses.replace``-d in any other
+    field reads the same walls."""
     part = getattr(airport, "partition", None)
     if part is None:
         return []
+    fields = tuple(getattr(airport, k, None) for k in READS)
+    held = _HELD.get(id(part))
+    rows = held[1] if held is not None and held[0]() is part else None
+    for f, c, got in rows or ():
+        if c == cfg and all(a is b for a, b in zip(f, fields, strict=True)):
+            return list(got)
+    got = _derive(airport, cfg)
+    if rows is None:
+        try:
+            ref = weakref.ref(part)
+        except TypeError:                         # not weakly referable: not held
+            return got
+        rows = []
+        _HELD[id(part)] = (ref, rows)
+        weakref.finalize(part, _HELD.pop, id(part), None)
+    rows.append((fields, cfg, tuple(got)))
+    return got
+
+
+def _derive(airport: Airport, cfg) -> list[WallComponent]:
+    """:func:`wall_class_components`' reading (its docstring)."""
+    part = airport.partition
     to_xy = airport.frame.entry()
     out: list[WallComponent] = []
     paved: list = []            # the apt.dat airside union, read once on demand
+    sunk_law: list = []         # the sunk witness's default law, loaded once on demand
     for u in part.units:
         got: list[WallComponent] = []
         for m in u.members:
@@ -214,7 +253,7 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 # #2120 R2 W1: THE FOURTH WITNESS -- a block its author drew
                 # down from his ground, the ground stepping across it
                 sunk = None if retains or not _stands_on_ground(p) else \
-                    sunk_wall(airport, u, p, whole, wide, cfg)
+                    sunk_wall(airport, u, p, whole, wide, cfg, _sunk_law(sunk_law), to_xy)
                 if sunk is not None:
                     retained, kept_top, retains, source = sunk.retained_m, sunk.y_up, True, "dem"
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
@@ -243,6 +282,15 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                                          else sunk.fill_drop_m))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
+
+
+def _sunk_law(held: list):
+    """``Law.load()``, the law :func:`sunk_wall` reads when handed none,
+    loaded on the first call and held in ``held`` (one classifier run)."""
+    if not held:
+        from ..law import Law
+        held.append(Law.load())
+    return held[0]
 
 
 def _plate_split(airport: Airport, whole, retained: float, resource: str

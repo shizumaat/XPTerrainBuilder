@@ -987,6 +987,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.pipeline.publication",
     "auto_patch_v2.pipeline.raised_at",
     "auto_patch_v2.pipeline.rebake_inputs",
+    "auto_patch_v2.pipeline.registry_writes",
     "auto_patch_v2.pipeline.ribbon_steps",
     "auto_patch_v2.pipeline.road_deck",
     "auto_patch_v2.pipeline.runway_report",

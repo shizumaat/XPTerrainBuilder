@@ -41,6 +41,7 @@ import math
 import pickle
 import typing as _t
 
+from ..airport import stage_cache as _store
 from ..model.constraints import ConstraintSet
 from ..solve.design_report import residual
 from ..solve.design_roles import hard_rulings, is_hard
@@ -101,7 +102,8 @@ def refuses(cert: tuple, cs: ConstraintSet, z: _t.Sequence[float], n: int, law) 
 def _encode(s: Solved) -> tuple[bytes, _t.Callable[[], str]]:
     z = _array.array("d", s.sol.z)
     blob = pickle.dumps((z, s._replace(sol=_dc.replace(s.sol, z=()))), protocol=5)
-    return blob, lambda: hashlib.sha256(blob).hexdigest()
+    # named by its answer (#2205): the report's clocks differ run to run
+    return blob, lambda: _store.value_digest((z.tobytes(), s.certificate, s.held))
 
 
 def _decode(blob: bytes) -> Solved:

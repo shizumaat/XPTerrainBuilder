@@ -342,14 +342,16 @@ class FrontCache:
 
     # ── one stage ───────────────────────────────────────────────────
     def run(self, stage: str, inputs: _t.Mapping[str, str | None],
-            fn: _t.Callable[[_t.Any], _t.Any], *, as_served: bool = False) -> _t.Any:
+            fn: _t.Callable[[_t.Any], _t.Any], *, as_served: bool = False,
+            view: _t.Callable[[_t.Any], _t.Any] | None = None) -> _t.Any:
         """``fn(law)``'s output for ``stage``: served from its record when
         the key and the witnesses hold, else computed (and recorded).
 
         ``as_served``: a miss hands on its output DECODED from the record,
         exactly as a hit would — for an output the build digests again
         afterwards (a pickle's bytes follow object identity, so the live
-        object and its decoded copy need not digest alike)."""
+        object and its decoded copy need not digest alike).  ``view``: what
+        names the output when it carries clocks (``stage_cache.encode``)."""
         self.digests.pop(stage, None)        # never a previous run's digest
         if not self.active:
             self.bypassed(stage)
@@ -371,7 +373,7 @@ class FrontCache:
             return got[0]
         self._note_miss(stage, rep)
         out = fn(self.stage_law())
-        blob = self._record(stage, key, path, recipe, out, rep)
+        blob = self._record(stage, key, path, recipe, out, rep, view)
         return _pickle.loads(blob) if as_served and blob is not None else out
 
     def _note_miss(self, stage: str, rep: dict) -> None:
@@ -418,10 +420,10 @@ class FrontCache:
         return (out,)
 
     def _record(self, stage: str, key: str, path: str, recipe: dict, out: _t.Any,
-                rep: dict) -> bytes | None:
+                rep: dict, view: _t.Callable[[_t.Any], _t.Any] | None = None) -> bytes | None:
         t = time.perf_counter()
         try:
-            blob, digest = _store.encode(out)
+            blob, digest = _store.encode(out, view)
         except Exception as exc:                 # an output that will not pickle
             rep["state"] = f"miss; not written: {type(exc).__name__}"
             return None

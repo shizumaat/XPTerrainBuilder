@@ -11,7 +11,7 @@ The HEADER is readable without decompressing anything (§6: the #880 walk
 reads headers only): ``stage``, ``key``, the ``recipe`` the key was taken
 from (``inputs`` ``{name: digest}``, ``code``, ``env``, ``version``), the
 ``output_digest`` (the digest later stages chain on, spec §4c: for a
-pickled record the sha256 of its pickle bytes, for a constraint record its
+pickled record its :func:`value_digest`, for a constraint record its
 columnar digest), the ``payload_sha256`` (the payload bytes' own sha256,
 checked on EVERY read — a mismatch is refused ``payload_sha256``),
 ``created``, ``last_used`` and ``bytes``.  The WITNESS block holds what the
@@ -60,7 +60,9 @@ __all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
-CACHE_VERSION = 4   # v4: gridded geometry carries its precision grid
+CACHE_VERSION = 5   # v5: an output is named by its VALUE, and a generator
+                    # record carries its registry writes (#2205, #2206);
+                    # v4: gridded geometry carries its precision grid
                     # (#1092, ``geom/grid_pickle``); v3: the header
                     # carries ``payload_sha256`` beside ``output_digest``
                     # (the back-half records, #843 step 9;
@@ -144,11 +146,15 @@ def entry_path(folder: str, icao: str, stage: str, key: str) -> str:
     return os.path.join(folder, f"{_PREFIX}{icao}_{stage}_{key[:16]}{_SUFFIX}")
 
 
-def encode(output: _t.Any) -> tuple[bytes, str]:
-    """``(pickle bytes, output digest)`` of a stage's output — the one
-    pickle the digest and the payload share."""
+def encode(output: _t.Any, view: _t.Callable[[_t.Any], _t.Any] | None = None
+           ) -> tuple[bytes, str]:
+    """``(pickle bytes, output digest)`` of a stage's output.  The digest is
+    the output's VALUE (:func:`value_digest`; #2205: a pickle's bytes follow
+    object sharing, so an equal output recomputed after a kill named every
+    later record differently); ``view`` leaves out what is not the stage's
+    answer (its clocks, the lines quoting them)."""
     blob = pickle.dumps(output, protocol=5)
-    return blob, hashlib.sha256(blob).hexdigest()
+    return blob, value_digest(output if view is None else view(output))
 
 
 def write(path: str, header: dict, witness: _t.Any, blob: bytes, *,

@@ -43,10 +43,12 @@ import pickle
 import time
 import typing as _t
 
+from ..airport import stage_cache as _store
 from ..constraints import GENERATORS, post_passes, run_generator, stack
 from ..model import constraint_codec as _codec
 from ..model.constraints import ConstraintSet
 from . import back_cache as _bc
+from . import registry_writes as _writes
 from . import stage_code as _code
 from .shapes import joint_filter, shape_constraints
 
@@ -66,18 +68,21 @@ def _gen_stage(name: str) -> str:
 class GenRows(_t.NamedTuple):
     """One generator's record: its rows by kind (``cs``), the ``(kind,
     count)`` runs that put them back in the generator's own order, and its
-    ``STATS`` slice."""
+    ``STATS`` slice, and what it wrote into the map's registries
+    (``pipeline/registry_writes``, installed on a hit; #2206 D1)."""
 
     cs: ConstraintSet
     runs: _array.array
     stats: dict
+    writes: dict = {}
 
     @classmethod
-    def of(cls, rows: _t.Sequence, stats: _t.Mapping[str, int]) -> "GenRows":
+    def of(cls, rows: _t.Sequence, stats: _t.Mapping[str, int],
+           writes: _t.Mapping[str, _t.Any] | None = None) -> "GenRows":
         runs = _array.array("i")
         for kind, grp in _it.groupby(map(type, rows)):
             runs.extend((_KIND_OF[kind], len(list(grp))))
-        return cls(ConstraintSet.from_rows(rows), runs, dict(stats))
+        return cls(ConstraintSet.from_rows(rows), runs, dict(stats), dict(writes or {}))
 
     def rows(self) -> list:
         """The rows in the generator's own order (the same objects)."""
@@ -98,14 +103,15 @@ def _sha(*parts: _t.Any) -> str:
 
 def _encode_gen(g: GenRows) -> tuple[bytes, _t.Callable[[], str]]:
     enc = _codec.encode(g.cs)
-    blob = pickle.dumps((enc, g.runs, g.stats), protocol=5)
+    blob = pickle.dumps((enc, g.runs, g.stats, g.writes), protocol=5)
     runs = _array.array("i", g.runs)
-    return blob, lambda: _sha(enc.digest(), list(runs), json.dumps(g.stats, sort_keys=True))
+    return blob, lambda: _sha(enc.digest(), list(runs), json.dumps(g.stats, sort_keys=True),
+                              _store.value_digest(g.writes))
 
 
 def _decode_gen(blob: bytes) -> GenRows:
-    enc, runs, stats = pickle.loads(blob)
-    return GenRows(_codec.decode(enc), runs, stats)
+    enc, runs, stats, writes = pickle.loads(blob)
+    return GenRows(_codec.decode(enc), runs, stats, writes)
 
 
 #: The per-generator record's codec.
@@ -118,6 +124,7 @@ class _Assembly(_t.NamedTuple):
     walls: dict
     yielded: list
     joints: dict          # the ShapeStage fields the joint filter wrote
+    writes: dict = {}     # what the post-passes wrote into the registries
 
 
 def _concat(gens: _t.Sequence[GenRows]) -> dict[str, tuple]:
@@ -172,14 +179,15 @@ def _assembly_codec(gens: _t.Sequence[GenRows]) -> _bc.Codec:
         blob = pickle.dumps({**set_delta(a.cs, _concat(gens)),
                              "yielded": (_codec.encode(yielded.cs), yielded.runs),
                              "counts": a.counts, "walls": a.walls,
-                             "joints": a.joints}, protocol=5)
+                             "joints": a.joints, "writes": a.writes}, protocol=5)
         return blob, lambda: hashlib.sha256(blob).hexdigest()
 
     def decode(blob: bytes) -> _Assembly:
         rec = pickle.loads(blob)
         y_cs, y_runs = rec["yielded"]
         return _Assembly(from_delta(rec, _concat(gens)), rec["counts"], rec["walls"],
-                         GenRows(_codec.decode(y_cs), y_runs, {}).rows(), rec["joints"])
+                         GenRows(_codec.decode(y_cs), y_runs, {}).rows(), rec["joints"],
+                         rec["writes"])
     return _bc.Codec(encode, decode)
 
 
@@ -207,14 +215,27 @@ def constraints_stage(fc: _t.Any, pm, law, airport, stage, inputs: _t.Mapping[st
         cs, counts, walls = shape_constraints(pm, law, airport, stage, yielded_out=yielded_out)
         return Constraints(cs, counts, walls, None, "")
     chain = hashlib.sha256()
+    written = hashlib.sha256()     # the registry writes every generator before made
     gens, gots, counts, walls = [], [], {}, {}
+    reg = pm.registries
+
+    def run_gen(fn, ran: list) -> GenRows:
+        ran.append(True)
+        before = _writes.fingerprint(reg)
+        rows, stats = run_generator(fn, pm, law, airport)
+        return GenRows.of(rows, stats, _writes.writes_since(reg, before))
     for name, fn in GENERATORS:
         t = time.perf_counter()
-        got = _bc.record(fc, _gen_stage(name), {**inputs, "dem_before": chain.hexdigest()},
-                         lambda fn=fn: GenRows.of(*run_generator(fn, pm, law, airport)),
+        ran: list = []
+        got = _bc.record(fc, _gen_stage(name), {**inputs, "dem_before": chain.hexdigest(),
+                                                "writes_before": written.hexdigest()},
+                         lambda fn=fn, ran=ran: run_gen(fn, ran),
                          code=_code.generator_stage(name), codec=GEN_CODEC)
         walls[name] = time.perf_counter() - t
         g: GenRows = got.value
+        if not ran:
+            _writes.install(reg, g.writes)
+        written.update(_store.value_digest(g.writes).encode())
         counts[name] = len(g.cs.rows())
         counts.update({f"{name}.{k}": v for k, v in g.stats.items()})
         chain.update(got.dem.encode())
@@ -226,16 +247,22 @@ def constraints_stage(fc: _t.Any, pm, law, airport, stage, inputs: _t.Mapping[st
         acounts: dict = {}
         awalls: dict = {}
         yielded: list = []
+        ran_assembly.append(True)
+        before = _writes.fingerprint(reg)
         rows = post_passes([r for g in gens for r in g.rows()], acounts, awalls, pm, law,
                            airport, None, yielded)
         cs = joint_filter(stack(rows), stage, acounts, awalls)
         return _Assembly(cs, acounts, awalls, yielded,
                          {"dropped": dict(stage.dropped),
                           "flats_straddling": stage.flats_straddling,
-                          "bands_withdrawn": stage.bands_withdrawn})
+                          "bands_withdrawn": stage.bands_withdrawn},
+                         _writes.writes_since(reg, before))
+    ran_assembly: list = []
     got = _bc.record(fc, _ASSEMBLY, {"pm": inputs.get("pm"), "generators": digests}, run,
                      codec=_assembly_codec(gens))
     a: _Assembly = got.value
+    if not ran_assembly:
+        _writes.install(reg, a.writes)
     stage.dropped = dict(a.joints["dropped"])
     stage.flats_straddling = a.joints["flats_straddling"]
     stage.bands_withdrawn = a.joints["bands_withdrawn"]

@@ -64,7 +64,9 @@ from __future__ import annotations
 import dataclasses as _dc
 import statistics as _st
 import typing as _t
+import weakref
 
+import numpy as np
 from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
@@ -93,6 +95,57 @@ def _unit_parts(P: Polygon, airport, to_xy) -> list:
     return unit_share(P, airport, to_xy)[1]
 
 
+#: THE PACK PARTITION'S PART CENTRES IN THE FRAME, held per partition (#2206
+#: step 4: :func:`unit_share` projected every part of every unit for every
+#: pad it read, 36 reads of 2 s each at KATL): ``{id(partition): (weakref,
+#: {frame key: (points, xy array)})}``
+_HELD: dict[int, tuple] = {}
+
+
+def _derive_points(part, to_xy) -> "tuple[list, np.ndarray]":
+    pts = []
+    for ui, u in enumerate(part.units):
+        for m in u.members:
+            for p in m.parts:
+                if getattr(p, "line", False):
+                    continue
+                pts.append((ui, p, to_xy(p.lon, p.lat)))
+    xy = np.asarray([q[2] for q in pts], dtype=float).reshape(-1, 2)
+    return pts, xy
+
+
+def _part_points(part, frame, to_xy: _t.Callable) -> "tuple[list, np.ndarray]":
+    """``([(unit index, part, (x, y))], xy)`` of every non-line part of
+    ``part`` (``airport.partition``) in traversal order, ``xy`` their
+    ``(n, 2)`` centres.  ``to_xy`` is the caller's projection: the points
+    are held under ``frame`` (``airport.frame``, whose ``entry`` every
+    caller passes) and served only while ``to_xy`` gives the held first
+    point exactly; any other projection, or no frame, derives afresh."""
+    key = None if frame is None else (str(getattr(frame, "crs", "")),
+                                      float(getattr(frame, "input_quantum_m", 0.0) or 0.0))
+    held = _HELD.get(id(part))
+    memo = held[1] if held is not None and held[0]() is part else None
+    got = memo.get(key) if memo is not None and key is not None else None
+    if got is not None:
+        pts = got[0]
+        if not pts or to_xy(pts[0][1].lon, pts[0][1].lat) == pts[0][2]:
+            return got
+        return _derive_points(part, to_xy)
+    got = _derive_points(part, to_xy)
+    if key is None:
+        return got
+    if memo is None:
+        try:
+            ref = weakref.ref(part)
+        except TypeError:                         # not weakly referable: not held
+            return got
+        memo = {}
+        _HELD[id(part)] = (ref, memo)
+        weakref.finalize(part, _HELD.pop, id(part), None)
+    memo[key] = got
+    return got
+
+
 def unit_share(P: Polygon, airport, to_xy) -> "tuple[int | None, list]":
     """``(unit index, [(part, (x, y))])``: :func:`_unit_parts` with the
     partition unit it read (``None`` and ``[]`` where no part stands in
@@ -100,15 +153,17 @@ def unit_share(P: Polygon, airport, to_xy) -> "tuple[int | None, list]":
     part = getattr(airport, "partition", None)
     if part is None:
         return None, []
+    pts, X = _part_points(part, getattr(airport, "frame", None), to_xy)
     by: dict[int, list] = {}
-    for ui, u in enumerate(part.units):
-        for m in u.members:
-            for p in m.parts:
-                if getattr(p, "line", False):
-                    continue
-                xy = to_xy(p.lon, p.lat)
-                if P.contains(Point(xy)):
-                    by.setdefault(ui, []).append((p, xy))
+    if not pts:
+        return None, []
+    # the parts inside P's box, in traversal order; P itself decides
+    x0, y0, x1, y1 = P.bounds
+    box = (X[:, 0] >= x0) & (X[:, 0] <= x1) & (X[:, 1] >= y0) & (X[:, 1] <= y1)
+    for k in np.flatnonzero(box).tolist():
+        ui, p, xy = pts[k]
+        if P.contains(Point(xy)):
+            by.setdefault(ui, []).append((p, xy))
     if not by:
         return None, []
     return max(by.items(), key=lambda kv: (len(kv[1]), -kv[0]))
@@ -169,7 +224,6 @@ def stand_floor(parts, air, stands, law, to_xy) -> "tuple[float, _t.Any, _t.Any,
     feet touching ``air`` within ``STAND_M`` of a stand, RULINGS
     2026-10-23b), the feet's frame xy ``X``, their ``Y`` and the mask
     ``at`` of the feet that read it -- or ``None`` where too few do."""
-    import numpy as np
     import shapely
 
     from ..airport import airside_group_seat as ag

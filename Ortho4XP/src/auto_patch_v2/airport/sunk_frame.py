@@ -89,12 +89,15 @@ def _numbers(law) -> tuple[float, float]:
     return float(st.tunnel.object.floor_sunken_min_m), float(st.basin.authored_rim_tol_m)
 
 
-def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
+def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None, to_xy=None
               ) -> SunkReading | None:
     """The sunk witness's reading of ``part`` (a walled part of placement
     ``unit``, its footprint ``whole`` in frame xy, ``wide`` across), or
     ``None`` where R2 / R3 / R4 do not hold (module doc).  ``cfg`` is
-    ``classify/rules.toml``'s ``[service]`` record, supplied by the caller."""
+    ``classify/rules.toml``'s ``[service]`` record, supplied by the caller;
+    ``law`` (default: ``Law.load()``) and ``to_xy`` (default: the frame's
+    entry) are the caller's when it reads many parts (#2206: one load and
+    one projection per classifier run, not one per part)."""
     lift = float(getattr(unit, "agl_m", 0.0) or 0.0)
     dem = getattr(airport, "dem", None)
     if not lift < 0.0 or dem is None or getattr(part, "line", False) or \
@@ -104,6 +107,8 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
     if law is None:
         from ..law import Law
         law = Law.load()
+    if to_xy is None:
+        to_xy = airport.frame.entry()
     sunk_min, rim_tol = _numbers(law)
     base = float(getattr(part, "base_y", 0.0) or 0.0)
     top = base + float(part.height_m)
@@ -112,18 +117,18 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
         return None                     # it does not stand on its zero
     if _upper(base, top, y_g, sunk_min, rim_tol):
         y_up, rule = y_g, "upper"       # R2
-    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol):
+    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol, to_xy):
         y_up, rule = top, "plate"       # R3
     else:
         return None
-    block = _block(airport, unit, part, whole, rule, y_g, top, sunk_min, rim_tol)
+    block = _block(airport, unit, part, whole, rule, y_g, top, sunk_min, rim_tol, to_xy)
     step = _two_levels(dem, block, 2.0 * block.area / block.length,
                        max(float(cfg.retaining_wall_step_ring_m), float(part.height_m)), cfg)
     if step is None:
         return None                     # R4: a flat sunk frame is no wall
-    capped = _plate(airport, unit, part, whole, y_up, rim_tol) is not None
+    capped = _plate(airport, unit, part, whole, y_up, rim_tol, to_xy) is not None
     roads = rule == "plate" or (capped and _road_plate(airport, unit, part, whole, y_up,
-                                                      cfg, law, rim_tol))
+                                                      cfg, law, rim_tol, to_xy))
     return SunkReading(min(step, y_up - base), float(y_up), rule,
                        rim_tol if capped else 0.0, roads)
 
@@ -137,12 +142,11 @@ def _upper(base: float, top: float, y_g: float, sunk_min: float, rim_tol: float)
 
 
 def _block(airport, unit, part, whole, rule: str, y_g: float, top: float,
-           sunk_min: float, rim_tol: float):
+           sunk_min: float, rim_tol: float, to_xy):
     """THE BLOCK R4 reads: the union of ``unit``'s walled parts the same rule
     reads (R2's window, or R3's top at ``top``), standing on the ground --
     a frame is judged whole: a pool sunk in a slope steps across each of its
     thin walls, never across the pool (ELLX ``pool_5``)."""
-    to_xy = airport.frame.entry()
     polys = [whole]
     for m in getattr(unit, "members", ()) or ():
         for p in getattr(m, "parts", ()) or ():
@@ -180,11 +184,12 @@ def _two_levels(dem, whole, wide: float, ring: float, cfg) -> float | None:
     return float(np.percentile(d, 90.0))
 
 
-def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float) -> bool:
+def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float,
+                to_xy) -> bool:
     """R3: a plate of ``unit``'s frame capping ``whole`` at ``top``
     (:func:`_plate`), a mapped road at grade passing through it at least
     ``retaining_wall_min_length_m``."""
-    plate = _plate(airport, unit, part, whole, top, rim_tol)
+    plate = _plate(airport, unit, part, whole, top, rim_tol, to_xy)
     if plate is None:
         return False
     need = float(cfg.retaining_wall_min_length_m)
@@ -192,11 +197,10 @@ def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float
                for pts in _surface_roads(airport, law))
 
 
-def _plate(airport, unit, part, whole, top: float, rim_tol: float):
+def _plate(airport, unit, part, whole, top: float, rim_tol: float, to_xy):
     """The near-horizontal plate of ``unit``'s frame at ``top`` (within
     ``rim_tol``; flat: under ``rim_tol`` tall) over ``whole``, where it
     covers at least half of it; else ``None``."""
-    to_xy = airport.frame.entry()
     plates = []
     for m in getattr(unit, "members", ()) or ():
         for p in getattr(m, "parts", ()) or ():

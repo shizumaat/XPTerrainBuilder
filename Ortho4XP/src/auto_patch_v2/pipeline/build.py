@@ -631,9 +631,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     from .stage_one_map import gap_free
     cl_gaps, _cl_base = None, gap_free(cl)
     _cl_digest = fc.output_digest("classify")
+    _t_dig = time.perf_counter()
     if _cl_base is not None:
         cl_gaps, cl = cl, _cl_base
         _cl_digest = fc.digest(cl)
+    _main_digest_s = time.perf_counter() - _t_dig      # #2206 step 0
     # issue #669 / #711: the object ramps' feet — for the planar stage's
     # landing run-outs (``planar/landing_runout``) and the last stage's
     # run-outs — read HERE, on the run's ResourceCache (one parse per
@@ -683,6 +685,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         d = Deriver(ap, law, inputs, pack, cache=fc, common=_fc_in, heartbeat=_s1_hb)
         _s1_box.update(derive=d, ahead=_s1_ahead.start(
             cl, d, pm_ch, out=lambda m: _say(f"[{icao}] {m}", out)))
+    _t_main = time.perf_counter()
     try:
         with (contextlib.nullcontext() if _s1_early is None
               else on_full_decks(_s1_early.hand_decks)):
@@ -693,6 +696,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if _s1_early is not None:
             _s1_early.close()
         raise
+    _main_run_s = time.perf_counter() - _t_main
     wall.update(pre.wall)
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
@@ -1013,7 +1017,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ribbon-free run, the late derives) and the stage-1 run ahead's record
     report["prefix_clocks"] = {
         "main": {k: round(float(v), 3) for k, v in pre.wall.items()},
+        "main_run_s": round(_main_run_s, 3),
+        "main_digest_s": round(_main_digest_s, 3),
         "runs": list(derive.clocks),
+        # each ``build_arrangement`` front read's outcome, in call order
+        "front_memo": _arr_memo.outcomes(),
         "stage_one_ahead": None if _s1_box.get("ahead") is None
         else _s1_box["ahead"].clock()}
     _staged = sum(wall.values())

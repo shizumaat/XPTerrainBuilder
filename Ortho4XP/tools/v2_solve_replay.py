@@ -2199,7 +2199,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    pad_read_only: bool = False, shape_dump: Path | None = None,
                    rim_diagnostics: bool = False, late: dict | None = None,
                    gap_free: bool = False, rule: dict | None = None,
-                   hand_role: dict | None = None) -> dict:
+                   hand_role: dict | None = None, prefix_twice: str | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2712,6 +2712,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _gap_free(cl) or cl
         print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads, car lots) dropped, "
               f"{len(cl.cells)} cells (the build's base map)")
+    if prefix_twice is not None:
+        # #2206: the build's prefix twice, base then late (``prefix_twice_arm``)
+        from auto_patch_v2.pipeline.prefix import PackRead
+        from prefix_twice_arm import prefix_twice as _twice
+        return {"prefix_twice": _twice(icao, airport, cl, law, inputs,
+                                       PackRead(_objs, _orep, _ocache),
+                                       memo=prefix_twice == "on")}
     if late is None:
         return _rest(cl)
     # spec §55 (4) THE LAST STAGE — the build's own function
@@ -2748,7 +2755,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            placement: dict | None = None,
            late_from: Path | None = None, gap_free: bool = False,
            null_change: int | None = None, rule: dict | None = None,
-           hand_role: dict | None = None) -> int:
+           hand_role: dict | None = None, prefix_twice: str | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2771,7 +2778,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late,
-                          gap_free=gap_free, rule=rule, hand_role=hand_role)
+                          gap_free=gap_free, rule=rule, hand_role=hand_role,
+                          prefix_twice=prefix_twice)
+    if "prefix_twice" in prob:
+        return 0
     if late_from is not None and _base_hold:
         # the last stage re-mints the HELD registry: the base solve's hold
         # report is carried over it, as ``pipeline/build`` does — without it
@@ -3353,6 +3363,11 @@ def main() -> int:
                     help="with --roles-against: a ref that must stay apron "
                          "(an owner-ruled apron); any flip of it is printed")
     ap.add_argument("--replay", type=Path, metavar="PKL")
+    ap.add_argument("--prefix-twice", choices=("on", "off"), default=None,
+                    help="#2206: with --from classify, run the build's prefix on the base "
+                         "classification then the whole one in one process, the front memo "
+                         "on (a build) or off; print the clocks, the memo outcomes and the "
+                         "late map's digest, and solve nothing (tools/prefix_twice_arm.py)")
     ap.add_argument("--from", dest="resume",
                     choices=("constraints", "shapes", "planar", "classify"),
                     default="constraints")
@@ -3516,6 +3531,9 @@ def main() -> int:
     if a.stage_cache and not a.capture:
         ap.error("--stage-cache writes the front half of a --capture; a replay is "
                  "served read-only with --replay-cache ICAO")
+    if a.prefix_twice and not (a.replay and a.resume in ("classify", "planar")):
+        ap.error("--prefix-twice re-runs the build's prefix from the planar stage: "
+                 "with --replay PKL --from classify|planar")
     if a.why_miss and not (a.stage_cache or a.replay_cache):
         ap.error("--why-miss reads the stage cache: with --capture ... --stage-cache "
                  "or --replay-cache ICAO")
@@ -3672,7 +3690,8 @@ def _replay_main(a, sites, wh, pl) -> int:
                       late_from=a.late_from, gap_free=a.gap_free,
                       null_change=a.null_change,
                       rule=dict(it.split("=", 1) for it in a.rule) or None,
-                      hand_role=dict(it.split("=", 1) for it in a.hand_role) or None)
+                      hand_role=dict(it.split("=", 1) for it in a.hand_role) or None,
+                      prefix_twice=a.prefix_twice)
 
 
 if __name__ == "__main__":

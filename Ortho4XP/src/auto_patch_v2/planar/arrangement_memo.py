@@ -31,7 +31,7 @@ import weakref
 
 from ..geom import grid_pickle as _grid_pickle  # noqa: F401  (#1092: front copies carry the grid)
 
-__all__ = ["scoped", "front_key", "served", "hold", "FRONTS_HELD"]
+__all__ = ["scoped", "front_key", "served", "hold", "outcomes", "FRONTS_HELD"]
 
 _STATE = threading.local()
 
@@ -43,11 +43,13 @@ def scoped(fn: _t.Callable) -> _t.Callable:
     def wrapped(*args, **kwargs):
         outer = getattr(_STATE, "memo", None)
         _STATE.memo = {} if outer is None else outer
+        if outer is None:
+            _STATE.outcomes = []
         try:
             return fn(*args, **kwargs)
         finally:
             if outer is None:
-                _STATE.memo = None
+                _STATE.memo = _STATE.outcomes = None
     return wrapped
 
 
@@ -78,9 +80,30 @@ def served(key: bytes | None, airport, law) -> dict | None:
     memo = getattr(_STATE, "memo", None)
     got = memo.get(key) if (key is not None and memo) else None
     if got is None or got["airport"]() is not airport or got["law"]() is not law:
+        _note("computed" if got is None else
+              "held_other_airport" if got["airport"]() is not airport else "held_other_law")
         return None
     memo[key] = memo.pop(key)                       # most recently used last
+    _note("served")
     return _fresh(got["front"])
+
+
+def _note(outcome: str) -> None:
+    """One :func:`served` call's outcome, in this build's order (#2206 step
+    0); nothing outside a build."""
+    seen = getattr(_STATE, "outcomes", None)
+    if seen is not None and getattr(_STATE, "memo", None) is not None:
+        seen.append(outcome)
+
+
+def outcomes() -> list[str] | None:
+    """This build's :func:`served` outcomes so far, in call order —
+    ``served``, ``computed`` (no front held under the value key),
+    ``held_other_airport`` / ``held_other_law`` (the value key held for
+    another airport or law object) — or ``None`` outside a build.  A clock
+    for ``report.json["prefix_clocks"]``, never in a digest."""
+    seen = getattr(_STATE, "outcomes", None)
+    return None if seen is None else list(seen)
 
 
 def hold(key: bytes | None, airport, law, front: dict) -> None:

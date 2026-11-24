@@ -82,6 +82,8 @@ NOT_ARMS = {
     "--stage-cache", "--replay-cache", "--why-miss",
     # #1359: the terrain witness's dry read of a capture and its inputs
     "--witness", "--witness-labels", "--imagery-dir",
+    # #2206: a READ — the build's prefix twice (clocks, memo outcomes)
+    "--prefix-twice",
 }
 
 CELLS = [(f, c) for f in A.ARM_FLAGS for c in A.CONTEXTS]

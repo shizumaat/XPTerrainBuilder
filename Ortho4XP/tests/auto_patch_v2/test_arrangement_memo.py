@@ -75,3 +75,20 @@ def test_a_build_serves_the_front_once_and_the_answer_is_a_fresh_builds(monkeypa
     assert served == fresh
     overlay.build_arrangement(airport, cut, law)
     assert len(calls) == 3                    # nothing outlived the build
+
+
+def test_each_front_read_is_counted_in_the_build_and_nothing_outside():
+    # #2206 step 0: ``report.json["prefix_clocks"]["front_memo"]``
+    law = Law.for_airport("ZZZZ")
+    airport = _airport(law)
+    base = Classification(_BASE, (), {}, ())
+    cut = Classification(_BASE + (_GAP,), (), {}, ())
+
+    @arrangement_memo.scoped
+    def one_build():
+        overlay.build_arrangement(airport, base, law)
+        overlay.build_arrangement(airport, cut, law)
+        overlay.build_arrangement(_dc.replace(airport, name="Other"), cut, law)
+        return arrangement_memo.outcomes()
+    assert one_build() == ["computed", "served", "held_other_airport"]
+    assert arrangement_memo.outcomes() is None

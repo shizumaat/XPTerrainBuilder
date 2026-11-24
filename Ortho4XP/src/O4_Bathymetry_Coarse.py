@@ -104,7 +104,7 @@ def ensure_coarse_fill(tile, fine_vrt) -> Optional[CoarseFill]:
                 if _fetch_raster(tile, definition, path) else None)
     except Exception as error:
         UI.vprint(1, "   WARNING: coarse bathymetry skipped:", str(error))
-        with open(path + _RETRY_SUFFIX, "w"):
+        with open(path + _RETRY_SUFFIX, "wb"):
             pass
         return None
 
@@ -124,7 +124,7 @@ def _fetch_raster(tile, definition: dict, path: str) -> bool:
                 definition, box, float(definition["native_resolution_m"]),
                 temporary)
         if answer is None:
-            with open(path + _NO_DATA_SUFFIX, "w"):
+            with open(path + _NO_DATA_SUFFIX, "wb"):
                 pass
             outcome = False
         else:

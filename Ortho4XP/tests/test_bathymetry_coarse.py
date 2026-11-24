@@ -145,7 +145,7 @@ def test_never_asked_coastal_tile_keeps_its_key_but_is_not_settled(
 
     cached = FNAMES.osm_cached(LAT, LON, "coastline")
     os.makedirs(os.path.dirname(cached), exist_ok=True)
-    open(cached, "w").close()
+    open(cached, "wb").close()
     monkeypatch.setattr(BAND, "_cached_coastline_is_empty", lambda tile: False)
     assert COARSE.fill_state(_tile()) is None
     assert not COARSE.fill_is_settled(_tile())

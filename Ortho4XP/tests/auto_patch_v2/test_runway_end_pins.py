@@ -309,11 +309,12 @@ def test_a_flat_airports_equal_pair_is_untouched(law):
     """Owner RULINGS 2026-11-06b (3): the same-number exclusion bites only
     where rule (b) fires — at a flat airport equal CIFP thresholds are
     expected.  On a flat coarse DEM the equal pair a few metres off the
-    field (SDIB's numbers, no fall under it) and the equal pair AT the
-    field both stand as CIFP, unflagged; the same pair over the older DEM's
-    fall is the (b) case :func:`test_the_field_never_vouches_for_a_placeholder`
-    reads."""
-    for pair, elev in (((727.0, 727.0), 730.0), ((730.0, 730.0), 730.0)):
+    field (SDIB's numbers, no fall under it) stands as CIFP, unflagged; the
+    same pair over the older DEM's fall is the (b) case
+    :func:`test_the_field_never_vouches_for_a_placeholder` reads.  The pair
+    AT the field is rule (f)'s since owner 2026-11-24
+    (:func:`test_an_unsurveyed_pair_at_the_field_follows_a_lawful_dem`)."""
+    for pair, elev in (((727.0, 727.0), 730.0),):
         airport, _pm = _site(law, _Classed(0.0, None), pair, elev=elev)
         airport, recs, lines = EP.verify(_cifp_airport(airport), law)
         rw = airport.runways[0]
@@ -322,6 +323,38 @@ def test_a_flat_airports_equal_pair_is_untouched(law):
         assert [e.threshold_elev_m for e in rw.ends] == list(pair)
         assert all(not e.pin_flags for e in rw.ends)
         assert all(not r["flags"] for r in recs)
+
+
+def test_an_unsurveyed_pair_at_the_field_follows_a_lawful_dem(law):
+    """Rule (f), owner 2026-11-24 (#2271): both CIFP ends one number at the
+    field, a classed DEM reading the runway 30 m lower with no fall (so
+    (a) does not fire): the ends follow the DEM, one line says why."""
+    airport, pm = _site(law, _Classed(0.0, None), (730.0, 730.0), elev=730.0)
+    airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", "dem"]
+    assert rw.ends[0].pin_flags == "f"
+    assert any("UNSURVEYED RUNWAY PAIR" in ln and "follow the DEM" in ln for ln in lines)
+    cases = end_pin_cases(pm, law, airport)
+    assert {p.case for p in cases.values()} == {CASE_FLAGGED}
+    assert all(p.z == pytest.approx(700.0, abs=0.01) for p in cases.values())
+
+
+def test_an_unsurveyed_pair_keeps_its_pins_off_a_sea_level_dem(law):
+    """Rule (f)'s sea-level guard (owner 2026-11-24: "we don't want to put
+    airports like vhhh at sea level"): a DEM at or below 0 m at a threshold
+    leaves the published pins standing, with its line.  The slope-law
+    guard reads the least of the runway's caps."""
+    class _Sea(_Classed):
+        def z(self, x, y):
+            return -1.0
+    airport, _pm = _site(law, _Sea(0.0, None), (5.0, 5.0), elev=5.0)
+    airport, _recs, lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.threshold_elev_m for e in rw.ends] == [5.0, 5.0]
+    assert any("published pins stand" in ln and "sea level" in ln for ln in lines)
+    cap = EP._slope_cap(law, rw)
+    assert cap is not None and cap > 0.0
 
 
 # ── apt.dat-only ends (#1394, 26e) and the unmatched end (22a) ───────────

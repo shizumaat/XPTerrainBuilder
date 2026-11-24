@@ -28,6 +28,20 @@ ONE derivation, at load, on the Airport every reader takes:
       by more than the tier's grade tolerance: (a)'s witness with one end
       (1Z1 16: CIFP 1249.7 m = the field, lidar 1230.4 m; its 34 record
       lies 390 m beyond the apt.dat end and the join refuses it).
+  (f) UNSURVEYED PAIR (owner 2026-11-24, #2271: "When both runway ends
+      are the same, and match field elevation, and using the dem for
+      thresholds would not cause grade violations, I think we should use
+      that"; "if the dem is greater than zero, we don't want to put
+      airports like vhhh at sea level") — (a)'s pair (one number within
+      ``placeholder_spread_ft``, every end within ``field_equal_ft`` of
+      the field) whose DEM grade is within the tier's noise, so (a) does
+      not fire: it states no survey of its own, so the ends follow the
+      DEM — only where the DEM reads ABOVE 0 m at both pins and the DEM's
+      end-to-end grade passes the runway's slope law
+      (:func:`_slope_cap`: the longitudinal cap, the mean-slope cap and
+      the end-zone caps).  Otherwise the published pins stand.  One line
+      per such runway says which, and why (NSAS: CIFP 3.66 / 3.66 m =
+      the field over a coarse DEM reading the runway some 4 m higher).
   THE FIELD VOUCHES (owner RULINGS 2026-11-06a (1), #1915) — (b) alone
   no longer refutes a CIFP pair whose every end lies within
   ``runway_ends.field_agree_m`` of the official field elevation: the DEM
@@ -75,7 +89,8 @@ import numpy as np
 
 from ..law import Law
 from ..law.inset_class import dem_source_class
-from ..law.tables import runway_ends
+from ..law.tables import (role_cap, runway_end_zone_cap, runway_ends,
+                          runway_mean_slope_max)
 from ..model.airport import Airport, Runway
 from . import runway_peers as _peers
 from .cifp import match_designator
@@ -260,13 +275,55 @@ def _flags(rw: Runway, field_m: float, cifp: dict[int, float], dem_pin, refs,
     return flags, seen
 
 
+def _slope_cap(law: Law, rw: Runway) -> float | None:
+    """The steepest end-to-end grade runway ``rw``'s slope law admits: the
+    least of its longitudinal cap, its mean-slope cap and each end's
+    end-zone cap, where the authority states them; ``None``: none."""
+    cap = role_cap(law, "runway", rw.code_number, rw.code_letter)
+    caps = [float(cap.longitudinal)] if cap is not None else []
+    mean = runway_mean_slope_max(law, rw.code_number, rw.code_letter)
+    if mean is not None:
+        caps.append(float(mean))
+    caps += [z for e in rw.ends
+             if (z := runway_end_zone_cap(law, rw.code_number, rw.code_letter,
+                                          bool(getattr(e, "cat_ii_iii", False))))
+             is not None]
+    return min(caps) if caps else None
+
+
+def _unsurveyed_pair(law: Law, rw: Runway, field_m: float, cifp: dict[int, float],
+                     dem_pin, t, klass) -> tuple[bool, str] | None:
+    """RULE (f) (module docstring): ``None`` where the runway's CIFP is not
+    an unsurveyed pair (two ends, one number, at the field, judged by a
+    classed DEM); else ``(follow the DEM, why)``."""
+    if klass is None or len(cifp) != 2:
+        return None
+    zs = list(cifp.values())
+    if abs(zs[1] - zs[0]) > t.placeholder_spread_ft * FT + 1e-6 or not all(
+            abs(z - field_m) <= t.field_equal_ft * FT + 1e-6 for z in zs):
+        return None
+    if dem_pin[0] is None or dem_pin[1] is None:
+        return False, "the DEM is unread at a threshold"
+    if min(dem_pin) <= 0.0:
+        return False, (f"the DEM reads {min(dem_pin):.2f} m at a threshold: never "
+                       f"a threshold at or below sea level from the DEM")
+    run = rw.length_m - rw.ends[0].pin_along() - rw.ends[1].pin_along()
+    cap = _slope_cap(law, rw)
+    grade = abs(dem_pin[1] - dem_pin[0]) / run if run > 0.0 else math.inf
+    if cap is not None and grade > cap:
+        return False, (f"the DEM's grade {100.0 * grade:.2f} % between the thresholds "
+                       f"exceeds the runway's slope law {100.0 * cap:.2f} %")
+    return True, (f"the DEM's grade {100.0 * grade:.2f} % passes the runway's slope "
+                  f"law" + (f" {100.0 * cap:.2f} %" if cap is not None else ""))
+
+
 def _field_vouches(flags: list[str], cifp: dict[int, float], field_m: float, t) -> bool:
     """THE FIELD VOUCHES (owner RULINGS 2026-11-06a (1)): rule (b) fired,
     no placeholder rule did, the pair carries a grade of its own (not one
     number), and every CIFP end lies within ``field_agree_m`` of the field
     elevation — (b) then refutes nothing."""
     zs = list(cifp.values())
-    return ("b" in flags and not {"a", "d", "e"} & set(flags) and len(zs) == 2
+    return ("b" in flags and not {"a", "d", "e", "f"} & set(flags) and len(zs) == 2
             and abs(zs[1] - zs[0]) > t.placeholder_spread_ft * FT + 1e-6
             and all(abs(z - field_m) <= float(t.field_agree_m) for z in zs))
 
@@ -302,6 +359,16 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
                    for k, e in enumerate(rw.ends)]
         dem_end = [_unvoid(_dem_at(airport.dem, rw, k, 0.0, win), field_m, det) for k in range(2)]
         flags, seen = _flags(rw, field_m, cifp, dem_pin, refs, t, klass) if cifp else ([], {})
+        pair = (None if "a" in flags
+                else _unsurveyed_pair(law, rw, field_m, cifp, dem_pin, t, klass))
+        if pair is not None:
+            flags = flags + ["f"] if pair[0] else flags
+            lines.append(f"UNSURVEYED RUNWAY PAIR (owner 2026-11-24, #2271) {airport.icao} "
+                         f"{rw.id}: CIFP " + "/".join(f"{cifp[k]:.2f}" for k in (0, 1))
+                         + f" m = the field {field_m:.2f} m, DEM ({klass}) "
+                         + "/".join("-" if z is None else f"{z:.2f}" for z in dem_pin)
+                         + " m -> " + ("the thresholds follow the DEM: " if pair[0]
+                                       else "the published pins stand: ") + pair[1])
         vouched = bool(flags) and _field_vouches(flags, cifp, field_m, t)
         judged = {f for f in flags if not (vouched and f == "b")}
         read.append((rw, cifp, dem_pin, dem_end, flags, seen, vouched, judged))

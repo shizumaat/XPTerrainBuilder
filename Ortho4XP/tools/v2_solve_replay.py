@@ -842,12 +842,17 @@ def network_crosscheck(pm, law, airport) -> dict:
 def runway_read(pm, law, airport, z) -> list[dict]:
     """Per runway with two thresholds: bow, ridge min, z − DEM over the ridge."""
     from auto_patch_v2.constraints.precedence import view
-    from auto_patch_v2.constraints.runway_profile import ridge_chains
+    from auto_patch_v2.constraints.runway_profile import end_pin_cases, ridge_chains
     chains = ridge_chains(view(pm, law))
+    # #2271: a runway whose ends the DEM values (no CIFP pin left) reads
+    # its line through those pins
+    valued = {(p.runway, p.end): p.z for p in end_pin_cases(pm, law, airport).values()}
     out = []
     for rw in airport.runways:
         e0, e1 = rw.ends
-        if e0.threshold_elev_m is None or e1.threshold_elev_m is None:
+        z0 = e0.threshold_elev_m if e0.threshold_elev_m is not None else valued.get((rw.id, e0.name))
+        z1 = e1.threshold_elev_m if e1.threshold_elev_m is not None else valued.get((rw.id, e1.name))
+        if z0 is None or z1 is None:
             continue
         chs = chains.get(rw.id) or []
         vs = [v for ch in chs for v in ch]
@@ -859,7 +864,7 @@ def runway_read(pm, law, airport, z) -> list[dict]:
         for v in vs:
             x, y = pm.vertices[v].xy
             s = (x - e0.xy[0]) * ux + (y - e0.xy[1]) * uy
-            line = e0.threshold_elev_m + (e1.threshold_elev_m - e0.threshold_elev_m) * s / L
+            line = z0 + (z1 - z0) * s / L
             rows.append((s, float(z[v]), line, pm.vertices[v].dem_z, v))
         bow = min(rows, key=lambda r: r[1] - r[2])
         zmin = min(rows, key=lambda r: r[1])

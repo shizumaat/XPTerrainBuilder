@@ -49,6 +49,7 @@ import dataclasses as _dc
 import typing as _t
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
@@ -89,15 +90,18 @@ def _numbers(law) -> tuple[float, float]:
     return float(st.tunnel.object.floor_sunken_min_m), float(st.basin.authored_rim_tol_m)
 
 
-def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None, to_xy=None
-              ) -> SunkReading | None:
+def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None, to_xy=None,
+              memo: dict | None = None) -> SunkReading | None:
     """The sunk witness's reading of ``part`` (a walled part of placement
     ``unit``, its footprint ``whole`` in frame xy, ``wide`` across), or
     ``None`` where R2 / R3 / R4 do not hold (module doc).  ``cfg`` is
     ``classify/rules.toml``'s ``[service]`` record, supplied by the caller;
     ``law`` (default: ``Law.load()``) and ``to_xy`` (default: the frame's
     entry) are the caller's when it reads many parts (#2206: one load and
-    one projection per classifier run, not one per part)."""
+    one projection per classifier run, not one per part); ``memo`` a dict
+    the caller holds for one classifier run with that ``law`` and ``to_xy``
+    (#2206: the parts' plans and the surface roads read once, not once per
+    reading)."""
     lift = float(getattr(unit, "agl_m", 0.0) or 0.0)
     dem = getattr(airport, "dem", None)
     if not lift < 0.0 or dem is None or getattr(part, "line", False) or \
@@ -110,6 +114,7 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None, to_xy=None
     if to_xy is None:
         to_xy = airport.frame.entry()
     sunk_min, rim_tol = _numbers(law)
+    memo = {} if memo is None else memo
     base = float(getattr(part, "base_y", 0.0) or 0.0)
     top = base + float(part.height_m)
     y_g = -lift
@@ -117,18 +122,18 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None, to_xy=None
         return None                     # it does not stand on its zero
     if _upper(base, top, y_g, sunk_min, rim_tol):
         y_up, rule = y_g, "upper"       # R2
-    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol, to_xy):
+    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol, to_xy, memo):
         y_up, rule = top, "plate"       # R3
     else:
         return None
-    block = _block(airport, unit, part, whole, rule, y_g, top, sunk_min, rim_tol, to_xy)
+    block = _block(unit, part, whole, rule, y_g, top, sunk_min, rim_tol, to_xy, memo)
     step = _two_levels(dem, block, 2.0 * block.area / block.length,
                        max(float(cfg.retaining_wall_step_ring_m), float(part.height_m)), cfg)
     if step is None:
         return None                     # R4: a flat sunk frame is no wall
-    capped = _plate(airport, unit, part, whole, y_up, rim_tol, to_xy) is not None
+    capped = _plate(unit, part, whole, y_up, rim_tol, to_xy, memo) is not None
     roads = rule == "plate" or (capped and _road_plate(airport, unit, part, whole, y_up,
-                                                      cfg, law, rim_tol, to_xy))
+                                                      cfg, law, rim_tol, to_xy, memo))
     return SunkReading(min(step, y_up - base), float(y_up), rule,
                        rim_tol if capped else 0.0, roads)
 
@@ -141,8 +146,8 @@ def _upper(base: float, top: float, y_g: float, sunk_min: float, rim_tol: float)
         y_g - rim_tol <= top <= y_g + sunk_min
 
 
-def _block(airport, unit, part, whole, rule: str, y_g: float, top: float,
-           sunk_min: float, rim_tol: float, to_xy):
+def _block(unit, part, whole, rule: str, y_g: float, top: float,
+           sunk_min: float, rim_tol: float, to_xy, memo: dict):
     """THE BLOCK R4 reads: the union of ``unit``'s walled parts the same rule
     reads (R2's window, or R3's top at ``top``), standing on the ground --
     a frame is judged whole: a pool sunk in a slope steps across each of its
@@ -158,12 +163,8 @@ def _block(airport, unit, part, whole, rule: str, y_g: float, top: float,
             if not (_upper(b, t, y_g, sunk_min, rim_tol) if rule == "upper"
                     else abs(b) <= rim_tol and abs(t - top) <= rim_tol):
                 continue
-            for rg in getattr(p, "rings", ()) or ():
-                if len(rg) >= 3:
-                    g = Polygon([to_xy(lon, lat) for lat, lon in rg])
-                    g = g if g.is_valid else g.buffer(0.0)
-                    if not g.is_empty and g.area > 0.0:
-                        polys.append(g)
+            polys.extend(g for g in _ring_polys(p, to_xy, memo)
+                         if not g.is_empty and g.area > 0.0)
     got = unary_union(polys)
     return got if got.is_valid else got.buffer(0.0)
 
@@ -185,38 +186,81 @@ def _two_levels(dem, whole, wide: float, ring: float, cfg) -> float | None:
 
 
 def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float,
-                to_xy) -> bool:
+                to_xy, memo: dict) -> bool:
     """R3: a plate of ``unit``'s frame capping ``whole`` at ``top``
     (:func:`_plate`), a mapped road at grade passing through it at least
     ``retaining_wall_min_length_m``."""
-    plate = _plate(airport, unit, part, whole, top, rim_tol, to_xy)
+    plate = _plate(unit, part, whole, top, rim_tol, to_xy, memo)
     if plate is None:
         return False
     need = float(cfg.retaining_wall_min_length_m)
-    return any(LineString(pts).intersection(plate).length >= need
-               for pts in _surface_roads(airport, law))
+    lines, tree = _road_lines(airport, law, memo)
+    if need > 0.0:
+        # a road whose box misses the plate's crosses none of it (length 0)
+        lines = lines[tree.query(plate)]
+    return bool(np.any(shapely.length(shapely.intersection(lines, plate)) >= need))
 
 
-def _plate(airport, unit, part, whole, top: float, rim_tol: float, to_xy):
+def _road_lines(airport, law, memo: dict):
+    """:func:`_surface_roads` as an array of ``LineString`` and an
+    ``STRtree`` over it, built once per ``memo`` (one classifier run)."""
+    ways = getattr(airport, "osm_ways", None)
+    held = memo.get("roads")
+    if held is None or held[0] is not ways:
+        lines = np.array([LineString(pts) for pts in _surface_roads(airport, law)],
+                         dtype=object)
+        held = memo["roads"] = (ways, lines, shapely.STRtree(lines))
+    return held[1], held[2]
+
+
+def _ring_polys(p, to_xy, memo: dict) -> list:
+    """Part ``p``'s rings of at least 3 points as frame-xy polygons (an
+    invalid one buffered by 0), read once per ``memo``."""
+    key = ("rings", id(p))
+    held = memo.get(key)
+    if held is None or held[0] is not p or held[1] is not to_xy:
+        polys = []
+        for rg in getattr(p, "rings", ()) or ():
+            if len(rg) >= 3:
+                g = Polygon([to_xy(lon, lat) for lat, lon in rg])
+                polys.append(g if g.is_valid else g.buffer(0.0))
+        held = memo[key] = (p, to_xy, polys)
+    return held[2]
+
+
+def _plate(unit, part, whole, top: float, rim_tol: float, to_xy, memo: dict):
     """The near-horizontal plate of ``unit``'s frame at ``top`` (within
     ``rim_tol``; flat: under ``rim_tol`` tall) over ``whole``, where it
     covers at least half of it; else ``None``."""
+    if whole.area <= 0.0:
+        return None
+    if float(part.height_m) > rim_tol:
+        # ``part`` is no plate itself: every part of the frame reads the
+        # frame's one union at ``top``, held for the run
+        key = ("plate", id(unit), top)
+        held = memo.get(key)
+        if held is None or held[0] is not unit:
+            held = memo[key] = (unit, _plates(unit, part, top, rim_tol, to_xy, memo))
+        union = held[1]
+    else:
+        union = _plates(unit, part, top, rim_tol, to_xy, memo)
+    if union is None:
+        return None
+    plate = union.intersection(whole)
+    return None if plate.area < 0.5 * whole.area else plate
+
+
+def _plates(unit, part, top: float, rim_tol: float, to_xy, memo: dict):
+    """The union of ``unit``'s flat parts (other than ``part``) standing
+    within ``rim_tol`` of ``top``, or ``None`` where there are none."""
     plates = []
     for m in getattr(unit, "members", ()) or ():
         for p in getattr(m, "parts", ()) or ():
             if p is part or getattr(p, "line", False) or float(p.height_m) > rim_tol \
                     or abs(float(getattr(p, "base_y", 0.0) or 0.0) - top) > rim_tol:
                 continue
-            for rg in getattr(p, "rings", ()) or ():
-                if len(rg) >= 3:
-                    g = Polygon([to_xy(lon, lat) for lat, lon in rg])
-                    g = g if g.is_valid else g.buffer(0.0)
-                    if not g.is_empty:
-                        plates.append(g)
-    if not plates or whole.area <= 0.0:
-        return None
-    plate = unary_union(plates).intersection(whole)
-    return None if plate.area < 0.5 * whole.area else plate
+            plates.extend(g for g in _ring_polys(p, to_xy, memo) if not g.is_empty)
+    return unary_union(plates) if plates else None
 
 
 def _surface_roads(airport, law) -> list:

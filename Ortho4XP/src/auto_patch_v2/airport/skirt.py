@@ -68,6 +68,12 @@ class SkirtReading:
     footprint_perimeter_m: float
     below_zero: bool
     reason: str
+    #: #2206: ``False`` where the verdict was settled before the footprint
+    #: was read (no genuine below-zero piece, or every piece a lip):
+    #: ``perimeter_fraction`` / ``footprint_perimeter_m`` are then unread
+    #: (0) and the depths are every piece's, not the rim's
+    #: (:func:`below_zero_perimeter_fraction` reads the full record)
+    footprint_read: bool = True
 
 
 _NO_GEOMETRY = SkirtReading(False, None, 0.0, 0.0, 0.0, 0.0, False,
@@ -182,31 +188,40 @@ def _read(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
     return ahead if ahead is not None else below_zero_reading(cache, path, law)
 
 
-def below_zero_reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
+def below_zero_reading(cache: _obj8.ResourceCache, path: str, law,
+                       settle_early: bool = True) -> SkirtReading:
     """The reading of a resource that HAS below-zero geometry — everything
     after :func:`_read`'s O(n) pre-screen, and all of its cost (the plan
     union).  Reads the parse and the law only, never a stored memo, so a
-    work-pool worker derives the same record (``airport/pack_work.py``)."""
+    work-pool worker derives the same record (``airport/pack_work.py``).
+
+    #2206: the footprint (the plan union of every genuine triangle, the
+    whole cost) is read only where the verdict needs it — with
+    ``settle_early`` a resource with no genuine below-zero piece, or whose
+    every piece stands under ``min_depth_m`` (a lip: the rim's shallowest
+    piece is no deeper), is no skirt without it; the record says so
+    (``footprint_read``)."""
     sk = law.tables.structures.skirt
     geom = cache.geometry(path)
+    if geom is None or geom.solid.shape[0] == 0:
+        return _dc.replace(_NO_GEOMETRY, below_zero=True, reason="no footprint")
+    v = geom.vertices
+    tol = sk.edge_tolerance_m
+    below, depths = _below_pieces(cache, path, v)
+    if settle_early and not below:
+        return _dc.replace(_NO_GEOMETRY, below_zero=True, footprint_read=False,
+                           reason="below-zero vertices carry no genuine solid")
+    if settle_early and max(depths) < sk.min_depth_m:
+        return _dc.replace(_NO_GEOMETRY, depth_min_m=min(depths), depth_max_m=max(depths),
+                           below_zero=True, footprint_read=False, reason=(
+                               f"every below-zero piece under {sk.min_depth_m} m (deepest "
+                               f"{max(depths):.2f} m) — a lip, not a foundation"))
     fp = footprint(cache, path)
     if fp is None:
         return _dc.replace(_NO_GEOMETRY, below_zero=True, reason="no footprint")
     per = sum(e.length for e in _exteriors(fp))
     if per <= 0.0:
         return _dc.replace(_NO_GEOMETRY, below_zero=True, reason="no footprint perimeter")
-    v = geom.vertices
-    tol = sk.edge_tolerance_m
-    below: list = []
-    depths: list[float] = []
-    for comp in cache.genuine(path):
-        if comp.min_y >= -1e-9:
-            continue
-        g = _clip_component(v, comp, 0.0, True)
-        if g is None or g.is_empty or g.area <= 0.0:
-            continue
-        below.append(g)
-        depths.append(-float(comp.min_y))
     if not below:
         return _dc.replace(_NO_GEOMETRY, below_zero=True, footprint_perimeter_m=per,
                            reason="below-zero vertices carry no genuine solid")
@@ -239,6 +254,22 @@ def below_zero_reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReadi
     return _dc.replace(out, skirt=True, depth_m=d_min, reason="skirt")
 
 
+def _below_pieces(cache: _obj8.ResourceCache, path: str, v) -> tuple[list, list[float]]:
+    """The plan of each genuine component's part under the authored zero,
+    and how deep that component reaches (``(pieces, depths)``)."""
+    below: list = []
+    depths: list[float] = []
+    for comp in cache.genuine(path):
+        if comp.min_y >= -1e-9:
+            continue
+        g = _clip_component(v, comp, 0.0, True)
+        if g is None or g.is_empty or g.area <= 0.0:
+            continue
+        below.append(g)
+        depths.append(-float(comp.min_y))
+    return below, depths
+
+
 def skirt_depth(cache: _obj8.ResourceCache, path: str, law) -> float | None:
     """``s`` — the skirt's depth, or ``None`` when the resource has none."""
     return reading(cache, path, law).depth_m
@@ -253,7 +284,9 @@ def is_skirt(cache: _obj8.ResourceCache, path: str, law) -> bool:
 def below_zero_perimeter_fraction(cache: _obj8.ResourceCache, path: str, law) -> float:
     """The share of the footprint's perimeter carrying below-zero
     geometry — Law C's narrow-cut clause (ii) reads this directly."""
-    return reading(cache, path, law).perimeter_fraction
+    r = reading(cache, path, law)
+    return r.perimeter_fraction if r.footprint_read else \
+        below_zero_reading(cache, path, law, settle_early=False).perimeter_fraction
 
 
 def placement_footprint(cache: _obj8.ResourceCache, path: str, law,

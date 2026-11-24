@@ -3115,6 +3115,16 @@ def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
     assert offenders == []
 
 
+def test_a_manager_temporary_is_its_target_s_scope(guard_mod):
+    """#2258 (round lrm1): the parking feed's cache is written to
+    ``<cache>.tmp-<pid>-<thread>`` and renamed onto it, so an authorised
+    ``--refresh-data parking`` must own the temporary too."""
+    stem = "OSM_data/+30-010/+38-010/+38-010_parking.osm.bz2"
+    assert guard_mod.scope_of(stem + ".tmp-123-456") == "parking"
+    assert guard_mod.scope_of(stem.replace("parking", "roads")
+                              + ".tmp-1-2") == "osm_layers"
+
+
 def test_las_tiles_is_its_own_scope_before_dem(build_mod, guard_mod):
     """#130 (spec las-tile-lidar-provider-spec.md §2): a 7 GB point-cloud
     download is its own authorised act.  Its prefix must be matched

@@ -100,3 +100,40 @@ The table above describes the base sha. This round changed only the following.
 Imagery downloads no longer belong to a build step. `O4_Imagery_Prefetch.open_job` starts one job per tile with the vector step; it takes the parent's imagery token when one frees (`imagery_token`, returned by `ImageryJobDone`), runs through solve, mesh and masks, and the imagery step adopts it. A first build names its textures with `O4_Imagery_Plan.predicted_textures`. Transfers still go through row 5's `net:` classes, so a flight hold pre-empts them. Row 5 is not migrated onto `O4_Download_Manager.fetch`: the job is the caller a thin `ensure(resource, needed_by, priority)` would replace.
 
 Next, in order: Overpass layers, base DEM cells, elevation insets, imagery. Each moves onto `O4_Download_Manager.fetch` with its own key; none was migrated this round.
+
+## Status after round lrm1
+
+| Item | State |
+|---|---|
+| Manager core | `fetch(..., transfer=)` for a caller that makes the bytes itself (single flight, atomic install, Stop, request count kept; the transfer holds its own server's limit); `Resource.shares_failure` and `state_dir`; `hold_flight` (a work section once at a time across processes, Stop-aware, no time limit, its `.lock` file removed by the holder); `server_slot` (one server slot and one total slot, Stop-aware, no time limit); `write_body` (a streamed body to a file, Stop between chunks); a joiner's wait and a slot wait hold no scheduler slot |
+| Row 3, Overpass layers | migrated: `O4_OSM_Utils.cache_layer_once`, key `osm-layer:<cache file>`, cache written to a private temporary and installed with one rename, validated by its tag schema, its lock and request count in the engine's `tmp/download_manager` (a tile-folder state folder would be an `osm_layers` write under the parking and shore refreshes; the guard now gives a `<target>.tmp-<pid>-<thread>` its target's scope); `airport_small_roads` (`O4_Vector_Map`) through the same call; each POST holds `server_slot` of its Overpass server; Stop is looked at every 0.25 s while a server works |
+| Row 11, base DEM cells | migrated: `elevation_access.base_tiles.fetch_base_file`; `usgs_seamless` keyed per cell, `viewfinder_zip` keyed per ARCHIVE (the cells of one zip share one download); `DEM.http_request(destination=)` streams the body with Stop; the back-off sleeps in Stop-aware slices; `ensure_base_tile`'s 900 s `hold_file_lock` is now `hold_flight` |
+| Row 12, elevation insets | `ensure_airport_insets` runs once per tile at a time across processes (`hold_flight` on `Elevation_data/<block>/.lock_insets_<tile>.lock`, beside the base cells' locks): the second pass reads the first one's index and rasters; install (scratch + land) and limits (`held_inset_fetch_slot`) were already the inset's own |
+| Finding 3 | closed for base DEM and the neighbour frame warm (`O4_Vector_Map.ensure_tile_frame`); orthophotos still use `hold_file_lock` |
+| Finding 5 | closed: `O4_DEM_Utils` back-off, `arcgis_export_image` retry rests (`O4_Http_Pushback.interruptible_sleep`, now counted slices) |
+| Finding 7 | closed (Overpass slot class and cross-process single flight) |
+| Finding 8 | closed for `usgs_seamless` and the Overpass caches; `geojson_tile_index`, `O4_Coral_Atlas` and non-`require_complete` orthophotos remain |
+| Finding 9 | closed for `arcgis_export_image`'s block loop and the `arcgis_lerc_tiles` / `xyz_text_tiles` tile loops; `O4_Coral_Atlas` remains |
+| Not this round | imagery (rows 5-8), approach-ring cells (row 13), bathymetry (row 14, changed by #2265), rows 15-23's own bodies, the Geofabrik index (row 2) |
+
+## Design note: the rest of the resource manager (not built)
+
+The owner's direction on #2258: one manager in charge of making resources available where and when they are needed, including external drives, downloading, offloading to stay within the budget, and anticipating what running builds and active flights will need. The shape is one call, `ensure(resource, needed_by, priority)`, that answers from the local copy, else recalls the file from a tier drive, else downloads it (`O4_Download_Manager.fetch`), making room first when the budget needs it.
+
+What already does part of it (`tools/blast.py --find storage`, `--find offload`, `--find prefetch`):
+
+| Job | Modules today | Gap |
+|---|---|---|
+| Fetch once, Stop, server limits | `O4_Download_Manager`; `O4_Machine_Slots` `net:` and `download-total` classes | Imagery still outside it |
+| External drives | `o4_engine/storage_tiers` (tiers per mount), `o4_engine/storage_tier_data` (rebuild data on a tier, `_recall_tree` per tile), `O4_Unmounted_Links` | Recall is per tile and after the fact; a download does not ask a tier first |
+| Offload within the budget | `o4_engine/storage_budget` (one disk budget), `storage_priority` (`offload`, what goes first), `storage_offload` (after each build run), `storage_floor` (free-space floor), `storage_room` (room before a run), `world_drape_evict` | Runs before or after a run, never before one install of known size |
+| Anticipation | `O4_Imagery_Plan` (textures named before the mesh), `O4_Imagery_Prefetch` (per-tile imagery job), `O4_Imagery_Page_Ahead` and `o4_engine/imagery_follow` (deadlines along a flight), `O4_Vector_Map.start_background_osm_prefetch`, `O4_Bathymetry_Band.prefetch_bathymetry_band` | Separate queues; no shared order by deadline |
+| CPU and memory while waiting | `O4_Machine_Slots`, `O4_Machine_Memory`, `O4_Step_Wait` | Done for waits on the manager |
+
+Order I would migrate them in:
+
+1. Imagery onto `fetch` (rows 5 and 6): one key per orthophoto, the per-tile job of limg1 as the first caller; this also retires the orthophotos' `hold_file_lock` (rest of finding 3) and their direct save (rest of finding 8).
+2. Recall before download: `fetch` asks the tier index for the target's path before it transfers, so a tier hit is a copy and no request. `storage_tier_data` needs a lookup by path, not only by tile.
+3. Room before install: a flight that knows its length asks `storage_room` / `storage_floor` for those bytes before it installs, with `storage_priority` choosing what moves; the after-build `storage_offload` stays as the sweep.
+4. `needed_by` and `priority`: one queue of flights ordered by deadline, an active flight's page-ahead deadlines first, then the running builds by step; `O4_Imagery_Page_Ahead`, `imagery_follow` and the per-tile imagery job become producers of requests. The accuracy of first-build texture prediction (on water especially) is measured before this step, as #2258 asks.
+5. The remaining census rows as callers: approach-ring cells (13), bathymetry once #2265 has settled (14), shared catalogs (22, 23), the Geofabrik index (2).

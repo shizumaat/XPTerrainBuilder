@@ -211,13 +211,13 @@ def test_two_threads_warming_one_frame_fetch_once(frame_sandbox):
 def test_without_the_lock_the_same_race_fetches_twice(frame_sandbox,
                                                       monkeypatch):
     """The control that gives the twin its teeth."""
-    import O4_File_Lock as LOCK
+    import O4_Download_Manager as DOWNLOADS
 
     @contextlib.contextmanager
-    def no_lock(path, timeout_seconds=900.0):
+    def no_lock(path, should_stop=None):
         yield True
 
-    monkeypatch.setattr(LOCK, "hold_file_lock", no_lock)
+    monkeypatch.setattr(DOWNLOADS, "hold_flight", no_lock)
     _two_threads_warm(WEST)
     assert frame_sandbox.fetched == {"osm": 2, "insets": 2}
 

@@ -197,7 +197,7 @@ import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 import O4_Unpatched_Airports as UNPATCHED
-import O4_File_Lock as O4_File_Lock
+import O4_Download_Manager as DOWNLOADS
 import O4_External_Writes as EXTWRITE
 import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
@@ -5017,7 +5017,56 @@ def ensure_airport_insets(
 
     Returns the updated index dictionary.  Strategy-agnostic: it only calls
     :func:`discover_inset` / :func:`fetch_inset`.
+
+    ONE PASS PER TILE AT A TIME across every process (the download
+    manager's single flight, #2258): a build warming this tile as its
+    neighbour and the tile's own build would otherwise fetch the same
+    insets twice and overwrite each other's ``index.json``.  The second
+    pass waits, holding no scheduler slot, then reads the first one's
+    index and rasters as its cache.  A Stop during the wait returns the
+    index on disk, fetching nothing.
     """
+    def run():
+        return _ensure_airport_insets_held(
+            lat, lon, airport_bounding_boxes, provider_definitions,
+            target_resolution_m, refresh=refresh,
+            fetch_counter=fetch_counter, meter_key=meter_key,
+            fetch_failures=fetch_failures,
+            airport_polygons=airport_polygons,
+            airport_countries=airport_countries,
+            inset_downgrades=inset_downgrades)
+
+    if not airport_bounding_boxes:
+        return run()
+    with DOWNLOADS.hold_flight(_inset_pass_lock(lat, lon),
+                               lambda: UI.red_flag) as held:
+        return run() if held else _read_index(lat, lon)
+
+
+def _inset_pass_lock(lat, lon):
+    """The tile's inset-pass lock: in its ``Elevation_data`` block beside
+    the base cells' locks, not in the inset folder, whose identity
+    (mtime, size) readers use as the insets' stamp."""
+    return os.path.join(
+        FNAMES.Elevation_dir, FNAMES.round_latlon(lat, lon),
+        ".lock_insets_" + FNAMES.hem_latlon(lat, lon) + ".lock")
+
+
+def _ensure_airport_insets_held(
+    lat,
+    lon,
+    airport_bounding_boxes,
+    provider_definitions,
+    target_resolution_m,
+    refresh=False,
+    fetch_counter=None,
+    meter_key="airport-insets",
+    fetch_failures=None,
+    airport_polygons=None,
+    airport_countries=None,
+    inset_downgrades=None,
+):
+    """:func:`ensure_airport_insets`, its tile's flight held."""
     index = _read_index(lat, lon)
     # Poison sweep before any worker consults the cache: unreadable
     # rasters are deleted (index records scrubbed) so the ranking below
@@ -10769,8 +10818,13 @@ def ensure_base_tile(source, lat, lon, verbose=True, prefer_coarse=False):
     # The strategy is asked through the fallback rule (#561): a download
     # that died on the transport is covered by the ranked fallback
     # sources, at their own cache paths; every other outcome is the
-    # strategy's own.
-    with O4_File_Lock.hold_file_lock(lock_target):
+    # strategy's own.  The lock is the download manager's single flight
+    # (#2258): a dead holder releases it, and a Stop ends the wait at once
+    # (census finding 3), with the 0 every caller reads as "not obtained".
+    with DOWNLOADS.hold_flight(lock_target + ".lock",
+                               lambda: UI.red_flag) as held:
+        if not held:
+            return 0
         return ea_base_fallback.ensure_tile_or_fallback(
             strategy_factory(), definition, lat, lon, verbose,
             elevation_providers_dict,

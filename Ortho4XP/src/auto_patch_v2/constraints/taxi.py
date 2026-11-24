@@ -72,9 +72,10 @@ from ..law import Law
 from ..law.tables import is_rigid_role, role_family
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
+from ..model.map_memo import ContentSlots
 from ..model.planar import PlanarMap
 from .precedence import View, view
-from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
+from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes, walk_labels
 from .stretches import AxisIndex, Stretches, edge_cap, pair_caps, stretches
 from .taxi_route_yield import route_pair_caps
 
@@ -178,7 +179,10 @@ def taxi_pair_routes(planar: PlanarMap, law: Law, airport: Airport | None
                                         cap[0], min_d, common_only):
                 pad = a in pads or b in pads
                 chord.append((f.id, a, b, min(c, pad_cap) if pad else c, d, pad))
-    table = route_pairs(routes(planar, law, airport), groups)
+    # the late derive's graph is the main pass's under other ids (#2206):
+    # its pairs are read back by position (``routes.walk_labels``)
+    g = routes(planar, law, airport)
+    table = route_pairs(g, groups, labels=walk_labels(planar, g))
     out: list[PricedPair] = []
     for fid, a, b, c, d, pad in chord:
         key = (a, b) if a < b else (b, a)
@@ -395,11 +399,19 @@ def short_pairs(xy: _t.Mapping[int, tuple[float, float]], ring: _t.Sequence[int]
     return out
 
 
+#: the indexes of the last maps' stretches, by CONTENT (#2206): the late
+#: derive's stretches are the main pass's wherever no late cell touched a
+#: taxi centreline, and its index (with the answers it holds) is that one
+_INDEXES: ContentSlots[AxisIndex] = ContentSlots(3)
+
+
 def axis_index(vw: View, st: Stretches) -> AxisIndex:
     """The map's stretches as one :class:`AxisIndex`, cells of the box's
-    own floor (``withdrawn_chord_min_m``)."""
-    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t) for s in st.items),
-                     vw.law.tables.emit.within_shape.withdrawn_chord_min_m)
+    own floor (``withdrawn_chord_min_m``) — the index held for EQUAL
+    stretches when one is (``model/map_memo.ContentSlots``)."""
+    axes = tuple((tuple(vw.xy[v] for v in s.vertices), s.cap_l, s.cap_t) for s in st.items)
+    cell = vw.law.tables.emit.within_shape.withdrawn_chord_min_m
+    return _INDEXES.get((cell, axes), lambda: AxisIndex(axes, cell))
 
 
 def box_pair_rows(vw: View, index: AxisIndex,

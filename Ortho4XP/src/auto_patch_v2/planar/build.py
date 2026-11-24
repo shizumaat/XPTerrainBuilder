@@ -62,8 +62,8 @@ from .deck_takeover import (decide_crossings, full_hidden, roads_under, take_fra
                              without_hidden)
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
-from .level_regions import level_seeds
-from .storey_pad import pit_skip, read_storey_shells, storey_pads
+from .level_regions import level_seeds, seeds_key
+from .storey_pad import pit_skip, read_storey_shells, shells_key, storey_pads
 from .free_bridge import admitted as free_admitted, plated as free_plated
 from .free_bridge import planar_stacks as free_planar_stacks
 from ..model.deck_stack import live_stacks
@@ -78,7 +78,7 @@ from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats
 from ..airport.door_wells import DoorStats
 from ..airport.sunken_roads import SunkenRoadStats
-from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
+from .pack_reads import held_read, pack_reads, ring_reads, wall_corridor_reads
 from ..airport.below_grade_witness import ground_of
 from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
@@ -369,9 +369,12 @@ def build(airport: Airport, classification: Classification, law: Law,
     # split-level buildings laid on storey pads (``planar/storey_pad``) -- no
     # basin pass cuts a pit under a scope-(i) one, and their pads are
     # minted after the pits (scope (ii) once the structures are cut)
-    shells, shell_notes = read_storey_shells(
-        airport, classification.cells,
-        [Polygon(c.ring, c.holes) for c in classification.cells], law, objects, cache)
+    # ... read once a build for equal inputs (#2206, ``pack_reads.held_read``)
+    _cells = classification.cells
+    shells, shell_notes = held_read(airport, objects, cache, law, shells_key(_cells, law),
+                                    lambda: read_storey_shells(airport, _cells, None, law,
+                                                               objects, cache))
+    shells, shell_notes = list(shells), list(shell_notes)
     shell_ids = pit_skip(shells)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
@@ -391,7 +394,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     level_b, level_b_note = airport_level_b(airport, classification, law)
     # THE LEVEL SEEDS, read ONCE beside it (round 4, ``planar/level_regions``):
     # the units whose walls stand a storey under their zero
-    seeds, seed_notes = level_seeds(airport, classification, law, cache)
+    _cl_seeds = classification
+    seeds, seed_notes = held_read(airport, objects, cache, law,
+                                  seeds_key(airport, _cl_seeds, law),
+                                  lambda: level_seeds(airport, _cl_seeds, law, cache))
+    seed_notes = list(seed_notes)
     # ONE DERIVATION FOR BOTH MAPS (deck redesign §1): stage 1's map reads
     # the full map's decks (``deck_bridge.from_full``)
     full = full_map()

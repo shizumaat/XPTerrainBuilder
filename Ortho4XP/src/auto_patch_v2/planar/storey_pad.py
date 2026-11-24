@@ -76,14 +76,27 @@ from .fill_riser import _lines, riser_width
 from .split_level_pit import _largest, _road_under, _roads, back_band
 from .storey_floor import FloorCells, floor_scope, ground_datum, lowest_runs
 
-__all__ = ["read_storey_shells", "pit_skip", "storey_pads", "shell_levels"]
+__all__ = ["read_storey_shells", "shells_key", "pit_skip", "storey_pads", "shell_levels"]
+
+
+def shells_key(cells, law) -> tuple:
+    """What :func:`read_storey_shells` reads beyond the pack store's own
+    inputs (``planar/pack_reads.held_read``: the DEM, the objects, the law)
+    as one key: the frontage cells' rings, which no gap piece, pad road or
+    car lot is among -- the late derive's shells are the main pass's
+    (#2206)."""
+    fr = frontage_roles(law)
+    return ("storey_shells", tuple((c.ring, c.holes) for c in cells if c.role in fr))
 
 
 def read_storey_shells(airport, cells, polys, law, objects, cache
                        ) -> tuple[list[SplitLevel], list[str]]:
     """The split-level buildings of ``objects`` that may stand on storey
     pads (module docstring, SCOPE: (i) now; (ii) once the structures are
-    cut, :func:`storey_pads`), and one note each."""
+    cut, :func:`storey_pads`), and one note each (:func:`shells_key` names
+    the cells read).  ``polys``: ``cells``' polygons, or ``None``."""
+    if polys is None:
+        polys = [Polygon(c.ring, c.holes) for c in cells]
     fr = frontage_roles(law)
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
     dem_z = getattr(getattr(airport, "dem", None), "z", None)

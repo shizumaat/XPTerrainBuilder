@@ -399,14 +399,15 @@ class RoadProfiles:
             return Answer(float(dem), None, None, math.inf)
         # THE STATION TABLE (#412 C8): every candidate projected in one
         # numpy pass, GEOS's reading (``airport/road_stations``); the
-        # through-ways' table is a face's and kept, the near ways' is the
-        # vertex's own and is not
+        # through-ways' table is a face's, the near ways' a neighbourhood's
+        # (#2206: neighbouring vertices share their near ways), each built
+        # once per way set
         x, y = float(pt[0]), float(pt[1])
         parts = []
         if through:
             parts.append(self._table([w for w, _r in through]).project(x, y))
         if near:
-            parts.append(StationTable([w.xy for w in near]).project(x, y))
+            parts.append(self._table(near).project(x, y))
         s_all = np.concatenate([a for a, _b in parts])
         lat_all = np.concatenate([b for _a, b in parts])
         radius = np.fromiter((r for _w, r in cands), float, len(cands))

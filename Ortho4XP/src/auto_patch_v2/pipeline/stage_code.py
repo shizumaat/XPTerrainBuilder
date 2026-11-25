@@ -1990,6 +1990,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "frontage_hold": "platform",
     "frontage_near_miss": "pads",
     "groundside_frontage_level": "pad_frontage_gs",
+    "kerb_frontage_level": "kerb_frontage",
     "eat_anchor_rect": "eat",
     "water_pins": "water",
     "fill_toe_pins": "fill_bank",
@@ -3507,6 +3508,23 @@ CODE_MODULES["verify"] = _mods("""
 """)
 
 #: #2188: the held terrace's level reads the pads' own derivations
+# #2279 step 2 (lane lphli2): the landside kerb rows and the wall exempt
+_GENERATOR_CLOSURES["kerb_frontage"] = _mods(_GENERATOR_CORE + """
+    constraints.agp_level constraints.airside_top constraints.apron constraints.apron_shelf
+    constraints.cluster_pad constraints.contiguity constraints.cut_kerb constraints.deck_lines
+    constraints.deck_runout constraints.edge_floor constraints.end_lip constraints.face_index
+    constraints.geometry constraints.groundside constraints.group_level constraints.kerb_frontage
+    constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+    constraints.precedence constraints.public_road_release constraints.road_ramp
+    constraints.roads constraints.routes constraints.stretches constraints.strips
+    constraints.taxi constraints.taxi_route_yield constraints.wall_zone geom.base_slab
+    geom.cluster_outline geom.containment geom.deck_ground geom.deg_metres geom.exact
+    geom.pad_base_slope geom.pad_evidence geom.place_matrix geom.plate_bands geom.ramp_grade
+    geom.route_over_pad geom.slope_pad geom.sunk_cluster geom.triangulate geom.union_find
+    geom.wall_lines geom.walled_trench law.inset_class model.agp_group model.airport
+    model.end_area model.islands model.map_memo model.platform model.threshold_datum
+    model.wall_reach
+""")
 _GENERATOR_CLOSURES["pad_sunk_level"] = tuple(sorted(
     {*_GENERATOR_CLOSURES["pads"], "auto_patch_v2.constraints.pad_sunk_level"}))
 
@@ -3782,6 +3800,14 @@ CODE_MODULES["emit"] = tuple(sorted({*CODE_MODULES["emit"], *_mods(
     "constraints.deck_carve constraints.deck_floor_follow geom.carve_profile "
     "geom.coons_patch model.deck_carve")}))
 CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.pack_bridge")}))
+
+# lphli2 (2026-11-25, #2279 step 2): the landside kerb line published on
+# its block (planar/kerb_frontage) and its rows / wall exempt
+for _stage in ("planar", "solve", "late_cut", "late_solve"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("planar.kerb_frontage")}))
+for _stage in ("shapes", "constraints.assembly", "late_cut", "late_solve"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                         *_mods("constraints.kerb_frontage")}))
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

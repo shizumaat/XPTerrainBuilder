@@ -136,9 +136,10 @@ def gates_key() -> str:
     a kept :func:`outline` is read again only under the same gates."""
     import hashlib
 
-    from . import ground_shell, relief_skin, terrain_model, terrain_shell
+    from . import ground_shell, relief_skin, terrain_model, terrain_rock, terrain_shell
     rows = sorted((m.__name__.rsplit(".", 1)[-1], k, repr(v))
-                  for m in (terrain_model, terrain_shell, ground_shell, relief_skin)
+                  for m in (terrain_model, terrain_shell, terrain_rock, ground_shell,
+                            relief_skin)
                   for k, v in vars(m).items()
                   if k.isupper() and isinstance(v, (int, float)) and not isinstance(v, bool))
     return hashlib.sha1(repr((_SCHEMA, rows)).encode()).hexdigest()[:16]

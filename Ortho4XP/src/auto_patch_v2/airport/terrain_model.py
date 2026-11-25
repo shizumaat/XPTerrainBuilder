@@ -129,6 +129,9 @@ class Shape:
     #: a SMALL TERRAIN SHELL (``terrain_shell``, #2272): under
     #: :data:`MIN_PLAN_M`, matched and seated by that module's law
     small: bool = False
+    #: a ROCK (``terrain_rock``, RULINGS 2026-11-25j): natural relief the
+    #: author laid on the ground; matched at its row's datum, no correlation
+    rock: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -271,11 +274,13 @@ def _plan_m(g: _t.Any, min_relief_m: float = MIN_RELIEF_M) -> float:
 
 
 def _may_be_candidate(g: _t.Any) -> bool:
-    """The cheap plan and height gates of either class (a terrain model or
-    a small terrain shell, ``terrain_shell``) on a parsed geometry."""
-    from .terrain_shell import SHELL_MIN_PLAN_M, SHELL_MIN_RELIEF_M
+    """The cheap plan and height gates of any class (a terrain model, a
+    small terrain shell, ``terrain_shell``, or a rock, ``terrain_rock``,
+    whose lower relief gate covers the shell's) on a parsed geometry."""
+    from .terrain_rock import ROCK_MIN_RELIEF_M
+    from .terrain_shell import SHELL_MIN_PLAN_M
     return (_plan_m(g) >= MIN_PLAN_M
-            or _plan_m(g, SHELL_MIN_RELIEF_M) >= SHELL_MIN_PLAN_M)
+            or _plan_m(g, ROCK_MIN_RELIEF_M) >= SHELL_MIN_PLAN_M)
 
 
 def _shape(path: str) -> "Shape | None":
@@ -284,8 +289,9 @@ def _shape(path: str) -> "Shape | None":
     plan = _plan_m(g)
     if plan >= MIN_PLAN_M:
         return _gated(path, g, plan, MAX_PHOTO_SPREAD, MIN_RELIEF_M)
+    from .terrain_rock import rock_shape
     from .terrain_shell import small_shape
-    return small_shape(path, g)
+    return small_shape(path, g) or rock_shape(path, g)
 
 
 def _gated(path: str, g: _t.Any, plan: float, max_spread: float, min_relief: float,
@@ -541,7 +547,12 @@ def placement_models(placements: _t.Sequence[tuple],
             continue
         xy2 = (float(xy[0]), float(xy[1]))
         datum = float(elev) if kind == "OBJECT_MSL" and elev is not None else None
-        m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
+        if shape.rock:
+            from .terrain_rock import row_datum
+            m = match(shape, xy2, float(heading), dem_many, fine, water,
+                      row_datum(str(kind), elev, xy2, dem_many))
+        else:
+            m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
         if m is None:
             continue
         gone = hides(hidden, str(dpath), m["hideable"])

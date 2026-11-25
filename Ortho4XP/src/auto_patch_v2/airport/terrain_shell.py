@@ -127,10 +127,15 @@ def small_match(shape: _t.Any, xy: tuple[float, float], heading: float,
                 water: "_t.Callable | None" = None) -> "dict[str, float] | None":
     """THE MATCH and THE SEAT of one placement of a small shell (module
     doc): ``terrain_model.match``'s record, or ``None``.  ``datum``: the
-    row's ``OBJECT_MSL`` elevation (``None``: not an ``OBJECT_MSL`` row)."""
+    row's ``OBJECT_MSL`` elevation (``None``: not an ``OBJECT_MSL`` row);
+    a rock (``Shape.rock``) is matched by ``terrain_rock.rock_match`` at
+    its row's datum (``terrain_rock.row_datum``)."""
     from . import terrain_model as _tm
     if datum is None:
         return None
+    if shape.rock:
+        from .terrain_rock import rock_match
+        return rock_match(shape, xy, heading, dem_many, float(datum), fine, water)
     grid = shape.grid
     ii, jj = np.nonzero(grid.covered)
     xs, ys = _tm._world(grid, ii, jj, xy, heading)

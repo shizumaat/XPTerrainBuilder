@@ -63,7 +63,7 @@ import typing as _t
 import numpy as np
 
 __all__ = ["ROCK_MIN_RELIEF_M", "ROCK_MAX_CAPPED", "WALL_NY", "STOREY_M",
-           "capped_wall_share", "big_piece_share", "rock_shape", "row_datum"]
+           "capped_wall_share", "big_piece_share", "rock_shape", "row_datum", "rock_match"]
 
 ROCK_MIN_RELIEF_M = 5.0
 ROCK_MAX_CAPPED = 0.05
@@ -135,17 +135,13 @@ def _witness(g: _t.Any, tris: np.ndarray, grid: _t.Any) -> bool:
     return capped_wall_share(g.vertices, tris) <= ROCK_MAX_CAPPED
 
 
-def rock_shape(path: str, g: _t.Any, small: "_t.Any | None" = None) -> "_t.Any | None":
+def rock_shape(path: str, g: _t.Any) -> "_t.Any | None":
     """THE WITNESS of a rock (module doc) on the parsed geometry ``g`` of
-    ``path``: a ``terrain_model.Shape`` with ``small`` and ``rock`` set,
-    or ``None``.  ``small``: ``terrain_shell.small_shape``'s answer when
-    the caller holds it -- a small shell that is also natural relief comes
-    back as itself with ``rock`` set."""
+    ``path`` (one ``terrain_shell.small_shape`` refused): a
+    ``terrain_model.Shape`` with ``small`` and ``rock`` set, or ``None``."""
     from . import terrain_model as _tm
     from .terrain_shell import SHELL_MIN_PLAN_M
     tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
-    if small is not None:
-        return _dc.replace(small, rock=True) if _witness(g, tris, small.grid) else small
     plan = _tm._plan_m(g, ROCK_MIN_RELIEF_M)
     if not SHELL_MIN_PLAN_M <= plan < _tm.MIN_PLAN_M or not len(tris):
         return None
@@ -173,3 +169,29 @@ def row_datum(kind: str, elev: _t.Any, xy: tuple[float, float],
         return None
     lift = float(elev or 0.0) if kind == "OBJECT_AGL" else 0.0
     return z + lift
+
+
+def rock_match(shape: _t.Any, xy: tuple[float, float], heading: float,
+               dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray], datum: float,
+               fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None
+               ) -> "dict[str, float] | None":
+    """THE MATCH and THE SEAT of one placement of a rock (module doc):
+    ``terrain_model.match``'s record, or ``None``.  Its BASE rests on our
+    ground at ``datum``: the median of ``|DEM - (datum + bottom)|`` over
+    its outer rim is at most ``terrain_shell.SHELL_LEVEL_M``."""
+    from . import terrain_model as _tm
+    from .terrain_shell import SHELL_LEVEL_M
+    grid = shape.grid
+    ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
+    rx, ry = _tm._world(grid, ri, rj, xy, heading)
+    d = np.asarray(dem_many(rx, ry), dtype=float)
+    ok = np.isfinite(d)
+    if not len(ok) or ok.mean() < 0.9:
+        return None
+    level = float(np.median(np.abs(d[ok] - (datum + grid.bot[ri, rj][ok]))))
+    if level > SHELL_LEVEL_M:
+        return None
+    z0 = _tm.wet_cap(grid, xy, heading, dem_many, water, datum)
+    cover, hideable = _tm.quality(shape, xy, heading, dem_many, fine)
+    return {"z0": z0, "corr": 0.0, "peak_err": 0.0, "fit_m": float(np.median(d[ok]) - datum),
+            "quality_cover": cover, "hideable": hideable, "level_m": level}

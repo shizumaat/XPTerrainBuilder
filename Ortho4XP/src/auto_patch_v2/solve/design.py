@@ -316,6 +316,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         shadow = seed_rep.pop("stage2_shadow", None)
     else:
         shadow = None
+
     def _stage2_set(cs_x: ConstraintSet, free_x) -> ConstraintSet:
         # the caller's rewrite re-reads the set it was BOUND to (the un-
         # yielded one): a pin stage 1 RELEASED stays released in stage 2

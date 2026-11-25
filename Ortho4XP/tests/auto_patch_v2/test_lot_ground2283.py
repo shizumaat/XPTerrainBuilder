@@ -212,3 +212,23 @@ def test_the_lot_follows_after_stage_two_alone(pm):
     assert rep["ground_followers"] == 6 and rep["neck_rows"] == 1
     road = [d for d in cs_f.diffs if {d.a, d.b} == {2, 4}]
     assert road and road[0].cap > 0.05
+
+
+def test_a_chord_over_the_road_is_published_from_a_lot_without_one(pm):
+    """A second lot with NO road vertex whose chord runs over the road
+    (``bound``'s crossing branch): the release widens it, so the published
+    pairs carry it too (MEASURED ESSA ``faclot:1``, unpublished: 3 census
+    rows at 5.07-5.09 %)."""
+    xy = [(20.0, 120.0), (100.0, 120.0), (100.0, 130.0), (20.0, 130.0)]
+    for p in xy:
+        pm.vertices.append(types.SimpleNamespace(
+            xy=p, dem_z=84.0, key=(62.0 + 1e-5 * p[1], -7.0 + 1e-5 * p[0])))
+    pm.faces[2] = types.SimpleNamespace(id=2, role="parking_lot", ring=(7, 8, 9, 10),
+                                        holes=(), ref="dsf:pol2")
+    pm.vertices[8].dem_z = 88.0
+    key = {v: tuple(pm.vertices[v].key) for v in range(len(pm.vertices))}
+    pub = {(tuple(a), tuple(b)): bound for a, b, bound in lot_neck.neck_pair_bounds(pm, LAW)}
+    (out,), n = lot_neck.neck_release([_diff(pm, 7, 8)], pm, LAW)
+    assert n == 1
+    got = pub.get((key[7], key[8]), pub.get((key[8], key[7])))
+    assert got == pytest.approx(out.cap * out.d, abs=1e-3)

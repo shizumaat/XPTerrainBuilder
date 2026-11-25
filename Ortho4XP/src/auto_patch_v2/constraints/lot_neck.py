@@ -194,7 +194,11 @@ def neck_pair_bounds(planar: PlanarMap, law: Law) -> list[list[_t.Any]]:
         if not is_datum_lot(f):
             continue
         vs = sorted(face_vertex_set(planar, f))
-        if not any(v in necks.road_of for v in vs):
+        # a lot with no road vertex still has its chords over a road
+        # repriced (``bound``'s crossing branch; MEASURED ESSA ``faclot:1``:
+        # 3 chords at 5.07-5.09 % the release allowed, unpublished)
+        if not any(v in necks.road_of for v in vs) and not necks.core.intersects(
+                _polygon(planar, f)):
             continue
         for i, a in enumerate(vs):
             pa = planar.vertices[a]

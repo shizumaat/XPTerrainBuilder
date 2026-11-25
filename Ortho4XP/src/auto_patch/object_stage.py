@@ -136,6 +136,14 @@ def _agp_surface(mesh_sample, dump, pack_root: str, surface):
                     surface)
 
 
+def _shell_surface(mesh_sample, plan_, surface):
+    """#2272 round 3: the built mesh over the plan's kept terrain shells
+    (``shell_seat.shells_box``: a shell is seated by its skirt on it)."""
+    from auto_patch_v2.airport import shell_seat as _ss
+    return _widened(mesh_sample, _ss.shells_box(getattr(plan_, "authored_seats", ()) or ()),
+                    surface)
+
+
 def _widened(mesh_sample, box, surface):
     """``surface`` when its box already holds ``box``, else a reading of
     the same mesh widened to it (the roles ``surface`` carries kept)."""
@@ -722,6 +730,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
             facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             agp_surface=_agp_surface(mesh_sample, dump, target_root, _surface),
+            shell_surface=_shell_surface(mesh_sample, plan_, _surface),
             # #2090 A6: every follower lifted to its published datum
             agp_groups=(None if _gd is None else _agp_published(_gd)),
             engine_version=_engine_version(), law_digest=digest,

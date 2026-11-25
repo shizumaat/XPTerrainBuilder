@@ -54,7 +54,7 @@ from ..geom import shape_class as _sc
 from ..geom.water_level import SEA_LEVEL_M
 
 __all__ = ["CELL_M", "WATER_TOL_M", "Placed", "placed", "stations", "edge_depth",
-           "skirt_depth", "rim_need", "seat_offset", "seat_shells", "log_line"]
+           "skirt_depth", "rim_need", "seat_offset", "seat_shells", "shells_box", "log_line"]
 
 #: the plan grid of the stations (``terrain_cut.HOLD_CELL_M``, the drawn
 #: instrument's)
@@ -204,15 +204,31 @@ def seat_shells(records: _t.Sequence[_t.Mapping[str, _t.Any]], surface: _t.Calla
     carries ``shell``) seated by its skirt on ``surface`` (the drawn mesh;
     ``surface(lat, lon)`` / ``.many(lats, lons)``, ``None`` off it), each
     row of its set (``model``) moved by its ``dz``; one report per shell."""
-    shells = [p for p in (placed(r) for r in records if isinstance(r, dict)
-                          and isinstance(r.get("shell"), dict)) if p is not None]
+    shells = [p for p in (placed(r) for r in records if isinstance(r, _t.Mapping)
+                          and isinstance(r.get("shell"), _t.Mapping)) if p is not None]
     if not shells:
         return tuple(records), []
     reps = [_seat_one(p, [o for o in shells if o is not p], surface) for p in shells]
     dz = {r["model"]: r["dz"] for r in reps if r["dz"]}
     out = tuple(dict(r, elevation=round(float(r["elevation"]) + dz[r["model"]], 3))
-                if isinstance(r, dict) and r.get("model") in dz else r for r in records)
+                if isinstance(r, _t.Mapping) and r.get("model") in dz else r for r in records)
     return out, reps
+
+
+def shells_box(records: _t.Iterable[_t.Any]) -> "tuple[float, float, float, float] | None":
+    """``(min_lon, min_lat, max_lon, max_lat)`` over every kept shell's
+    anchor in ``records``, widened by the largest plan a small shell has
+    (``terrain_model.MIN_PLAN_M``) -- the mesh its stations read -- or
+    ``None`` with none."""
+    from .terrain_model import MIN_PLAN_M
+    pts = [(float(r["shell"]["lon"]), float(r["shell"]["lat"])) for r in records
+           if isinstance(r, _t.Mapping) and isinstance(r.get("shell"), _t.Mapping)]
+    if not pts:
+        return None
+    lons, lats = zip(*pts, strict=True)
+    dlat = MIN_PLAN_M / 111320.0
+    dlon = dlat / max(math.cos(math.radians(max(abs(v) for v in lats))), 1e-6)
+    return min(lons) - dlon, min(lats) - dlat, max(lons) + dlon, max(lats) + dlat
 
 
 def log_line(rep: _t.Mapping[str, _t.Any]) -> str:
@@ -221,7 +237,8 @@ def log_line(rep: _t.Mapping[str, _t.Any]) -> str:
             f"{rep['z0'] + rep['dz']:.2f} m (author {rep['z0']:.2f}, dz {rep['dz']:+.2f}); "
             f"largest rim gap {rep['gap_before_m']:.2f} -> {rep['gap_after_m']:.2f} m over "
             f"{rep['land']} land station(s) ({rep['wet']} on water, {rep['shared']} under "
-            f"another shell), skirt depth {rep['depth_m']:.2f} m")
+            f"another shell, {rep['off_mesh']} off the mesh), skirt depth "
+            f"{rep['depth_m']:.2f} m")
     if rep.get("headroom_m"):
         line += f", headroom {rep['headroom_m']:.2f} m"
     if not rep["fixed"]:

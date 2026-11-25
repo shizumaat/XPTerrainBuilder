@@ -177,6 +177,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # #2090: the built mesh over the pack's .agp ground points
                # (``agp_ground.ground_box``); ``None`` reads ``surface``
                agp_surface: _t.Callable | None = None,
+               # #2272 round 3: the built mesh over the kept terrain shells
+               # (``shell_seat.shells_box``); ``None`` reads ``surface``
+               shell_surface: _t.Callable | None = None,
                # #2090 A6: the graded surface's published AGP groups
                # (``placement_read.agp_groups_from_graded_doc``); ``None``
                # re-derives them (a surface graded before the key)
@@ -272,7 +275,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         elevated_m=elevated_base_m, runway_ends=runway_ends,
         approach_reach_m=approach_reach_m,
         approach_heading_deg=approach_heading_deg,
-        ground_rider_law=ground_rider_law, floor_deck_ends=floor_deck_ends)
+        ground_rider_law=ground_rider_law, floor_deck_ends=floor_deck_ends,
+        shell_surface=shell_surface)
     # #2042: a graded facade's plane comes down onto its drawn ground
     fseats, ffiles, fcounts = _fs.plan_seats(
         dump, pack_root, surface if facade_surface is None else facade_surface)
@@ -347,7 +351,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               approach_reach_m: float = 0.0,
               approach_heading_deg: float = 0.0,
               ground_rider_law: _t.Any = None,
-              floor_deck_ends: _t.Any = None) -> tuple[tuple, tuple, tuple, dict]:
+              floor_deck_ends: _t.Any = None,
+              shell_surface: _t.Callable | None = None) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -387,7 +392,7 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     _records, _deck_lifts = _deck_ends_seated(dump, _records, surface, pack_root,
                                               floor_deck_ends)
     # #2272 round 3: a kept terrain shell is seated by its skirt on the mesh
-    _records = _shells_seated(_records, surface)
+    _records = _shells_seated(_records, surface if shell_surface is None else shell_surface)
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)

@@ -75,7 +75,7 @@ def test_a_second_groundside_level_explains_a_deeper_ground():
     parts = _terminal(-5.8) + [_part(96.0, 0.0, 100.0, 90.0, -15.0, height=20.0)]
     r = us.unit_levels(_airport(parts, land=-14.0), LAW, AIR, ground=LAND)[0]
     assert sorted(round(lv.y, 1) for lv in r.levels) == [-15.0, -5.8]
-    assert r.land_y == -5.8 and r.verdict == us.HELD
+    assert r.land_y == -15.0 and r.verdict == us.HELD    # the level the ground explains best
 
 
 def test_one_level_and_small_units():

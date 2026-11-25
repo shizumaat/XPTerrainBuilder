@@ -500,6 +500,33 @@ def _grounds(dem, plan, air, face, near_m: float, reach_m: float, at=None,
             round(_st.median(zl), 2) if zl else None)
 
 
+def _confirmed_first(levels, pg, t: float, near, dem, plan, air, face, near_m: float,
+                     reach: float, ground) -> tuple:
+    """``(levels, (g_air, g_land))``: rung L1's planes with the one the
+    ground confirms best first -- same sign, at least half its rise
+    (:func:`_grounds` read at its own parts), and the rise nearest the
+    ground's step -- else the densest plane; and the ground medians read
+    at it.  MEASURED KATL ``building32``: the densest unsupported plane is
+    +4.0 (upper floors) over level ground; -5.5, -15.0 and -18.8 are all
+    confirmed by a 12.9 m fall, and -15.0 is today's lower level."""
+    first, best = None, None
+    for lv in levels:
+        at = unary_union([g for p, g in pg if abs(p.base_y - lv.y) <= _band_m()
+                          and not g.intersects(near)])
+        gr = _grounds(dem, plan, air, face, near_m, reach, at, ground)
+        first = first or (lv, gr)
+        rise = lv.y - t
+        if None in gr:
+            continue
+        d = gr[1] - gr[0]
+        if d * rise > 0.0 and abs(d) >= 0.5 * abs(rise) \
+                and (best is None or abs(rise - d) < best[0]):
+            best = (abs(rise - d), lv, gr)
+    if best is None:
+        return levels, first[1]
+    return [best[1]] + [x for x in levels if x is not best[1]], best[2]
+
+
 def _verdict(t: float, levels, ground, span, step: float) -> str:
     """THE VERDICT (spec §1.5, owner 25h Q1): ``held`` where the ground
     shows half the rise of the densest plane, the same sign, and lies
@@ -564,14 +591,16 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
         if plan.is_empty or (plan.area < min_m2 and not shell):
             continue                       # a storey shell is read at any size (LPHR)
         levels, witness = _storey_parts(plans.solid[ui], t, near, air, law), _L1
-        at = None
+        face = landside_face(plan, air, ground, near_m, reach)
         if levels:
-            at = unary_union([g for p, g in plans.solid[ui] if abs(p.base_y - levels[0].y)
-                              <= _band_m() and not g.intersects(near)])
+            levels, g = _confirmed_first(levels, plans.solid[ui], t, near, dem, plan, air,
+                                         face, near_m, reach, ground)
         else:
             levels, witness = shell, _L2
-        face = landside_face(plan, air, ground, near_m, reach)
-        g = _grounds(dem, plan, air, face, near_m, reach, at, ground)
+            g = _grounds(dem, plan, air, face, near_m, reach, None, ground)
+        # L3 (kerb decks), L4 (the author's ground sheet, ``airport/ground_rim``,
+        # lane lpartshell2: ELLX's skirt) and L5 (linked buildings) slot in here
+        # in step 2; their witnesses are published as clues meanwhile
         if not levels and None not in g and abs(g[1] - g[0]) >= step:
             credible = lidar_credible(airport, law) if credible is None else credible
             if credible:

@@ -112,7 +112,8 @@ def test_a_crashing_job_gives_its_memory_back(gated):
 def test_the_measured_peak_becomes_the_next_estimate(gated, tmp_path):
     with JOBS.admit("capture", "HECA"):
         pass
-    assert json.loads((tmp_path / "peaks.json").read_text(encoding="utf-8")) == {"capture HECA": 7.0}
+    peaks = (tmp_path / "peaks.json").read_text(encoding="utf-8")
+    assert json.loads(peaks) == {"capture HECA": 7.0}
     margin = step_memory.RECORDED_PEAK_MARGIN
     assert JOBS.estimate_gigabytes("capture", "heca") == round(7.0 * margin, 2)
     # another airport of the kind: the kind's largest measured peak

@@ -906,6 +906,10 @@ class PlacedObject:
     #: placement belongs to (``model.walled_plate.WalledPlate``; set by
     #: ``airport/walled_plate.mark``), else ``None``
     walled_plate: object | None = None
+    #: #2197: a PARTIAL SHELL carrying an airside floor (``ground_rim``,
+    #: THE AIRSIDE FLOOR), on its set's first row: the ``_RimSet`` whose rim
+    #: is seated on the set's pad after the solve (``rim_pad_seat``)
+    rim_set: object | None = None
 
     @property
     def base_z(self) -> float:
@@ -1473,11 +1477,15 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped),
         dem_many=many, fine=fine, hidden=hidden))
     # #2197: an origin set whose outer rim is its author's ground (a partial
-    # shell) is one rigid frame; the tile build grades our ground to its rim
+    # shell) is one rigid frame; the tile build grades our ground to its rim.
+    # One carrying an airside floor is read like any object (its pad holds
+    # and seats it, RULINGS 2026-11-20r); only its rim rides its first row
     from . import ground_rim as _gr
-    found.update(_gr.placement_models(
+    rim_models, rim_pads = _gr.placement_models(
         placements, lambda d: _tm._solid(geom(d)) if geom(d) is not None else None, many,
-        skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped)))
+        skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped),
+        airside=getattr(airside, "airside", None))
+    found.update(rim_models)
     # a shell the user hid, or no seat lays flat, dissolves (#2056, #2077 4.2)
     gone = {k: m for k, m in {**shells, **found}.items() if m.ground == _gs.HIDDEN}
     models = _rs.with_planes(_tm.set_members(
@@ -1569,6 +1577,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
+    out = [_dc.replace(o, rim_set=rim_pads[o.id]) if o.id in rim_pads else o for o in out]
     return [_gs.off_the_shell(_msl_frame(o, msl_lift, floor)) if o.id in riders
             else _msl_frame(o, msl_lift, floor) for o in out], rep
 

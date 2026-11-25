@@ -601,6 +601,17 @@ def _portal_cuts(pm, airport) -> list:
     return out
 
 
+def _rim_pad_seats(airport, surf) -> list:
+    """#2197 (RULINGS 2026-11-20r): each partial shell carrying an airside
+    floor has its rim seated on its pad (``airport/rim_pad_seat``)."""
+    rim_sets = getattr(airport, "rim_sets", ()) or ()
+    if not rim_sets:
+        return []
+    from ..airport import rim_pad_seat as _rps
+    to_xy, to_ll = airport.frame.transformers()
+    return _rps.seat_records(rim_sets, surf, to_xy, to_ll)
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -725,7 +736,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone
         "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)
-                           + tuple(model_seats)),
+                           + tuple(model_seats) + tuple(_rim_pad_seats(airport, surf))),
         "exclude": excluded,
         "below_grade": ([(_basin_polygon(b), tuple(b.objects)) for b in pm.basins]
                         + _portal_cuts(pm, airport)),

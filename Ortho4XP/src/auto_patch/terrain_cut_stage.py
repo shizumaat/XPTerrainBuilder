@@ -114,8 +114,10 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
 def rim_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
                 ) -> list[dict[str, _t.Any]]:
     """The seat records to grade our ground to (#2197, ``airport/ground_rim``):
-    every partial shell's own record with a ``rim`` in the object plans of
-    ``icaos`` (``None``: every plan in ``patch_dir``)."""
+    every partial shell's own record with a ``rim`` (a rigid frame's, or one
+    seated on its pad: ``rim_pad_seat``) in the object plans of ``icaos``
+    (``None``: every plan in ``patch_dir``)."""
+    from auto_patch_v2.airport import rim_pad_seat as _rps
     from auto_patch_v2.airport import terrain_model as _tm
     from auto_patch_v2.model.rebake import PLAN_FILENAME
     want = None if icaos is None else {str(i).upper() for i in icaos}
@@ -129,7 +131,7 @@ def rim_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
         if want is not None and str(plan.get("icao", "")).upper() not in want:
             continue
         out += [dict(rec, icao=plan.get("icao", "")) for rec in plan.get("authored_seats") or ()
-                if isinstance(rec, dict) and rec.get("seat") == _tm.SEAT
+                if isinstance(rec, dict) and rec.get("seat") in (_tm.SEAT, _rps.SEAT)
                 and isinstance(rec.get("rim"), dict)]
     return out
 

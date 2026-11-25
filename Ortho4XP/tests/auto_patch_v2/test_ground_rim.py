@@ -117,13 +117,37 @@ def test_placement_sets_reads_the_origin_set_not_one_file():
             ("b", "lot_b.obj", (0.0, 0.0), 0.0, None, "OBJECT"),
             ("c", "lib/cars/car.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
     solids = {"lot_a.obj": _plaza(-60, -40, 0, 40, 6), "lot_b.obj": _plaza(0, -40, 60, 40, 6)}
-    got = GR.placement_models(rows, solids.get, _ground)
-    assert list(got) == ["a"] and got["a"].rim is not None
+    got, pads = GR.placement_models(rows, solids.get, _ground)
+    assert list(got) == ["a"] and got["a"].rim is not None and pads == {}
     # every row of the origin rides the one frame (a library car too)
     assert TM.set_members(rows, got) == {k: got["a"] for k in "abc"}
     # an OBJECT_MSL set is the author's own height: never this module's
     msl = [r[:5] + ("OBJECT_MSL",) for r in rows]
-    assert GR.placement_models(msl, solids.get, _ground) == {}
+    assert GR.placement_models(msl, solids.get, _ground) == ({}, {})
+
+
+def test_a_set_with_an_airside_floor_is_no_rigid_frame_its_rim_rides_its_pad():
+    """RULINGS 2026-11-20r: a set touching airside pavement is read like any
+    object (no terrain model); its rim is seated on the pad it stands on."""
+    from shapely.geometry import box
+
+    from auto_patch_v2.airport import rim_pad_seat as RPS
+    rows = [("a", "lot_a.obj", (0.0, 0.0), 0.0, None, "OBJECT"),
+            ("b", "lot_b.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+    solids = {"lot_a.obj": _plaza(-60, -40, 0, 40, 6), "lot_b.obj": _plaza(0, -40, 60, 40, 6)}
+    far = box(500.0, 500.0, 600.0, 600.0)
+    got, pads = GR.placement_models(rows, solids.get, _ground, airside=far)
+    assert list(got) == ["a"] and pads == {}
+    got, pads = GR.placement_models(rows, solids.get, _ground, airside=box(50, -10, 80, 10))
+    assert got == {} and list(pads) == ["a"] and pads["a"].airside
+    rs = pads["a"]
+    # a level pad 2.5 m over the DEM fit under the set's east end
+    pad = [("pad1", box(30.0, -40.0, 60.0, 40.0), np.array([0.0, 0.0, rs.z0 + 2.5]))]
+    ref, z0 = RPS.pad_zero(rs, pad)
+    on = rs.feet[:, 0] >= 30.0
+    assert ref == "pad1"
+    assert abs(z0 - float(np.median(rs.z0 + 2.5 - rs.feet[on, 2]))) < 1e-9
+    assert RPS.pad_zero(rs, [("p", box(900, 900, 901, 901), np.zeros(3))]) is None
 
 
 def _raster(n=401, ground=0.0, frozen=None):

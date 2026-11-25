@@ -73,6 +73,18 @@ ground takes the station's height (raised OR lowered), then a linear
 feather to ``terrain_fill.REACH_M``; never a frozen posting (patch, tile
 edge).  A wall's rim cell is no station: our ground there is left alone.
 
+THE AIRSIDE FLOOR (RULINGS 2026-11-20r, 16u: the unit seats on airside
+and stays with the buildings it touches; airside is king): a set whose
+plan touches the apt.dat airside pavement (``airside_floor``'s witness,
+buffered by its ``TOUCH_M``) carries an airside floor -- its buildings
+stand on (or share their unit with) a held pad.  Such a set is NO rigid
+frame at the DEM fit: its rows are read like any object, so the planar
+holds their pads and the object stage seats them on the pad (§16g units);
+only its rim travels on (``Airport.rim_sets``) and is seated at the PAD'S
+zero after the solve (``rim_pad_seat``), so our free ground is graded to
+the rim where the pad puts it.  A set with no airside floor is the rigid
+frame at the DEM-fit ``z0`` above.
+
 Nothing here names a pack, an object or an airport.
 """
 from __future__ import annotations
@@ -111,6 +123,8 @@ SKIN_M = 0.5
 #: the plan grid of the set (m; ``terrain_cut.HOLD_CELL_M``)
 CELL_M = 1.0
 _MAX_CELLS = 1_000_000
+#: the most covered cells a set's ``feet`` sample carries
+_MAX_FEET = 20_000
 
 
 @_dc.dataclass(frozen=True)
@@ -128,6 +142,12 @@ class _RimSet:
     relief_m: float
     stations: np.ndarray          # (n, 3): east, north, z MSL
     rings: tuple                  # outline rings, frame metres
+    #: ``(k, 3)`` east, north and lowest surface (authored ``y``) of a
+    #: sample of the covered plan cells: the set's ground contacts, which
+    #: its pad seat reads (``rim_pad_seat``)
+    feet: "np.ndarray | None" = None
+    #: THE AIRSIDE FLOOR (module doc): its plan touches airside pavement
+    airside: bool = False
 
 
 def _set_raster(solids: _t.Sequence[np.ndarray], heading: float) -> "_t.Any | None":
@@ -301,7 +321,27 @@ def _recognise(r: _t.Any, xy: tuple[float, float], heading: float,
     if relief < MIN_RELIEF_M or not _is_our_ground(r, sheet, dem - z0, e, n, relief):
         return None
     return _RimSet((float(xy[0]), float(xy[1])), float(heading), z0, plan, sheet_share,
-                  rim_share, relief, _rim_stations(r, sheet, z0), _outline_rings(r))
+                  rim_share, relief, _rim_stations(r, sheet, z0), _outline_rings(r),
+                  _feet(r, e, n))
+
+
+def _feet(r: _t.Any, e: np.ndarray, n: np.ndarray) -> np.ndarray:
+    """``(k, 3)`` east, north, lowest surface of every covered cell of
+    ``r`` with a finite bottom, thinned to at most :data:`_MAX_FEET`."""
+    ii, jj = np.nonzero(np.isfinite(r.top) & np.isfinite(r.low))
+    step = max(1, -(-len(ii) // _MAX_FEET))
+    ii, jj = ii[::step], jj[::step]
+    return np.column_stack([e[ii, jj], n[ii, jj], r.low[ii, jj]])
+
+
+def _touches(rs: _RimSet, airside: _t.Any) -> bool:
+    """THE AIRSIDE FLOOR (module doc): does a ground contact of ``rs``
+    stand on ``airside`` (the frame-metre airside pavement, buffered)?"""
+    import shapely
+    if airside is None or rs.feet is None or not len(rs.feet):
+        return False
+    return bool(np.any(shapely.intersects_xy(airside, rs.xy[0] + rs.feet[:, 0],
+                                             rs.xy[1] + rs.feet[:, 1])))
 
 
 def _sheet_relief(e: np.ndarray, n: np.ndarray, top: np.ndarray) -> float:
@@ -339,11 +379,14 @@ def _span_m(solids: _t.Sequence[np.ndarray]) -> float:
 def _placement_sets(placements: _t.Sequence[tuple],
                    solid_of: _t.Callable[[str], "np.ndarray | None"],
                    dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                   skip: _t.AbstractSet[str] = frozenset()) -> dict[tuple, tuple]:
+                   skip: _t.AbstractSet[str] = frozenset(),
+                   airside: _t.Any = None) -> dict[tuple, tuple]:
     """The recognised origin sets among ``placements`` -- ``(id, def path,
     xy, heading, elevation, kind)`` rows; ``solid_of(def path)`` the
     authored static solid or ``None``; ``skip`` ids already read as
-    terrain objects -- as ``{origin key: (_RimSet, [member ids])}``.  A
+    terrain objects; ``airside`` the frame-metre airside pavement (THE
+    AIRSIDE FLOOR; ``None``: none read) -- as ``{origin key: (_RimSet,
+    [member ids])}``.  A
     plain ``OBJECT`` or ``OBJECT_AGL`` row only (an ``OBJECT_MSL`` set is
     the author's own height: ``terrain_shell``'s)."""
     from .obj8 import is_stock_library_resource
@@ -374,6 +417,7 @@ def _placement_sets(placements: _t.Sequence[tuple],
             continue
         got = _recognise(r, (float(xy[0]), float(xy[1])), float(heading), dem_many)
         if got is not None:
+            got = _dc.replace(got, airside=_touches(got, airside))
             out[key] = (got, [row[0] for row in rows])
     return out
 
@@ -381,18 +425,27 @@ def _placement_sets(placements: _t.Sequence[tuple],
 def placement_models(placements: _t.Sequence[tuple],
                      solid_of: _t.Callable[[str], "np.ndarray | None"],
                      dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                     skip: _t.AbstractSet[str] = frozenset()) -> dict[str, _t.Any]:
-    """:func:`_placement_sets` as ``terrain_model.TerrainModel`` records by
-    the set's first row id (``terrain_model.set_members`` then maps every
-    row of the origin to it: one rigid frame at ``z0``)."""
+                     skip: _t.AbstractSet[str] = frozenset(), airside: _t.Any = None
+                     ) -> tuple[dict[str, _t.Any], dict[str, _RimSet]]:
+    """:func:`_placement_sets` split by THE AIRSIDE FLOOR (module doc):
+    ``(models, pads)``.  ``models``: each set with no airside floor as a
+    ``terrain_model.TerrainModel`` by its first row id
+    (``terrain_model.set_members`` then maps every row of the origin to
+    it: one rigid frame at ``z0``); ``pads``: each set that carries one,
+    its ``_RimSet`` by its first row id (its rows are read like any
+    object; its rim is seated on its pad after the solve)."""
     from .terrain_model import TerrainModel
     out: dict[str, _t.Any] = {}
+    pads: dict[str, _RimSet] = {}
     paths = {str(p[0]): str(p[1]) for p in placements}
-    for rs, ids in _placement_sets(placements, solid_of, dem_many, skip).values():
+    for rs, ids in _placement_sets(placements, solid_of, dem_many, skip, airside).values():
         oid = ids[0]
+        if rs.airside:
+            pads[oid] = rs
+            continue
         out[oid] = TerrainModel(oid, paths[oid], rs.xy, rs.heading, rs.z0, 0.0, 0.0, 0.0,
                                 float(len(rs.stations)), 0.0, rim=rs)
-    return out
+    return out, pads
 
 
 def rim_record(rs: _RimSet, to_ll: _t.Callable) -> dict[str, _t.Any]:
@@ -410,13 +463,19 @@ def rim_record(rs: _RimSet, to_ll: _t.Callable) -> dict[str, _t.Any]:
             "rings": [[ll(e, n) for e, n in r] for r in rs.rings]}
 
 
-def log_line(icao: str, models: _t.Iterable[_t.Any]) -> str:
-    """The build log's one line on the partial shells."""
+def log_line(icao: str, models: _t.Iterable[_t.Any], pads: _t.Iterable[tuple] = ()) -> str:
+    """The build log's one line on the partial shells: the rigid frames
+    (``models``) and the sets seated on their pads (``Airport.rim_sets``
+    rows ``(id, def path, _RimSet)``)."""
     got = sorted({m.id: m for m in models if getattr(m, "rim", None) is not None}.values(),
                  key=lambda m: m.id)
-    if not got:
+    on_pad = sorted(pads or (), key=lambda r: str(r[0]))
+    if not got and not on_pad:
         return f"[{icao}] partial shells: none"
     return f"[{icao}] partial shells: " + "; ".join(
-        f"{m.path} ({m.id}) one frame at {m.z0:.2f} m, ground sheet "
-        f"{m.rim.sheet_share:.0%} of its plan and {m.rim.rim_share:.0%} of its rim, "
-        f"{len(m.rim.stations)} rim station(s) our ground is graded to" for m in got)
+        [f"{m.path} ({m.id}) one frame at {m.z0:.2f} m, ground sheet "
+         f"{m.rim.sheet_share:.0%} of its plan and {m.rim.rim_share:.0%} of its rim, "
+         f"{len(m.rim.stations)} rim station(s) our ground is graded to" for m in got]
+        + [f"{path} ({oid}) carries an airside floor: seated on its pad, "
+           f"{len(rs.stations)} rim station(s) graded to the pad's seat"
+           for oid, path, rs in on_pad])

@@ -579,6 +579,12 @@ class Airport:
     #: reading: written ``OBJECT_MSL`` at the model's no-float seat
     #: (``terrain_model.seat_records``).  Empty = none.
     terrain_models: tuple = ()
+    #: #2197: THE PARTIAL SHELLS CARRYING AN AIRSIDE FLOOR (``airport/
+    #: ground_rim``), one ``(first row id, def path, ground_rim._RimSet)``
+    #: per set: its rows are read like any object (its pad seats them) and
+    #: its rim is seated on that pad after the solve
+    #: (``airport/rim_pad_seat``).  Empty = none (or an older capture).
+    rim_sets: tuple = ()
     #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
     #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),
     #: read at load from the pre-build dump.  ``None`` = none installed (or a

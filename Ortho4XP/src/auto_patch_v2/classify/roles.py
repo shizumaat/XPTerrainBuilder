@@ -101,6 +101,7 @@ from ..airport.runway_strip import strip_band
 from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
+from ..model import clocks as _clocks
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
@@ -212,10 +213,24 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     """Score every pavement cell of ``airport`` under ``law``'s register.
     ``cache`` is the pack's ``obj8.ResourceCache``: the FOUNDATION-SKIRT
     reader (spec §22) runs here, and the pipeline hands the SAME cache to
-    the planar pass and the re-seat plan so the pack is parsed once."""
-    rules = rules or load_rules()
+    the planar pass and the re-seat plan so the pack is parsed once.
+    Each section's seconds are kept on a ``model.clocks`` lap clock
+    (#2206), read by the orchestration as ``clocks.take("classify")``."""
+    laps = _clocks.Laps(announce="classifying")
+    try:
+        return _classify(airport, law, rules or load_rules(), cache, laps)
+    finally:
+        laps.close()
+        _clocks.keep("classify", laps)
+
+
+def _classify(airport: Airport, law: Law, rules: Rules, cache,
+              laps: _clocks.Laps) -> Classification:
+    """:func:`classify`'s body, ``laps.section`` at each section."""
     pad_min = law.tables.structures.building_pad.min_area_m2
+    laps.section("evidence")
     ev = build_evidence(airport, rules, pad_min, law, cache)
+    laps.section("sources")
     sources, cut_polys = classify_sources(airport, ev, rules, law)
     apron_u = apron_union(airport)     # §40 (2): mapped apron, read PER CELL
     # §40 (1): each runway's ring as a contact BAND, built ONCE (a buffer
@@ -245,6 +260,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                           code_letter, role_side(law, role), kind,
                           dict(evidence or {})))
 
+    laps.section("runways")
     # ── runways and crossings ───────────────────────────────────────
     crossings: list[tuple[str, Polygon, int, str]] = []
     rp = ev.runway_polys
@@ -265,6 +281,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     for ref, part, code, letter in crossings:
         add("runway_crossing", ref, part, "runway_crossing", code, letter)
 
+    laps.section("slice")
     # ── the slice ───────────────────────────────────────────────────
     region = ev.pavement_union
     if not ev.runway_union.is_empty:
@@ -341,6 +358,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             return _authored(chains, pav_of.get(page))
         return chains
 
+    laps.section("ladder")
     queue: list[tuple[Polygon, dict]] = [(f, {}) for f in faces]
     stats["apron_necks"] = 0
     qi = 0
@@ -704,6 +722,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                 continue
         scored.append((face, rest if role == "apron" else role, ref, letter, evid, net))
 
+    laps.section("groundside")
     # ── groundside: the runway touch-chain ─────────────────────────
     demoted = _groundside(scored, ev, rules)
     stats["groundside_demoted"] = len(demoted)
@@ -767,6 +786,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                     evid = dict(evid, kind="junction")
         final.append([role, ref, face, letter, evid, str(evid.get("kind", ""))])
 
+    laps.section("service roads")
     # ── service roads outside pavement ─────────────────────────────
     corridors = []
     for c in ev.truck_chains:
@@ -796,6 +816,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                 final.append(["service_road", f"route{i}", part, None, {},
                               "service_road"])
 
+    laps.section("runway shoulders")
     # ── §40 (1): the shoulders JOIN THE RUNWAY BODY ────────────────
     # Added as runway cells (the runway's ref, code number and code
     # letter) BEFORE the §27 pass, so a lot beside a shoulder reads it as
@@ -821,6 +842,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         notes.append(f"runway shoulder: {face.area:,.0f} m2 sharing "
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
 
+    laps.section("taxi shoulders")
     # ── RULINGS 2026-11-10m: a strip along a taxiway is its SHOULDER ──
     # one shape with the taxiway, stopping at every junction — before §27,
     # so the strip is never flipped on its own (``taxi_shoulder``)
@@ -833,6 +855,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     from .apron_gate import settle as _settle_gate
     stats["apron_gate_taxi_settled"] = _settle_gate(final)
 
+    laps.section("airside edge")
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)
@@ -866,6 +889,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # RULINGS 2026-11-13aa (1): a pad under an upper storey keeps its road
     upper = arm_storeys(final, cells, ev.pads, airport, law, rules.cells.min_area_m2)
     stats["fence_split_faces"] = rejoin_unsplit(final, fence_cut, storey_cuts)
+    laps.section("reachability")
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
     stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
@@ -881,6 +905,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     for role, ref, face, letter, evid, kind in final:
         add(role, ref, face, kind, None, letter, evid)
 
+    laps.section("pads")
     # ── pads ───────────────────────────────────────────────────────
     for ref, poly in ev.pads:
         add("building", ref, poly, "building", evidence=upper.get(ref))
@@ -888,6 +913,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
     stats["pads_skirted"] = len(ev.skirted_pads)
     notes.extend(ev.skirted_pads)
+    laps.section("road faces")
     # ── THE ROAD-FACE MINT, WIDENED: every mapped road in the patch ──
     # (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(3), (6);
     # issue #100).  Minted AFTER §27 and the pads, so no ribbon is read by
@@ -904,14 +930,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # §52 (RULINGS 2026-10-04d (3)): the facade strips and lots — after §27
     # (never airside) and the set-back, BEFORE the ribbons (a mapped road
     # inside a facade lot is the lot)
+    laps.section("facade mint")
     from .facade_mint import mint_facade_cells
     stats.update(mint_facade_cells(airport, cells, law, rules, add))
+    laps.section("ribbons")
     from .ribbon_mint import (mint_osm_ribbons, mint_pad_roads,   # lazy: it imports this module
                               mint_reach_ribbons)
     first: dict = {}
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add, first)
     # §53 (RULINGS 2026-10-04o (a)): the gap pieces — after the patch's
     # ribbons, so every pavement the engine already knows keeps its ground
+    laps.section("gap pieces")
     from .gap_mint import mint_gap_pieces
     stats.update(mint_gap_pieces(airport, ev, cells, law, rules, add, notes))
     # THE ROAD REACH (RULINGS 2026-10-22g): after the gap pieces, so it re-cuts
@@ -931,6 +960,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # THE FRONTAGE ROADS (issue #2057): a road serving a pad's frontage
     # across its unmapped kerbside is a pad road too, kerbside and all —
     # after the pad roads, read by the same touch witness below
+    laps.section("frontage roads")
     from .frontage_road import mint_frontage_roads
     stats.update(mint_frontage_roads(airport, cells, law, rules, add))
     stats["osm_ribbons"] = n_rib + n_pad
@@ -954,6 +984,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
 
+    laps.section("wall cutback")
     # Q269 (a) (issue #1633, RULINGS 2026-10-28t): EVERY road-family cell
     # is CUT BACK at a retaining wall's faces, here, once — the footprint
     # and the far side are never its (``classify/wall_cutback``)
@@ -972,14 +1003,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # #2054: a pack line facade standing on a paved edge where the ground
     # falls away marks that pavement's TRUE edge — the ground out to it is
     # a late strip at the host's level (``classify/edge_line_mint``)
+    laps.section("edge strips")
     from .edge_line_mint import mint_edge_strips
     stats.update(mint_edge_strips(airport, cells, law, rules, add))
     # spec 2068 A2 F2: a unit's fence round its upper pad encloses the
     # fence-foot plane's ground — late cells beside the edge strips
+    laps.section("fence yards")
     from .fence_yard import mint_fence_yards
     stats.update(mint_fence_yards(airport, cells, law, rules, add))
     # owner RULINGS 2026-11-16p (#2114): parked cars on ground no cell holds
     # mark a lot, LAST — it takes only free ground, off every pad's set-back
+    laps.section("car lots")
     from .car_lot import mint_car_lots
     stats.update(mint_car_lots(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
@@ -997,8 +1031,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # #2188: a pad below the airside it touches is a HELD terrace, cut back
     # LAST, so every cell above was read against the pad as drawn and the
     # strip it yields is bare ground (``classify/pad_sunk``)
+    laps.section("sunk pads")
     from .pad_sunk import hold_sunk_cells
     cells, stats["pads_sunk_held"] = hold_sunk_cells(cells, airport, law, rules.cells.min_area_m2)
+    laps.section("cut lines")
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),

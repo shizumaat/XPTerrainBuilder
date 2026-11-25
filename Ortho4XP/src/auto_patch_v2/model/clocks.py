@@ -15,7 +15,9 @@ import contextlib
 import time
 import typing as _t
 
-__all__ = ["collecting", "note", "tag", "label", "Laps", "PARTS", "summary"]
+from . import pulse as _pulse
+
+__all__ = ["collecting", "note", "tag", "label", "Laps", "PARTS", "summary", "keep", "take"]
 
 _SINKS: list[list[dict]] = []
 _TAGS: list[str] = []
@@ -56,19 +58,67 @@ def label(base: str) -> str:
 
 class Laps:
     """Named laps of one running step: :meth:`lap` books the seconds since
-    the previous lap (or the start) under ``name`` (summed when repeated)."""
+    the previous lap (or the start) under ``name`` (summed when repeated).
 
-    def __init__(self) -> None:
+    ``announce`` (#2206, the classify stage): :meth:`section` names the
+    section that STARTS and says so on ``model.pulse`` as ``"<announce>:
+    <name>"``, so the heartbeat of a long stage names its section (the
+    app read "classifying the airport" for eighteen minutes at KSDL);
+    :meth:`close` books the last one and gives the pulse back."""
+
+    def __init__(self, announce: str | None = None) -> None:
         self._t = time.perf_counter()
         self.laps: dict[str, float] = {}
+        self._announce = announce
+        self._open: str | None = None
+        self._prev = _pulse.current()
 
     def lap(self, name: str) -> None:
         now = time.perf_counter()
         self.laps[name] = self.laps.get(name, 0.0) + (now - self._t)
         self._t = now
 
+    def section(self, name: str) -> None:
+        """Book the open section and open ``name``."""
+        if self._open is None:
+            self._t = time.perf_counter()
+        else:
+            self.lap(self._open)
+        self._open = name
+        if self._announce:
+            _pulse.tick(f"{self._announce}: {name}")
+
+    def close(self) -> None:
+        """Book the open section; the pulse says what it said before."""
+        if self._open is not None:
+            self.lap(self._open)
+            self._open = None
+        if self._announce:
+            _pulse.tick(*self._prev) if self._prev else _pulse.clear()
+
     def as_dict(self) -> dict[str, float]:
         return {k: round(v, 3) for k, v in self.laps.items()}
+
+    def line(self, top: int = 8) -> str:
+        """The ``top`` dearest laps, dearest first, and the total."""
+        rows = sorted(self.laps.items(), key=lambda kv: (-kv[1], kv[0]))
+        return ", ".join(f"{k} {v:.1f} s" for k, v in rows[:top]) + \
+            f" (total {sum(self.laps.values()):.1f} s)"
+
+
+#: step -> its last finished :class:`Laps` in this process (:func:`keep`)
+_KEPT: dict[str, Laps] = {}
+
+
+def keep(step: str, laps: Laps) -> None:
+    """Hold ``laps`` as ``step``'s last run, for :func:`take`."""
+    _KEPT[step] = laps
+
+
+def take(step: str) -> Laps | None:
+    """``step``'s last run, removed — none when the step did not run since
+    (a stage the stage cache served reports no older run's clocks)."""
+    return _KEPT.pop(step, None)
 
 
 #: the timed parts of one stage-solve record, in their order

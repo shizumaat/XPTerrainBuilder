@@ -49,7 +49,7 @@ import typing as _t
 import numpy as np
 import shapely
 from scipy.spatial import cKDTree
-from shapely.geometry import MultiLineString, MultiPoint, Polygon
+from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..airport.facade import is_parked_car
@@ -155,11 +155,18 @@ def _lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
     if not counted:
         return [], stats
     keep = set(counted)
-    links = [(free[i], free[j]) for i, j in pairs if i in keep]
+    links = np.array([(free[i], free[j]) for i, j in pairs if i in keep],
+                     dtype=float).reshape(-1, 2, 2)
     reach = cfg.car_half_m + cfg.margin_m
-    core = unary_union([MultiPoint(free[counted]).buffer(reach, quad_segs=_QUAD_SEGS),
-                        MultiLineString(links).buffer(reach, quad_segs=_QUAD_SEGS)
-                        if links else Polygon()])
+    # each car and each link buffered ALONE, then one union (#2206): one
+    # buffer of the whole link set threw in GEOS's full-precision pass and
+    # fell back to snap-rounding (MEASURED KATL, 21,019 links: 85 s -> 0.7 s;
+    # the core moves < 1e-6 m, the simplified lot outline up to 0.8 m)
+    core = shapely.union_all(np.concatenate([
+        shapely.buffer(shapely.points(free[counted]), reach,
+                       quad_segs=_QUAD_SEGS),
+        shapely.buffer(shapely.linestrings(links), reach, quad_segs=_QUAD_SEGS)
+        if len(links) else np.empty(0, dtype=object)]))
     # ground a group's cars ENCLOSE is the lot's (the aisle inside a ring)
     core = unary_union([Polygon(p.exterior) for p in polygon_parts(core)])
     # every PAD's set-back stands (the §52 facade lot's knife): a lot sharing a

@@ -8,7 +8,7 @@ from shapely.geometry import box
 import O4_Airport_Elevation_Insets as INSETS
 from elevation_access.surface_model_refusal import (
     BLUNDER_M,
-    blunder_cells,
+    _blunder_cells,
     refuse_surface_model_cells,
 )
 
@@ -39,7 +39,7 @@ def _block_scene():
 def test_a_blunder_block_goes_whole_walls_and_all():
     inset, base = _block_scene()
     valid = numpy.ones(inset.shape, bool)
-    refused = blunder_cells(inset, valid, base, base)
+    refused = _blunder_cells(inset, valid, base, base)
     assert refused[10:20, 10:20].all()
     assert refused[9, 10:20].all() and refused[20, 10:20].all()
     assert not refused[30:32, 30:32].any()          # the roof stays
@@ -52,7 +52,7 @@ def test_a_real_cliff_inside_the_base_envelope_is_kept():
     inset[:, 5:] = 100.0
     low = numpy.zeros((10, 10))
     high = numpy.full((10, 10), 100.0)
-    assert not blunder_cells(inset, numpy.ones((10, 10), bool),
+    assert not _blunder_cells(inset, numpy.ones((10, 10), bool),
                              low, high).any()
 
 
@@ -61,7 +61,7 @@ def test_a_pit_is_a_blunder_and_a_shallow_dip_is_not():
     inset[2, 2] = 31.0 - BLUNDER_M - 25.0
     inset[6, 6] = 24.0                    # -7 m: no core beside it
     base = numpy.full((9, 9), 31.0)
-    refused = blunder_cells(inset, numpy.ones((9, 9), bool), base, base)
+    refused = _blunder_cells(inset, numpy.ones((9, 9), bool), base, base)
     assert refused[2, 2] and not refused[6, 6]
 
 

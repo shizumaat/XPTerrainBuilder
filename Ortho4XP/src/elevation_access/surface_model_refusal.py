@@ -39,7 +39,6 @@ __all__ = [
     "BLUNDER_M",
     "ENVELOPE_RADIUS_M",
     "GROW_M",
-    "blunder_cells",
     "refuse_surface_model_cells",
 ]
 
@@ -62,7 +61,7 @@ def _grow_from_cores(region, cores):
     return numpy.isin(labels, hit[hit > 0])
 
 
-def blunder_cells(values, valid, low, high,
+def _blunder_cells(values, valid, low, high,
                   blunder_m=BLUNDER_M, grow_m=GROW_M):
     """The valid pixels of ``values`` in a blunder region (THE RULE (2)),
     against the base envelope ``low``..``high`` at the same posts (NaN
@@ -171,7 +170,7 @@ def refuse_surface_model_cells(inset, base_dem, water, metres_per_degree):
     valid = numpy.isfinite(values) & (values != inset.nodata)
     in_water = valid & _water_posts(inset, water)
     low, high = _base_envelope(inset, base_dem, metres_per_degree)
-    blunder = blunder_cells(values, valid & ~in_water, low, high)
+    blunder = _blunder_cells(values, valid & ~in_water, low, high)
     if not (in_water.any() or blunder.any()):
         return None
     excess = numpy.where(blunder, numpy.maximum(values - high, low - values),

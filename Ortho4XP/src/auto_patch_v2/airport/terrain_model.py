@@ -86,7 +86,6 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_P90_SHARE", "WATER_RIM_SHARE", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "member_lift", "seat_records", "log_line",
-           "wet_cap", "model_paths",
            "hideable_paths", "plan_grid", "plan_solid", "rim_seat", "post_m", "quality"]
 
 MIN_PLAN_M = 500.0
@@ -126,9 +125,6 @@ class Shape:
     #: the shell's own post: the median plan edge of its upward triangles
     #: (m, at least ``_MIN_POST_M``; the hide offer's resolution test)
     post_m: float = _MIN_POST_M
-    #: a SMALL TERRAIN SHELL (``terrain_shell``, #2272): under
-    #: :data:`MIN_PLAN_M`, matched and seated by that module's law
-    small: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -182,9 +178,6 @@ class TerrainModel:
     #: #2077 rule A: a RELIEF SKIN (``airport/relief_skin``): a cliff or
     #: slope modelled with the town on it, seated at its origin's ground
     skin: bool = False
-    #: #2272: a SMALL TERRAIN SHELL (``airport/terrain_shell``), seated at
-    #: its author's ``OBJECT_MSL`` datum
-    small: bool = False
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -259,49 +252,34 @@ def _grid(g: _t.Any) -> "DeckGrid | None":
     return None if p is None else grid_of_triangles(p)
 
 
-def _plan_m(g: _t.Any, min_relief_m: float = MIN_RELIEF_M) -> float:
+def _plan_m(g: _t.Any) -> float:
     """The longer plan side of a geometry's static solid when its height
-    span reaches ``min_relief_m``, else 0 (the cheap gates, on a geometry
-    the caller already parsed)."""
+    span reaches :data:`MIN_RELIEF_M`, else 0 (the cheap gates, on a
+    geometry the caller already parsed)."""
     from .msl_feet import static_vertices
     v = static_vertices(g) if g is not None else None
-    if v is None or float(np.ptp(v[:, 1])) < min_relief_m:
+    if v is None or float(np.ptp(v[:, 1])) < MIN_RELIEF_M:
         return 0.0
     return float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
-
-
-def _may_be_candidate(g: _t.Any) -> bool:
-    """The cheap plan and height gates of either class (a terrain model or
-    a small terrain shell, ``terrain_shell``) on a parsed geometry."""
-    from .terrain_shell import SHELL_MIN_PLAN_M, SHELL_MIN_RELIEF_M
-    return (_plan_m(g) >= MIN_PLAN_M
-            or _plan_m(g, SHELL_MIN_RELIEF_M) >= SHELL_MIN_PLAN_M)
 
 
 def _shape(path: str) -> "Shape | None":
     from .obj8 import parse_obj8
     g = parse_obj8(path)
     plan = _plan_m(g)
-    if plan >= MIN_PLAN_M:
-        return _gated(path, g, plan, MAX_PHOTO_SPREAD, MIN_RELIEF_M)
-    from .terrain_shell import small_shape
-    return small_shape(path, g)
-
-
-def _gated(path: str, g: _t.Any, plan: float, max_spread: float, min_relief: float,
-           small: bool = False) -> "Shape | None":
-    """The photo and top-relief gates of a geometry past its plan gate."""
+    if plan < MIN_PLAN_M:
+        return None
     tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
     spread = photo_spread(g.vertices, _vt_rows(path), tris)
-    if spread > max_spread:
+    if spread > MAX_PHOTO_SPREAD:
         return None
     grid = _grid(g)
     if grid is None or not grid.covered.any():
         return None
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
-    if hi - lo < min_relief:
+    if hi - lo < MIN_RELIEF_M:
         return None
-    return Shape(grid, plan, float(hi - lo), spread, post_m(g.vertices, tris), small)
+    return Shape(grid, plan, float(hi - lo), spread, post_m(g.vertices, tris))
 
 
 def plan_grid(path: str) -> "DeckGrid | None":
@@ -341,7 +319,7 @@ def shape_of(path: str, geometry: _t.Any = None) -> "Shape | None":
     ``geometry``: its parsed ``ObjGeometry`` when the caller holds it --
     the plan and height gates then read it and most files stop there
     without a second parse."""
-    if geometry is not None and not _may_be_candidate(geometry):
+    if geometry is not None and _plan_m(geometry) < MIN_PLAN_M:
         return None
     try:
         st = os.stat(path)
@@ -372,18 +350,13 @@ def _world(grid: DeckGrid, ii: np.ndarray, jj: np.ndarray, xy: tuple[float, floa
 def match(shape: Shape, xy: tuple[float, float], heading: float,
           dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
           fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None,
-          datum: "float | None" = None) -> "dict[str, float] | None":
+          ) -> "dict[str, float] | None":
     """THE MATCH and THE SEAT of one placement of ``shape`` (module doc):
     ``{"z0", "corr", "peak_err", "fit_m", "quality_cover", "hideable"}``
     when the top follows the DEM, else ``None``.  ``fine(xs, ys[,
     pixel_m])`` is True where quality elevation of that pixel or finer
     covers a point (``None``: nowhere); ``water(xs, ys)`` is
-    ``ProductionDem.water_many`` (``None``: no water).  ``datum``: the
-    row's ``OBJECT_MSL`` elevation -- a small shell (``Shape.small``) is
-    matched and seated at it by ``terrain_shell.small_match``."""
-    if shape.small:
-        from .terrain_shell import small_match
-        return small_match(shape, xy, heading, dem_many, datum, fine, water)
+    ``ProductionDem.water_many`` (``None``: no water)."""
     grid = shape.grid
     ii, jj = np.nonzero(grid.covered)
     xs, ys = _world(grid, ii, jj, xy, heading)
@@ -418,15 +391,7 @@ def _fit_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
     got = fit(grid, xy, heading, dem_many)
     if got is None:
         return None
-    return wet_cap(grid, xy, heading, dem_many, water, float(got[0]))
-
-
-def wet_cap(grid: DeckGrid, xy: tuple[float, float], heading: float,
-            dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-            water: "_t.Callable | None", z0: float) -> float:
-    """``z0`` capped by the wet outer rim's ``min(ground - bottom)`` where
-    :data:`WATER_RIM_SHARE` or more of the rim lies over water (module
-    doc, THE SEAT): the skirt stays under the water."""
+    z0 = float(got[0])
     if water is None:
         return z0
     ri, rj = np.nonzero(outer_rim(grid.covered))
@@ -538,8 +503,7 @@ def placement_models(placements: _t.Sequence[tuple],
         if shape is None:
             continue
         xy2 = (float(xy[0]), float(xy[1]))
-        datum = float(elev) if kind == "OBJECT_MSL" and elev is not None else None
-        m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
+        m = match(shape, xy2, float(heading), dem_many, fine, water)
         if m is None:
             continue
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
@@ -548,10 +512,10 @@ def placement_models(placements: _t.Sequence[tuple],
                                      m["quality_cover"],
                                      m["hideable"] or str(dpath) in hidden,
                                      str(path_of(dpath) or ""),
-                                     datum=datum,
+                                     datum=(float(elev) if kind == "OBJECT_MSL" and elev is not None
+                                            else None),
                                      fill=True,
-                                     ground="hidden" if str(dpath) in hidden else "",
-                                     small=shape.small)
+                                     ground="hidden" if str(dpath) in hidden else "")
     return out
 
 
@@ -659,10 +623,6 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                 rec["cut"]["floor_m"] = float(m.cut_floor_m)
             if getattr(m, "fill", False):
                 rec["cut"]["fill"] = True
-            if getattr(m, "small", False):
-                # #2272: seated at its author's height, the ground that
-                # buries its rim is lowered to it (``terrain_fill.rim_tuck``)
-                rec["cut"]["tuck"] = True
             if getattr(m, "plane", ()):
                 from ..geom.terrain_deck import UNDER_M
                 # ``to_ll`` is the frame's: one point, ``(lat, lon)``
@@ -682,16 +642,6 @@ def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
                          and r.get("hideable")}))
 
 
-def model_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
-    """Every terrain object a build's seat records name (#2272: the
-    Adjust… row's per-object list): each model's own row (the one with a
-    ``cut``, not a ground object seated on its bridges) and every
-    resource offered for hiding (sorted)."""
-    own = {str(r.get("resource")) for r in records or ()
-           if hasattr(r, "get") and r.get("seat") == SEAT and "cut" in r and not r.get("by")}
-    return tuple(sorted(own | set(hideable_paths(records))))
-
-
 def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     """The build log's one line on the terrain models (a ground object
     seated on its bridges has its own line, ``bridged_ground.log_line``;
@@ -705,9 +655,7 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     return f"[{icao}] terrain-modelling objects: " + "; ".join(
         f"{m.path} ({m.id}) " + ("HIDDEN (the user's answer; its frame read as objects), "
                                  if m.ground else "")
-        + f"seated at {m.z0:.2f} m ("
-        + ("its author's datum, a small shell" if getattr(m, "small", False) else "its L1 fit")
-        + ", the rim filled), top follows "
+        + f"seated at {m.z0:.2f} m (its L1 fit, the rim filled), top follows "
         f"the DEM r={m.corr:.2f}, peak off {m.peak_err:.0%} of {m.relief_m:.0f} m, "
         f"{m.area_m2:,.0f} m2" + (f", hideable ({m.quality_cover:.0%} under quality "
                                   f"elevation)" if m.hideable else "")

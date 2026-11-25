@@ -28,12 +28,9 @@ def _hill(x, z):
     return max(0.0, 150.0 * (1.0 - r * r))
 
 
-def _write(tmp_path, name, height, *, uv="photo", rim_y=None, half=HALF, step=STEP,
-           hard=True):
-    """A grid OBJ8 of ``height(x, z)`` over ``[-half, half]``; ``uv``
-    "photo" maps the plan onto one image, "atlas" packs every cell into a
-    tile of its own scale; ``hard``: its triangles are ``ATTR_hard``."""
-    HALF, STEP = half, step  # noqa: N806 -- the grid this file is written on
+def _write(tmp_path, name, height, *, uv="photo", rim_y=None):
+    """A grid OBJ8 of ``height(x, z)``; ``uv`` "photo" maps the plan onto
+    one image, "atlas" packs every cell into a tile of its own scale."""
     n = int(2 * HALF / STEP) + 1
     rng = np.random.default_rng(7)
     vt, idx = [], []
@@ -54,7 +51,7 @@ def _write(tmp_path, name, height, *, uv="photo", rim_y=None, half=HALF, step=ST
                 vt.append(f"VT {x} {y} {z} 0 1 0 {s} {t}")
             idx += [base, base + 1, base + 2, base + 1, base + 3, base + 2]
     body = ["I", "800", "OBJ", f"POINT_COUNTS {len(vt)} 0 0 {len(idx)}", *vt]
-    body += [f"IDX {i}" for i in idx] + (["ATTR_hard"] if hard else []) + [f"TRIS 0 {len(idx)}"]
+    body += [f"IDX {i}" for i in idx] + ["ATTR_hard", f"TRIS 0 {len(idx)}"]
     path = tmp_path / name
     path.write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
     return str(path)

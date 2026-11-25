@@ -59,7 +59,6 @@ from auto_patch_v2.airport.pack_choice import relative as _relative
 from . import pack_rewrite as _PR
 
 __all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "TERRAIN", "GENERIC", "KINDS",
-           "terrain_models", "terrain_answers", "terrain_object_rows",
            "check_all",
            "scanned", "drape_stage", "drape_choice"]
 
@@ -83,9 +82,6 @@ GENERIC = _Kind("generic", _PC.Store(_PC.GENERIC_CHOICES),
 KINDS = (PHOTOS, GROUND, TERRAIN, GENERIC)
 #: the terrain objects a build offered, per pack (any string value)
 _FOUND = _PC.Store(_PC.TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v))
-#: every terrain object a build recognised, and the per-object answers (#2272)
-_MODELS = _PC.Store(_PC.TERRAIN_MODELS, lambda v: isinstance(v, str) and bool(v))
-_OBJECTS = _PC.Store(_PC.TERRAIN_OBJECTS, lambda v: isinstance(v, str) and bool(v))
 #: the photos' answers (the name ``adjust_stage`` and older callers read)
 STORE = PHOTOS.store
 
@@ -231,50 +227,14 @@ def scanned(scenery_dir: str, lat: int, lon: int) -> list[str]:
 
 def terrain_paths(pack_root: str, paths: _t.Iterable[str] | None = None
                   ) -> tuple[str, ...]:
-    """The terrain objects the row hides for the pack: the offer --
-    ``paths`` (a build's, remembered now) or, with ``None``, the last
-    build's -- as the user's per-object answers move it (#2272,
-    ``pack_terrain.offered``)."""
+    """The terrain objects offered for the pack: ``paths`` (a build's,
+    remembered now) or, with ``None``, the last build's."""
     from auto_patch_v2.airport import pack_terrain as _pt
     if paths is None:
-        found = _pt.decode(_FOUND.choice(pack_root))
-    else:
-        found = tuple(sorted(set(paths)))
-        _FOUND.remember(pack_root, _pt.encode(found))
-    return _pt.offered(found, terrain_answers(pack_root))
-
-
-def terrain_models(pack_root: str, paths: _t.Iterable[str] | None = None
-                   ) -> tuple[str, ...]:
-    """Every terrain object a build recognised in the pack (#2272):
-    ``paths`` (a build's, remembered now) or, with ``None``, the last
-    build's."""
-    from auto_patch_v2.airport import pack_terrain as _pt
-    if paths is None:
-        return _pt.decode(_MODELS.choice(pack_root))
+        return _pt.decode(_FOUND.choice(pack_root))
     paths = tuple(sorted(set(paths)))
-    _MODELS.remember(pack_root, _pt.encode(paths))
+    _FOUND.remember(pack_root, _pt.encode(paths))
     return paths
-
-
-def terrain_answers(pack_root: str, ticks: _t.Mapping[str, bool] | None = None
-                    ) -> dict[str, str]:
-    """The terrain row's per-object answers (#2272): with ``ticks`` (path
-    -> hidden, the Adjust… answer) remembered now -- a tick agreeing with
-    the build's offer is no answer -- else read."""
-    from auto_patch_v2.airport import pack_terrain as _pt
-    if ticks is None:
-        return _PC.terrain_answers(pack_root)
-    answers = _pt.answers_for(ticks, _pt.decode(_FOUND.choice(pack_root)))
-    _OBJECTS.remember(pack_root, _pt.encode_answers(answers))
-    return answers
-
-
-def terrain_object_rows(pack_root: str) -> list[dict]:
-    """The terrain row's ``objects`` (#2272, ``pack_terrain.object_rows``)."""
-    from auto_patch_v2.airport import pack_terrain as _pt
-    return _pt.object_rows(terrain_models(pack_root), _pt.decode(_FOUND.choice(pack_root)),
-                           terrain_answers(pack_root))
 
 
 def _edge_photos(pack_root: str, lat: int, lon: int, read_only: bool

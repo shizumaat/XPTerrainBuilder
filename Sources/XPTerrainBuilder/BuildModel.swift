@@ -2375,14 +2375,13 @@ final class BuildModel: ObservableObject {
     /// (Adjust…'s Apply) the checked rows and Optimise `steps` too; nil
     /// (Not now, Cancel) sends nothing.
     func answerPackAdjustPrompt(action: String?, items: [String] = [],
-                                steps: [String]? = nil, objects: [String: Bool]? = nil) {
+                                steps: [String]? = nil) {
         if let adjust = packAdjustPrompt, let action {
             client?.packAdjust(packRoot: adjust.packRoot, action: action,
                                lat: adjust.lat, lon: adjust.lon,
                                items: action == "never" ? nil : items,
                                shown: adjust.choices.map(\.key),
-                               steps: action == "change" ? steps : nil,
-                               objects: action == "change" ? objects : nil)
+                               steps: action == "change" ? steps : nil)
         }
         packAdjustPrompt = packAdjustQueue.isEmpty ? nil : packAdjustQueue.removeFirst()
     }

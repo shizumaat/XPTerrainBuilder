@@ -56,20 +56,15 @@ __all__ = ["TILE_ROWS", "tile_state", "report", "change"]
 TILE_ROWS = ("terrain",)
 
 
-def tile_state(pack_root: str) -> tuple:
+def tile_state(pack_root: str) -> tuple[bool, ...]:
     """What the tile's mesh reads of the pack's answers: per row of
     :data:`TILE_ROWS`, whether it is "update" (``terrain_cut_stage.
-    _hidden``: a hidden model is not cut), and the terrain objects the
-    row hides (#2272: the per-object answers move them; one string, so
-    the state stays JSON).  An answer that changes it needs the tile
-    rebuilt (``PackAdjust.rebuild``)."""
-    from auto_patch_v2.airport import pack_choice as _PC
-    from auto_patch_v2.airport import pack_terrain as _pt
-
+    _hidden``: a hidden model is not cut).  An answer that changes it
+    needs the tile rebuilt (``PackAdjust.rebuild``)."""
     from . import drape_stage as _DS
     kinds = {k.key: k for k in _DS.KINDS}
     return tuple(kinds[key].store.choice(pack_root) == "update"
-                 for key in TILE_ROWS) + (_pt.encode(_PC.hidden_terrain(pack_root)),)
+                 for key in TILE_ROWS)
 
 
 def _row(base: dict, applied: bool, choice: str) -> dict:
@@ -93,14 +88,10 @@ def _rows(pack_root: str, lat: int, lon: int) -> list[dict]:
     found = _DS.check_all(pack_root, lat, lon, read_only=False)
     for kind in _DS.KINDS:
         pd = found.get(kind.key)
-        objects = _DS.terrain_object_rows(pack_root) if kind is _DS.TERRAIN else []
-        if pd is not None and (pd.drapes or objects):
-            # #2272: the terrain row lists every recognised object, so a
-            # pack none of whose objects is offered can still hide one
-            out.append(dict(_row(_AS._drapes_row(pd, kind.key),
-                                 bool(pd.drapes) and set(pd.drapes) <= set(pd.hidden),
-                                 kind.store.choice(pack_root)),
-                            **({"objects": objects} if objects else {})))
+        if pd is not None and pd.drapes:
+            out.append(_row(_AS._drapes_row(pd, kind.key),
+                            set(pd.drapes) <= set(pd.hidden),
+                            kind.store.choice(pack_root)))
     if _AS._flatten(pack_root, writes=False):
         out.append(dict(_AS._flatten_row(), applied=True, rebuild=False))
     return out
@@ -170,34 +161,19 @@ def _set_steps(pack_root: str, lat: int, lon: int,
 def change(pack_root: str, lat: int, lon: int, *,
            items: _t.Iterable[str] | None,
            shown: _t.Iterable[str] | None,
-           steps: _t.Iterable[str] | None,
-           objects: _t.Mapping[str, bool] | None = None) -> dict:
+           steps: _t.Iterable[str] | None) -> dict:
     """The Adjust… answer: ``items`` the rows left ticked of ``shown``
     (default: every row :func:`report` lists), ``steps`` the Optimise
-    steps left ticked (``None``: Optimise untouched), ``objects`` the
-    terrain row's per-object ticks (path -> hidden, #2272; ``None``:
-    untouched -- a change to them re-applies a ticked row).  Returns
-    ``files`` (pack-relative, written) and ``state`` ``"applied"``
-    (something changed) or ``"none"``."""
-    from . import drape_stage as _DS
+    steps left ticked (``None``: Optimise untouched).  Returns ``files``
+    (pack-relative, written) and ``state`` ``"applied"`` (something
+    changed) or ``"none"``."""
     ticked = set(items or ())
     seen = None if shown is None else set(shown)
     files: list[str] = []
     changed: list[str] = []
-    moved = False
-    if objects is not None:
-        was = _DS.terrain_answers(pack_root)
-        moved = _DS.terrain_answers(pack_root, objects) != was
     for row in _rows(pack_root, lat, lon):
         key = row["key"]
         if row.get("automatic") or (seen is not None and key not in seen):
-            continue
-        if moved and key == _DS.TERRAIN.key and key in ticked and row["checked"]:
-            # the set the row hides moved: written again from the pristine
-            # DSF with the new set (the old one put back first)
-            changed.append(key)
-            files += _set(key, False, row["applied"], pack_root, lat, lon)
-            files += _set(key, True, False, pack_root, lat, lon)
             continue
         if (key in ticked) == row["checked"]:
             continue
@@ -208,4 +184,4 @@ def change(pack_root: str, lat: int, lon: int, *,
         changed.append("optimise")
         files += written
     return {"files": sorted(set(files)),
-            "state": "applied" if changed or moved else "none"}
+            "state": "applied" if changed else "none"}

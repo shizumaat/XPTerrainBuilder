@@ -10,18 +10,14 @@ import SwiftUI
 /// The pack row's Adjust… (`adjust.editing`, owner 2026-11-15T13:12Z): the
 /// rows ticked as the pack is, the Optimise steps under their heading, and
 /// Apply / Cancel; Apply reads "Apply and rebuild tile" while a row the
-/// tile's mesh reads (the terrain objects) differs from the pack. The
-/// terrain row lists its objects (#2272): each ticked when the row hides
-/// it, the user's per-object override.
+/// tile's mesh reads (the terrain objects) differs from the pack.
 struct PackAdjustSheet: View {
     let adjust: O4PackAdjust
-    /// `(action, items, steps, objects)`: "update" with the checked rows,
-    /// "change" with the checked rows, steps and terrain-object ticks,
-    /// "never", or nil (Not now, Cancel).
-    let answer: (String?, [String], [String]?, [String: Bool]?) -> Void
+    /// `(action, items, steps)`: "update" with the checked rows, "change"
+    /// with the checked rows and steps, "never", or nil (Not now, Cancel).
+    let answer: (String?, [String], [String]?) -> Void
     @State private var checked: Set<String> = []
     @State private var stepsChecked: Set<String> = []
-    @State private var objectsHidden: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,9 +27,6 @@ struct PackAdjustSheet: View {
             ForEach(adjust.choices) { item in
                 row(item.detail) {
                     Toggle(item.title, isOn: toggle(item.key, in: $checked))
-                }
-                if !item.objects.isEmpty {
-                    objectList(item)
                 }
             }
             ForEach(adjust.automatic) { item in
@@ -55,19 +48,18 @@ struct PackAdjustSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 if !adjust.editing {
-                    Button(O4PackAdjustCopy.neverButton) { answer("never", [], nil, nil) }
+                    Button(O4PackAdjustCopy.neverButton) { answer("never", [], nil) }
                 }
                 Spacer()
                 Button(adjust.editing ? O4PackAdjustCopy.cancelButton : O4PackAdjustCopy.notNowButton,
-                       role: .cancel) { answer(nil, [], nil, nil) }
+                       role: .cancel) { answer(nil, [], nil) }
                     .keyboardShortcut(.cancelAction)
                 Button(rebuilds ? O4PackAdjustCopy.applyRebuildButton : O4PackAdjustCopy.applyButton) {
                     let items = adjust.choices.map(\.key).filter(checked.contains)
                     if adjust.editing {
-                        answer("change", items, adjust.steps.map(\.key).filter(stepsChecked.contains),
-                               objectTicks)
+                        answer("change", items, adjust.steps.map(\.key).filter(stepsChecked.contains))
                     } else {
-                        answer("update", items, nil, nil)
+                        answer("update", items, nil)
                     }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -78,45 +70,14 @@ struct PackAdjustSheet: View {
         .onAppear {
             checked = Set(adjust.choices.filter(\.checked).map(\.key))
             stepsChecked = Set(adjust.stepsOn)
-            objectsHidden = Set(adjust.choices.flatMap(\.objects).filter(\.hidden).map(\.path))
         }
     }
 
-    /// A row the tile's mesh reads is ticked otherwise than the pack is,
-    /// or (ticked) hides other objects than it does.
+    /// A row the tile's mesh reads is ticked otherwise than the pack is.
     private var rebuilds: Bool {
         adjust.choices.contains { item in
-            item.rebuild && (checked.contains(item.key) != item.baseline(editing: adjust.editing)
-                             || (checked.contains(item.key) && item.objects.contains {
-                                 objectsHidden.contains($0.path) != $0.hidden }))
+            item.rebuild && checked.contains(item.key) != item.baseline(editing: adjust.editing)
         }
-    }
-
-    /// The terrain objects' ticks (path → hidden), nil with none listed.
-    private var objectTicks: [String: Bool]? {
-        let all = adjust.choices.flatMap(\.objects)
-        return all.isEmpty ? nil
-            : Dictionary(uniqueKeysWithValues: all.map { ($0.path, objectsHidden.contains($0.path)) })
-    }
-
-    /// The terrain row's objects, one checkbox each (#2272), usable while
-    /// the row is ticked.
-    private func objectList(_ item: O4PackAdjustItem) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(O4PackAdjustCopy.terrainObjectsHeading).font(.callout)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(item.objects) { obj in
-                        row(obj.detail) {
-                            Toggle(obj.name, isOn: toggle(obj.path, in: $objectsHidden))
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 220)
-        }
-        .padding(.leading, 20)
-        .disabled(!checked.contains(item.key))
     }
 
     private func toggle(_ key: String, in set: Binding<Set<String>>) -> Binding<Bool> {
@@ -151,9 +112,9 @@ struct PackAdjustPrompt: ViewModifier {
                 get: { buildModel.packAdjustPrompt },
                 set: { _ in }
             )) { adjust in
-                PackAdjustSheet(adjust: adjust) { action, items, steps, objects in
+                PackAdjustSheet(adjust: adjust) { action, items, steps in
                     buildModel.answerPackAdjustPrompt(action: action, items: items,
-                                                      steps: steps, objects: objects)
+                                                      steps: steps)
                 }
             }
     }

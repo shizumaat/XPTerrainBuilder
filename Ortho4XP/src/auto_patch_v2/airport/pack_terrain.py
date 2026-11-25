@@ -21,15 +21,7 @@ import typing as _t
 
 from .pack_art import MissingDef, count_uses, declared_definitions
 
-__all__ = ["terrain_objects", "encode", "decode", "SEP", "HIDE", "KEEP",
-           "encode_answers", "decode_answers", "offered", "object_rows", "answers_for"]
-
-#: a per-object answer (#2272): hide an object the build did not offer,
-#: keep one it did
-HIDE = "hide"
-KEEP = "keep"
-#: the separator of a per-object answer's word and path
-_TAB = "\t"
+__all__ = ["terrain_objects", "encode", "decode", "SEP"]
 
 #: the separator of a remembered path list (never in a DSF resource path)
 SEP = "\n"
@@ -61,49 +53,3 @@ def encode(paths: _t.Iterable[str]) -> str:
 def decode(value: str) -> tuple[str, ...]:
     """The paths of a remembered value."""
     return tuple(p for p in (value or "").split(SEP) if p)
-
-
-def encode_answers(answers: _t.Mapping[str, str]) -> str:
-    """Per-object answers (path -> :data:`HIDE` | :data:`KEEP`) as one
-    remembered value (sorted; ``""`` for none)."""
-    return SEP.join(f"{a}{_TAB}{p}" for p, a in sorted(answers.items())
-                    if a in (HIDE, KEEP) and p and SEP not in p and _TAB not in p)
-
-
-def decode_answers(value: str) -> dict[str, str]:
-    """The per-object answers of a remembered value."""
-    out = {}
-    for line in (value or "").split(SEP):
-        a, _sep, p = line.partition(_TAB)
-        if p and a in (HIDE, KEEP):
-            out[p] = a
-    return out
-
-
-def offered(found: _t.Iterable[str], answers: _t.Mapping[str, str]) -> tuple[str, ...]:
-    """THE SET THE ROW HIDES (#2272): the build's offer (``found``, the
-    objects quality elevation models) less those the user keeps, plus
-    those the user hides (sorted)."""
-    out = {str(p) for p in found or () if answers.get(str(p)) != KEEP}
-    out |= {p for p, a in answers.items() if a == HIDE}
-    return tuple(sorted(out))
-
-
-def object_rows(models: _t.Iterable[str], found: _t.Iterable[str],
-                answers: _t.Mapping[str, str]) -> list[dict]:
-    """The terrain row's ``objects`` (#2272): every object the build
-    recognised (``models``) or offered, each ``hideable`` (offered) and
-    ``hidden`` (in :func:`offered`)."""
-    found = {str(p) for p in found or ()}
-    hide = set(offered(found, answers))
-    every = sorted({str(p) for p in models or ()} | found | hide)
-    return [{"path": p, "hideable": p in found, "hidden": p in hide} for p in every]
-
-
-def answers_for(ticks: _t.Mapping[str, bool], found: _t.Iterable[str]) -> dict[str, str]:
-    """The per-object answers a set of ticks (path -> hidden) records: a
-    tick that differs from the build's offer is an answer, one that
-    agrees is none."""
-    found = {str(p) for p in found or ()}
-    return {str(p): (HIDE if on else KEEP) for p, on in ticks.items()
-            if bool(on) != (str(p) in found)}

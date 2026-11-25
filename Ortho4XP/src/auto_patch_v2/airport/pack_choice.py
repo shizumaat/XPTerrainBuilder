@@ -15,8 +15,7 @@ import typing as _t
 
 __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
            "GATEWAY_CHOICES", "GROUND_CHOICES", "GENERIC_CHOICES", "TERRAIN_CHOICES",
-           "TERRAIN_FOUND", "TERRAIN_MODELS", "TERRAIN_OBJECTS", "PRIORITY_CHOICES",
-           "terrain_answers", "OVERLAP_FOUND", "hidden_terrain",
+           "TERRAIN_FOUND", "PRIORITY_CHOICES", "OVERLAP_FOUND", "hidden_terrain",
            "Store", "store_path", "read", "read_all",
            "write", "relative", "step_list"]
 
@@ -38,12 +37,6 @@ TERRAIN_CHOICES = "pack_terrain_choices.json"
 #: the terrain objects a build offered for hiding, per pack
 #: (``auto_patch_v2.airport.pack_terrain``): the answer works outside a build
 TERRAIN_FOUND = "pack_terrain_found.json"
-#: every terrain object a build recognised, per pack (#2272: the Adjust…
-#: row lists them, offered or not)
-TERRAIN_MODELS = "pack_terrain_models.json"
-#: the per-object answers of the terrain row, per pack (#2272,
-#: ``pack_terrain.encode_answers``)
-TERRAIN_OBJECTS = "pack_terrain_objects.json"
 #: which pack keeps a structure two packs both draw, per pack pair (#2145;
 #: ``pack_overlap_choice``): keyed by ``pack_overlap_choice.pair_key``
 PRIORITY_CHOICES = "pack_priority_choices.json"
@@ -144,8 +137,7 @@ def relative(pack_root: str, path: str) -> str:
 def hidden_terrain(pack_root: str) -> frozenset[str]:
     """The terrain objects the user HID (#2077 4.2): the pack's
     :data:`TERRAIN_CHOICES` answer ``update`` over the offer the last build
-    remembered (:data:`TERRAIN_FOUND`, ``drape_stage.terrain_paths``) as the
-    per-object answers move it (:data:`TERRAIN_OBJECTS`, #2272); empty
+    remembered (:data:`TERRAIN_FOUND`, ``drape_stage.terrain_paths``); empty
     otherwise.  The build reads it (their frames dissolve,
     ``auto_patch_v2.airport.terrain_model``) and the patch stamps it
     (``provenance.terrain_hidden_identity``)."""
@@ -153,18 +145,6 @@ def hidden_terrain(pack_root: str) -> frozenset[str]:
         return frozenset()
     if Store(TERRAIN_CHOICES).choice(pack_root) != "update":
         return frozenset()
-    from .pack_terrain import decode, offered
+    from .pack_terrain import decode
     found = Store(TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v)).choice(pack_root)
-    # #2272: the user's per-object answers move objects in and out
-    return frozenset(offered(decode(found), terrain_answers(pack_root)))
-
-
-def terrain_answers(pack_root: str) -> dict[str, str]:
-    """The terrain row's per-object answers for a pack (#2272, path ->
-    ``pack_terrain.HIDE`` | ``KEEP``; written by
-    ``drape_stage.terrain_answers``)."""
-    from .pack_terrain import decode_answers
-    if not pack_root:
-        return {}
-    return decode_answers(Store(TERRAIN_OBJECTS, lambda v: isinstance(v, str) and bool(v))
-                          .choice(pack_root))
+    return frozenset(decode(found))

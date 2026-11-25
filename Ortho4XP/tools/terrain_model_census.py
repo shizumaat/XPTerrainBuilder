@@ -58,7 +58,6 @@ _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import relief_skin as RS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
-from auto_patch_v2.airport import terrain_shell as TS  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
 DEFAULT_ELEVATION = "/Users/noah/XPTerrainBuilderData/Elevation_data"
@@ -126,8 +125,7 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
 def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
     ground shell's Shape is keyed ``("ground", path)``."""
-    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0,
-             "shell": 0}
+    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
@@ -147,10 +145,6 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
             gates["skin"] += 1
             shapes[("skin", rel)] = skin
         if TM._plan_m(g) < TM.MIN_PLAN_M:
-            small = TS.small_shape(path, g)
-            if small is not None:
-                gates["shell"] += 1
-                shapes[rel] = small
             continue
         gates["plan"] += 1
         tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
@@ -179,12 +173,9 @@ def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
                 if line.startswith("OBJECT_DEF "):
                     defs.append(line[11:].strip())
                 elif line.startswith(("OBJECT ", "OBJECT_AGL ", "OBJECT_MSL ")):
-                    # ``OBJECT_MSL`` / ``OBJECT_AGL`` carry their elevation
-                    # BEFORE the heading (``airport/dsf``; #2272: read the
-                    # other way round, every datum here was a heading)
                     t = line.split()
-                    rows.append((int(t[1]), float(t[2]), float(t[3]), float(t[-1]), t[0],
-                                 float(t[4]) if len(t) > 5 else None))
+                    rows.append((int(t[1]), float(t[2]), float(t[3]), float(t[4]), t[0],
+                                 float(t[5]) if len(t) > 5 else None))
     return defs, rows
 
 
@@ -214,15 +205,13 @@ def water_reader(lat: int, lon: int, lon0: float, lat0: float):
     return read
 
 
-def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
-    """A terrain model row's both seats, its wet-rim share and its offer
-    (a small shell, ``terrain_shell``, is matched at its ``datum``)."""
-    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water, datum)
+def _model_row(shape, hdg: float, dem, fine, water) -> dict:
+    """A terrain model row's both seats, its wet-rim share and its offer."""
+    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water)
     if m is None:
-        return {"verdict": "no DEM match" if datum is not None or not shape.small
-                else "not msl"}
-    rec = {"verdict": "terrain shell" if shape.small else "terrain model",
-           **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items()}}
+        return {"verdict": "no DEM match"}
+    rec = {"verdict": "terrain model", **{k: (round(v, 3) if isinstance(v, float) else v)
+                                          for k, v in m.items()}}
     rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
     if water is not None:
         ri, rj = np.nonzero(TM.outer_rim(shape.grid.covered))
@@ -275,8 +264,7 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                 rec["datum"] = elev
             rec.update(_model_row(shape, hdg, sampler(dems, lo, la),
                                   sampler(dems, lo, la, fine=True),
-                                  water_reader(lat, lon, lo, la),
-                                  elev if kind == "OBJECT_MSL" else None))
+                                  water_reader(lat, lon, lo, la)))
             out["rows"].append(rec)
     return out
 

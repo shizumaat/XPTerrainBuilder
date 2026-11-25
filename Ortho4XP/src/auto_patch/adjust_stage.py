@@ -186,9 +186,6 @@ def _drape_stages(plan_, tile, writes: bool) -> dict[str, tuple]:
     from . import drape_stage as _DS
     pack_root = getattr(plan_, "pack_root", "") or ""
     try:
-        models = _models(plan_)
-        if models is not None and pack_root:
-            _DS.terrain_models(pack_root, models)
         found = _DS.check_all(pack_root, tile.lat, tile.lon,
                               read_only=not writes, terrain=_offered(plan_))
     except Exception as exc:
@@ -208,17 +205,6 @@ def _offered(plan_) -> "tuple[str, ...] | None":
         return None
     from auto_patch_v2.airport import terrain_model as _tm
     return _tm.hideable_paths(records)
-
-
-def _models(plan_) -> "tuple[str, ...] | None":
-    """Every terrain object a build's plan recognised (#2272: the
-    Adjust… row lists them, ``terrain_model.model_paths``), or ``None``
-    with no plan records."""
-    records = getattr(plan_, "authored_seats", None)
-    if records is None:
-        return None
-    from auto_patch_v2.airport import terrain_model as _tm
-    return _tm.model_paths(records)
 
 
 def _configured_dirs() -> list[str]:
@@ -319,8 +305,7 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
                   lon: int | None = None,
                   items: _t.Iterable[str] | None = None,
                   shown: _t.Iterable[str] | None = None,
-                  steps: _t.Iterable[str] | None = None,
-                  objects: _t.Mapping[str, bool] | None = None) -> dict:
+                  steps: _t.Iterable[str] | None = None) -> dict:
     """THE USER'S ANSWER, outside a build (the ``pack_adjust`` command).
 
     * ``"update"`` — every row in ``items`` (default: every row) is
@@ -337,8 +322,7 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
       ``steps`` (``adjust_edit.report``), announced as ``state="adjust"``;
     * ``"change"`` — the Adjust… answer: only the rows (of ``shown``) and
       the Optimise ``steps`` whose tick differs are written
-      (``adjust_edit.change``), and ``objects`` (the terrain row's
-      per-object ticks, path -> hidden, #2272) are remembered and applied.
+      (``adjust_edit.change``).
 
     ``rebuild`` says an answer changed what the tile's mesh reads
     (``adjust_edit.tile_state``: the terrain objects hidden or shown).
@@ -364,8 +348,7 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
             out.update(_AE.report(pack_root, int(lat or 0), int(lon or 0))
                        if action == "adjust" else
                        _AE.change(pack_root, int(lat or 0), int(lon or 0),
-                                  items=items, shown=shown, steps=steps,
-                                  objects=objects))
+                                  items=items, shown=shown, steps=steps))
             files = list(out["files"])
         elif action == "ask":
             out["items"] = rows(pack_root, int(lat or 0), int(lon or 0))

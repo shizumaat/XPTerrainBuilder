@@ -1,10 +1,18 @@
 # Institut national de l'information geographique et forestiere (IGN,
 # France) RGE ALTI, 1 metre -- OVERSEAS France (#2272).
 #
-# The sibling of FRANCE1M.elv: the very same Geoplateforme raster WMS
-# layer (ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES, "MNT issu du RGEALTI"),
-# whose capabilities box reaches lon -62.95..58, lat -24..51.1 and whose
-# ISO metadata (CSW record IGNF_RGE-ALTI, revision 2.0, 2026-10-01) lists
+# The sibling of FRANCE1M.elv on the same Geoplateforme raster WMS.  The
+# all-France layer ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES ("MNT issu du
+# RGEALTI", capabilities box lon -62.95..58, lat -24..51.1) is a WGS84G
+# pyramid whose finest level is ~4.4e-5 degree: a 1 m request came back
+# as 5x5 px blocks (TFFJ, 2026-11-25: 78 % of adjacent pixels identical,
+# ~3 m steps on steep slopes), whatever the request size.  The 1 m data
+# lives in one NATIVE pyramid per territory (RGEALTI-MNT_PYR-ZIP_<T>_
+# <CRS>_WMS, MinScaleDenominator 3571 = 1 m; the GLP one also holds
+# Saint-Martin and Saint-Barthelemy, Litto3D seabed included): the
+# template's {layer} is the wms_layer line whose box meets the request
+# (4-9 % identical pairs, the server's UTM-to-degree resampling).  The
+# product's ISO metadata (CSW record IGNF_RGE-ALTI, revision 2.0, 2026-10-01) lists
 # every overseas territory but French Polynesia, New Caledonia and
 # Wallis-et-Futuna.  FRANCE1M asks in Lambert-93 (EPSG:2154, metropolitan
 # only); the overseas territories span five UTM zones, so this file asks
@@ -37,7 +45,7 @@ role=airport_inset
 country=FRA,BLM,MAF,GLP,MTQ,GUF,REU,MYT,SPM
 access_strategy=wcs_kvp
 
-wcs_getcoverage_template=https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES&STYLES=&CRS=EPSG:4326&BBOX={ymin},{xmin},{ymax},{xmax}&WIDTH={width}&HEIGHT={height}&FORMAT=image/geotiff
+wcs_getcoverage_template=https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={layer}&STYLES=&CRS=EPSG:4326&BBOX={ymin},{xmin},{ymax},{xmax}&WIDTH={width}&HEIGHT={height}&FORMAT=image/geotiff
 source_epsg=4326
 max_request_pixels=5010
 
@@ -64,6 +72,15 @@ coverage_bbox=55.20,-21.40,55.85,-20.85
 coverage_bbox=44.97,-13.01,45.31,-12.62
 # Saint-Pierre-et-Miquelon.
 coverage_bbox=-56.54,46.74,-56.07,47.15
+
+# The native pyramid per territory (the boxes above, same order).
+wms_layer=RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS -63.17,17.85,-62.77,18.14
+wms_layer=RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS -61.82,15.81,-60.98,16.53
+wms_layer=RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS -61.24,14.37,-60.79,14.89
+wms_layer=RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS -54.63,2.08,-51.60,5.78
+wms_layer=RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS 55.20,-21.40,55.85,-20.85
+wms_layer=RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS 44.97,-13.01,45.31,-12.62
+wms_layer=RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS -56.54,46.74,-56.07,47.15
 
 # Normal heights on each territory's own tide-gauge datum (CSW record,
 # reference systems): IGN 1988 (Guadeloupe; IGN 1988 SB / SM for

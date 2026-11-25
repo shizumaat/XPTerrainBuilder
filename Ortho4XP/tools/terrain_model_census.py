@@ -38,10 +38,12 @@ none is cached) and the hide offer of the new quality test.  An
 from __future__ import annotations
 
 import argparse
+import functools
 import glob
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +60,7 @@ _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import relief_skin as RS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
+from auto_patch_v2.airport import terrain_rock as TR  # noqa: E402
 from auto_patch_v2.airport import terrain_shell as TS  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
@@ -123,16 +126,39 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
     return read
 
 
+_VT = re.compile(rb"^VT[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)", re.M)
+
+
+def _vt_prefilter(path: str) -> bool:
+    """May the OBJ8 be any family's candidate, read off its ``VT`` rows
+    without a parse?  None spans under ``TS.SHELL_MIN_PLAN_M``; under
+    ``TM.MIN_PLAN_M`` only a shell or a rock, whose height spans at least
+    ``TR.ROCK_MIN_RELIEF_M``."""
+    try:
+        with open(path, "rb") as fh:
+            rows = _VT.findall(fh.read())
+        if not rows:
+            return False
+        span = np.ptp(np.array(rows, dtype=float), axis=0)
+    except (OSError, ValueError):
+        return True
+    plan = float(max(span[0], span[2]))
+    return plan >= TM.MIN_PLAN_M or (plan >= TS.SHELL_MIN_PLAN_M
+                                     and float(span[1]) >= TR.ROCK_MIN_RELIEF_M)
+
+
 def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
     ground shell's Shape is keyed ``("ground", path)``."""
     gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0,
-             "shell": 0}
+             "shell": 0, "rock": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
             continue
         gates["objects"] += 1
+        if not _vt_prefilter(path):
+            continue
         try:
             g = parse_obj8(path)
         except (OSError, ValueError):
@@ -147,9 +173,9 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
             gates["skin"] += 1
             shapes[("skin", rel)] = skin
         if TM._plan_m(g) < TM.MIN_PLAN_M:
-            small = TS.small_shape(path, g)
+            small = TS.small_shape(path, g) or TR.rock_shape(path, g)
             if small is not None:
-                gates["shell"] += 1
+                gates["rock" if small.rock else "shell"] += 1
                 shapes[rel] = small
             continue
         gates["plan"] += 1
@@ -188,20 +214,27 @@ def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
     return defs, rows
 
 
-def water_reader(lat: int, lon: int, lon0: float, lat0: float):
-    """``water(xs, ys) -> (wet, level)`` over the tile's CACHED water layers
-    in metres east / north of ``(lon0, lat0)`` (the engine's own
-    ``TileWater``), or ``None`` where none can be read."""
+@functools.lru_cache(maxsize=8)
+def _tile_water(lat: int, lon: int):
+    """The engine's ``TileWater`` of the tile's CACHED water layers, read
+    once per tile, or ``None``."""
     try:
         import O4_Config_Utils as CFG
         import O4_Vector_Map as VMAP
         from auto_patch_v2.airport.dem_production import TileWater
         t = CFG.Tile(lat, lon, "")
         t.read_from_config()
-        w = TileWater(lat, lon, *VMAP.cached_tile_water(t))
+        return TileWater(lat, lon, *VMAP.cached_tile_water(t))
     except Exception:
         return None
-    if not w.has_data:
+
+
+def water_reader(lat: int, lon: int, lon0: float, lat0: float):
+    """``water(xs, ys) -> (wet, level)`` over the tile's CACHED water layers
+    in metres east / north of ``(lon0, lat0)`` (the engine's own
+    ``TileWater``), or ``None`` where none can be read."""
+    w = _tile_water(lat, lon)
+    if w is None or not w.has_data:
         return None
     mlat = 111_320.0
     mlon = mlat * math.cos(math.radians(lat0))
@@ -221,7 +254,8 @@ def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
     if m is None:
         return {"verdict": "no DEM match" if datum is not None or not shape.small
                 else "not msl"}
-    rec = {"verdict": "terrain shell" if shape.small else "terrain model",
+    rec = {"verdict": "rock" if shape.rock else "terrain shell" if shape.small
+           else "terrain model",
            **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items()}}
     rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
     if water is not None:
@@ -239,8 +273,10 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
     for dsf in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))):
         src = dsf + ".anchor_bak" if os.path.isfile(dsf + ".anchor_bak") else dsf
         lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
+        if not shapes:                       # nothing to place: no dump
+            continue
         defs, rows = placements(src, dsftool)
-        dems = rasters(elevation_root, lat, lon) if shapes else []
+        dems = rasters(elevation_root, lat, lon)
         for i, lo, la, hdg, kind, elev in rows:
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
             skin = shapes.get(("skin", key))
@@ -271,12 +307,14 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                    "heading": hdg, "kind": kind, "plan_m": round(shape.plan_m),
                    "relief_m": round(shape.relief_m, 1),
                    "photo_spread": round(shape.photo_spread, 3)}
-            if kind == "OBJECT_MSL":
-                rec["datum"] = elev
-            rec.update(_model_row(shape, hdg, sampler(dems, lo, la),
-                                  sampler(dems, lo, la, fine=True),
-                                  water_reader(lat, lon, lo, la),
-                                  elev if kind == "OBJECT_MSL" else None))
+            dem = sampler(dems, lo, la)
+            datum = elev if kind == "OBJECT_MSL" else None
+            if shape.rock:
+                datum = TR.row_datum(kind, elev, (0.0, 0.0), dem)
+            if datum is not None:
+                rec["datum"] = datum
+            rec.update(_model_row(shape, hdg, dem, sampler(dems, lo, la, fine=True),
+                                  water_reader(lat, lon, lo, la), datum))
             out["rows"].append(rec)
     return out
 
@@ -292,8 +330,10 @@ def main(argv=None) -> int:
     # before it loads anything (O4_Machine_Jobs; released at exit)
     import O4_Machine_Jobs as _jobs
     _jobs.admit_process("terrain_model_census")
-    report = [census(p, a.elevation_root, a.dsftool) for p in a.packs]
-    for r in report:
+    report = []
+    for p in a.packs:
+        r = census(p, a.elevation_root, a.dsftool)
+        report.append(r)
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
             wet = row.get("water_rim")
@@ -308,6 +348,7 @@ def main(argv=None) -> int:
                      if "z0" in row else "")
             print(f"   {row['verdict']:<14} {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f" plan {row['plan_m']} relief {row['relief_m']}{extra}")
+        sys.stdout.flush()
     if a.json:
         with open(a.json, "w") as fh:
             json.dump(report, fh, indent=1)

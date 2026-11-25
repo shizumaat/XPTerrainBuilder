@@ -18,10 +18,17 @@ two seats -- AUTHOR (its frame zero ``z0``) and SKIRT (``z0 + dz``):
   :data:`OVER_M` deeper than ``terrain_cut.BAND_M`` from its edge (1 m
   samples; ground at the sea datum not judged): area and worst.
 
+A ROCK (``terrain_rock``, RULINGS 2026-11-25j; census verdict ``rock``)
+is seated by the same skirt seat and replayed with the shells.  ``--dem``
+replays on the census's own RAW rasters (``terrain_model_census.rasters``:
+the tile ``.hgt`` under its cached insets) instead of a built tile's
+drawn mesh -- the lane's synthetic-first arm, no tile build: the seat it
+prints differs from a build's by the bake (smoothing, flattening).
+
 Read-only (DSF dumps in a temp dir).
 
-    venv/bin/python tools/shell_seat_replay.py ICAO --tile-dsf DSF
-        [--pack DIR] [--census JSON] [--json OUT]
+    venv/bin/python tools/shell_seat_replay.py ICAO (--tile-dsf DSF | --dem)
+        --pack DIR [--census JSON] [--json OUT]
 """
 from __future__ import annotations
 
@@ -43,10 +50,13 @@ import O4_Console_Encoding as _o4console  # noqa: E402
 
 _o4console.configure_console_streams()
 
-__all__ = ["OVER_M", "shell_records", "surface_of", "through", "measure", "run", "main"]
+__all__ = ["OVER_M", "SEATED_VERDICTS", "shell_records", "surface_of", "dem_surface",
+           "through", "measure", "run", "main"]
 
 #: drawn ground this far over the shell's top pokes through it
 OVER_M = 0.05
+#: the census verdicts the skirt seat seats (a small shell and a rock)
+SEATED_VERDICTS = ("terrain shell", "rock")
 
 
 def shell_records(rows: list[dict], pack_root: str) -> list[dict]:
@@ -55,7 +65,7 @@ def shell_records(rows: list[dict], pack_root: str) -> list[dict]:
     from auto_patch_v2.airport import terrain_model as TM
     out = []
     for k, r in enumerate(rows):
-        if r.get("verdict") != "terrain shell":
+        if r.get("verdict") not in SEATED_VERDICTS:
             continue
         out.append({"id": f"shell{k}", "model": f"shell{k}", "resource": r["resource"],
                     "seat": TM.SEAT, "elevation": float(r["z0"]),
@@ -70,6 +80,26 @@ def surface_of(mesh):
     surface: ``(lat, lon) -> z | None`` with ``.many``."""
     def many(lats, lons):
         return [None if not np.isfinite(z) else float(z) for z in mesh.z(lats, lons)]
+
+    def one(lat, lon):
+        return many([lat], [lon])[0]
+    one.many = many
+    return one
+
+
+def dem_surface(lats: list, lons: list):
+    """The ``--dem`` arm's surface (module doc): the census's raw rasters
+    of the tile holding the first shell, as :func:`surface_of` answers."""
+    import terrain_model_census as TMC
+    lat0, lon0 = float(lats[0]), float(lons[0])
+    dems = TMC.rasters(TMC.DEFAULT_ELEVATION, math.floor(lat0), math.floor(lon0))
+    read = TMC.sampler(dems, lon0, lat0)
+    m_lon = 111_320.0 * math.cos(math.radians(lat0))
+
+    def many(la, lo):
+        xs = (np.asarray(lo, float) - lon0) * m_lon
+        ys = (np.asarray(la, float) - lat0) * 111_320.0
+        return [None if not np.isfinite(z) else float(z) for z in read(xs, ys)]
 
     def one(lat, lon):
         return many([lat], [lon])[0]
@@ -138,6 +168,9 @@ def run(args) -> dict:
     pad = 600.0 / DS.K_LAT
     box = (min(lons) - pad / math.cos(math.radians(lats[0])), min(lats) - pad,
            max(lons) + pad / math.cos(math.radians(lats[0])), max(lats) + pad)
+    if args.dem:
+        return {"icao": args.icao, "tile_dsf": "raw DEM", "pack": args.pack,
+                "shells": measure(records, dem_surface(lats, lons))}
     work = tempfile.mkdtemp(prefix="shell_seat_replay_")
     try:
         mesh = DS.DrawnMesh(box, "", DS.dsftool(), args.tile_dsf, work)
@@ -165,7 +198,10 @@ def print_report(rep: dict) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("icao")
-    ap.add_argument("--tile-dsf", required=True, help="a built tile DSF (the drawn mesh)")
+    where = ap.add_mutually_exclusive_group(required=True)
+    where.add_argument("--tile-dsf", help="a built tile DSF (the drawn mesh)")
+    where.add_argument("--dem", action="store_true",
+                       help="the census's raw rasters instead of a drawn mesh (module doc)")
     ap.add_argument("--pack", required=True, help="the pack root carrying the shells")
     ap.add_argument("--census", help="a tools/terrain_model_census --json output")
     ap.add_argument("--json", help="write the report here")

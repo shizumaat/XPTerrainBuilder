@@ -65,7 +65,8 @@ else:
 __all__ = ["BUDGET", "ENV_DIR", "ENV_LABEL", "ENV_ROLE", "ENV_SESSION",
            "ENV_STEP_RESERVED", "XPLANE_NAMES", "Reservation", "Snapshot",
            "Verdict", "admission", "admits", "claim", "held_tiles", "hold_tile",
-           "holders_text", "ledger_dir", "note_wait", "process_table",
+           "holders_text", "ledger_dir", "note_wait", "pressure_refuses",
+           "process_table",
            "reserve", "role", "session_id", "snapshot"]
 
 #: the ledger directory (default: :func:`ledger_dir`'s per-user path)
@@ -668,6 +669,12 @@ def _pressure_refuses(snap: Snapshot) -> bool:
     if snap.pressure == "critical":
         return True
     return snap.pressure == "warn" and role() != "app"
+
+
+def pressure_refuses(snap: "Snapshot | None" = None) -> bool:
+    """:func:`admits`' pressure rule alone: does the kernel's pressure now
+    stop this session's role starting work?"""
+    return _pressure_refuses(snapshot() if snap is None else snap)
 
 
 def _idle_may_run(snap: Snapshot) -> bool:

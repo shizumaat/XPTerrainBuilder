@@ -1127,7 +1127,15 @@ def _main(argv: list[str] | None = None) -> int:
     t.add_argument("--json", default="", help="write the census here")
     t.set_defaults(fn=cmd_touch)
     args = ap.parse_args(argv)
-    return args.fn(args)
+    if args.cmd not in ("order", "plan"):
+        return args.fn(args)               # disk / touch: light reads
+    # owner 2026-11-25: a heavy replay takes its memory on the machine
+    # ledger first (O4_Machine_Jobs), released at exit however it exits
+    import O4_Machine_Jobs as JOBS
+    icao = (args.icao if args.cmd == "order" else
+            os.path.splitext(os.path.basename(args.plan))[0].rsplit("_", 1)[-1])
+    with JOBS.admit("rebake", icao):
+        return args.fn(args)
 
 
 if __name__ == "__main__":

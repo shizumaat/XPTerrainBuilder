@@ -3573,6 +3573,29 @@ def main() -> int:
         ap.error("--null-change [N >= 1] twins a full --replay PKL solve: not with "
                  "--late-from (the last stage alone), a dry read (--pad-read, "
                  "--rim-diagnostics, --stage1-dump) or any other mode")
+    # owner 2026-11-25: the job takes its memory on the machine ledger
+    # before it loads anything (O4_Machine_Jobs; one line a minute while
+    # it waits, released at exit however it exits).
+    import O4_Machine_Jobs as _jobs
+    with _jobs.admit(*_job_of(a)):
+        return _dispatch(a, ap)
+
+
+def _job_of(a) -> tuple[str, str]:
+    """``(kind, airport)`` of this run for the machine gate: a capture, or
+    a replay of a pickle (the airport is its file name's stem)."""
+    if a.capture:
+        return "capture", a.capture
+    if a.replay_cache:
+        return "replay", a.replay_cache
+    src = a.replay or a.why_from or a.bank_from or a.rederive_from or a.reclassify
+    stem = Path(src).stem.split("_")[0].split(".")[0] if src else ""
+    return "replay", stem
+
+
+def _dispatch(a, ap) -> int:
+    """``main``'s run, once its arguments are checked and the machine
+    admitted it."""
     if a.rederive_from:
         from replay_rederive import rederive
         return rederive(a.rederive_from, {k.strip(): _design_value(v) for k, v in

@@ -77,6 +77,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
         "only",
     "O4_MEMORY_LABEL":
         "the words the memory-wait logs name a session by — logs only",
+    "O4_JOB_PEAKS_PATH":
+        "where a lane job's measured memory peaks are kept (O4_Machine_Jobs, "
+        "owner 2026-11-25) — scheduling only",
     "O4_MEMORY_STEP_RESERVED":
         "a parallel run's worker: its parent reserved the step's memory — "
         "scheduling only",

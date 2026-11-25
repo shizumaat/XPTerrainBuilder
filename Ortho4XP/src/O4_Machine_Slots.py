@@ -112,7 +112,7 @@ __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "release_os_lock", "retake_step", "try_os_lock",
            "background_priority", "lower_priority", "machine_verdict",
            "COMMAND_NICE", "ENV_BUILD_WORKER", "NICE",
-           "memory_admits", "net_class", "note_memory_wait",
+           "memory_admits", "memory_pressed", "net_class", "note_memory_wait",
            "hold_net_for_flight", "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
@@ -187,6 +187,17 @@ def memory_admits(budget: dict = BUDGET, need_gb: "float | None" = None) -> bool
     """THE LIVE GATE: may one more heavy process of ``need_gb`` (default:
     one worker's estimate) start now?  :func:`machine_verdict`'s answer."""
     return machine_verdict(need_gb, budget=budget).ok
+
+
+def memory_pressed() -> bool:
+    """Does the kernel's memory pressure stop THIS session starting work
+    now (``O4_Machine_Memory``: lanes and command-line runs at ``warn``,
+    every session at ``critical``)?  A pool reading it gives back its
+    workers as their tasks end (owner 2026-11-25T18:12Z: "scale back if
+    other apps start").  Never in a session that set :data:`ENV_UNGATED`."""
+    if os.environ.get(ENV_UNGATED):
+        return False
+    return _MEM.pressure_refuses()
 
 
 def machine_verdict(need_gb: "float | None" = None, *, idle: bool = False,

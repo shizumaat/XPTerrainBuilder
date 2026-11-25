@@ -5010,12 +5010,9 @@ def claim_lane_memory(root) -> None:
     pools reserve their memory there with every other build on the
     machine — app, other lanes, command-line runs — wait while that
     memory is spoken for, and yield to the app's builds and X-Plane.  The
-    logs name it by its worktree."""
-    import O4_Machine_Memory as MEMORY
-    parts = Path(root).resolve().parts
-    name = (parts[parts.index("worktrees") + 1]
-            if "worktrees" in parts[:-1] else Path(root).resolve().parent.name)
-    MEMORY.claim("lane", "lane %s" % name)
+    logs name it by its worktree (``O4_Machine_Jobs.claim_lane``)."""
+    import O4_Machine_Jobs as JOBS
+    JOBS.claim_lane(root)
 
 
 def main(argv=None) -> int:
@@ -5859,11 +5856,17 @@ def main(argv=None) -> int:
             # THE ONE AIRPORT PATH (v1 retired, RULINGS 2026-09-13au):
             # ``build_patch`` — the v1 twin — is unreachable from here
             # until the stage-B deletion.
-            result = build_patch_v2(args.icao, root, out_dir, tag, prog,
-                                    allow_no_sidecar=args.allow_no_sidecar,
-                                    write_guard=guard,
-                                    allow_degraded=args.allow_degraded_dem,
-                                    rebake_plan=not args.no_rebake_plan)
+            # The solve runs in THIS process, outside any slot: it takes
+            # its memory on the machine ledger first (O4_Machine_Jobs);
+            # the wall clock starts once it is admitted.
+            import O4_Machine_Jobs as JOBS
+            with JOBS.admit("airport", args.icao):
+                t0 = time.time()
+                result = build_patch_v2(args.icao, root, out_dir, tag, prog,
+                                        allow_no_sidecar=args.allow_no_sidecar,
+                                        write_guard=guard,
+                                        allow_degraded=args.allow_degraded_dem,
+                                        rebake_plan=not args.no_rebake_plan)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died

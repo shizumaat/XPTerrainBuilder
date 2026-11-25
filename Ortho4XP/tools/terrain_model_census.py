@@ -357,6 +357,10 @@ def main(argv=None) -> int:
     ap.add_argument("--dsftool", default=os.path.join(HERE, "..", "Utils", "mac", "DSFTool"))
     ap.add_argument("--json")
     a = ap.parse_args(argv)
+    # owner 2026-11-25: the census takes its memory on the machine ledger
+    # before it loads anything (O4_Machine_Jobs; released at exit)
+    import O4_Machine_Jobs as _jobs
+    _jobs.admit_process("terrain_model_census")
     report = [census(p, a.elevation_root, a.dsftool) for p in a.packs]
     for r in report:
         print(f"== {r['pack']}: gates {r['gates']}")

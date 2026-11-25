@@ -2708,6 +2708,10 @@ def main(argv=None) -> int:
                          f"{DEFAULT_CENSUS_CACHE_DIR} or ${CENSUS_CACHE_DIR_ENV}) "
                          f"and then census normally")
     args = ap.parse_args(argv)
+    # owner 2026-11-25: the census takes its memory on the machine ledger
+    # before it loads anything (O4_Machine_Jobs; released at exit)
+    import O4_Machine_Jobs as _jobs
+    _jobs.admit_process("census")
 
     band_edges = (parse_band_edges(args.magnitude_bands)
                   if args.magnitude_bands is not None else None)

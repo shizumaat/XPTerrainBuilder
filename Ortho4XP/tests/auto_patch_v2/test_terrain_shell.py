@@ -55,9 +55,14 @@ def test_a_soft_photo_textured_rock_is_a_small_shell(tmp_path):
 
 
 def test_a_hard_an_atlas_or_a_flat_object_is_not(tmp_path):
-    assert TM.shape_of(_write(tmp_path, "hard.obj", hard=True)) is None
-    assert TM.shape_of(_write(tmp_path, "atlas.obj", uv="atlas")) is None
+    assert TSH.small_shape(_write(tmp_path, "hard.obj", hard=True),
+                           parse_obj8(str(tmp_path / "hard.obj"))) is None
+    assert TSH.small_shape(_write(tmp_path, "atlas.obj", uv="atlas"),
+                           parse_obj8(str(tmp_path / "atlas.obj"))) is None
     assert TM.shape_of(_write(tmp_path, "kerb.obj", lambda x, z: 0.5)) is None
+    # RULINGS 2026-11-25j: the hard or atlas-textured hill is no shell but
+    # a ROCK (``terrain_rock``, test_terrain_rock)
+    assert TM.shape_of(str(tmp_path / "hard.obj")).rock
 
 
 def test_a_terrace_is_not_one_steep_piece(tmp_path):

@@ -94,6 +94,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.exclusion",
     "auto_patch_v2.airport.facade",
     "auto_patch_v2.airport.file_hash",
+    "auto_patch_v2.airport.file_verdict",
     "auto_patch_v2.airport.floor_rim",
     "auto_patch_v2.airport.footprint_carry",
     "auto_patch_v2.airport.footprint_connector",

@@ -54,15 +54,14 @@ through the streets.
 from __future__ import annotations
 
 import dataclasses as _dc
-import functools
 import math
-import os
 import typing as _t
 
 import numpy as np
 
 from ..geom.terrain_deck import CELL_M
 from . import terrain_model as _tm
+from .file_verdict import FileVerdict
 
 __all__ = ["MIN_SHARE", "MIN_RELIEF_M", "MIN_SKIN", "SKIN_BAND_M", "MAX_FLOOR_SHARE",
            "MIN_STEEP", "STEEP_GRADIENT", "WALL_NY", "SKIRT_M", "CLOSE_M",
@@ -125,22 +124,21 @@ def _cheap(g: _t.Any) -> bool:
             and float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2]))) >= _tm.MIN_PLAN_M)
 
 
-@functools.lru_cache(maxsize=256)
-def _file_shape(path: str, _mtime_ns: int, _size: int) -> "_tm.Shape | None":
-    from .obj8 import parse_obj8
-    try:
-        g = parse_obj8(path)
-        if not _cheap(g):
-            return None
-        grid = _tm._grid(g)
-        m = None if grid is None else _measures(grid)
-        if m is None or not _passes(m):
-            return None
-        tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
-        return _tm.Shape(grid, m["extent_m"], m["relief_m"], 0.0,
-                         _tm.post_m(g.vertices, tris))
-    except (OSError, ValueError):
+def _file_shape(path: str, g: _t.Any) -> "_tm.Shape | None":
+    """The candidate test on one file version (module doc), on its parse."""
+    if not _cheap(g):
         return None
+    grid = _tm._grid(g)
+    m = None if grid is None else _measures(grid)
+    if m is None or not _passes(m):
+        return None
+    tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
+    return _tm.Shape(grid, m["extent_m"], m["relief_m"], 0.0,
+                     _tm.post_m(g.vertices, tris))
+
+
+#: one candidate verdict per file version, off the caller's parse (#2206)
+_SHAPES = FileVerdict(_file_shape)
 
 
 def shape_of(path: str, geometry: _t.Any = None) -> "_tm.Shape | None":
@@ -149,11 +147,7 @@ def shape_of(path: str, geometry: _t.Any = None) -> "_tm.Shape | None":
     cheap gates without a second parse."""
     if geometry is not None and not _cheap(geometry):
         return None
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return _file_shape(path, st.st_mtime_ns, st.st_size)
+    return _SHAPES(path, geometry)
 
 
 def placement_skins(placements: _t.Sequence[tuple],

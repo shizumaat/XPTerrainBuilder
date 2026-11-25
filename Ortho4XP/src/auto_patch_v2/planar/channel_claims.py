@@ -308,7 +308,8 @@ def in_any_corridor(channels: _t.Sequence[Channel], geom) -> str:
 # and because this module already owns :func:`add_channel_cells`, its one
 # caller inside ``src``.
 
-def channel_cells(channels: _t.Sequence[Channel], law: Law
+def channel_cells(channels: _t.Sequence[Channel], law: Law,
+                  buildings: _t.Sequence[Polygon] = ()
                   ) -> tuple[list[tuple[str, str, Polygon, str]], list[Polygon]]:
     """``([(role, ref, polygon, channel id)…], [the knives])`` — the floor
     and the void, and what the corridor CUTS.
@@ -319,7 +320,14 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
     airside faces.  Emittable in a heightfield: at every (x, y) exactly
     one of floor / bank / deck, because the deck rings are subtracted from
     both the floor and the void and the void is the crest ring less the
-    floor."""
+    floor.
+
+    A BUILDING IS NEVER THE CHANNEL'S (#2266): ``buildings`` -- the map's
+    building footprints, which the structure knife never cuts -- stand
+    out of the corridor exactly as a deck does: the floor stands the
+    wall band back from each and the bank stops at its outline, so the
+    building's rim meets the crest (the governed ground's own value,
+    ``constraints/channel``) and never carries the floor's pin."""
     out: list[tuple[str, str, Polygon, str]] = []
     knives: list[Polygon] = []
     for c in channels:
@@ -328,6 +336,7 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
         if floor is None or outer is None:
             continue
         decks = [_poly(d.ring) for d in c.decks]
+        decks += [b for b in buildings if b.intersects(outer)]
         du = unary_union([d for d in decks if d is not None]) if decks else None
         if du is not None and not du.is_empty:
             # §45 (17): the floor stands the WALL BAND back from the deck
@@ -371,7 +380,8 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
 
 
 def add_channel_cells(channels: _t.Sequence[Channel], law: Law, new_cells: list,
-                      footprints: list, keepouts: list, stats) -> int:
+                      footprints: list, keepouts: list, stats,
+                      buildings: _t.Sequence[Polygon] = ()) -> int:
     """§45 (8): put each channel's FLOOR and BANK into the pending cells
     and its corridor into the knives and the keep-outs, and return how
     many faces it added.
@@ -383,7 +393,7 @@ def add_channel_cells(channels: _t.Sequence[Channel], law: Law, new_cells: list,
     channel and none of its law."""
     if not channels:
         return 0
-    cells, knives = channel_cells(channels, law)
+    cells, knives = channel_cells(channels, law, buildings)
     if not cells:
         return 0
     new_cells.extend(cells)

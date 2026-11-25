@@ -830,6 +830,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_ramp",
         "auto_patch_v2.planar.channel_stretch",
         "auto_patch_v2.planar.channel_strip",
+        "auto_patch_v2.planar.channel_building",
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_bores",
@@ -2846,7 +2847,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.build planar.channel
     planar.pinned_span
     planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
-    planar.channel_strip
+    planar.channel_strip planar.channel_building
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     geom.station_runs airport.bridge_ground airport.road_bridge_ground
@@ -3075,7 +3076,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.build planar.channel
     planar.pinned_span
     planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
-    planar.channel_strip
+    planar.channel_strip planar.channel_building
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     geom.station_runs airport.bridge_ground airport.road_bridge_ground
@@ -3320,7 +3321,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.wall_mouth geom.ramp_profile law.approach_corridor law.deck_gen_schema
     pipeline.generated_publication planar.bore_continuation planar.cell_knife planar.channel
     planar.channel_depth planar.channel_floor planar.channel_geometry planar.channel_stretch
-    planar.channel_strip planar.channel_witness planar.covered_ground planar.deck_bridge
+    planar.channel_strip planar.channel_building planar.channel_witness
+    planar.covered_ground planar.deck_bridge
     planar.deck_generated planar.deck_route planar.deck_walls geom.wall_lines model.deck_bank
     planar.end_witness
     planar.deck_pack_cover

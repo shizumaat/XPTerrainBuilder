@@ -205,6 +205,10 @@ def test_xplane_arm_draws_the_default_terrain(monkeypatch):
         def terrain_index_at(self, lon, lat):
             return 1 if lat > 38.0 + 300 / k else 0
 
+        def terrain_indices_at(self, lons, lats):
+            return [self.terrain_index_at(lon, lat)
+                    for (lon, lat) in zip(lons, lats, strict=True)]
+
         def is_projected(self, i):
             return True
 

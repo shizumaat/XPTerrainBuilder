@@ -55,6 +55,10 @@ class _CheckerTerrainMap:
         fy = ((lat - self.lat0) / self.step) % 1.0
         return 0 if fx > fy else 1
 
+    def terrain_indices_at(self, lons, lats):
+        return [self.terrain_index_at(lon, lat)
+                for (lon, lat) in zip(lons, lats, strict=True)]
+
     def is_projected(self, terrain_index):
         return True
 

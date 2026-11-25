@@ -39,9 +39,38 @@ class Clock:
         return self.t
 
 
-def _book(n, workers, waiters=lambda: 0):
+def _book(n, workers, waiters=lambda: 0, pressed=lambda: False):
     return PS.SlotBook(SLOTS.try_take(n, what="airport ZZZZ pool"), workers,
-                       "airport ZZZZ pool", waiters=waiters, clock=Clock())
+                       "airport ZZZZ pool", waiters=waiters, pressed=pressed,
+                       clock=Clock())
+
+
+def test_memory_pressure_sheds_to_the_floor_and_takes_none(session):
+    """owner 2026-11-25T18:12Z: another application needs the memory —
+    the pool gives its slots back as tasks end and grows again after."""
+    session(6)
+    felt = [True]
+    book = _book(4, 4, pressed=lambda: felt[0])
+    assert book.fit(busy=4, queued=10) == 0         # running tasks are never stopped
+    assert book.count == 4
+    assert book.fit(busy=3, queued=10) == 0         # one finished: its slot goes back
+    assert book.count == 3
+    assert book.fit(busy=1, queued=10) == 1         # the floor: half its workers
+    assert book.count == 2
+    assert book.fit(busy=0, queued=10) == 2         # pressed: nothing is taken
+    assert book.count == 2
+    felt[0] = False                                 # the application is done
+    assert book.fit(busy=0, queued=10) == 4
+    assert book.count == 4
+    book.release()
+
+
+def test_an_ungated_session_feels_no_pressure(monkeypatch):
+    monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
+    monkeypatch.setattr(SLOTS._MEM, "pressure_refuses", lambda: True)
+    assert SLOTS.memory_pressed() is False
+    monkeypatch.delenv(SLOTS.ENV_UNGATED)
+    assert SLOTS.memory_pressed() is True
 
 
 def test_the_floor_is_half_the_workers_and_never_none():

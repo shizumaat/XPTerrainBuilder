@@ -18,6 +18,11 @@ given back is a core given back, never an oversubscribed one.  The
   a slot (``O4_Machine_Slots.slot_waiters``) the pool gives back one slot
   per waiter as its tasks finish, down to :func:`yield_floor` (half its
   workers): a pool is never starved by the steps it yields to;
+* **pressure sheds** — while the machine's memory pressure stops this
+  session starting work (``O4_Machine_Slots.memory_pressed``: another
+  application needs the memory) the pool gives back its slots as its
+  tasks finish, down to :func:`yield_floor`, and takes none (owner
+  2026-11-25T18:12Z: "scale back if other apps start");
 * **slots come back** — with queued tasks and no waiter the pool takes
   free slots again, never waiting and never above its worker count;
 * **the build's own slot** — while the build's process only waits in a
@@ -52,13 +57,16 @@ class SlotBook:
 
     def __init__(self, held: "_slots.Held", workers: int, label: str = "",
                  waiters: _t.Callable[[], int] | None = None,
+                 pressed: _t.Callable[[], bool] | None = None,
                  clock: _t.Callable[[], float] = time.monotonic) -> None:
         self._grants = [held]
         self.workers = max(1, int(workers))
         self.label = label
         self.per_gb = held.gb if held.gb > 0.0 else None
         self._waiters_of, self._clock = waiters, clock
+        self._pressed_of = pressed
         self._seen = (-1.0, 0)                 # (when, waiters) last read
+        self._felt = (-1.0, False)             # (when, pressed) last read
         self._next_take = 0.0
         #: slots given back to waiters, and idle slots given back
         self.yielded = 0
@@ -76,6 +84,14 @@ class SlotBook:
             self._seen = (now, int(read()))
         return self._seen[1]
 
+    def pressed(self) -> bool:
+        """The machine's memory pressure, read at most every :data:`LOOK_S`."""
+        now = self._clock()
+        if now - self._felt[0] >= LOOK_S:
+            read = self._pressed_of or _slots.memory_pressed
+            self._felt = (now, bool(read()))
+        return self._felt[1]
+
     def fit(self, busy: int, queued: int) -> int:
         """Hold the slots for ``busy`` running and ``queued`` waiting tasks
         (module doc); how many more tasks may start now."""
@@ -83,10 +99,13 @@ class SlotBook:
         waiting = self.waiters()
         if waiting:
             want = min(want, max(yield_floor(self.workers), self.count - waiting))
+        pressed = self.pressed()
+        if pressed:
+            want = min(want, yield_floor(self.workers))
         held = self.count
         if held > max(want, busy):
             self._shed(held - max(want, busy), yielded=bool(waiting) and queued > 0)
-        elif held < want and self._clock() >= self._next_take:
+        elif held < want and not pressed and self._clock() >= self._next_take:
             got = _slots.try_take(want - held, gb=self.per_gb, what=self.label)
             if got.count:
                 self._grants.append(got)

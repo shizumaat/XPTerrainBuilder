@@ -39,6 +39,11 @@ on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
   a Fable `scout` with `TWO-ROUND-CAP-REVIEW: <issue> <the failed round(s)>`
   to write a new spec (never implements; no per-launch yes); a fresh Opus
   lane runs it; a second miss goes to the owner.
+- LANES ARE RESOURCE-AWARE (owner 2026-11-25T18:11-18:12Z, after a 217 GB
+  swap-out): use all available resources but scale back when other apps
+  need them — heavy jobs (capture/replay/build/census) admit by memory
+  headroom and shed workers under pressure via `O4_Machine_Slots` (lane
+  lmemgate), CPU at dev nice 15; never parallel captures in one lane.
 - HARD RULE 2026-11-06: ≤ 8 running lanes, ≤ 16 worktrees (reuse via
   `lane_worktree.sh up`); never raise `O4_LANE_CAP`. `df -h` ≥ 30 GB before
   a build. Builds share memory machine-wide and yield to the owner's app

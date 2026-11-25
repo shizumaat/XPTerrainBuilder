@@ -51,6 +51,9 @@ STANDING = """\
   overlay, and with them set a build refuses ("pack DSF dump MISSING", #342) — they are
   the pytest suite's mechanism, set by `tests/conftest.py`.
 - Any wait loop is bounded (`timeout N` or `$SECONDS`); prefer foreground.
+- Heavy jobs (capture/replay/build/census/mesh-only, `pytest -n auto`) go through the
+  machine memory gate (`src/O4_Machine_Jobs.py` on the `O4_Machine_Memory` ledger): they
+  WAIT while it says so (one line a minute) — never bypass it, never run two at once.
 - Suite from `Ortho4XP/` twice: `venv/bin/python -m pytest -q --no-header -p no:cacheprovider -rfE tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py tests/test_auto_patch_freshness.py`.
 - Attempt cap two per rule; a bar that moves backwards twice → delete the code, report the measurement.
 - Consumer census (RULINGS 2026-08-30l) in the spec MEASURED block before any consumer is edited.

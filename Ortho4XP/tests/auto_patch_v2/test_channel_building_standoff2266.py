@@ -10,15 +10,20 @@ outline.
 """
 from __future__ import annotations
 
-from shapely.geometry import Polygon
-
+import pytest
 from auto_patch_v2.classify.roles import Cell, Classification
+from auto_patch_v2.law import Law
 from auto_patch_v2.planar.channel import identify_channels
 from auto_patch_v2.planar.channel_claims import channel_cells
 from auto_patch_v2.planar.structures import build_structures
+from shapely.geometry import Polygon
+from test_v2channel import _airport, _cells, _pavement_with_corridor, _rect, _road
 
-from test_v2channel import (_airport, _cells, _pavement_with_corridor, _rect,  # noqa: F401
-                            _road, law)
+
+@pytest.fixture(scope="module")
+def law():
+    return Law.for_airport("ZZZZ")
+
 
 #: a building standing on the corridor floor between the two necks
 _BUILDING = _rect(-4.0, 40.0, 60.0, 90.0)

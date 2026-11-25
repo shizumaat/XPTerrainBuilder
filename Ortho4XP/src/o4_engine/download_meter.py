@@ -12,9 +12,11 @@ Two signals, both fed by the actual downloaders:
   build priced at that rate read 37 h instead of 44 min (HAAB flight,
   2026-11-12T22:11Z).
 * A registry of ACTIVE known-size downloads (foreground extract
-  acquisitions register here).  ``active_remaining_seconds`` prices
-  their unmoved bytes at the measured throughput, so the ETA can quote
-  download time from measurement instead of treating downloads as free.
+  acquisitions register here, the leader's and a joiner's alike).
+  ``active_remaining_seconds`` prices their unmoved bytes at the
+  measured throughput, so the ETA quotes download time from bytes done
+  and measured rate while the step waits on it (``downloading``, #2218)
+  instead of treating downloads as free or stretching with the wait.
 
 And one record for the stuck-step alert (#1351, :mod:`o4_engine.
 slow_step`): the ACTIVITY of this process's transfers -- how many are in
@@ -252,6 +254,14 @@ def watch_transfers() -> bool:
     HTTPResponse.read = metered_read
     HTTPResponse.read_chunked = metered_read_chunked
     return True
+
+
+def downloading() -> bool:
+    """Is a registered known-size download running?  It blocks a build
+    step (only foreground acquisitions register), even before the first
+    throughput sample can price it (#2218)."""
+    with _lock:
+        return bool(_active)
 
 
 def active_remaining_seconds() -> Optional[float]:

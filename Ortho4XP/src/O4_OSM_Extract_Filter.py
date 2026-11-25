@@ -319,6 +319,14 @@ def _normalize_bounding_boxes(bounding_box) -> List[_BoundingBox]:
     return [tuple(float(value) for value in boxes)]
 
 
+def _tag_pairs(tags: "osmium.osm.TagList") -> List[Tuple[str, str]]:
+    """``[(key, value), ...]`` of an element's tags, in order.  An empty
+    list is never iterated (#2206): iterating a pyosmium ``TagList`` costs
+    tens of microseconds even when empty, and most closure nodes carry no
+    tag (a water layer's 780k nodes: ~50 s of the node pass)."""
+    return [(t.k, t.v) for t in tags] if len(tags) else []
+
+
 def _tags_match(tags: "osmium.osm.TagList", matchers: List[_Matcher]) -> bool:
     """True when any matcher's key is present (and its value equals, when
     the matcher carries one).  The ``("*", None)`` matcher matches every
@@ -395,7 +403,7 @@ class _SelectionHandler(osmium.SimpleHandler):
         if not (touches and _tags_match(r.tags, self._matchers["relation"])):
             return
         members = [(m.type, m.ref, m.role) for m in r.members]
-        tags = [(t.k, t.v) for t in r.tags]
+        tags = _tag_pairs(r.tags)
         self.selected_rels[r.id] = (members, tags)
         # Downward closure of the relation: its member ways and member nodes.
         self.needed_way_ids.update(way_member_refs)
@@ -416,7 +424,7 @@ class _WayGatherHandler(osmium.SimpleHandler):
         if w.id not in self._needed_way_ids:
             return
         refs = [nd.ref for nd in w.nodes]
-        tags = [(t.k, t.v) for t in w.tags]
+        tags = _tag_pairs(w.tags)
         self.ways[w.id] = (refs, tags)
         self._needed_node_ids.update(refs)
 
@@ -433,7 +441,7 @@ class _NodeGatherHandler(osmium.SimpleHandler):
         if n.id not in self._needed_node_ids:
             return
         loc = n.location
-        tags = [(t.k, t.v) for t in n.tags]
+        tags = _tag_pairs(n.tags)
         self.nodes[n.id] = (loc.lat, loc.lon, tags)
 
 
@@ -450,7 +458,7 @@ def _gather_ways_prefiltered(path, needed_way_ids, needed_node_ids):
     )
     for w in processor:
         refs = [nd.ref for nd in w.nodes]
-        ways[w.id] = (refs, [(t.k, t.v) for t in w.tags])
+        ways[w.id] = (refs, _tag_pairs(w.tags))
         needed_node_ids.update(refs)
     return ways
 
@@ -467,7 +475,7 @@ def _gather_nodes_prefiltered(path, needed_node_ids):
     )
     for n in processor:
         location = n.location
-        nodes[n.id] = (location.lat, location.lon, [(t.k, t.v) for t in n.tags])
+        nodes[n.id] = (location.lat, location.lon, _tag_pairs(n.tags))
     return nodes
 
 
@@ -525,7 +533,7 @@ def _tag_candidates(path, matchers):
             path, osmium.osm.WAY | osmium.osm.RELATION,
             {"node": [], "way": matchers["way"],
              "relation": matchers["relation"]}):
-        tags = [(t.k, t.v) for t in obj.tags]
+        tags = _tag_pairs(obj.tags)
         if kind == "way":
             candidate_ways[obj.id] = ([nd.ref for nd in obj.nodes], tags)
         else:
@@ -576,7 +584,7 @@ def _select_by_tags(path, matchers, bounding_boxes):
         location = obj.location
         if _in_any_box(location.lat, location.lon, bounding_boxes):
             nodes[obj.id] = (location.lat, location.lon,
-                             [(t.k, t.v) for t in obj.tags])
+                             _tag_pairs(obj.tags))
             selected_node_ids.add(obj.id)
     return _close_selection(nodes, selected_node_ids, candidate_ways,
                             candidate_rels, member_ways, bounding_boxes)

@@ -1107,3 +1107,21 @@ def test_tag_driven_selection_drops_ways_with_absent_nodes(tmp_path,
     assert tag_driven == FILTER.filter_extracts_to_osm_xml(
         [source], ['way["natural"="water"]'], BBOX)
     assert _parse_ids(tag_driven)[1] == [11]
+
+
+def test_tag_pairs_never_iterates_an_empty_tag_list():
+    """#2206: an empty tag list is answered by its length alone."""
+    class _Empty:
+        def __len__(self):
+            return 0
+
+        def __iter__(self):
+            raise AssertionError("iterated")
+
+    class _Tag:
+        def __init__(self, k, v):
+            self.k, self.v = k, v
+
+    assert FILTER._tag_pairs(_Empty()) == []
+    assert FILTER._tag_pairs([_Tag("natural", "water"), _Tag("name", "x")]) == \
+        [("natural", "water"), ("name", "x")]

@@ -69,7 +69,8 @@ import numpy as np
 from ..geom.terrain_deck import UNDER_M
 
 __all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "QUAY_M", "DRY_M", "Raster",
-           "posting_shoulder_m", "rim_fill", "conform_plane", "quay_rings", "Owned"]
+           "posting_shoulder_m", "rim_fill", "rim_tuck", "conform_plane", "quay_rings",
+           "Owned"]
 
 #: the reach of a fill or a plane from its supports (m)
 REACH_M = 60.0
@@ -288,6 +289,81 @@ def rim_fill(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
     after = raster.sample(*to_ll(sxy[:, 0], sxy[:, 1]))
     rep["unserved"] = int(np.sum(~(after >= sz + UNDER_M - SERVED_M)))
     return rep
+
+
+def rim_tuck(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
+             support_xy: np.ndarray, support_bot: np.ndarray, support_top: np.ndarray,
+             cap: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
+             owned: _t.Iterable[Owned] = ()) -> dict[str, int]:
+    """THE RIM TUCK (#2272, owner decision 2026-11-24T15:33Z (3): a small
+    terrain shell seated at its author's height has "our ground tucked
+    under" it), for a record whose ``cut`` carries ``"tuck": true`` in
+    place of its :func:`rim_fill`.  SUPPORTS: every outer-rim cell, its
+    bottom and its TOP less ``UNDER_M``.  Each free posting within
+    :data:`REACH_M` of the rim is CONFORMED TO ITS NEAREST support ``k`` at
+    distance ``d``: clipped to
+
+        [bot_k - r, top_k + r],   r = max(0, d - W)
+
+    -- raised to the skirt where the rim floats, lowered to the top where a
+    coarse DEM's ground buries it, the shoulder then a 1:1 talus to our
+    ground.  The NEAREST support, not every one in reach: a shell's rim
+    spans a cliff (its crest 40 m over its foot 60 m away), and a fill from
+    the crest buries the foot while a tuck from the foot strands the crest.
+    NEVER FLOATING: a posting within one posting step of the rim is never
+    left under the highest rim bottom that near (a shell is one surface,
+    bottom = top): a zero-thickness edge the ground dips under shows the
+    void beneath it, while ground a step over a cliff foot's edge hides it.
+    #2272 replay (TFFJ, 16 shells, 3,627 rim cells, 10 m postings): rim
+    cells over 0.5 m above the ground between postings 136 with the rim
+    fill, 1,075 with the nearest edge alone, 139 with this floor; the
+    ground over the rim, mean 4.61 m (fill) -> 2.22 m (p95 12.8 -> 7.4).
+    Inside the plan never above the cut bound (``cap``); never within
+    ``W`` of another composite's ground (``owned``), never at a frozen
+    posting (the tile's edge, an airport patch: airside is king).
+    ``{"supports", "raised", "lowered"}``."""
+    from scipy.spatial import cKDTree
+    rep = {"supports": int(len(support_xy)), "raised": 0, "lowered": 0}
+    if not len(support_xy):
+        return rep
+    sxy = np.asarray(support_xy, float)
+    bot, top = np.asarray(support_bot, float), np.asarray(support_top, float)
+    w = raster.shoulder_m()
+    lo, la = to_ll(np.r_[sxy[:, 0].min() - REACH_M, sxy[:, 0].max() + REACH_M],
+                   np.r_[sxy[:, 1].min() - REACH_M, sxy[:, 1].max() + REACH_M])
+    rows, cols, lons, lats = raster.window(float(lo.min()), float(la.min()),
+                                           float(lo.max()), float(la.max()))
+    if not len(rows):
+        return rep
+    x, y = to_xy(lons, lats)
+    d, k = cKDTree(sxy).query(np.c_[x, y], distance_upper_bound=REACH_M)
+    near = np.isfinite(d) & ~_owned_mask(owned, to_xy, x, y, w)
+    if not near.any():
+        return rep
+    rows, cols, lons, lats = rows[near], cols[near], lons[near], lats[near]
+    r = np.maximum(0.0, d[near] - w)
+    low = np.maximum(bot[k[near]] - r, _skirt_floor(sxy, bot, np.c_[x[near], y[near]],
+                                                    max(raster.posting_m())))
+    hi = np.minimum(np.maximum(top[k[near]] + r, low), cap(lons, lats))
+    low = np.minimum(low, hi)
+    old = raster.alt[rows, cols].astype(float)
+    new = np.clip(old, low, hi)
+    up, down = new > old + 1e-6, new < old - 1e-6
+    raster.alt[rows[up | down], cols[up | down]] = new[up | down]
+    rep["raised"], rep["lowered"] = int(up.sum()), int(down.sum())
+    return rep
+
+
+def _skirt_floor(sxy: np.ndarray, bot: np.ndarray, xy: np.ndarray, step: float) -> np.ndarray:
+    """Per posting at ``xy``: the highest rim bottom within ``step`` (one
+    posting step; ``-inf`` with none) -- :func:`rim_tuck`'s NEVER FLOATING
+    floor."""
+    from scipy.spatial import cKDTree
+    out = np.full(len(xy), -np.inf)
+    for i, ks in enumerate(cKDTree(sxy).query_ball_point(xy, step)):
+        if ks:
+            out[i] = float(bot[ks].max())
+    return out
 
 
 def quay_rings(rings_ll: _t.Sequence, to_xy: _t.Callable, to_ll: _t.Callable,

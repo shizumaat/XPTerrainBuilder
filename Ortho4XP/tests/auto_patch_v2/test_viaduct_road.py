@@ -219,3 +219,59 @@ def test_a_run_in_a_level_seeds_passage_yields_to_the_object(law):
     groups, _n, refused = viaduct_road_groups(_Field(_ways()), law, cells, polys, (far,))
     assert len(groups) == 2 and not refused
     assert passage_roads(_Field(_ways()), law, (far,)) == {}
+
+
+def _runs_as_it_stood(roads, deck, inside, law):
+    """``viaduct_road._runs`` before #2206 step 4: every road built and
+    tested against the route's buffer, per road."""
+    from auto_patch_v2.planar import viaduct_road as VR
+    from shapely.geometry import LineString, Point
+    from shapely.ops import substring
+    tn = law.tables.structures.tunnel
+    used: set[int] = set()
+    found: list = []
+    nb = VR._graph(roads)
+    for w in sorted(roads, key=lambda r: -LineString(r.points).length):
+        if id(w) in used or not LineString(w.points).intersects(deck):
+            continue
+        route = VR._route(w, nb, law)
+        on = [r for r in roads if LineString(r.points).within(route.buffer(0.05))]
+        used.update(id(r) for r in on)
+        half_w = max([VR.carriageway_width_m(r.tags, law) for r in on]
+                     or [VR.carriageway_width_m(w.tags, law)]) / 2.0
+        ids = "+".join(str(r.id) for r in on[:4]) + ("+…" if len(on) > 4 else "")
+        for s0, s1 in VR.covered_runs(route, deck.buffer(half_w), inside, tn.viaduct_min_run_m):
+            found.append([route, s0, s1, half_w, ids, substring(route, s0, s1)])
+    found.sort(key=lambda f: -(f[2] - f[1]))
+    kept: list = []
+    for f in found:
+        host = next((h for h in kept if f[5].within(h[5].buffer(
+            tn.dual_carriageway_max_separation_m))), None)
+        if host is None:
+            kept.append(f)
+            continue
+        host[3] = max(host[3], max(host[5].distance(Point(p)) for p in f[5].coords) + f[3])
+        host[4] += f" (dual {f[4]})"
+    return [tuple(f[:5]) for f in kept]
+
+
+def test_the_runs_preselect_their_roads_by_box_and_answer_as_before(law):
+    # #2206 step 4: a route asks only the roads its buffer's box meets
+    import random
+
+    from auto_patch_v2.planar import viaduct_road as VR
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    rnd = random.Random(2206)
+    roads = []
+    for i in range(40):                    # a lattice of chained road pieces
+        y = float(rnd.choice((-30, 0, 0, 8, 40)))
+        x0 = float(rnd.randrange(-900, 900, 50))
+        roads.append(OsmWay(10 + i, "big_roads", ((x0, y), (x0 + 50.0, y), (x0 + 100.0, y)),
+                            False, {"highway": rnd.choice(("service", "primary"))}))
+    deck = unary_union([LineString(((-150.0, 0.0), (150.0, 0.0))).buffer(12.0),
+                        LineString(((300.0, 40.0), (600.0, 40.0))).buffer(9.0)])
+    inside = Polygon(BOX)
+    got = VR._runs(roads, deck, inside, law)
+    want = _runs_as_it_stood(roads, deck, inside, law)
+    assert got and [(r.wkb, *t) for r, *t in got] == [(r.wkb, *t) for r, *t in want]

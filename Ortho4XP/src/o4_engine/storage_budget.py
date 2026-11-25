@@ -233,5 +233,27 @@ def hold(sweep, now: float,
     over = used - int(budget * DOWNGRADE.LOW_WATER)
     if used <= budget or not figures["budget_set"]:
         return figures
+    sweep.trigger(*_trigger(figures, used, over), now=True)
     PRIORITY.clear(over, sweep, now)
     return figures
+
+
+def _trigger(figures: dict, used: int, over: int) -> "tuple[str, str]":
+    """``(why, detail)`` of a budget pass for ``storage.log`` (#2207):
+    the budget, what is in use, the disk's free space and the target.
+    A budget set above what the disk holds FOLLOWS the disk down
+    (``storage_range.clamp``): then the pass runs because the free space
+    fell under the reserve, and the line says so."""
+    budget = figures["budget_bytes"]
+    free = RANGE._free_bytes(FNAMES.current_data_root())
+    why = ("disk budget (lowered to the disk: free space under the reserve)"
+           if figures.get("clamped") == "followed" else "disk budget")
+    detail = ("used %d bytes over the budget %d bytes (set %d bytes%s); "
+              "free space %s bytes (reserve %d); clearing %d bytes to %d "
+              "bytes (%g %% of the budget)"
+              % (used, budget, figures.get("chosen_bytes") or 0,
+                 ", " + figures["clamped"] if figures.get("clamped") else "",
+                 "unknown" if free is None else "%d" % free,
+                 RANGE.RESERVE_BYTES, over, used - over,
+                 100 * figures["low_water"]))
+    return why, detail

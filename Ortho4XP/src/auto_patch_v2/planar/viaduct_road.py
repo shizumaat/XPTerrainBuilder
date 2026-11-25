@@ -40,6 +40,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Point
 from shapely.ops import substring, unary_union
+from shapely.strtree import STRtree
 
 from ..airport.dem import dem_z_at
 from ..law import Law
@@ -431,11 +432,17 @@ def _runs(roads, deck, inside, law: Law) -> list[tuple]:
     used: set[int] = set()
     found: list[tuple] = []
     nb = _graph(roads)
+    # #2206 step 4: each road's line built once, and a route asks only the
+    # roads its buffer's box meets (``within`` implies it), in road order
+    lines = [LineString(r.points) for r in roads]
+    tree = STRtree(lines)
     for w in sorted(roads, key=lambda r: -LineString(r.points).length):
         if id(w) in used or not LineString(w.points).intersects(deck):
             continue
         route = _route(w, nb, law)
-        on = [r for r in roads if LineString(r.points).within(route.buffer(0.05))]
+        zone = route.buffer(0.05)
+        on = [roads[i] for i in sorted(int(j) for j in tree.query(zone))
+              if lines[i].within(zone)]
         used.update(id(r) for r in on)
         half_w = max([carriageway_width_m(r.tags, law) for r in on]
                      or [carriageway_width_m(w.tags, law)]) / 2.0

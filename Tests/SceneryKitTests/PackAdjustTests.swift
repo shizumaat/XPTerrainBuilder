@@ -155,4 +155,28 @@ struct PackAdjustTests {
         }
         #expect(a.asks)
     }
+
+    /// #2272: the terrain row in Adjust… lists every terrain object the
+    /// last build recognised, each ticked when the row hides it.
+    @Test func terrainRowListsItsObjects() {
+        let event: [String: Any] = [
+            "event": "PackAdjust", "state": "adjust", "pack": "TFFJ", "pack_root": "/P",
+            "items": [["key": "terrain", "count": 1, "uses": 1, "automatic": false,
+                       "checked": true, "rebuild": true,
+                       "objects": [["path": "Ortho/Cliffs.obj", "hideable": false, "hidden": true],
+                                   ["path": "Ortho/RocksE.obj", "hideable": false,
+                                    "hidden": false]]]]]
+        guard case .packAdjust(let a)? = O4Event.parse(object: event) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(a.asks)
+        let objects = a.choices[0].objects
+        #expect(objects.map(\.name) == ["Cliffs.obj", "RocksE.obj"])
+        #expect(objects.map(\.hidden) == [true, false])
+        #expect(objects[1].detail == "It models detail the tile’s elevation data lacks: "
+                + "kept unless you hide it.")
+        #expect(O4PackTerrainObject(path: "a/b.obj", hideable: true, hidden: true).detail
+                == "The tile’s detailed elevation matches it: hidden unless you keep it.")
+    }
 }

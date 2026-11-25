@@ -50,6 +50,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_PARENT_PROCESS_ID":
         "the pid the parent-death watchdog probes (the app's, or the "
         "parallel orchestrator's) — new on every launch",
+    "O4_DEV_NICE":
+        "the dev venv's CPU priority for the process (nice 15 by default, "
+        "0 for a timed run): scheduling only, never the patch",
     "O4_PARALLEL_BUILD_SIBLINGS":
         "how many tiles build at once; read by network fetchers to share "
         "the machine",

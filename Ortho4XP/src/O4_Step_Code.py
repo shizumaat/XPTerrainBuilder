@@ -885,6 +885,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.pipeline.capture_state",
     "auto_patch_v2.pipeline.car_lot_stage",
     "auto_patch_v2.pipeline.constraint_records",
+    "auto_patch_v2.pipeline.kerb_publication",
     "auto_patch_v2.pipeline.registry_writes",
     "auto_patch_v2.pipeline.derive_ahead",
     "auto_patch_v2.pipeline.emit_records",

@@ -3805,9 +3805,13 @@ CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.p
 # its block (planar/kerb_frontage) and its rows / wall exempt
 for _stage in ("planar", "solve", "late_cut", "late_solve"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("planar.kerb_frontage")}))
-for _stage in ("shapes", "constraints.assembly", "late_cut", "late_solve"):
+for _stage in ("shapes", "constraints.assembly", "late_cut", "late_solve", "emit", "verify"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
                                          *_mods("constraints.kerb_frontage")}))
+# the wall the kerb meets, declared on the sidecar (pipeline/kerb_publication)
+for _stage in ("emit", "verify"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                         *_mods("pipeline.kerb_publication")}))
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

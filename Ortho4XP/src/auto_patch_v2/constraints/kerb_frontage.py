@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import typing as _t
 
+import numpy as np
 import shapely
 from shapely import points
 from shapely.ops import unary_union
@@ -49,7 +50,7 @@ from ..model.planar import PlanarMap
 from ..model.registries import LANDSIDE_KERB
 
 __all__ = ["GEN", "RULING", "STATS", "kerb_frontage_rows", "kerb_vertices",
-           "kerb_wall_exempt"]
+           "kerb_wall_exempt", "wall_line"]
 
 GEN = "kerb_frontage"
 #: the row's ruling HEAD: in ``[design] pad_flat_rulings`` (§28's senior
@@ -80,6 +81,41 @@ def kerb_vertices(planar: PlanarMap, law: Law
     return out
 
 
+def wall_line(planar: PlanarMap, law: Law):
+    """THE WALL LINE the kerb meets (``pipeline/kerb_publication``): the
+    boundary of the plan grown by the groundside cut-back, joined with the
+    pad and airside faces carrying a wall vertex, kept within the frontage
+    radius of a kerb vertex — or ``None``."""
+    memo = per_map(_MEMO, planar)
+    if "line" in memo:
+        return memo["line"]
+    kerb, wall = kerb_vertices(planar, law)
+    line = None
+    if kerb:
+        reach = float(design_law(law).pad_frontage_m)
+        back = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+        near = unary_union(points([planar.vertices[v].xy for v in kerb]).tolist()).buffer(reach + back)
+        polys = [rec["plan"].buffer(back) for _b, rec in _records(planar)
+                 if rec.get("plan") is not None]
+        from .groundside import groundside_face_roles
+        floor = _pavement(law) - set(groundside_face_roles(law))
+        for f in planar.faces.values():
+            if f.role in floor and _verts(planar, f) & wall:
+                ring = [planar.vertices[v].xy for v in planar.ring_vertices(f.ring)]
+                if len(ring) >= 3:
+                    p = shapely.Polygon(ring)
+                    if p.is_valid and p.intersects(near):
+                        polys.append(p)
+        W = unary_union(polys)
+        line = W.boundary.intersection(near) if not W.is_empty else None
+    memo["line"] = line
+    return line
+
+
+def _verts(planar: PlanarMap, f) -> set[int]:
+    return {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+
+
 def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
     from ..model.platform import stage_air_vertices
     from .groundside import groundside_face_roles
@@ -93,18 +129,35 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
     # face's, never the kerb's
     other = {v for f in planar.faces.values() if f.role not in ground
              and f.role in _pavement(law) for v in verts(f)}
-    gv = sorted({v for f in planar.faces.values() if f.role in ground for v in verts(f)}
-                - air - other)
+    gfaces = [verts(f) for f in planar.faces.values() if f.role in ground]
     kerb: dict[int, tuple[str, float]] = {}
     plans = []
-    pts = points([planar.vertices[v].xy for v in gv]) if gv else None
+    landside: set[int] = set()
     for block, rec in recs:
         plan = rec["plan"]
-        if plan is None or plan.is_empty or pts is None:
+        if plan is None or plan.is_empty:
             continue
         plans.append(plan)
+        inner = plan.buffer(-back)
+        # a groundside face reaching INTO the plan is the floor's side of the
+        # wall (a floor piece no aircraft reaches, a road into the building):
+        # its vertices are no kerb's (MEASURED PHLI: ``pav63#4#beyond1``
+        # read half kerb, half floor, a 4 m step inside one face)
+        allg = sorted(set().union(*gfaces)) if gfaces else []
+        hit = (set(np.asarray(allg)[shapely.covers(inner, points(
+            [planar.vertices[v].xy for v in allg]))].tolist())
+            if allg and not inner.is_empty else set())
+        out_faces, in_faces = [], []
+        for vs in gfaces:
+            (in_faces if vs & hit else out_faces).append(vs)
+        inside = set().union(*in_faces) if in_faces else set()
+        gv = sorted(set().union(*out_faces) - air - other - inside) if out_faces else []
+        landside.update(gv)
+        if not gv:
+            continue
         y, air_z = float(rec["y"]), rec.get("air_z")
-        for v, dv in zip(gv, shapely.distance(plan, pts)):
+        d = shapely.distance(plan, points([planar.vertices[v].xy for v in gv]))
+        for v, dv in zip(gv, d):
             if 0.0 < dv <= reach and _confirms(planar.vertices[v].dem_z, air_z, y):
                 kerb.setdefault(v, (block, y))
     wall: set[int] = set()
@@ -113,7 +166,9 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
         # cut-back of its edge (the set-back the landside stands off by)
         P = unary_union(plans).buffer(back)
         x0, y0, x1, y1 = P.bounds
-        cand = [v for v, vx in planar.vertices.items() if v not in kerb
+        # a landside vertex the kerb did not take (its ground has come down)
+        # is the lot's own, never the wall's
+        cand = [v for v, vx in planar.vertices.items() if v not in kerb and v not in landside
                 and x0 <= vx.xy[0] <= x1 and y0 <= vx.xy[1] <= y1]
         if cand:
             inside = shapely.covers(P, points([planar.vertices[v].xy for v in cand]))

@@ -50,11 +50,27 @@ column). A stage-2 row with D stage 1's constant: never pulls the pad.
 Head `structures.building_pad landside_kerb` in `pad_flat_rulings` (§28's
 senior price) and `one_way_rulings`. The lot grades away under its own law.
 
+A kerb vertex is taken only where its own DEM confirms the storey as §27 read
+it for the lot (`storey_edge.ground_confirms`: at least half the rise over
+the airside's ground, `STOREY_AIR_Z_KEY`); a groundside face reaching into
+the plan (a floor piece no aircraft reaches, a road into the building) is the
+floor's side and gives no kerb vertex.
+
 K2 (assembly post-pass `kerb_wall_exempt`, after the 5 % ceiling and the
 fallback cap). Withdrawn: every row spanning a kerb vertex and a WALL vertex
-(inside the plan or within `groundside_cutback_m` of it) — the wall at the
-plan edge, 25b (5); and every §37 road-ramp row all of whose vertices are
-kerb vertices (the run-out precedent `ramp_runout.runout_exempt`).
+(inside the plan or within `groundside_cutback_m` of it, or any airside or pad
+vertex) — the wall at the plan edge, 25b (5); and every §37 road-ramp row all
+of whose vertices are kerb vertices (the run-out precedent
+`ramp_runout.runout_exempt`).
+
+K3 (publication, `pipeline/kerb_publication.kerb_wall_joints`). The wall is
+declared on the sidecar's `terrace_joints` channel (`wall_terrace`, the
+`upper_rim_joints` form): the boundary of the plan (grown by the cut-back) and
+of the pad/airside faces the kerb meets, kept within the frontage radius of a
+kerb vertex, each run declaring the largest step the solve put across it.
+The census's `pavement_over_road_cap` family now reads declared joints as the
+within-shape family does (RULINGS 2026-10-19l: the census exempts declared
+wall terraces) — a census reading change, measured on the control too.
 
 No new law key, no tuned threshold, no ICAO literal.
 
@@ -75,6 +91,23 @@ No new law key, no tuned threshold, no ICAO literal.
 | `road_ramp` §37 target / ceiling | road vertices | withdrawn on kerb vertices (K2) |
 | census (`check_grade`) | patch | sees the wall as a step between the kerb and the floor (reported below) |
 
-## 4 Measured
+## 4 Measured (PHLI capture `frames/lphli/PHLI.pkl`, replay --from classify)
 
-See the lane report (#2279, lane lphli2): PHLI transect, census, population.
+Transect from the terminal (21.97786, -159.34878) heading 315, emitted patch:
+
+| at | control (no lphli) | step 1 (lphli) | step 2 (this) | ground |
+|---|---|---|---|---|
+| 0-75 m terminal pads | 46.81 | 47.17 | 47.14 | 46.3 (airside) |
+| 80-90 m airside floor | 46.81 apron | 47.17 apron | 47.14 apron | — |
+| kerb (21.97850, -159.34935) | apron 46.81 | 47.44 | 51.22 | 49.5 |
+| 95-135 m forecourt / lot | 46.81 apron | 47.6 | 51.21 | 49.5-50.0 |
+| kerb deck bottom (datum + 4.1) | — | 51.27 | 51.24 | — |
+
+Kerb rows: 203 vertices, median miss 0.02 m; misses > 1 m at the plan's two
+ends (the SW corner road `small_roads:-544`/`-568` and a NE pocket), where
+the hard 5 % lot ceiling to vertices whose ground has come down binds.
+
+One-way: `--drop-generator kerb_frontage_level` vs the arm moves 0 airside
+vertices > 0.01 m. The airside movers of step 2 vs step 1 (57 > 0.1 m:
+`dsf:pol27` −0.10..−0.21, `pav35` −0.16..−0.24, `building11` −0.03) are C1's
+stage-1 population change (the kerb drive left the airside floor).

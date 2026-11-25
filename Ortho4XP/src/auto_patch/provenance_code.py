@@ -990,6 +990,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.pipeline.emit_stage",
     "auto_patch_v2.pipeline.front_cache",
     "auto_patch_v2.pipeline.generated_publication",
+    "auto_patch_v2.pipeline.kerb_publication",
     "auto_patch_v2.pipeline.late_records",
     "auto_patch_v2.pipeline.late_stage",
     "auto_patch_v2.pipeline.late_view",

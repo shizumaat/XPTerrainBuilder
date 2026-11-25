@@ -16,9 +16,9 @@ knifed too: it ramps to the frontage, never to the airside rim (25g (3);
 
 Read here on the classified cells (the pads stand, §27 has run): the
 airside the face is read against is every airside value cell but a pad;
-the face's groundside test is not asked (the ribbons are not minted yet).  The planar stage reads the
-same record again on its regions (``planar/unit_levels_read``); a unit
-whose storey landside lot ``classify/storey_edge`` already cut back (PHLI)
+the face's groundside test is not asked (the ribbons are not minted
+yet).  The planar stage reads the same record again on its regions
+(``planar/unit_levels_read``); a unit whose storey landside lot ``classify/storey_edge`` already cut back (PHLI)
 is that reader's, never this one's."""
 from __future__ import annotations
 

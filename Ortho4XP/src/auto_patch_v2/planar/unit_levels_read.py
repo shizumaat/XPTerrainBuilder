@@ -36,10 +36,14 @@ def read_levels(base_regions, air_polys, airport, law, shells=()) -> list:
     if airport is None or getattr(airport, "partition", None) is None or not air_polys:
         return []
     from ..airport.unit_storey import unit_levels
-    from ..constraints.groundside import groundside_face_roles
-    gs = set(groundside_face_roles(law))
-    ground = unary_union([r.polygon for r in base_regions if r.role in gs
-                          and r.polygon is not None and not r.polygon.is_empty])
+    from ..law.tables import is_structure_role, is_value_role, role_side
+    # the groundside pavement (``constraints/groundside.groundside_face_roles``'
+    # reading: a groundside value role that is no structure)
+    ground = unary_union([r.polygon for r in base_regions if r.polygon is not None
+                          and not r.polygon.is_empty
+                          and role_side(law, r.role) == "groundside"
+                          and is_value_role(law, r.role)
+                          and not is_structure_role(law, r.role)])
     return unit_levels(airport, law, unary_union(list(air_polys)), ground=ground,
                        shells=tuple(shells))
 

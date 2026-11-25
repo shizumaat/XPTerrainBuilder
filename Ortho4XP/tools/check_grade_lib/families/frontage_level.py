@@ -31,7 +31,7 @@ def check_frontage_level(terminal_frontages_ll, nodes, ways) -> List[Violation]:
         return []
     by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
     for w in ways:
-        for nid, z in zip(w.nids, w.elevs):
+        for nid, z in zip(w.nids, w.elevs, strict=False):
             if z is None or nid not in nodes:
                 continue
             lat, lon = nodes[nid]

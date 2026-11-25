@@ -135,6 +135,11 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
 #: counterpart fails at the register and not nine rounds later on a built
 #: surface (issue #108).
 NOT_IMPLEMENTED: dict[str, str] = {
+    # RULINGS 2026-11-25g (2), spec terminal-frontage-split-level §2 C28
+    "frontage_level":
+        "prices the sidecar's ``terminal_frontages`` band (the vertices the "
+        "frontage law held and their G); the design surface carries the "
+        "rows, not which unit's band a vertex stood in",
     # §16g (10) (3)/(6) (owner RULINGS 2026-09-14x / 14ai)
     "pad_cluster_mismatch":
         "the CENSUS's own: declared in the sidecar from the pack's clusters, "

@@ -354,6 +354,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.terrain_shaped",
     "auto_patch_v2.airport.terrain_shell",
     "auto_patch_v2.airport.terrain_rock",
+    "auto_patch_v2.airport.rock_witness",
     "auto_patch_v2.airport.tile_route",
     "auto_patch_v2.airport.tile_rows",
     "auto_patch_v2.airport.tilt_float",

@@ -149,9 +149,11 @@ def _vt_prefilter(path: str) -> bool:
 
 def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
-    ground shell's Shape is keyed ``("ground", path)``."""
+    ground shell's Shape is keyed ``("ground", path)``, a rock candidate
+    the witness refuses ``("refused", path)`` (``terrain_rock.rock_verdict``'s
+    ``(values, failed gates)``)."""
     gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0,
-             "shell": 0, "rock": 0}
+             "shell": 0, "rock": 0, "refused": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
@@ -173,7 +175,11 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
             gates["skin"] += 1
             shapes[("skin", rel)] = skin
         if TM._plan_m(g) < TM.MIN_PLAN_M:
-            small = TS.small_shape(path, g) or TR.rock_shape(path, g)
+            small = TM.shape_of(path, g)          # a small shell, a rock, or both
+            got = None if small is not None and small.rock else TR.rock_verdict(path, g)
+            if got is not None and got[1]:
+                gates["refused"] += 1
+                shapes[("refused", rel)] = got
             if small is not None:
                 gates["rock" if small.rock else "shell"] += 1
                 shapes[rel] = small
@@ -247,14 +253,15 @@ def water_reader(lat: int, lon: int, lon0: float, lat0: float):
     return read
 
 
-def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
+def _model_row(shape, hdg: float, dem, fine, water, datum=None, rock: bool = False) -> dict:
     """A terrain model row's both seats, its wet-rim share and its offer
-    (a small shell, ``terrain_shell``, is matched at its ``datum``)."""
-    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water, datum)
+    (a small shell, ``terrain_shell``, is matched at its ``datum``; a rock
+    row, ``rock``, at its ``terrain_rock.row_datum``)."""
+    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water, datum, rock)
     if m is None:
         return {"verdict": "no DEM match" if datum is not None or not shape.small
                 else "not msl"}
-    rec = {"verdict": "rock" if shape.rock else "terrain shell" if shape.small
+    rec = {"verdict": "rock" if rock else "terrain shell" if shape.small
            else "terrain model",
            **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items()}}
     rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
@@ -267,9 +274,24 @@ def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
     return rec
 
 
+def _rounded(values: dict) -> dict:
+    return {k: round(float(v), 3) for k, v in values.items()}
+
+
+def _witness_text(w: dict) -> str:
+    """One line of a rock's witness values (``rock_witness.features``)."""
+    return (f"sheet {w['sheet']:.3f} base {w['base_m']:+.2f} top {w['top_m']:.2f} "
+            f"wall {w['wall']:.3f} right {w['right']:.3f} axis {w['axis']:.3f}")
+
+
 def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
     gates, shapes = candidates(pack_root)
-    out = {"pack": os.path.basename(os.path.normpath(pack_root)), "gates": gates, "rows": []}
+    out = {"pack": os.path.basename(os.path.normpath(pack_root)), "gates": gates, "rows": [],
+           "refused": [{"resource": k[1], "failed": v[1], "witness": _rounded(v[0]), "rows": 0}
+                       for k, v in sorted(shapes.items(), key=lambda kv: str(kv[0]))
+                       if isinstance(k, tuple) and k[0] == "refused"]}
+    out["msl_rock_rows"], out["rock_unmatched"] = [], []
+    refused = {r["resource"]: r for r in out["refused"]}
     for dsf in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))):
         src = dsf + ".anchor_bak" if os.path.isfile(dsf + ".anchor_bak") else dsf
         lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
@@ -279,6 +301,8 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
         dems = rasters(elevation_root, lat, lon)
         for i, lo, la, hdg, kind, elev in rows:
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
+            if key in refused:
+                refused[key]["rows"] += 1
             skin = shapes.get(("skin", key))
             if skin is not None and kind != "OBJECT_MSL":
                 z = sampler(dems, lo, la)(np.array([0.0]), np.array([0.0]))[0]
@@ -309,12 +333,26 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                    "photo_spread": round(shape.photo_spread, 3)}
             dem = sampler(dems, lo, la)
             datum = elev if kind == "OBJECT_MSL" else None
-            if shape.rock:
-                datum = TR.row_datum(kind, elev, (0.0, 0.0), dem)
+            rock = shape.rock and kind != "OBJECT_MSL"
+            if shape.rock_only and not rock:
+                out["msl_rock_rows"].append(rec)     # never read (RULINGS 25l)
+                continue
+            if rock:
+                rec["witness"] = _rounded(dict(shape.witness))
+                datum = TR.row_datum(kind, elev, (0.0, 0.0), dem, shape)
             if datum is not None:
                 rec["datum"] = datum
             rec.update(_model_row(shape, hdg, dem, sampler(dems, lo, la, fine=True),
-                                  water_reader(lat, lon, lo, la), datum))
+                                  water_reader(lat, lon, lo, la), datum, rock))
+            if rock and "z0" not in rec:
+                # a rock row not read as one (off its ground, or its rim
+                # floats): no row of the census, listed beside it
+                rec["verdict"] = "rock row off its ground" if datum is None else "rock rim floats"
+                out["rock_unmatched"].append(rec)
+                continue
+            if rock:
+                path = os.path.join(pack_root, defs[i].replace("\\", "/"))
+                rec["fill_z0"] = TR.fill_seat(path, (0.0, 0.0), hdg, rec["z0"], dem)
             out["rows"].append(rec)
     return out
 
@@ -348,6 +386,19 @@ def main(argv=None) -> int:
                      if "z0" in row else "")
             print(f"   {row['verdict']:<14} {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f" plan {row['plan_m']} relief {row['relief_m']}{extra}")
+            if "witness" in row:
+                fz = row.get("fill_z0")
+                print(f"      witness {_witness_text(row['witness'])}"
+                      + ("" if fz is None else f"; run-out fill at {fz:.2f} m"))
+        for row in r["rock_unmatched"]:
+            print(f"   {row['verdict']}: {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
+                  f"; witness {_witness_text(row['witness'])}")
+        for row in r["msl_rock_rows"]:
+            print(f"   rock on an OBJECT_MSL row, not read: {row['resource']} "
+                  f"@({row['lat']:.5f},{row['lon']:.5f})")
+        for ref in r["refused"]:
+            print(f"   refused rock {ref['resource']} ({ref['rows']} row(s)): "
+                  f"fails {', '.join(ref['failed'])}; {_witness_text(ref['witness'])}")
         sys.stdout.flush()
     if a.json:
         with open(a.json, "w") as fh:

@@ -1,10 +1,13 @@
-"""RULINGS 2026-11-25j: a ROCK OUTCROP or an ADDED HILL a pack lays on the
-ground (a plain ``OBJECT`` row, often hard, often tiled-textured) is a
-terrain shell (``terrain_rock``): recognised by a witness of natural
-relief read on its geometry only, matched at its row's datum and seated
-by the shells' skirt seat.  Built look-alikes -- a terrace of storeys, a
-field of scattered piles, a gentle mound, a fence -- are not.  Synthetic
-OBJ8s, no corpus."""
+"""RULINGS 2026-11-25j/l: a ROCK OUTCROP or an ADDED HILL a pack lays on the
+ground (a plain or ``OBJECT_AGL`` row, often hard, often tiled-textured) is
+a terrain shell (``terrain_rock``): recognised by THE WITNESS
+(``rock_witness``: one top sheet standing on its own ground zero, no storey
+walls, no right-angle creases, not axis-aligned), matched at its row's
+datum, seated by the shells' skirt seat; where the skirt runs out our
+ground is raised to its rim (``fill_z0``, the run-out fill).  Built
+look-alikes -- a terrace of storeys, a building on a flat plate, an arched
+roof on its walls, a fence -- are refused.  Synthetic OBJ8s, no corpus."""
+import json
 import math
 import os
 import sys
@@ -16,6 +19,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import test_terrain_model as TTM  # noqa: E402
+from auto_patch import terrain_cut_stage as TCS  # noqa: E402
+from auto_patch_v2.airport import rock_witness as RW  # noqa: E402
+from auto_patch_v2.airport import terrain_cut as TC  # noqa: E402
+from auto_patch_v2.airport import terrain_fill as TF  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport import terrain_rock as TR  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
@@ -36,8 +43,14 @@ def _write(tmp_path, name="rock.obj", height=_outcrop, **kw):
 
 
 def _soup(tmp_path, name, tris):
-    """An OBJ8 of the triangles ``tris`` (``(n, 3, 3)`` x y z corners)."""
-    vt = [f"VT {x} {y} {z} 0 1 0 0 0" for t in tris for x, y, z in t]
+    """An OBJ8 of the triangles ``tris`` (``(n, 3, 3)`` x y z corners),
+    each with its face normal (up-turned for the upward faces)."""
+    vt = []
+    for t in tris:
+        a = np.asarray(t, float)
+        n = np.cross(a[1] - a[0], a[2] - a[0])
+        n = n / max(np.linalg.norm(n), 1e-12) * (1.0 if n[1] >= 0.0 else -1.0)
+        vt += [f"VT {x} {y} {z} {n[0]} {n[1]} {n[2]} 0 0" for x, y, z in t]
     idx = list(range(len(vt)))
     body = ["I", "800", "OBJ", f"POINT_COUNTS {len(vt)} 0 0 {len(idx)}", *vt]
     body += [f"IDX {i}" for i in idx] + [f"TRIS 0 {len(idx)}"]
@@ -50,12 +63,12 @@ def _quad(a, b, c, d):
     return [[a, b, c], [a, c, d]]
 
 
-def _box(x0, x1, z0, z1, h):
+def _box(x0, x1, z0, z1, h, y0=0.0):
     """A roofed box: four walls and the roof that caps them."""
     p = [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]
-    out = _quad(*[(x, h, z) for x, z in p])
-    for (xa, za), (xb, zb) in zip(p, p[1:] + p[:1]):
-        out += _quad((xa, 0.0, za), (xb, 0.0, zb), (xb, h, zb), (xa, h, za))
+    out = _quad(*[(x, h, z) for x, z in reversed(p)])
+    for (xa, za), (xb, zb) in zip(p, p[1:] + p[:1], strict=True):
+        out += _quad((xa, y0, za), (xb, y0, zb), (xb, h, zb), (xa, h, za))
     return out
 
 
@@ -63,76 +76,181 @@ def _flat(z):
     return lambda xs, ys: np.full(len(xs), float(z))
 
 
+def _verdict(path):
+    return TR.rock_verdict(path, parse_obj8(path))
+
+
 def test_a_hard_atlas_textured_outcrop_is_a_rock(tmp_path):
     s = TM.shape_of(_write(tmp_path))
-    assert s is not None and s.small and s.rock
+    assert s is not None and s.small and s.rock and s.rock_only
     assert s.relief_m >= TR.ROCK_MIN_RELIEF_M
+    w = dict(s.witness)
+    assert w["sheet"] == pytest.approx(1.0) and w["wall"] == 0.0 and w["right"] == 0.0
+    assert w["axis"] <= RW.ROCK_MAX_AXIS and abs(w["base_m"]) < 0.01
 
 
-def test_a_berm_with_free_standing_tree_cards_is_a_rock(tmp_path):
+def test_a_berm_with_a_few_free_standing_tree_cards_is_a_rock(tmp_path):
     g = parse_obj8(_write(tmp_path, "berm.obj"))
     ground = g.vertices[g.solid].tolist()
     cards = []
-    for k in range(-30, 31, 10):            # cards on the slope, capped by nothing
+    for k in (-20, 20):                      # two 4 m cards on the slope
         y = _outcrop(float(k), 0.0)
-        cards += _quad((k - 3.0, y, 0.0), (k + 3.0, y, 0.0), (k + 3.0, y + 9.0, 0.0),
-                       (k - 3.0, y + 9.0, 0.0))
-    path = _soup(tmp_path, "berm_trees.obj", ground + cards)
-    s = TM.shape_of(path)
+        cards += _quad((k - 1.0, y, 0.0), (k + 1.0, y, 0.0), (k + 1.0, y + 4.0, 0.0),
+                       (k - 1.0, y + 4.0, 0.0))
+    s = TM.shape_of(_soup(tmp_path, "berm_trees.obj", ground + cards))
     assert s is not None and s.rock
-    g2 = parse_obj8(path)
-    assert TR.capped_wall_share(g2.vertices, g2.solid) == 0.0
+    assert 0.0 < dict(s.witness)["wall"] <= RW.ROCK_MAX_WALL
 
 
 def test_a_terrace_of_storeys_is_not(tmp_path):
     # six roofed blocks rising 4 m each: steep enough, one body, but every
-    # wall stands under a roof
+    # wall a storey, every roof flat and square to its walls
     tris = []
     for k in range(6):
         tris += _box(-30.0 + 10.0 * k, -20.0 + 10.0 * k, -30.0, 30.0, 4.0 * (k + 1))
     path = _soup(tmp_path, "terrace.obj", tris)
-    g = parse_obj8(path)
-    assert TR.capped_wall_share(g.vertices, g.solid) > TR.ROCK_MAX_CAPPED
     assert TM.shape_of(path) is None
+    f, failed = _verdict(path)
+    assert {"one_sheet", "no_storey_walls", "no_right_creases"} <= set(failed)
 
 
-def test_scattered_piles_a_gentle_mound_and_a_fence_are_not(tmp_path):
-    def piles(x, z):
-        # 20 m piles 40 m apart: no piece spans 50 m
-        cx, cz = (x + HALF) % 40.0 - 20.0, (z + HALF) % 40.0 - 20.0
-        return max(0.0, 8.0 * (1.0 - math.hypot(cx, cz) / 10.0))
+def test_a_hipped_building_on_a_flat_plate_is_not(tmp_path):
+    # an 80 m plate at y = 0 and, on it, a 60 m block with a hipped roof
+    # rising from 6 m to 16 m: axis-aligned slopes, storey walls, creases
+    tris = _quad((-40.0, 0.0, -40.0), (-40.0, 0.0, 40.0), (40.0, 0.0, 40.0), (40.0, 0.0, -40.0))
+    p = [(-30.0, -30.0), (30.0, -30.0), (30.0, 30.0), (-30.0, 30.0)]
+    for (xa, za), (xb, zb) in zip(p, p[1:] + p[:1], strict=True):
+        tris += _quad((xa, 0.0, za), (xb, 0.0, zb), (xb, 6.0, zb), (xa, 6.0, za))
+        tris += [[(xa, 6.0, za), (0.0, 16.0, 0.0), (xb, 6.0, zb)]]
+    path = _soup(tmp_path, "hipped.obj", tris)
+    assert TM.shape_of(path) is None
+    got = _verdict(path)
+    assert got is None or {"not_axis_aligned", "no_storey_walls"} <= set(got[1])
+
+
+def test_an_arched_roof_on_its_walls_is_not(tmp_path):
+    # a 100 m barrel vault of 20 m radius springing from 6 m walls
+    tris, k = [], 16
+    for i in range(k):
+        a0, a1 = math.pi * i / k, math.pi * (i + 1) / k
+        x0, y0 = 20.0 * math.cos(a0), 6.0 + 20.0 * math.sin(a0)
+        x1, y1 = 20.0 * math.cos(a1), 6.0 + 20.0 * math.sin(a1)
+        tris += _quad((x0, y0, -50.0), (x0, y0, 50.0), (x1, y1, 50.0), (x1, y1, -50.0))
+    for x in (-20.0, 20.0):
+        tris += _quad((x, 0.0, -50.0), (x, 0.0, 50.0), (x, 6.0, 50.0), (x, 6.0, -50.0))
+    path = _soup(tmp_path, "vault.obj", tris)
+    assert TM.shape_of(path) is None
+    f, failed = _verdict(path)
+    assert "on_ground" in failed and "not_axis_aligned" in failed
+
+
+def test_a_fence_and_a_gentle_mound_are_not(tmp_path):
+    fence = _quad((-100.0, 0.0, 0.0), (100.0, 0.0, 0.0), (100.0, 6.0, 0.0), (-100.0, 6.0, 0.0))
+    assert TM.shape_of(_soup(tmp_path, "fence.obj", fence)) is None
     mound = TTM._write(tmp_path, "mound.obj",
                        lambda x, z: 6.0 * (1 - abs(x) / 200) * (1 - abs(z) / 200),
                        half=200.0, step=10.0, hard=True, uv="atlas")
     assert TM.shape_of(mound) is None
-    fence = _quad((-100.0, 0.0, 0.0), (100.0, 0.0, 0.0), (100.0, 6.0, 0.0), (-100.0, 6.0, 0.0))
-    assert TM.shape_of(_soup(tmp_path, "fence.obj", fence)) is None
-    g = parse_obj8(_write(tmp_path, "piles.obj", piles))
-    tris = [t.tolist() for t in g.vertices[g.solid] if t[:, 1].max() > 0.0]
-    assert TM.shape_of(_soup(tmp_path, "piles2.obj", tris)) is None
 
 
-def test_row_datum_is_the_msl_column_or_the_ground_plus_the_lift():
+def test_the_gates_and_their_constants():
+    f = {"sheet": 0.95, "base_m": 0.5, "top_m": 6.0, "wall": 0.01, "right": 0.02,
+         "axis": 0.3}
+    assert RW.failed(f) == []
+    assert RW.failed(f, lift=1.0) == ["on_ground"]
+    assert RW.failed(dict(f, sheet=0.85, axis=0.6)) == ["one_sheet", "not_axis_aligned"]
+    assert RW.failed(dict(f, top_m=4.0)) == ["on_ground"]
+
+
+def test_row_datum_is_the_ground_plus_the_lift_and_msl_rows_are_never_rocks(tmp_path):
     dem = _flat(12.0)
-    assert TR.row_datum("OBJECT_MSL", 40.0, (0.0, 0.0), dem) == 40.0
+    assert TR.row_datum("OBJECT_MSL", 40.0, (0.0, 0.0), dem) is None
     assert TR.row_datum("OBJECT", None, (0.0, 0.0), dem) == 12.0
-    assert TR.row_datum("OBJECT_AGL", 1.5, (0.0, 0.0), dem) == 13.5
+    assert TR.row_datum("OBJECT_AGL", 0.5, (0.0, 0.0), dem) == 12.5
     assert TR.row_datum("OBJECT", None, (0.0, 0.0), _flat(math.nan)) is None
+    s = TM.shape_of(_write(tmp_path))
+    # ON THE GROUND with the row's lift: 2 m up, its base is off its zero
+    assert TR.row_datum("OBJECT_AGL", 2.0, (0.0, 0.0), dem, s) is None
 
 
-def test_a_plain_row_matches_where_its_base_rests_on_our_ground(tmp_path):
+def test_a_plain_row_matches_where_its_rim_does_not_float_and_msl_is_not_read(tmp_path):
     path = _write(tmp_path)
     rows = [("dsf:obj1", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT"),
-            ("dsf:obj2", "m.obj", (900.0, 0.0), 0.0, None, "OBJECT")]
+            ("dsf:obj2", "m.obj", (900.0, 0.0), 0.0, None, "OBJECT"),
+            ("dsf:obj3", "m.obj", (0.0, 900.0), 0.0, 10.0, "OBJECT_MSL")]
 
     def dem(xs, ys):
-        # flat at 10 m but a 20 m pit under the second rock's anchor: its
-        # datum there leaves its rim 20 m under our ground
+        # flat at 10 m but a 20 m spike under the second rock's anchor: its
+        # datum there leaves its rim 20 m over our ground
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-        return 10.0 - np.where((np.abs(xs - 900.0) < 5.0) & (np.abs(ys) < 5.0), 20.0, 0.0)
+        return 10.0 + np.where((np.abs(xs - 900.0) < 5.0) & (np.abs(ys) < 5.0), 20.0, 0.0)
     found = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path), dem)
     assert set(found) == {"dsf:obj1"}
     m = found["dsf:obj1"]
-    assert m.small and m.datum is None and m.z0 == pytest.approx(10.0)
+    assert m.small and m.datum is None and m.z0 == pytest.approx(10.0) and m.fill_z0 is None
     rec = TR.rock_match(TM.shape_of(path), (0.0, 0.0), 0.0, _flat(10.0), 10.0)
     assert rec["level_m"] == pytest.approx(0.0, abs=0.01) and not rec["hideable"]
+    # a buried rim is the skirt's business: our ground 3 m over it matches
+    assert TR.rock_match(TM.shape_of(path), (0.0, 0.0), 0.0, _flat(13.0), 10.0) is not None
+
+
+def _slope(xs, ys):
+    """Ground falling 0.2 m per metre to the east."""
+    return 50.0 - 0.2 * np.asarray(xs, float)
+
+
+def test_a_rock_whose_skirt_runs_out_carries_its_fill_seat(tmp_path):
+    path = _write(tmp_path)
+    assert TR.fill_seat(path, (0.0, 0.0), 0.0, 10.0, _flat(10.0)) is None
+    # on the slope its east rim floats ~10 m: deeper than its skirt
+    z = TR.fill_seat(path, (0.0, 0.0), 0.0, 50.0, _slope)
+    assert z is not None and 40.0 < z < 50.0
+    rows = [("dsf:obj1", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+    found = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path), _slope)
+    assert found["dsf:obj1"].fill_z0 == pytest.approx(z)
+
+
+def _shell_rec(path, fill_z0=None):
+    to_xy, to_ll = TC.projector(47.8, 13.04)
+    rec = {"id": "dsf:obj1", "model": "dsf:obj1", "resource": "o/rock.obj",
+           "seat": TM.SEAT, "elevation": 50.0, "hideable": False,
+           "shell": {"file": path, "lat": 47.8, "lon": 13.04, "heading": 0.0}}
+    if fill_z0 is not None:
+        rec["fill_z0"] = fill_z0
+    return rec
+
+
+def test_the_run_out_fill_is_a_rim_only_fill_record(tmp_path):
+    path = _write(tmp_path)
+    plan = {"icao": "TEST", "pack_root": str(tmp_path / "pack"),
+            "authored_seats": [_shell_rec(path), dict(_shell_rec(path, 44.0), id="dsf:obj2")]}
+    (tmp_path / "o4_v2_rebake_TEST.json").write_text(json.dumps(plan), encoding="utf-8")
+    recs = TCS.cut_records(str(tmp_path), ["TEST"])
+    assert [r["id"] for r in recs] == ["dsf:obj2"]
+    assert recs[0]["elevation"] == 44.0
+    assert recs[0]["cut"]["fill"] and recs[0]["cut"]["rim_only"]
+
+
+def test_the_run_out_fill_raises_our_ground_to_the_rim_never_in_the_patch(tmp_path):
+    path = _write(tmp_path)
+    lat, lon = 47.8, 13.04
+    post = 5.0 / 111_320.0
+    dlon = post / math.cos(math.radians(lat))
+    n = 81
+
+    def raster(frozen=None):
+        alt = np.full((n, n), 40.0)
+        return TF.Raster(alt, lon - 40 * dlon, lat + 40 * post, dlon, post, frozen)
+    rec = _shell_rec(path, 45.0)
+    r = raster()
+    rep = TCS.run_out_fill(r, rec)
+    assert rep["supports"] > 0 and rep["raised"] > 0 and rep["unserved"] == 0
+    # the rim stands at 45 m (its seat): our ground raised to it there,
+    # shoulder then talus away from it, never lowered
+    to_xy, to_ll = TC.projector(lat, lon)
+    edge = r.sample(*to_ll(np.array([HALF + 1.5]), np.array([0.0])))[0]
+    far = r.sample(*to_ll(np.array([HALF + 40.0]), np.array([0.0])))[0]
+    assert edge >= 45.0 and 40.0 <= far < edge and r.alt.min() == 40.0
+    frozen = TCS.run_out_fill(raster(lambda rows, cols, lons, lats: np.ones(len(rows), bool)),
+                              rec)
+    assert frozen["raised"] == 0 and frozen["unserved"] == frozen["supports"] > 0

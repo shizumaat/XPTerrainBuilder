@@ -53,8 +53,8 @@ import numpy as np
 from ..geom import shape_class as _sc
 from ..geom.water_level import SEA_LEVEL_M
 
-__all__ = ["CELL_M", "WATER_TOL_M", "placed", "edge_depth", "rim_need", "seat_shells",
-           "shells_box", "log_line"]
+__all__ = ["CELL_M", "WATER_TOL_M", "placed", "place", "stations", "seat_one", "edge_depth",
+           "rim_need", "seat_shells", "shells_box", "log_line"]
 
 #: the plan grid of the stations (``terrain_cut.HOLD_CELL_M``, the drawn
 #: instrument's)
@@ -93,12 +93,23 @@ def placed(rec: _t.Mapping[str, _t.Any]) -> "_Placed | None":
     ``elevation`` its frame zero) placed, or ``None`` where its file
     cannot be read."""
     from . import terrain_cut as _tc
-    from . import terrain_model as _tm
     c = rec["shell"]
-    tris = _tm.plan_solid(str(c["file"]))
+    return place(str(c["file"]), float(c["heading"]),
+                 *_tc.projector(float(c["lat"]), float(c["lon"])),
+                 str(rec.get("model") or rec.get("id")), str(rec.get("resource", "")),
+                 float(rec["elevation"]))
+
+
+def place(file: str, heading: float, to_xy: _t.Callable, to_ll: _t.Callable,
+          model: str = "", resource: str = "", z0: float = 0.0) -> "_Placed | None":
+    """The shell of OBJ8 ``file`` at ``heading`` placed in the frame of
+    ``to_xy`` / ``to_ll`` (``(lon, lat) <-> (east, north)`` of its anchor),
+    its frame zero ``z0``; ``None`` where the file cannot be read."""
+    from . import terrain_model as _tm
+    tris = _tm.plan_solid(file)
     if tris is None or not len(tris):
         return None
-    h = math.radians(float(c["heading"]))
+    h = math.radians(heading)
     s, co = math.sin(h), math.cos(h)
     x, y, z = tris[..., 0], tris[..., 1], tris[..., 2]
     p = np.stack([x * co - z * s, -(x * s + z * co), y], axis=-1)
@@ -107,12 +118,10 @@ def placed(rec: _t.Mapping[str, _t.Any]) -> "_Placed | None":
     r = _sc.rasterise(p, max_cells=10 ** 9, min_step=CELL_M)
     if r is None:
         return None
-    to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
-    return _Placed(str(rec.get("model") or rec.get("id")), str(rec.get("resource", "")),
-                  float(rec["elevation"]), r, to_xy, to_ll)
+    return _Placed(model, resource, float(z0), r, to_xy, to_ll)
 
 
-def _stations(pl: _Placed) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def stations(pl: _Placed) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """``(ij, lons, lats, low)``: every outline cell of the shell, where
     its ground is read (``OUTSIDE_M`` outside it) and the skirt's lowest
     surface there (over the frame zero)."""
@@ -172,23 +181,25 @@ def _ground(surface: _t.Callable, lats: np.ndarray, lons: np.ndarray) -> np.ndar
 
 def rim_need(pl: _Placed, others: _t.Sequence[_Placed], surface: _t.Callable
              ) -> dict[str, np.ndarray]:
-    """THE STATIONS read (module doc): per station ``ij``, ``low``, our
-    ground ``z`` (``nan`` off the mesh), ``need`` (``z - (z0 + low)``) and
-    the masks ``wet``, ``shared`` and ``land`` (the stations the seat
-    reads)."""
-    ij, lons, lats, low = _stations(pl)
+    """THE STATIONS read (module doc): per station ``ij``, where its ground
+    is read (``lons``, ``lats``), ``low``, our ground ``z`` (``nan`` off
+    the mesh), ``need`` (``z - (z0 + low)``) and the masks ``wet``,
+    ``shared`` and ``land`` (the stations the seat reads)."""
+    ij, lons, lats, low = stations(pl)
     z = _ground(surface, lats, lons)
     wet = np.isfinite(z) & (z <= SEA_LEVEL_M + WATER_TOL_M)
     shared = np.zeros(len(z), bool)
     for o in others:
         shared |= o.covers(lons, lats)
     land = np.isfinite(z) & np.isfinite(low) & ~wet & ~shared
-    return {"ij": ij, "low": low, "z": z, "need": z - (pl.z0 + low), "wet": wet,
-            "shared": shared & ~wet, "land": land}
+    return {"ij": ij, "lons": lons, "lats": lats, "low": low, "z": z,
+            "need": z - (pl.z0 + low), "wet": wet, "shared": shared & ~wet, "land": land}
 
 
-def _seat_one(pl: _Placed, others: _t.Sequence[_Placed], surface: _t.Callable
-              ) -> dict[str, _t.Any]:
+def seat_one(pl: _Placed, others: _t.Sequence[_Placed], surface: _t.Callable
+             ) -> dict[str, _t.Any]:
+    """THE SEAT (module doc) of one placed shell ``pl`` on ``surface``
+    (``others``: the other kept shells): its report."""
     st = rim_need(pl, others, surface)
     land = st["land"]
     depth = _skirt_depth(pl, st["ij"][land], st["low"][land])
@@ -208,7 +219,7 @@ def seat_shells(records: _t.Sequence[_t.Mapping[str, _t.Any]], surface: _t.Calla
                           and isinstance(r.get("shell"), _t.Mapping)) if p is not None]
     if not shells:
         return tuple(records), []
-    reps = [_seat_one(p, [o for o in shells if o is not p], surface) for p in shells]
+    reps = [seat_one(p, [o for o in shells if o is not p], surface) for p in shells]
     dz = {r["model"]: r["dz"] for r in reps if r["dz"]}
     out = tuple(dict(r, elevation=round(float(r["elevation"]) + dz[r["model"]], 3))
                 if isinstance(r, _t.Mapping) and r.get("model") in dz else r for r in records)

@@ -10,6 +10,7 @@ import datetime
 import os
 
 import numpy
+import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderUnavailable
@@ -30,6 +31,23 @@ from elevation_access.warp import (
 __all__ = [
     "WcsKvpStrategy",
 ]
+
+
+def _metres_per_unit(source_epsg, bounding_box_wgs84):
+    """Ground metres per ``source_epsg`` unit along x and y.
+
+    A projected CRS is in metres (1, 1).  A GEOGRAPHIC request
+    (``source_epsg=4326``: IGN's overseas RGE ALTI, whose territories
+    span five UTM zones and no common projected CRS) is in degrees, so
+    the pad and the pixel grid convert at the box's centre latitude --
+    otherwise ``PAD_M`` would pad 60 DEGREES and a 1 m pixel would be a
+    degree wide.  The template orders the axes itself (WMS 1.3.0 wants
+    ``BBOX={ymin},{xmin},{ymax},{xmax}`` in EPSG:4326).
+    """
+    if source_epsg != 4326:
+        return (1.0, 1.0)
+    (_west, south, _east, north) = bounding_box_wgs84
+    return (GEO.lon_to_m((south + north) / 2.0), GEO.lat_to_m)
 
 
 # =====================================================================
@@ -68,8 +86,11 @@ class WcsKvpStrategy:
         (x_min, y_min, x_max, y_max) = transform_bounding_box_to_epsg(
             bounding_box_wgs84, source_epsg
         )
-        x_min, y_min = x_min - self.PAD_M, y_min - self.PAD_M
-        x_max, y_max = x_max + self.PAD_M, y_max + self.PAD_M
+        (metres_x, metres_y) = _metres_per_unit(source_epsg,
+                                                bounding_box_wgs84)
+        (pad_x, pad_y) = (self.PAD_M / metres_x, self.PAD_M / metres_y)
+        x_min, y_min = x_min - pad_x, y_min - pad_y
+        x_max, y_max = x_max + pad_x, y_max + pad_y
         native = _parse_float(
             definition.get("native_resolution_m"), 1.0
         )
@@ -81,13 +102,14 @@ class WcsKvpStrategy:
         target = _parse_float(target_resolution_m, 0.0)
         if target and target > native:
             pixel_m = target
-        width = max(1, int(round((x_max - x_min) / pixel_m)))
-        height = max(1, int(round((y_max - y_min) / pixel_m)))
+        width = max(1, int(round((x_max - x_min) * metres_x / pixel_m)))
+        height = max(1, int(round((y_max - y_min) * metres_y / pixel_m)))
+        digits = 7 if source_epsg == 4326 else 2
         declared = _parse_float(definition.get("max_request_pixels"), 0.0)
         if not declared:
             # Legacy single request: ArcGIS exportImage caps at 8000 px.
             return [self._fill(definition, (x_min, y_min, x_max, y_max),
-                               min(width, 8000), min(height, 8000))]
+                               min(width, 8000), min(height, 8000), digits)]
         limit = int(declared)
         columns = -(-width // limit)
         rows = -(-height // limit)
@@ -96,24 +118,26 @@ class WcsKvpStrategy:
             for column in range(columns):
                 pixels_x = min(limit, width - column * limit)
                 pixels_y = min(limit, height - row * limit)
-                left = x_min + column * limit * pixel_m
-                bottom = y_min + row * limit * pixel_m
+                step_x = pixel_m / metres_x
+                step_y = pixel_m / metres_y
+                left = x_min + column * limit * step_x
+                bottom = y_min + row * limit * step_y
                 urls.append(self._fill(
                     definition,
-                    (left, bottom, left + pixels_x * pixel_m,
-                     bottom + pixels_y * pixel_m),
-                    pixels_x, pixels_y))
+                    (left, bottom, left + pixels_x * step_x,
+                     bottom + pixels_y * step_y),
+                    pixels_x, pixels_y, digits))
         return urls
 
     @staticmethod
-    def _fill(definition, box, width, height):
+    def _fill(definition, box, width, height, digits=2):
         (x_min, y_min, x_max, y_max) = box
         return (
             definition["wcs_getcoverage_template"]
-            .replace("{xmin}", repr(round(x_min, 2)))
-            .replace("{ymin}", repr(round(y_min, 2)))
-            .replace("{xmax}", repr(round(x_max, 2)))
-            .replace("{ymax}", repr(round(y_max, 2)))
+            .replace("{xmin}", repr(round(x_min, digits)))
+            .replace("{ymin}", repr(round(y_min, digits)))
+            .replace("{xmax}", repr(round(x_max, digits)))
+            .replace("{ymax}", repr(round(y_max, digits)))
             # ArcGIS exportImage / WMS GetMap want an explicit pixel size.
             .replace("{width}", str(width))
             .replace("{height}", str(height))

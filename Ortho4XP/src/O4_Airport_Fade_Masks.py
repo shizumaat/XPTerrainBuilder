@@ -37,8 +37,10 @@ import pickle
 from typing import Iterator
 
 import numpy
+import shapely
 from PIL import Image, ImageDraw
 from shapely import affinity, ops
+from shapely.strtree import STRtree
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 import O4_File_Names as FNAMES
@@ -132,6 +134,32 @@ class AirportOrthoGeometry:
         if self._boundary_m is None:
             return False
         return self._distance_m(lon, lat) <= self.fade_width
+
+    def covers_many(self, lons, lats) -> numpy.ndarray:
+        """:meth:`covers` of every ``(lons[i], lats[i])``, the same answers
+        (#1264: the airport_ortho DSF asked once per triangle, 100 s of the
+        step on +37-009).
+
+        A point farther than ``fade_width`` + 1 m from the envelope of
+        every boundary part is farther than ``fade_width`` from the
+        boundary (each part lies inside its envelope; the metre is a
+        rounding margin, orders above it), so it is not covered; the
+        others take the one-point distance, vectorised.
+        """
+        lons = numpy.asarray(lons, dtype=numpy.float64)
+        lats = numpy.asarray(lats, dtype=numpy.float64)
+        covered = numpy.zeros(len(lons), dtype=bool)
+        if self._boundary_m is None or not len(lons):
+            return covered
+        points = shapely.points((lons - self.tile_lon) * self._lon_scale,
+                                (lats - self.tile_lat) * self._lat_scale)
+        envelopes = STRtree(
+            shapely.envelope(shapely.get_parts(self._boundary_m)))
+        near = numpy.unique(envelopes.query(
+            points, predicate="dwithin", distance=self.fade_width + 1.0)[0])
+        covered[near] = (shapely.distance(self._boundary_m, points[near])
+                         <= self.fade_width)
+        return covered
 
     def alpha_at(self, lon: float, lat: float) -> float:
         """Overlay opacity at absolute ``(lon, lat)``.

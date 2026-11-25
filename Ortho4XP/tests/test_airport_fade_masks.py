@@ -72,6 +72,28 @@ def test_covers_edge_behavior():
     assert geometry.covers(lon_out, 0.005) is False
 
 
+@pytest.mark.parametrize("fade_width", [0.0, 1000.0])
+def test_covers_many_equals_the_one_point_lookup(fade_width):
+    # #1264: the bulk query answers what covers does for every point --
+    # inside, on the edge, across the fade band and its rim, far away --
+    # over two separate parts (the envelope prefilter is per part).
+    square = MultiPolygon([
+        Polygon([(0.0, 0.0), (0.01, 0.0), (0.01, 0.01), (0.0, 0.01)]),
+        Polygon([(0.05, 0.05), (0.06, 0.05), (0.055, 0.06)])])
+    geometry = FADE.AirportOrthoGeometry(
+        square, fade_width, tile_lon=0.0, tile_lat=0.0, ref_lat=0.0)
+    grid = numpy.linspace(-0.03, 0.09, 61)
+    lons, lats = (a.ravel() for a in numpy.meshgrid(grid, grid))
+    rim = 0.01 + fade_width / GEO.lon_to_m(0.0)
+    lons = numpy.concatenate([lons, [0.01, rim, rim + 1e-9, 0.5]])
+    lats = numpy.concatenate([lats, [0.005, 0.005, 0.005, 0.5]])
+    expected = [geometry.covers(x, y) for (x, y) in zip(lons, lats)]
+    assert geometry.covers_many(lons, lats).tolist() == expected
+    assert any(expected) and not all(expected)
+    empty = FADE.AirportOrthoGeometry(None, 1000.0)
+    assert empty.covers_many(lons, lats).tolist() == [False] * len(lons)
+
+
 def test_zero_fade_width_is_a_step():
     geometry = _unit_square_geometry(fade_width=0.0)
     assert geometry.alpha_at(0.005, 0.005) == pytest.approx(1.0)

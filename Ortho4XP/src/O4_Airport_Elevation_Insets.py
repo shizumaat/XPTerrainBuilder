@@ -204,6 +204,7 @@ import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
+import O4_Inset_Terrain_Objects as _terrain_objects  # #2272
 
 # The .elv provider CODE is lower-cased in cache file names so the cache key
 # survives access-strategy refactors (spec section 3.2).
@@ -6642,6 +6643,10 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                 "this tile are in the inset selection (airport lidar "
                 "insets = %s) - nothing to fetch." % (named, mode))
         return
+    # #2272: each box grows over the terrain objects its pack places near
+    # the aerodrome (rocks, cliffs, islets the hide offer reads quality
+    # elevation under); none admitted = the same request.
+    boxes = _terrain_objects.grow_boxes(tile, dico_airports, boxes)
     tile.inset_selection_mode = mode
     tile.inset_selection_keys = sorted(selected)
     # None = "auto": each provider warps at its own best available

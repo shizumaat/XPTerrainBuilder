@@ -638,7 +638,13 @@ public enum O4Event: Sendable, Equatable {
                         checked: (row["checked"] as? NSNumber)?.boolValue ?? true,
                         hectares: (row["hectares"] as? NSNumber)?.intValue ?? 0,
                         applied: (row["applied"] as? NSNumber)?.boolValue ?? false,
-                        rebuild: (row["rebuild"] as? NSNumber)?.boolValue ?? false)
+                        rebuild: (row["rebuild"] as? NSNumber)?.boolValue ?? false,
+                        objects: ((row["objects"] as? [[String: Any]]) ?? []).map { obj in
+                            O4PackTerrainObject(
+                                path: obj["path"] as? String ?? "",
+                                hideable: (obj["hideable"] as? NSNumber)?.boolValue ?? false,
+                                hidden: (obj["hidden"] as? NSNumber)?.boolValue ?? false)
+                        })
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
@@ -1284,17 +1290,19 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// "never" with `shown`, "undo", "ask" (the report), or (capability
     /// `pack_adjust_edit`) "adjust" (the pack row's Adjust…: the pack as it
     /// is) and "change" (its Apply, with `steps` the Optimise steps left
-    /// checked). The engine replies `{"status": "started"}` and completes
-    /// with a `packAdjust` event.
+    /// checked, and `objects` the terrain row's per-object ticks, #2272:
+    /// path → hidden). The engine replies `{"status": "started"}` and
+    /// completes with a `packAdjust` event.
     public func packAdjust(packRoot: String, action: String,
                            lat: Int? = nil, lon: Int? = nil,
                            items: [String]? = nil, shown: [String]? = nil,
-                           steps: [String]? = nil,
+                           steps: [String]? = nil, objects: [String: Bool]? = nil,
                            completion: (@Sendable (O4Reply) -> Void)? = nil) {
         var extra: [String: Any] = [:]
         if let items { extra["items"] = items }
         if let shown { extra["shown"] = shown }
         if let steps { extra["steps"] = steps }
+        if let objects { extra["objects"] = objects }
         sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
                        lat: lat, lon: lon, extra: extra, completion: completion)
     }

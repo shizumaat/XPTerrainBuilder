@@ -58,6 +58,24 @@ def test_the_judge_counts_open_samples_over_the_bar_off_and_on_the_patch():
                  "worst_m": 0.6}
 
 
+def test_the_inner_judge_leaves_the_band_and_the_water_out():
+    """#2272 round 2 (RULINGS 2026-11-25a (1)): a shell is judged only
+    deeper than the edge band, never on a water-valued triangle."""
+    d = np.array([0.6, 0.6, 0.6, 0.6])
+    is_open = np.ones(4, bool)
+    on = np.zeros(4, bool)
+    inner = np.array([False, True, True, True])
+    wet = np.array([False, False, True, False])
+    v = DCV.judge(d, is_open, on, 0.05, inner, wet)
+    assert v["open_off_over"] == 4 and v["open_off_over_inner"] == 2
+
+
+def test_a_rim_run_is_named_water_shell_or_land():
+    assert DCV.where_label(np.zeros(4), np.zeros(4, bool)) == "water"
+    assert DCV.where_label(np.full(4, 3.0), np.ones(4, bool)) == "shell"
+    assert DCV.where_label(np.full(4, 3.0), np.zeros(4, bool)) == "land"
+
+
 def test_a_corner_is_named_node_water_edge_inner_or_outside():
     node = lambda en: bool(np.hypot(*en) < 0.1)                       # noqa: E731
     edge = lambda en: float(en[0])                                     # noqa: E731

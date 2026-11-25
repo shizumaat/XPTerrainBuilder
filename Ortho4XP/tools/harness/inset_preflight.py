@@ -66,11 +66,16 @@ def required_boxes(lat, lon, *, selected_only: bool) -> dict:
                                  ["all"], cached_suffix="airports")
     dico = VMAP.build_airports_dico(tile, layer)
     if not selected_only:
-        return INSETS._airport_bounding_boxes(tile, dico)
-    if not INSETS.insets_enabled_for_tile(tile):
+        boxes = INSETS._airport_bounding_boxes(tile, dico)
+    elif not INSETS.insets_enabled_for_tile(tile):
         return {}
-    selected = INSETS.inset_keys(dico, INSETS.resolved_inset_mode(tile))
-    return INSETS._airport_bounding_boxes(tile, dico, only=selected)
+    else:
+        selected = INSETS.inset_keys(dico, INSETS.resolved_inset_mode(tile))
+        boxes = INSETS._airport_bounding_boxes(tile, dico, only=selected)
+    # the fetch's own growth over the packs' terrain objects (#2272), so
+    # the pre-flight asks for the box the build will request
+    import O4_Inset_Terrain_Objects as TERRAIN_OBJECTS
+    return TERRAIN_OBJECTS.grow_boxes(tile, dico, boxes)
 
 
 def inset_selection_admits(lat, lon, icao) -> bool:

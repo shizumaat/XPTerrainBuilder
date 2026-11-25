@@ -898,7 +898,9 @@ def is_library_index_artifact(relpath) -> bool:
 #: ("Indexing the CUDEMCONUS elevation URL list") inside lane l805r's
 #: KCLT window, and the lane's run was flagged on it.
 GUARDED_PYTHON_ONLY_RE = re.compile(
-    r"Elevation_data/[a-z0-9_]+_url_list_index\.json")
+    r"Elevation_data/[a-z0-9_]+_url_list_index\.json"
+    # the inset box's kept terrain outlines (#2272, O4_Inset_Terrain_Objects)
+    r"|Airport_mod_cache/[^/]+/o4_terrain_outlines\.json(?:\.tmp)?")
 
 
 def is_guarded_python_only_artifact(relpath) -> bool:

@@ -2152,6 +2152,9 @@ def warm_airport_insets(icaos, root, lat, lon, prog, *,
     dico_airports = VMAP.build_airports_dico(tile, airport_layer)
     boxes = INSETS._airport_bounding_boxes(tile, dico_airports)
     wanted = {icao: box for icao, box in boxes.items() if icao in icaos}
+    # the fetch's own growth over the packs' terrain objects (#2272)
+    import O4_Inset_Terrain_Objects as TERRAIN_OBJECTS
+    wanted = TERRAIN_OBJECTS.grow_boxes(tile, dico_airports, wanted)
     missing = sorted(set(icaos) - set(wanted))
     if missing:
         raise SystemExit(

@@ -75,10 +75,15 @@ _EDGE_POSTS = 2
 
 
 def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
-    """The user hides this model: it is offered (``hideable``) and the
-    pack's "Hide terrain objects" answer is ``update``."""
-    return bool(rec.get("hideable")) and \
-        _PC.Store(_PC.TERRAIN_CHOICES).choice(pack_root) == "update"
+    """The user hides this model: the pack's "Hide terrain objects" answer
+    is ``update`` and it is offered (``hideable``) -- as the user's
+    per-object answers move it (#2272, ``pack_terrain.offered``)."""
+    if _PC.Store(_PC.TERRAIN_CHOICES).choice(pack_root) != "update":
+        return False
+    from auto_patch_v2.airport import pack_terrain as _pt
+    res = str(rec.get("resource", ""))
+    return res in _pt.offered([res] if rec.get("hideable") else [],
+                              _PC.terrain_answers(pack_root))
 
 
 def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None

@@ -3335,6 +3335,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
     pipeline.storey_publication
     pipeline.upper_pad_publication
+    pipeline.frontage_publication airport.frontage_face
     airport.shell_ground
     model.free_bridge
     airport.bridge_span constraints.bridge_span_release
@@ -3498,6 +3499,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.deck_flush
     constraints.taxi_route_yield
     pipeline.storey_publication pipeline.upper_pad_publication
+    pipeline.frontage_publication airport.frontage_face
     airport.shell_ground
     model.free_bridge
     constraints.bridge_span_release

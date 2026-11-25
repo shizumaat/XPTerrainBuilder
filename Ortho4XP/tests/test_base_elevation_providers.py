@@ -91,6 +91,7 @@ def test_shipped_definitions_parse(shipped_registry):
         "TAIWAN20M",
         "FRANCE50CM",
         "FRANCE1M",
+        "FRANCEDOM1M",
         "BAVARIA1M",
         "NRW1M",
         "THURINGIA1M",
@@ -170,6 +171,7 @@ def test_shipped_definitions_parse(shipped_registry):
         "HRDEMTIDAL",
         "NEWZEALANDTIDAL",
         "FRANCETIDAL",
+        "FRANCEDOMTIDAL",
         "PORTUGALTIDAL",
     }
     for code in (

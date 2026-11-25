@@ -319,12 +319,16 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
         cap = max(rc.longitudinal, g_pin + margin) if g_pin > 0.0 \
             else rc.longitudinal
         prof = None
-        if best is not None and cap > rc.longitudinal and g_pin > steep:
+        lidar = bool(lidar_credible(airport, law))
+        if best is not None and cap > rc.longitudinal and (g_pin > steep or lidar):
             # RULINGS 2026-10-26n: a STEEP runway (its pins demand more than
             # the 29ac pavement ceiling — pavement can no longer follow it)
             # flattens where taxiways join it; the cap names the steepest
-            # DESIGNED grade
-            prof = _junction_design(pm, law, vw, st, best_ij, best, rw, airport)
+            # DESIGNED grade.  RULINGS 2026-11-25b (2): ANY yielded runway
+            # on credible lidar follows its ground's long wave between the
+            # pins (within the law's vertical curve), not one uniform grade
+            prof = _junction_design(pm, law, vw, st, best_ij, best, rw, airport,
+                                    follow_ground=lidar, flats=g_pin > steep)
             if prof is not None:
                 cap = max(rc.longitudinal, prof.grade + margin)
         out[rw.id] = RunwayCap(
@@ -341,7 +345,8 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
 
 
 def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
-                     ij: tuple[int, int], best: tuple, rw, airport: Airport):
+                     ij: tuple[int, int], best: tuple, rw, airport: Airport,
+                     follow_ground: bool = False, flats: bool = True):
     """RULINGS 2026-10-26n over the governing span (stations ``ij``):
     ``runway_junctions.design``, or ``None``."""
     from .runway_junctions import design
@@ -354,7 +359,8 @@ def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
     return design(pm, law, vw.xy, st, cum, rw, i, j, float(best[2].z),
                   float(best[3].z), k_law,
                   paved=getattr(airport, "paved_joins", None),
-                  lidar=bool(lidar_credible(airport, law)))
+                  lidar=bool(lidar_credible(airport, law)),
+                  follow_ground=follow_ground, flats=flats)
 
 
 def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:
@@ -382,6 +388,9 @@ def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:
             f"{100 * rc.g_pin:.3f} % pin to pin{where}; the law's cap is "
             f"{100 * rc.cap_law:.3f} % ({cls}); the cap yields — built to "
             f"{100 * rc.cap:.3f} %")
+    if not rc.junctions and rc.profile_z:
+        return line + (" as its steepest section, following its ground's long "
+                       "wave between the pins (RULINGS 2026-11-25b (2))")
     if not rc.junctions:
         return line + " uniformly (RULINGS 2026-09-18d)"
     flats = ", ".join(f"{jn.u0:.0f}-{jn.u1:.0f} m at {100 * jn.t:.2f} %"

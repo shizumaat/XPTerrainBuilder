@@ -226,13 +226,19 @@ def mint_facade_cells(airport: Airport, cells: list, law: Law, rules: Rules,
                 stats["facade_strip_m2"] += area
                 standing = stand(standing, part)
     k = 0
+    # what a lot is cut by: what stands and every pad's set-back, the SAME
+    # union until a lot is minted onto what stands (#2206: KSDL's 556 lots
+    # built it 556 times, 19 s, for 45 distinct operands)
+    cutter: tuple = (None, None)
     for b in bs:
         if b.source != LOT_SOURCE:
             continue
         fp = _poly(b.outer, b.holes)
         if fp is None:
             continue
-        geom = fp.difference(unary_union([standing, *knives.values()]))
+        if cutter[0] is not standing:
+            cutter = (standing, unary_union([standing, *knives.values()]))
+        geom = fp.difference(cutter[1])
         area = emit(geom, LOT_ROLE, f"{FACADE_LOT_PREFIX}:{k}", "parking_lot",
                     {"facade": b.id, "facade_def": b.facade.def_path})
         if area > 0.0:

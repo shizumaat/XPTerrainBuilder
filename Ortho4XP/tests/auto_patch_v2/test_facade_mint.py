@@ -86,6 +86,25 @@ def test_lot_is_a_parking_lot_and_never_a_pad_source():
     assert stats["facade_lots"] == 1
 
 
+def test_lots_cut_by_one_union_until_one_is_minted(monkeypatch):
+    """#2206: what a lot is cut by is built again only after a lot joins
+    what stands; a lot wholly under a pad mints nothing and reuses it."""
+    calls = []
+    real = fm.unary_union
+    monkeypatch.setattr(fm, "unary_union", lambda gs: calls.append(1) or real(gs))
+    pad = _cell(0, "building", "building9", ((0.0, 0.0), (100.0, 0.0), (100.0, 100.0),
+                                             (0.0, 100.0)))
+
+    def lot(i, ring):
+        return Building(f"dsf:faclot{i}", ring, (), fm.LOT_SOURCE, None, None, None,
+                        FacadeRead("lib/x/Fenced_Parking.fac", facade.LOT))
+    under = ((10.0, 10.0), (20.0, 10.0), (20.0, 20.0), (10.0, 20.0))
+    free = ((200.0, 0.0), (240.0, 0.0), (240.0, 20.0), (200.0, 20.0))
+    out, stats = _mint([lot(0, under), lot(1, under), lot(2, free), lot(3, under)], [pad])
+    assert stats["facade_lots"] == 1 and [r for r, *_ in out] == ["parking_lot"]
+    assert len(calls) == 2            # once for lots 0-2, once after lot 2 stands
+
+
 def test_facade_cells_are_late_and_not_road_ribbons():
     for ref in ("facstrip:building7:0", "faclot:0", "facstrip:building7:0#1"):
         c = _cell(0, "groundside_pavement", ref, SQ)

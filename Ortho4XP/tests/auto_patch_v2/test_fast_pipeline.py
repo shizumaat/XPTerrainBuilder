@@ -55,6 +55,34 @@ def test_the_planar_build_carries_its_laps(law, built):  # noqa: F811
     assert {"objects", "arrangement", "shapes"} <= set(st.step_s)
 
 
+def test_announced_sections_name_the_pulse_and_are_taken_once():
+    """#2206: a section clock says its section on the pulse, gives the
+    pulse back at the end, and ``take`` hands its run on ONCE."""
+    from auto_patch_v2.model import pulse
+    pulse.tick("classifying the airport")
+    laps = clocks.Laps(announce="classifying")
+    laps.section("evidence")
+    assert pulse.describe() == "classifying: evidence"
+    laps.section("slice")
+    laps.section("evidence")                         # a repeat sums
+    laps.close()
+    assert pulse.describe() == "classifying the airport"
+    assert set(laps.laps) == {"evidence", "slice"}
+    assert laps.line().endswith(" s)") and "evidence" in laps.line()
+    clocks.keep("classify", laps)
+    assert clocks.take("classify") is laps and clocks.take("classify") is None
+    pulse.clear()
+
+
+def test_classify_keeps_its_section_clock(law, built):  # noqa: F811
+    from auto_patch_v2.classify import classify
+    from test_flatpad128v3 import _airport
+    clocks.take("classify")
+    classify(_airport(law), law)
+    got = clocks.take("classify")
+    assert got is not None and {"evidence", "ladder", "facade mint"} <= set(got.laps)
+
+
 # ── 1 ───────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("n", [3, SCAN_BELOW + 1, 2000])

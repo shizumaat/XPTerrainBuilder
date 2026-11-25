@@ -129,6 +129,7 @@ def taxiway_entrances(inside, rw, taxi_parts, taxi_tree, rules: Rules,
     reach = line.buffer(rules.cells.on_tol_m)
     out: list[Polygon] = []
     tol = rules.cells.on_tol_m
+    beside = _beside(rw, inside)
     for comp in polygon_parts(inside.difference(line)):
         if comp.area < rules.cells.min_area_m2:
             continue
@@ -136,16 +137,43 @@ def taxiway_entrances(inside, rw, taxi_parts, taxi_tree, rules: Rules,
         # slice cuts along a centreline, so a stub's halves each carry it
         # on their boundary rather than inside
         near = comp.buffer(tol, **_MITRE)
-        length = 0.0
-        for i in taxi_tree.query(near):
-            ln = taxi_parts[int(i)][0]
-            if ln.intersects(reach) and ln.intersects(near):
-                length += ln.intersection(near).length
+        through = [taxi_parts[int(i)][0] for i in taxi_tree.query(near)]
+        through = [ln for ln in through if ln.intersects(reach) and ln.intersects(near)]
+        if through and comp.difference(beside).area >= rules.cells.min_area_m2:
+            comp = _corridor_of(comp, through, rules)
+            near = comp.buffer(tol, **_MITRE)
+        length = sum(ln.intersection(near).length for ln in through)
         if length <= 0.0 or comp.area > rules.corridor.max_width_m * length:
             continue
         mouth = _mouth(comp, rw, line, half, inside, rules)
         out.extend(polygon_parts(comp.union(mouth) if mouth is not None else comp))
     return [p for p in out if p.area >= rules.cells.min_area_m2]
+
+
+def _beside(rw, inside) -> Polygon:
+    """The stations of the slab, flat at its ends, as wide as ``inside``
+    reaches: what lies outside it is past a runway END."""
+    a, b = _axis(rw)
+    x0, y0, x1, y1 = inside.bounds
+    w = math.hypot(x1 - x0, y1 - y0) + math.hypot(b[0] - a[0], b[1] - a[1])
+    return LineString([a, b]).buffer(w, cap_style="flat")
+
+
+def _corridor_of(comp, through, rules: Rules):
+    """A WRAPPING CANDIDATE'S ENTRANCE IS A CORRIDOR OF ITS CENTRELINE
+    (#2281).  A part beyond the shoulder line that runs on past a runway
+    END is a ring round the slab — one pavement painted round the runway
+    (EKVG, Faroes4XPlane ``dsf:pol33``), its sides joined through the
+    widened ends — and read whole, the one taxiway through it made the
+    ring an "entrance" (5,067 m2 of junction round the 12 end, the narrow
+    sides and the turn pad with it).  Its entrance is what the centrelines
+    through it reach within a corridor half width
+    (``corridor.max_width_m``, the ladder's own width); the rest stays the
+    shoulder candidate's — the sides and the ends the runway's.  A part
+    that stays beside the slab is read whole, as before."""
+    return unary_union(polygon_parts(comp.intersection(unary_union(
+        [ln.buffer(0.5 * rules.corridor.max_width_m, cap_style="flat", **_MITRE)
+         for ln in through]))))
 
 
 def _mouth(comp, rw, line, half: float, inside, rules: Rules):

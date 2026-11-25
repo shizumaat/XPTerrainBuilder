@@ -19,7 +19,9 @@ a long fall a little gentler than the first tier's grade (GCLA 36: 18 %,
 14-17 m under the line), which the first tier read as fill.  The end area then
 ends at the TOP of the drop: the station where the steep run it belongs to
 began (the crest); below it the drop is raw DEM.  An end with
-no drop keeps the RSA length.  ONE reading, published in the sidecar's
+no drop keeps the RSA length.  A side line whose crest stands within one
+probe of the end reads the slope beside the runway, not a drop across the
+end area, and is not read (#2282).  ONE reading, published in the sidecar's
 ``runway_axes`` rows so the census measures the same end area.
 
 A general rule read from the DEM: no airport, no runway and no length is
@@ -99,12 +101,22 @@ def _end_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0,
     each line (:func:`end_area_length`'s ``cap_s``)."""
     from ..law.tables import zone2_half_width_m
     hw = float(zone2_half_width_m(law, "runway", cn, cl, status) or 0.0)
+    probe = float(law.tables.emit.design.edge_probe_m)
     px, py = -unit[1], unit[0]
     lens = []
     for t in (0.0, -hw, hw):
         o = (end_xy[0] + px * t, end_xy[1] + py * t)
-        lens.append(end_area_length(dem, o, unit, law, cn, cl, status,
-                                    _inner_s_on_line(plate, o, unit)))
+        n = end_area_length(dem, o, unit, law, cn, cl, status,
+                            _inner_s_on_line(plate, o, unit))
+        # A SIDE LINE ALREADY FALLING AT THE END READS THE GROUND BESIDE
+        # THE RUNWAY, NOT A DROP ACROSS THE END AREA (#2282): its crest
+        # within one probe of the end is the slope off the runway's own
+        # platform, which runs on beside the slab — it never ends the area
+        # (MEASURED EKVG: both side lines crest at 0-5 m into gullies
+        # 75 m off the axis while the centreline holds 80 / 90 m to the
+        # sea cliff; the end area read 0.0 m at both ends)
+        if t == 0.0 or n >= probe:
+            lens.append(n)
     return min(lens)
 
 

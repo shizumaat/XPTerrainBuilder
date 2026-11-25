@@ -39,7 +39,9 @@ def test_a_portal_off_its_road_is_seated_on_it_and_its_floor_is_the_cut(tmp_path
                                              _box(6.5, 0.0, 0.5, 20.0, 6.0),
                                              _box(-7.0, 0.0, 14.0, 20.0, 0.3, y0=5.7),
                                              _box(-6.5, 0.0, 13.0, 20.0, 0.2)]), "dsf:obj1")
-    light = types.SimpleNamespace(id="dsf:obj2", path="objects/light.obj", resolved=None,
+    light = types.SimpleNamespace(id="dsf:obj2", path="objects/light.obj",
+                                  resolved=_write(tmp_path / "light.obj",
+                                                  [_box(-0.5, 9.0, 1.0, 1.0, 1.0, y0=5.0)]),
                                   xy=(0.0, 0.0), heading_deg=0.0)
     floors, notes = _read([o, light], [_pin("dsf:obj1", 99.2)])
     assert len(floors) == 1, notes
@@ -48,6 +50,43 @@ def test_a_portal_off_its_road_is_seated_on_it_and_its_floor_is_the_cut(tmp_path
     assert {pid for pid, _r, _z in f.seats} == {"dsf:obj1", "dsf:obj2"}
     assert abs(f.floor_z - 94.0) < 0.05 and float(f.faces[:, :, 2].max()) < 94.5
     assert abs(f.footprint.area - 280.0) < 5.0 and "is the cut" in notes[0]
+
+
+def test_a_shared_datum_frame_moves_only_what_stands_in_the_portal(tmp_path):
+    """#2266 (MMUN): a shared-datum pack hangs the whole airport off one
+    origin, so every building is co-placed with the road bridge's portal.
+    The portal's seat leads only the rows standing in the structure it
+    belongs to (its light over the road, a lights-only row in the tunnel);
+    a terminal and an apron lamp 200-400 m off, co-placed on the same origin
+    and heading, keep their own seats -- never sunk 6 m to the road the
+    portal's roof states."""
+    o = _at(_write(tmp_path / "tunnel.obj", [_box(-7.0, 0.0, 0.5, 20.0, 6.0),
+                                             _box(6.5, 0.0, 0.5, 20.0, 6.0),
+                                             _box(-7.0, 0.0, 14.0, 20.0, 0.3, y0=5.7),
+                                             _box(-6.5, 0.0, 13.0, 20.0, 0.2)]), "dsf:obj1")
+    light = types.SimpleNamespace(id="dsf:obj2", path="objects/light.obj",
+                                  resolved=_write(tmp_path / "light.obj",
+                                                  [_box(-0.5, 9.0, 1.0, 1.0, 1.0, y0=5.0)]),
+                                  xy=(0.0, 0.0), heading_deg=0.0)
+    terminal = types.SimpleNamespace(id="dsf:obj3", path="objects/terminal.obj",
+                                     resolved=_write(tmp_path / "terminal.obj",
+                                                     [_box(150.0, 150.0, 120.0, 60.0, 18.0)]),
+                                     xy=(0.0, 0.0), heading_deg=0.0)
+
+    def lamps(name, x, z):
+        path = tmp_path / name
+        path.write_text(f"A\n800\nOBJ\n\nLIGHT_NAMED airplane_beacon {x} 5.0 {z}\n"
+                        f"LIGHT_NAMED airplane_beacon {x + 1.0} 5.0 {z + 1.0}\n",
+                        encoding="utf-8")
+        return types.SimpleNamespace(id=f"dsf:{name}", path=f"objects/{name}",
+                                     resolved=str(path), xy=(0.0, 0.0), heading_deg=0.0)
+
+    near, far = lamps("lamp_in.obj", 0.0, 10.0), lamps("lamp_apron.obj", 300.0, 300.0)
+    floors, notes = _read([o, light, terminal, near, far], [_pin("dsf:obj1", 99.2)])
+    assert len(floors) == 1, notes
+    assert {pid for pid, _r, _z in floors[0].seats} == {"dsf:obj1", "dsf:obj2",
+                                                        "dsf:lamp_in.obj"}
+    assert "(3 placements)" in notes[0]
 
 
 def test_a_portal_on_its_road_or_with_no_floor_is_left_alone(tmp_path):

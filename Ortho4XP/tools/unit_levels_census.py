@@ -82,23 +82,24 @@ def _today(pm, airport, law, air, plans: dict) -> dict:
 
 def low_refusal(pm, airport, law, air, plan) -> list[str]:
     """Why ``planar/low_level.plan_low`` minted no lower level on the held
-    pads under ``plan`` (a unit read a storey DOWN): per pad, the first
-    gate that refused -- ``conforming``, the ``unit_base`` pre-gate
-    (STEPPED only), no part fronting the airside (``top_level``), no part a
-    storey under the top, the level cut, or the ground drop (the reason
-    ``plan_low`` itself appends to its ``refused`` list)."""
-    from shapely.ops import unary_union
-
+    pads under ``plan`` (a unit read a storey DOWN), per pad: ``conforming``,
+    the ``unit_base`` pre-gate of ``low_level_split`` (STEPPED only), then
+    what ``plan_low`` itself answers -- its ``refused`` reason (the ground
+    drop), no part fronting the airside, no part a storey under the top,
+    the level cut refused, or the level it WOULD mint past the pre-gate."""
+    from auto_patch_v2.airport.obj8_grade import STEPPED
+    from auto_patch_v2.law.tables import design as design_law
     from auto_patch_v2.planar import low_level as ll
     from auto_patch_v2.planar.pad_blocks import unit_base
-    from auto_patch_v2.law.tables import design as design_law
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     near = float(design_law(law).pad_frontage_m)
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
+    held = pm.registries.held
     pads: dict = {}
     for f in pm.faces.values():
-        if str(f.ref) in pm.registries.held:
-            from shapely.geometry import Polygon
+        if str(f.ref) in held:
             pads.setdefault(str(f.ref), []).append(
                 Polygon([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)]).buffer(0.0))
     out = []
@@ -107,33 +108,29 @@ def low_refusal(pm, airport, law, air, plan) -> list[str]:
         P = unary_union(gs)
         if P.intersection(plan).area < 0.25 * min(P.area, plan.area):
             continue
-        h = pm.registries.held[ref]
-        base = unit_base(P, airport)[0]
-        why: list = []
+        h, why = held[ref], []
         if h.get("conforming"):
             why.append("conforming")
-        elif base != ll.STEPPED:
-            why.append(f"unit_base {base!r} is not STEPPED (pre-gate)")
-        parts = ll._unit_parts(P, airport, to_xy)
-        top = ll.top_level(parts, air, airport, law, to_xy, near) if parts else None
-        if not parts:
-            why.append("no unit parts on the pad")
-        elif top is None:
-            why.append("no part fronts the airside (top_level)")
-        else:
-            t, y_feet = top
-            sm = 2.0 * ll._plane_band() if y_feet is not None else step
-            low = [p for p, _xy in parts if p.base_y <= t - sm]
-            if not low:
-                why.append(f"top {t:+.2f}: no part {sm:g} m under it")
+        base = unit_base(P, airport)[0]
+        if base != STEPPED:
+            why.append(f"unit_base {base!r} is not STEPPED (low_level_split pre-gate)")
+        a = air.intersection(P.buffer(50.0))
+        got = ll.plan_low(P, a, airport, law, grid, None, why) if not a.is_empty else None
+        if got is not None:
+            why.append(f"plan_low WOULD mint y_lo {got[3]['y_lo']:+.2f} "
+                       f"({got[3]['area_m2']} m2, top {got[3]['top_y']:+.2f})")
+        elif not any(w.startswith("ground drop") for w in why):
+            parts = ll._unit_parts(P, airport, to_xy)
+            top = ll.top_level(parts, a, airport, law, to_xy, near) if parts else None
+            if not parts:
+                why.append("no unit parts on the pad")
+            elif top is None:
+                why.append("no part fronts the airside (top_level)")
             else:
-                got = ll.plan_low(P, air, airport, law, grid, None, why)
-                if got is None and len(why) == (1 if why and why[0].startswith("unit_base")
-                                                else 0):
-                    why.append(f"top {t:+.2f}, {len(low)} low parts: level cut refused")
-                elif got is not None:
-                    why.append(f"plan_low WOULD mint {got[3]['y_lo']:+.2f} "
-                               f"({got[3]['area_m2']} m2)")
+                sm = 2.0 * ll._plane_band() if top[1] is not None else step
+                n = sum(1 for p, _xy in parts if p.base_y <= top[0] - sm)
+                why.append(f"top {top[0]:+.2f}: " + (f"no part {sm:g} m under it" if not n
+                                                     else f"{n} low parts, level cut refused"))
         out.append(f"{ref} ({P.area:.0f} m2, {h.get('verdict')}): " + "; ".join(why))
     return out
 
@@ -145,7 +142,7 @@ def census(path: str) -> dict:
     from auto_patch_v2.airport.unit_storey import part_footprint
     from auto_patch_v2.law import Law
     from auto_patch_v2.pipeline.frontage_publication import (
-        _sides, frontage_levels, terminal_frontage_records)
+        frontage_levels, map_sides, terminal_frontage_records)
     with open(path, "rb") as fh:
         cap = pickle.load(fh)
     icao, airport, pm = cap["icao"], cap["airport"], cap["pm"]
@@ -158,7 +155,7 @@ def census(path: str) -> dict:
         u = airport.partition.units[r.unit]
         plans[r.unit] = unary_union([g for m in u.members for p in m.parts
                                      if (g := part_footprint(p, to_xy)) is not None])
-    air = _sides(pm, law)[0]
+    air = map_sides(pm, law)[0]
     today = _today(pm, airport, law, air, plans)
     rows = []
     for r, rec in zip(levels, recs, strict=True):
@@ -184,12 +181,19 @@ def differs(row: dict) -> bool:
     return min(abs(y - row["rise"]) for y in row["minted"]) > _AGREE_M
 
 
+def _clues(c: dict) -> str:
+    return (f"span {c['face_span']} walls {len(c['retaining_walls'])} "
+            f"fences {len(c['fences'])} upper_roads {len(c['upper_roads'])} "
+            f"neighbours {len(c['neighbours'])}")
+
+
 def _fmt(icao: str, r: dict) -> str:
     return (f"  {icao} {r['unit']:12s} {r['plan_m2']:9.0f} m2  air {r['air_y']:+6.2f} "
             f"land {'   -  ' if r['land_y'] is None else format(r['land_y'], '+6.2f')} "
             f"rise {r['rise']:+6.2f} {str(r['witness'] or '-'):12s} "
             f"g {r['g_air']}/{r['g_land']} {r['verdict']:11s} face {r['face_m']:6.0f} m "
-            f"band {r["band_vertices"]:4d} lv {r["levels"]} clues {r["clues"]}  today R1={'y' if r['r1'] else 'n'} "
+            f"band {r['band_vertices']:4d} lv {[lv['rise'] for lv in r['levels']]} "
+            f"clues {_clues(r['clues'])}  today R1={'y' if r['r1'] else 'n'} "
             f"minted {r['minted']}  @{r['lat']},{r['lon']}")
 
 

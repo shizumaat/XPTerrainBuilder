@@ -802,7 +802,7 @@ def _build(icao: str, inputs: Inputs, out_dir: str | Path, config: Config | None
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
                                                               lv, tt2),
-            follow_rewrite=lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z),
+            follow_rewrite=lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z, law),
             # issue #517: no bulge between two junctions pass 1b holds low
             hold_rewrite=lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, tt2))
         return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)

@@ -93,7 +93,8 @@ from ..geom.parts import areal_part
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["Neck", "cover_arms", "necks_of", "road_arms", "road_beside", "split_at_necks"]
+__all__ = ["Neck", "cover_arms", "necks_of", "road_arms", "road_beside", "road_necks",
+           "split_at_necks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -204,6 +205,21 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
                  _dilated(b, half, grid), face_g,
                  grid_size=grid), grid) for b in lobes]
     return _cuts(face, face_g, lobes, reach, rules, within)
+
+
+def road_necks(body: Polygon, rules: Rules) -> list[Neck]:
+    """THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283 EKVG:
+    "we are not recognizing the neck") -- every §43 cut of a lot ``body``
+    read at the ROAD's width: a stretch narrower than
+    ``service.free_max_width_m`` (the free-road ruling's road width), a
+    neck between two of the lot's lobes or an arm off one, at least
+    ``apron.neck_length_m`` long (the same verdicts as :func:`necks_of`),
+    whose mean width is at most ``apron.arm_road_max_width_m`` (nothing a
+    vehicle parks across).  No new number.  MEASURED EKVG ``pav0#beyond1``
+    + ``dsf:pol17``: one 6.6 m x 662 m lane round the lot and up the north
+    arm to the primary road."""
+    out, _refused = _read(body, rules.service.free_max_width_m, rules, None)
+    return [n for n in out if n.width_m <= rules.apron.arm_road_max_width_m]
 
 
 def cover_arms(face: Polygon, cover, rules: Rules) -> list[Neck]:

@@ -362,7 +362,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         sol2, rep2.follow_stage = solve_follow(
             cs2_used, sol2, follow_rewrite, lambda cs_f, fx: _solve_stage(
                 planar2, cs_f, law, options, method=method, low_rank=low_rank,
-                fixed=fx, label="follow"))
+                fixed=fx, label="follow", lot_datum=True))
     rep2.reach_seed = seed_rep
     # issue #143: the §37 (9) joins the rewrite released because their road
     # row is welded to a stage-1 constant (``road_ramp.welded_join_release``)
@@ -527,7 +527,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  projection_memo: dict | None = None,
                  seed: WarmSeed | None = None,
                  label: str = "single",
-                 lp_memo: "LpMemo | None" = None
+                 lp_memo: "LpMemo | None" = None,
+                 lot_datum: bool = False
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -544,6 +545,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     assemble / §5a LP / QP / projection / report seconds, #2206 6a).
     ``lp_memo``: the stage-1 passes' §5a :class:`~.feasibility.LpMemo`
     (#2206 step 4; ``None`` reads the LP every time).
+    ``lot_datum``: :func:`assemble`'s -- the follower pass's alone.
     """
     opt = options or Options()
     d = design_law(law)
@@ -551,7 +553,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     t0 = time.perf_counter()
     n = len(planar.vertices)
     base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed,
-                      stage_roles=stage_roles)
+                      stage_roles=stage_roles, lot_datum=lot_datum)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
     # §20b (4): a column with NO LEVEL is not this stage's answer.  The level
     # belt (§23.4) normally leaves none — it gives every level-free piece its
@@ -1034,6 +1036,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          "chord_vertices": chord_v, "road_fit_vertices": road_v,
                          "one_way_rows": rep.one_way_rows,
                          "ground_datum_rows": rep.ground_datum_rows,
+                         "lot_datum_rows": rep.lot_datum_rows,
                          "foot_rows": rep.foot_rows,
                          "active": len(active), "rounds": rep.rounds})
     _refuse_nonfinite(cs, z)

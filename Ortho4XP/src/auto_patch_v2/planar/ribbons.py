@@ -201,7 +201,8 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
     # site, never per consumer)
     faces, absorbed, detached = absorb_enclosed_pavement(
         faces, tuple(law.tables.emit.terrace.shape_roles),
-        mouth_m=law.tables.emit.terrace.narrow_mouth_max_m)
+        mouth_m=law.tables.emit.terrace.narrow_mouth_max_m,
+        own_family=law.tables.precedence.runway_family.members)
     # §41 (4): a sliver ZONE face is dissolved into the pavement it borders
     # HERE, before the host's hole is cut — the same single-derivation-site
     # discipline (owner RULINGS 2026-08-30l) the absorption above follows

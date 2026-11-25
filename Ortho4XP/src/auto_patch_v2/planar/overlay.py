@@ -1097,7 +1097,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
 def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
                              roles: tuple[str, ...],
                              min_frac: float = ENCLOSED_MIN_FRAC,
-                             mouth_m: float = 0.0
+                             mouth_m: float = 0.0,
+                             own_family: _t.Collection[str] = ()
                              ) -> tuple[list[tuple[Polygon, Region]], int, int]:
     """§41 (1) — A PAVEMENT FACE INSIDE A PAVEMENT FACE IS A HOLE OF IT
     (owner RULINGS 2026-09-13co item 2; attributed RULINGS 2026-09-13cs
@@ -1148,12 +1149,22 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
     ``cross_connector:pav77`` shares 103.54 m with ``primary_parallel:
     pav73`` and passes it by an order of magnitude.
 
+    (c) A face of the ``own_family`` roles (the RUNWAY family, #2244) is
+    absorbed only into a host of that family.  The runway is the apt.dat's
+    own definition, senior to every pavement round it: a pack that paints
+    ONE pavement polygon over the whole field (EKVG, Faroes4XPlane: the
+    runway slab inside a DSF pavement read as ``junction``) left the runway
+    smaller than its host, and smallest-first folded the whole slab into
+    the junction — no runway role, no runway law.  The runway stays its
+    own face; the host keeps the hole.
+
     Smallest first, so a chain of nested notches folds into the outermost
     body.  Returns the faces, how many were absorbed and how many enclosed
     faces were refused for being detached."""
     if len(faces) < 2 or not roles:
         return faces, 0, 0
     role_set = set(roles)
+    own = frozenset(own_family)
     polys = [p for p, _r in faces]
     tree = STRtree(polys)
     keep: list[tuple[Polygon, Region] | None] = list(faces)
@@ -1187,6 +1198,8 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
             pj, rj = keep[j]
             if rj.role not in role_set or pj.area <= poly.area:
                 continue
+            if faces[i][1].role in own and rj.role not in own:
+                continue        # (c) the runway is no other role's hole
             try:
                 inside = poly.intersection(Polygon(pj.exterior)).area
             except Exception:                             # pragma: no cover

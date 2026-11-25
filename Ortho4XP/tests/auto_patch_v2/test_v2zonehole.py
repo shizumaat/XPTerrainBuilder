@@ -402,3 +402,35 @@ def test_publication_no_longer_derives_face_holes():
     from auto_patch_v2.pipeline import publication as P
     assert not hasattr(P, "face_holes_ll")
     assert '"face_holes"' not in inspect.getsource(P.publication)
+
+
+def test_a_runway_inside_a_pack_pavement_stays_the_runway():
+    """#2244: a pack that paints ONE pavement polygon over the whole field
+    leaves the apt.dat runway slab in a hole of a larger pavement face (read
+    ``junction``).  Smallest-first folded the whole runway into that face —
+    the airport built with no runway role.  A runway-family face is no
+    other role's hole: the runway keeps its face, the host keeps the hole.
+    The family is the law's own (``precedence.runway_family``), the set the
+    arrangement passes."""
+    from auto_patch_v2.law import Law
+    own = Law.for_airport("").tables.precedence.runway_family.members
+    host = Polygon(_rect(0, 0, 2000, 120), [_rect(50, 45, 1950, 75)[::-1]])
+    slab = Polygon(_rect(50, 45, 1950, 75))
+    jn = _region("junction", "dsf:pol1")
+    rw = _region("runway", "12/30")
+    roles = (*ROLES, "junction")
+    # the miss, reproduced: without the family the runway is absorbed
+    out, absorbed, _d = absorb_enclosed_pavement(
+        [(host, jn), (slab, rw)], roles, mouth_m=12.0)
+    assert absorbed == 1 and {r.role for _p, r in out} == {"junction"}
+    # the rule: the runway stays
+    out, absorbed, _d = absorb_enclosed_pavement(
+        [(host, jn), (slab, rw)], roles, mouth_m=12.0, own_family=own)
+    assert absorbed == 0
+    assert {r.role: p.area for p, r in out}["runway"] == pytest.approx(slab.area)
+    # a runway host still takes a notch of a junior role
+    rhost = Polygon(_rect(0, 0, 2000, 60), [_rect(900, 0, 960, 20)[::-1]])
+    notch = Polygon(_rect(900, 0, 960, 20))
+    out, absorbed, _d = absorb_enclosed_pavement(
+        [(rhost, rw), (notch, jn)], roles, mouth_m=12.0, own_family=own)
+    assert absorbed == 1 and [r.role for _p, r in out] == ["runway"]

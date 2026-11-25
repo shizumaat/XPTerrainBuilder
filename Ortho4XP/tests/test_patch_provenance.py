@@ -245,8 +245,11 @@ def test_inset_bake_provenance_entry_missing_sidecar(tmp_path):
     entry = INSETS._inset_bake_provenance_entry(str(tif))
     assert entry["icao"] == "KBNA"
     assert entry["path"].endswith("KBNA_usgs3dep.tif")
-    # No sidecar -> no provider key (degrades gracefully, no crash).
-    assert "provider" not in entry
+    # No sidecar -> the provider is the file name's code (#2244: the
+    # label read ``KBNA:None``), spelled as a sidecar spells it; nothing
+    # the sidecar alone states is invented.
+    assert entry["provider"] == "USGS3DEP"
+    assert "source_ids" not in entry and "fetch_date" not in entry
 
 
 # ── the master gate ────────────────────────────────────────────────────────────

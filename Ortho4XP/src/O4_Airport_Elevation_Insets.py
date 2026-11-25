@@ -7613,6 +7613,11 @@ def _inset_bake_provenance_entry(inset_path):
                 stated if stated is not None else native)
         except Exception:
             pass
+    if not entry.get("provider") and "_" in stem:
+        # #2244: an inset with no sidecar still names its provider -- the
+        # code in its file name (``<icao>_<code>.tif``), as the sidecar
+        # spells it; otherwise every label reads ``ICAO:None``
+        entry["provider"] = stem.rsplit("_", 1)[-1].upper()
     klass = _provider_dem_class(entry.get("provider")
                                 or stem.rsplit("_", 1)[-1])
     if klass:

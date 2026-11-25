@@ -261,6 +261,42 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
 OWN_GROUND = "footless_own_ground"
 
 
+def _sunk_zero(surface: _ar.Surface, u: Unit, z: "float | None"
+               ) -> "tuple[float, str] | None":
+    """#2243: a SUNK row written WHOLE on its own ground keeps its
+    AUTHORED FRAME ZERO.
+
+    A row drawn below the ground (``OBJECT_AGL`` with a negative lift) is
+    its author's statement that the model's ``y = 0`` stands ``-agl`` under
+    the ground AT ITS ANCHOR — the base of a mast, a pier or a tower row
+    buried so the terrain hides it, its lights at a height the author
+    chose over that ground (``below_grade_witness.row_depth_under``: only a
+    sunk row states a depth).  The ground under the cut body's own
+    footprint is not that plane: a tower row reaching down a slope off a
+    runway end stands over ground tens of metres under its anchor's, and
+    seating ``y = 0`` there lifted the whole row by the slope plus the
+    burial (40 m on a measured runway-end slope, the lights over the
+    approach path).  Only a body holding the WHOLE placement: a PIECE of a
+    cut model (a ground plate laid over a kilometre of relief) stands on
+    its own ground by §16 (3), where the anchor's ground is not under it.
+
+    Returns ``(y_zero, why)`` putting the zero at the ground under the
+    unit's anchor plus its lift, written at the body's own ground ``z``;
+    ``None`` for a row at or over the ground, or where either ground reads
+    nothing (the footprint rule stands)."""
+    agl = float(getattr(u, "agl_m", 0.0) or 0.0)
+    if not agl < 0.0 or z is None:
+        return None
+    g = surface(float(u.anchor[0]), float(u.anchor[1]))
+    if g is None:
+        return None
+    zero = float(g) + agl
+    return (float(z) - zero,
+            f"{OWN_GROUND}: no carrier the law accepts — a sunk row (AGL {agl:+.2f}) "
+            f"keeps its authored zero {zero:.2f} under its anchor's ground "
+            f"{float(g):.2f} (#2243)")
+
+
 def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      u: Unit, surface: _ar.Surface, body_id: int,
                      counts: dict[str, int], by_class: dict[str, int],
@@ -314,6 +350,9 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
             [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
         y0, why = 0.0, (f"{OWN_GROUND}: no carrier the law accepts — the ground "
                         f"under its own footprint, authored y kept")
+        sunk = _sunk_zero(surface, u, z) if len(set(grp)) == len(raw) else None
+        if sunk is not None:
+            y0, why = sunk
         counts["footless_own_ground"] = counts.get("footless_own_ground", 0) + 1
     off = authored_offset(clat, clon, y0, u.anchor[0], u.anchor[1], m.heading_deg)
     a = _ar.Anchor(cls, clat, clon, y0, why, z, off)

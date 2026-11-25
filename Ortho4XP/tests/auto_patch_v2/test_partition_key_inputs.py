@@ -304,3 +304,26 @@ def test_b1_the_bridge_ways_are_in_the_key(tmp_path):
     assert key(road) != base                                  # the bridge is gone
     assert key(road, _way(8, [(0.0, 5.0), (61.0, 5.0)], highway="service", bridge="yes")) != base
     assert key(_way(7, [(0.0, 0.0), (90.0, 0.0)], highway="service", bridge="yes"), bridge) != base
+
+
+def test_t1_the_terrain_hiding_is_in_the_key(tmp_path, monkeypatch):
+    """#2285: a "Hide terrain objects" answer dissolves a model's frame in
+    the reading, so it moves the key (a cached reading kept the shells the
+    pack DSF had hidden)."""
+    from auto_patch_v2.airport import pack_choice as PCH
+    monkeypatch.setattr(PCH, "store_path", lambda name: str(tmp_path / "prefs" / name))
+    root, dump, _mod = _world(tmp_path)
+    a = _airport(root, None)
+    a.pack.pack_root = str(root)
+
+    def key():
+        return PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05)
+    base = key()
+    assert key() == base
+    PCH.TERRAIN_STORE.remember(str(root), "never")
+    never = key()
+    assert never != base, "the default hides the offer; never keeps it"
+    PCH.Store(PCH.TERRAIN_FOUND, lambda v: bool(v)).remember(str(root), "Objects/hill.obj")
+    assert key() == never, "an offer the user does not hide reads the same"
+    PCH.TERRAIN_STORE.remember(str(root), "")
+    assert key() not in (base, never), "the offer hidden by name"

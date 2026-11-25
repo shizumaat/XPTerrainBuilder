@@ -32,6 +32,7 @@ from auto_patch import adjust_stage as AS  # noqa: E402
 from auto_patch import drape_stage as DS  # noqa: E402
 from auto_patch import forest_stage as FS  # noqa: E402
 from auto_patch_v2.airport import pack_art as PA  # noqa: E402
+from auto_patch_v2.airport import pack_choice as PC  # noqa: E402
 from auto_patch_v2.airport import pack_forests as PF  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 
@@ -189,11 +190,9 @@ def test_never_and_undo_go_to_every_row(stage, monkeypatch):
                                     ("generic", "undo")]
 
 
-def test_the_terrain_objects_are_offered_ticked(stage, monkeypatch):
-    """RULINGS 2026-11-13i (#2036 (c)): a build whose plan offers a terrain
-    object for hiding asks it as the row ``terrain`` — ticked (owner
-    2026-11-15T13:12Z "Ticked by default"); the offer is remembered so the
-    answer works outside a build."""
+def _terrain_offer(stage, monkeypatch) -> list:
+    """The plan offers one terrain object (``mountain.obj``) for hiding;
+    returns the list of offers ``check_all`` was handed."""
     mountain = PA.MissingDef("object", 7, "Objetos/mountain.obj", 1)
     offered = []
 
@@ -207,14 +206,43 @@ def test_the_terrain_objects_are_offered_ticked(stage, monkeypatch):
          "seat": "terrain model", "hideable": True},
         {"id": "dsf:obj8", "resource": "Objetos/house.obj",
          "seat": "terrain model", "hideable": False})
+    return offered
+
+
+def test_the_terrain_objects_are_hidden_by_default(stage, monkeypatch):
+    """#2285 (owner 2026-11-25, on RULINGS 2026-11-24k (1)): a build whose
+    plan offers a terrain object (our ground under it is quality elevation
+    that models it) hides it with no answer -- no question; the offer is
+    remembered so the answer works outside a build, and Undo sticks."""
+    offered = _terrain_offer(stage, monkeypatch)
+    wrote = []
+    monkeypatch.setattr(DS, "_write", lambda pd, root, drapes, kind: wrote.append(
+        (kind.key, tuple(m.path for m in drapes))))
     out = AS.adjust_stage(stage["plan"], TILE, writes=True)
+    assert out["terrain"] == "hidden" and offered == [("Objetos/mountain.obj",)]
+    assert ("terrain", ("Objetos/mountain.obj",)) in wrote
+    assert not [r for ev in stage["adjust"] for r in ev["items"] if r["key"] == "terrain"]
+    assert DS.terrain_paths(stage["plan"].pack_root) == ("Objetos/mountain.obj",), \
+        "the offer is remembered for the answer outside a build"
+    assert PC.hidden_terrain(stage["plan"].pack_root) == {"Objetos/mountain.obj"}
+    monkeypatch.setattr(DS, "undo", lambda *a, **k: [])
+    DS.drape_choice(stage["plan"].pack_root, "undo", 25, 51, DS.TERRAIN)
+    assert DS.TERRAIN.store.choice(stage["plan"].pack_root) == "never", \
+        "an undo is not re-hidden by the default"
+    assert not PC.hidden_terrain(stage["plan"].pack_root)
+
+
+def test_the_terrain_objects_are_offered_ticked(stage, monkeypatch):
+    """RULINGS 2026-11-13i (#2036 (c)): a build that cannot write asks the
+    offer as the row ``terrain`` -- ticked (owner 2026-11-15T13:12Z
+    "Ticked by default")."""
+    offered = _terrain_offer(stage, monkeypatch)
+    out = AS.adjust_stage(stage["plan"], TILE, writes=False)
     assert out["terrain"] == "found" and offered == [("Objetos/mountain.obj",)]
     [ev] = stage["adjust"]
     row = next(r for r in ev["items"] if r["key"] == "terrain")
     assert row["checked"] is True and row["count"] == 1
     assert AS.UNCHECKED == ("ground",), "one default list, the engine's"
-    assert DS.terrain_paths(stage["plan"].pack_root) == ("Objetos/mountain.obj",), \
-        "the offer is remembered for the answer outside a build"
 
 
 def test_ask_is_the_report(stage):

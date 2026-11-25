@@ -16,7 +16,9 @@ user can choose to hide or not".  Four kinds (:class:`_Kind`), one each:
   — the objects that model terrain where quality elevation models the
   same ground (``auto_patch_v2.airport.terrain_model`` /
   ``pack_terrain``); TICKED when asked since owner 2026-11-15T13:12Z
-  (``adjust_stage.UNCHECKED``), and the one kind whose answer the tile's
+  (``adjust_stage.UNCHECKED``) and, with no answer, HIDDEN by the build
+  since owner 2026-11-25 (#2285, ``pack_choice.TERRAIN_DEFAULT``: its
+  Undo is remembered as "never"), and the one kind whose answer the tile's
   mesh reads (``adjust_edit.TILE_ROWS``).  Its witness needs the build's
   DEM: a build remembers the resources it offered (``TERRAIN_FOUND``) and
   the check outside a build reads them back;
@@ -77,7 +79,8 @@ class _Kind(_t.NamedTuple):
 
 PHOTOS = _Kind("drapes", _PC.Store(_PC.DRAPE_CHOICES), "draped photo")
 GROUND = _Kind("ground", _PC.Store(_PC.GROUND_CHOICES), "draped ground texture")
-TERRAIN = _Kind("terrain", _PC.Store(_PC.TERRAIN_CHOICES), "terrain object")
+#: #2285: with no answer a pack hides its offer (``pack_choice.TERRAIN_DEFAULT``)
+TERRAIN = _Kind("terrain", _PC.TERRAIN_STORE, "terrain object")
 GENERIC = _Kind("generic", _PC.Store(_PC.GENERIC_CHOICES),
                 "generic X-Plane ground texture")
 KINDS = (PHOTOS, GROUND, TERRAIN, GENERIC)
@@ -422,7 +425,8 @@ def drape_choice(pack_root: str, action: str, lat: int | None = None,
         kind.store.remember(pack_root, "never")
         return "never", []
     if action == "undo":
-        kind.store.remember(pack_root, "")
+        # a kind that hides by default (#2285) remembers the undo as "never"
+        kind.store.remember(pack_root, "never" if kind.store.default == "update" else "")
         files = undo(pack_root, lat, lon, kind)
         return ("undone" if files else "none"), files
     kind.store.remember(pack_root, "update")

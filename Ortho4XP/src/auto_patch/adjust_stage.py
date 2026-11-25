@@ -22,7 +22,9 @@ the question opens; ``flatten`` listed as automatic):
   elevation models the same ground (``drape_stage.TERRAIN``, owner RULINGS
   2026-11-13i, #2036 (c)): ticked when the question opens (owner
   2026-11-15T13:12Z "Ticked by default"; :data:`UNCHECKED`), offered only
-  when a build found one (its witness needs the build's DEM); the one row
+  when a build found one (its witness needs the build's DEM); with no
+  answer a build that writes hides it unasked (#2285,
+  ``pack_choice.TERRAIN_DEFAULT``); the one row
   whose answer the TILE's mesh reads (:data:`adjust_edit.TILE_ROWS`);
 * ``generic`` — hide X-Plane's stock land-class ground (grass, sand,
   scrub) the pack drapes over the tile, with the hectares it covers

@@ -280,3 +280,22 @@ def test_a_model_the_user_hid_dissolves_and_keeps_its_offer(tmp_path):
     assert recs[0]["seat"] == TS.HIDDEN_SEAT and "cut" not in recs[0]
     assert TM.hideable_paths(recs) == ("m.obj",)
     assert "HIDDEN" in TM.log_line("TEST", [m])
+
+
+def test_a_pack_hiding_its_offer_hides_a_hideable_model_this_build(tmp_path):
+    """#2285: a pack whose terrain row hides by default hides the model
+    this build offers (quality elevation models it), never one it does
+    not offer, never one the user keeps."""
+    from auto_patch_v2.airport.pack_choice import _TerrainHiding
+    path = _write(tmp_path, "m.obj", _hill)
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+    fine = lambda xs, ys: np.ones(len(xs), dtype=bool)   # noqa: E731
+
+    def run(hidden, fine):
+        return TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path),
+                                   _dem(_hill), fine, hidden=hidden)["dsf:obj0"]
+    assert run(_TerrainHiding((), kept=()), fine).ground == "hidden"
+    assert run(_TerrainHiding((), kept=()), None).ground == "", "not offered: kept"
+    assert run(_TerrainHiding((), kept=("m.obj",)), fine).ground == "", "the user keeps it"
+    assert run(_TerrainHiding(()), fine).ground == "", "the pack does not hide its offer"
+    assert run(frozenset(), fine).ground == ""

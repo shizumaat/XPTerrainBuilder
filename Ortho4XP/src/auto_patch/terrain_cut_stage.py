@@ -78,7 +78,7 @@ def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
     """The user hides this model: the pack's "Hide terrain objects" answer
     is ``update`` and it is offered (``hideable``) -- as the user's
     per-object answers move it (#2272, ``pack_terrain.offered``)."""
-    if _PC.Store(_PC.TERRAIN_CHOICES).choice(pack_root) != "update":
+    if _PC.TERRAIN_STORE.choice(pack_root) != "update":
         return False
     from auto_patch_v2.airport import pack_terrain as _pt
     res = str(rec.get("resource", ""))

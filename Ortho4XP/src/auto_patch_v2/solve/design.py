@@ -107,6 +107,7 @@ _LAG_OFF = 1.0e9
 
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_rim_vertices, ground_roles  # noqa: E402
+from ..model.lot_ground import lot_datum_vertices  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
 from .design_stage import _groundside_minter, _welded_faces, stage_one_on  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
@@ -316,6 +317,16 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         shadow = seed_rep.pop("stage2_shadow", None)
     else:
         shadow = None
+    # THE LOT IS STAGE 2'S OWN (owner RULINGS 2026-11-25e (1), #2283 EKVG):
+    # a lot with no level target follows its ground, so a stage-1 level the
+    # coordinate join hands it -- the base map's apron there, before the
+    # pads cut it groundside (``pipeline/stage_one_map.base_pad_map``) -- is
+    # no constant of stage 2 and carries no stage-1 hold row.  MEASURED
+    # EKVG ``pav0#beyond1``: frozen at the apron's 84-87 m over DEM 79-93 m
+    lot_free = lot_datum_vertices(planar) & fixed2.keys()
+    if lot_free:
+        free2 = frozenset(free2) | lot_free
+        fixed2 = {v: z for v, z in fixed2.items() if v not in lot_free}
 
     def _stage2_set(cs_x: ConstraintSet, free_x) -> ConstraintSet:
         # the caller's rewrite re-reads the set it was BOUND to (the un-
@@ -432,6 +443,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.free_membrane_rows += rep1.free_membrane_rows
     rep2.apron_trend_rows += rep1.apron_trend_rows
     rep2.ground_datum_rows += rep1.ground_datum_rows
+    rep2.lot_datum_rows += rep1.lot_datum_rows
     rep2.level_belt_rows += rep1.level_belt_rows
     rep2.foot_rows += rep1.foot_rows
     rep2.bank_rows += rep1.bank_rows
@@ -1034,6 +1046,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          "chord_vertices": chord_v, "road_fit_vertices": road_v,
                          "one_way_rows": rep.one_way_rows,
                          "ground_datum_rows": rep.ground_datum_rows,
+                         "lot_datum_rows": rep.lot_datum_rows,
                          "foot_rows": rep.foot_rows,
                          "active": len(active), "rounds": rep.rounds})
     _refuse_nonfinite(cs, z)

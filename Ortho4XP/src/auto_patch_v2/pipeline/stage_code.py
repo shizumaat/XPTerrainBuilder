@@ -1773,6 +1773,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.platform",
         "auto_patch_v2.constraints.precedence",
         "auto_patch_v2.constraints.proximity",
+        "auto_patch_v2.constraints.lot_neck",
         "auto_patch_v2.constraints.public_road_release",
         "auto_patch_v2.constraints.ramp_runout",
         "auto_patch_v2.constraints.riser",
@@ -1892,6 +1893,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.ground_fit",
         "auto_patch_v2.model.hard_plane",
         "auto_patch_v2.model.islands",
+        "auto_patch_v2.model.lot_ground",
         "auto_patch_v2.model.map_memo",
         "auto_patch_v2.model.placement",
         "auto_patch_v2.model.planar",
@@ -2568,7 +2570,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pad_sunk_level
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
-    constraints.public_road_release
+    constraints.public_road_release constraints.lot_neck model.lot_ground
     constraints.proximity constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
@@ -2853,6 +2855,7 @@ CODE_MODULES["solve"] = _mods("""
     law.rebake_schema law.reference_code airport.runway_strip law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area law.inset_class model.frame model.hard_plane model.islands
+    model.lot_ground
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
@@ -3053,7 +3056,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.no_step constraints.pad_frontage_gs constraints.pad_fronting
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
-    constraints.public_road_release
+    constraints.public_road_release constraints.lot_neck model.lot_ground
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp constraints.roads constraints.routes
@@ -3295,6 +3298,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraints model.end_area law.inset_class model.frame model.hard_plane
+    model.lot_ground
     model.islands model.jetway model.map_memo model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage

@@ -405,6 +405,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # live in ``cs`` for the whole loop, so their ids are stable keys.
     by_source: dict[int, tuple[str, bool, bool]] = {}
     dem_fixed = red.dem_fixed
+    # THE LOT'S CAP OUTRANKS ITS DATUM (owner RULINGS 2026-11-25e (1)): in
+    # the follower pass the weak ``z = DEM`` row (9') is the lot's only
+    # pull, so every grade cap on a lot vertex is HARD there -- priced
+    # soft, the datum bought 0.03-0.06 m over the 5 % cap (MEASURED ESSA
+    # ``faclot:1``, chords to the stage-2 constants beside it)
+    lot_cap_v = lot_datum_vertices(planar) if lot_datum else frozenset()
     for side in one_t:
         terms, hi, row = side
         src_reading = by_source.get(id(row.source))
@@ -452,7 +458,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # nothing, which is the same constant by another route.
         promoted = bool(front_heads) and head in front_heads \
             and vs <= front and _held_at_ref(terms, hi, front_ref, tol_ref)
-        hard_head = head in heads           # ``is_hard(heads, row)``
+        hard_head = head in heads or (      # ``is_hard(heads, row)``
+            bool(lot_cap_v) and isinstance(row, Diff) and not vs.isdisjoint(lot_cap_v))
         if (hard_head or promoted or ap_row) and _carries_a_column(red, terms):
             if promoted and not hard_head:
                 rep.fronting_promoted += 1

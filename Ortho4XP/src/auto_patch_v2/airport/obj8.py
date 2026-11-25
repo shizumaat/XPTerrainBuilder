@@ -1472,6 +1472,12 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         placements, path_of, geom, dem_z,
         skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped),
         dem_many=many, fine=fine, hidden=hidden))
+    # #2197: an origin set whose outer rim is its author's ground (a partial
+    # shell) is one rigid frame; the tile build grades our ground to its rim
+    from . import ground_rim as _gr
+    found.update(_gr.placement_models(
+        placements, lambda d: _tm._solid(geom(d)) if geom(d) is not None else None, many,
+        skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped)))
     # a shell the user hid, or no seat lays flat, dissolves (#2056, #2077 4.2)
     gone = {k: m for k, m in {**shells, **found}.items() if m.ground == _gs.HIDDEN}
     models = _rs.with_planes(_tm.set_members(

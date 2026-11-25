@@ -34,6 +34,13 @@ rim) -- with ``water_rim`` (the share of its outer rim over the tile's
 cached water layers, ``O4_Vector_Map.cached_tile_water``; ``None`` where
 none is cached) and the hide offer of the new quality test.  An
 ``OBJECT_MSL`` row is read like any other (llows), its datum beside it.
+
+PARTIAL SHELLS (#2197, ``auto_patch_v2/airport/ground_rim``): every ORIGIN
+SET (the rows sharing one origin, heading and lift) is asked the module's
+own candidate -- its ground sheet, rim share and modelled-ground relief --
+at the seat it would take; gate count ``rim`` (sets recognised) and per
+set a ``partial shell`` row with its seat ``z0``, sheet and rim shares,
+relief and the station gaps to the raw rasters 1.5 m outside its plan.
 """
 from __future__ import annotations
 
@@ -55,6 +62,7 @@ import O4_Console_Encoding as _o4console  # noqa: E402
 
 _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 
+from auto_patch_v2.airport import ground_rim as GR  # noqa: E402
 from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import relief_skin as RS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
@@ -127,7 +135,7 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
     ground shell's Shape is keyed ``("ground", path)``."""
     gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0,
-             "shell": 0}
+             "shell": 0, "rim": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
@@ -278,7 +286,68 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                                   water_reader(lat, lon, lo, la),
                                   elev if kind == "OBJECT_MSL" else None))
             out["rows"].append(rec)
+        out["rows"] += partial_shells(pack_root, dsf, defs, rows,
+                                      dems or rasters(elevation_root, lat, lon), lat, lon, gates)
     return out
+
+
+def partial_shells(pack_root: str, dsf: str, defs: list, rows: list, dems: list,
+                   lat: int, lon: int, gates: dict) -> list[dict]:
+    """The ``partial shell`` rows of one DSF (module doc, PARTIAL SHELLS)."""
+    lat0, lon0 = lat + 0.5, lon + 0.5
+    mlon = 111_320.0 * math.cos(math.radians(lat0))
+    solids: dict = {}
+
+    def solid(d):
+        if d not in solids:
+            f = os.path.join(pack_root, d)
+            try:
+                solids[d] = TM._solid(parse_obj8(f)) if os.path.isfile(f) else None
+            except (OSError, ValueError):
+                solids[d] = None
+        return solids[d]
+    dem = sampler(dems, lon0, lat0)
+    pl = [(k, defs[i], ((lo - lon0) * mlon, (la - lat0) * 111_320.0), h, el, kind)
+          for k, (i, lo, la, h, kind, el) in enumerate(rows) if i < len(defs)]
+    out = []
+    for rs, ids in GR._placement_sets(pl, solid, dem).values():
+        gates["rim"] = gates.get("rim", 0) + 1
+        st = rs.stations
+        gap = st[:, 2] - _outside(dem, rs)
+        out.append({"dsf": os.path.basename(dsf), "resource": pl[int(ids[0])][1],
+                    "lat": lat0 + rs.xy[1] / 111_320.0, "lon": lon0 + rs.xy[0] / mlon,
+                    "heading": rs.heading, "kind": "OBJECT", "members": len(ids),
+                    "plan_m": round(rs.plan_m), "relief_m": round(rs.relief_m, 1),
+                    "verdict": "partial shell", "z0": round(rs.z0, 3),
+                    "sheet": round(rs.sheet_share, 3), "rim_share": round(rs.rim_share, 3),
+                    "stations": len(st),
+                    "gap_p5": round(float(np.nanpercentile(gap, 5)), 2),
+                    "gap_p95": round(float(np.nanpercentile(gap, 95)), 2),
+                    "over_05": int(np.sum(np.abs(gap) > 0.5))})
+    return out
+
+
+def _outside(dem, rs) -> np.ndarray:
+    """The raster ground 1.5 m outside each station of ``rs`` (away from
+    the nearest plan edge, outward)."""
+    import shapely
+    from shapely.geometry import Polygon
+    st = rs.stations
+    if not rs.rings:
+        return np.full(len(st), np.nan)
+    poly = shapely.union_all([Polygon(r) for r in rs.rings])
+    bd = poly.boundary
+    q = shapely.line_interpolate_point(bd, shapely.line_locate_point(bd, shapely.points(st[:, :2])))
+    qx, qy = shapely.get_x(q), shapely.get_y(q)
+    dx, dy = st[:, 0] - qx, st[:, 1] - qy
+    nr = np.hypot(dx, dy)
+    c = poly.centroid
+    vx, vy = qx - c.x, qy - c.y
+    vn = np.maximum(np.hypot(vx, vy), 1e-9)
+    sg = np.where(shapely.contains_xy(poly, st[:, 0], st[:, 1]), -1.0, 1.0)
+    ux = np.where(nr > 1e-6, sg * dx / np.maximum(nr, 1e-9), vx / vn)
+    uy = np.where(nr > 1e-6, sg * dy / np.maximum(nr, 1e-9), vy / vn)
+    return dem(rs.xy[0] + qx + 1.5 * ux, rs.xy[1] + qy + 1.5 * uy)
 
 
 def main(argv=None) -> int:
@@ -299,6 +368,10 @@ def main(argv=None) -> int:
                      f"{' HIDEABLE' if row['hideable'] else ''}"
                      if "corr" in row else
                      f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "follow" in row else
+                     f" {row['members']} rows z0 {row['z0']:.2f} m sheet {row['sheet']:.0%} rim "
+                     f"{row['rim_share']:.0%} stations {row['stations']} gap p5/p95 "
+                     f"{row['gap_p5']:+.2f}/{row['gap_p95']:+.2f} m, {row['over_05']} over 0.5 m"
+                     if "sheet" in row else
                      f" z0 {row['z0']:.2f} m (its origin's ground) quality "
                      f"{row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
                      if "z0" in row else "")

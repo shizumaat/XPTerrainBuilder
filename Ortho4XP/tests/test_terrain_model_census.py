@@ -31,7 +31,7 @@ def test_the_gates_count_the_pack(tmp_path):
     # #2077: the atlas-textured twin is no terrain model, but a single steep
     # surface with no floor is a RELIEF SKIN (``relief_skin``: no photo gate)
     assert gates == {"objects": 3, "plan": 2, "photo": 1, "candidate": 1, "ground": 0,
-                     "skin": 1, "shell": 1}
+                     "skin": 1, "shell": 1, "rim": 0}
     assert sorted(shapes, key=str) == sorted(
         ["o/mountain.obj", ("skin", "o/block.obj"), "o/rock.obj"], key=str)
     assert shapes["o/rock.obj"].small

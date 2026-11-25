@@ -103,6 +103,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.free_bridge_seat",
     "auto_patch_v2.airport.free_column",
+    "auto_patch_v2.airport.ground_rim",
     "auto_patch_v2.airport.ground_shell",
     "auto_patch_v2.airport.hanging_objects",
     "auto_patch_v2.airport.hung_wall_seat",

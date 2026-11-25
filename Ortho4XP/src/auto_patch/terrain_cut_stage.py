@@ -66,7 +66,7 @@ import typing as _t
 import numpy as np
 from auto_patch_v2.airport import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
+__all__ = ["cut_records", "rim_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
            "write_alt", "unfill_water", "refill_land"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
@@ -109,6 +109,49 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
                     and isinstance(rec.get("cut"), dict) and not _hidden(rec, root)):
                 out.append(dict(rec, icao=plan.get("icao", "")))
     return out
+
+
+def rim_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
+                ) -> list[dict[str, _t.Any]]:
+    """The seat records to grade our ground to (#2197, ``airport/ground_rim``):
+    every partial shell's own record with a ``rim`` in the object plans of
+    ``icaos`` (``None``: every plan in ``patch_dir``)."""
+    from auto_patch_v2.airport import terrain_model as _tm
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
+    want = None if icaos is None else {str(i).upper() for i in icaos}
+    out = []
+    for path in sorted(glob.glob(os.path.join(patch_dir, PLAN_FILENAME.format(icao="*")))):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                plan = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if want is not None and str(plan.get("icao", "")).upper() not in want:
+            continue
+        out += [dict(rec, icao=plan.get("icao", "")) for rec in plan.get("authored_seats") or ()
+                if isinstance(rec, dict) and rec.get("seat") == _tm.SEAT
+                and isinstance(rec.get("rim"), dict)]
+    return out
+
+
+def _rim_xy(rec):
+    """``(to_xy, to_ll, stations (n, 3), rings)`` of a rim record in metres
+    about its anchor (``terrain_cut.projector``)."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    r = rec["rim"]
+    to_xy, to_ll = _tc.projector(float(r["lat"]), float(r["lon"]))
+    st = np.asarray(r.get("stations") or (), float).reshape(-1, 3)
+    x, y = to_xy(st[:, 1], st[:, 0])
+    rings = [np.c_[to_xy(q[:, 1], q[:, 0])] for q in
+             (np.asarray(g, float) for g in r.get("rings") or ()) if len(q) >= 4]
+    return to_xy, to_ll, np.c_[x, y, st[:, 2]], rings
+
+
+def _rim_box(rec) -> tuple[float, float, float, float]:
+    """``(west, south, east, north)`` degrees of a rim record's stations."""
+    st = np.asarray(rec["rim"].get("stations") or (), float).reshape(-1, 3)
+    return (float(st[:, 1].min()), float(st[:, 0].min()),
+            float(st[:, 1].max()), float(st[:, 0].max()))
 
 
 def _fill_band(raster) -> tuple[float, float]:
@@ -171,7 +214,7 @@ def _cut_one(dem, tile, rec) -> int:
 
 
 def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
-         patch_area=None) -> int:
+         patch_area=None, rims: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None) -> int:
     """Cut ``tile.dem``'s raster under every record (:func:`cut_records`
     of the tile's patch folder when ``None``), then conform its planes and
     fill its rims (module doc, THE FILL; ``patch_area`` the tile-relative
@@ -181,8 +224,12 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
     dem = getattr(tile, "dem", None)
     if dem is None or getattr(dem, "alt_dem", None) is None:
         return 0
+    if rims is None:
+        # the refinement re-bake reads both; a caller naming records names its rims
+        rims = rim_records(FNAMES.patch_dir(tile.lat, tile.lon)) if records is None else []
     if records is None:
         records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
+    rims = [r for r in rims if (r["rim"].get("stations") or ())]
     total = 0
     for rec in records:
         try:
@@ -195,9 +242,9 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
                      f"({rec.get('id')}): the ground under it cut at {k} posting(s)")
     dem.terrain_fill_delta = None
-    if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
+    if rims or any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:
-            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area)
+            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area, rims)
             total += k
         except Exception as exc:
             UI.vprint(1, f"   terrain composites not filled ({exc})")
@@ -258,13 +305,13 @@ def _raster(dem, tile, patch_area):
     return _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
 
 
-def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
+def _fill_window(dem, tile, comps, extra=()) -> tuple[int, int, int, int] | None:
     """``(r0, r1, c0, c1)``: the raster window every plane and rim fill of
     ``comps`` can change (their plan boxes and zero footprints grown by
     the reach and a posting), ``None`` off the raster."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
-    boxes = []
+    boxes = list(extra)
     for c in comps:
         boxes.append(_tc.plan_box(c.fit, c.to_ll))
         for r in (c.rec["cut"].get("plane") or {}).get("rings") or ():
@@ -285,8 +332,9 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
     return None if c1 < c0 or r1 < r0 else (r0, r1, c0, c1)
 
 
-def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
-    """THE FILL (module doc): every plane, then every rim fill; the
+def _fill_all(dem, tile, records, patch_area, rims=()) -> tuple[int, "dict | None"]:
+    """THE FILL (module doc): every plane, every rim fill, then every
+    partial shell's rim grade (#2197, ``rims``); the
     postings changed and the change (:func:`write_unfill`'s record, the
     planes' and fills' ``alt - before`` at the postings they moved)."""
     import O4_UI_Utils as UI
@@ -295,7 +343,7 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
     raster = _raster(dem, tile, patch_area)
     band = _fill_band(raster)
     comps = [c for c in (_composite(r, band) for r in records) if c is not None]
-    win = _fill_window(dem, tile, comps)
+    win = _fill_window(dem, tile, comps, [_rim_box(r) for r in rims])
     if win is None:
         return 0, None
     r0, r1, c0, c1 = win
@@ -339,6 +387,7 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
                      f"({c.rec.get('id')}): the ground filled to its rim at "
                      f"{rep['raised']} posting(s) from {rep['supports']} support(s), "
                      f"{rep['unserved']} unserved")
+    total += _grade_rims(raster, rims, [c.owned for c in comps])
     d = dem.alt_dem[r0:r1 + 1, c0:c1 + 1] - before
     ii, jj = np.nonzero(d != 0)
     if not len(ii):
@@ -355,6 +404,28 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
                    "held": np.where(wet, change, 0.0).astype(np.float32),
                    "nx": int(nx), "ny": int(ny),
                    "frame": np.array([dem.x0, dem.y0, dem.x1, dem.y1], float)}
+
+
+def _grade_rims(raster, rims, owned) -> int:
+    """THE RIM GRADE of every partial shell (``airport/rim_grade``); the
+    postings moved.  A rim record never yields to another rim record."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import rim_grade as _rg
+    total = 0
+    for rec in rims:
+        try:
+            to_xy, to_ll, st, rings = _rim_xy(rec)
+            rep = _rg.rim_grade(raster, to_xy, to_ll, st, rings, owned)
+        except Exception as exc:
+            UI.vprint(1, f"   partial shell {rec.get('resource')} not graded ({exc})")
+            UI.vprint(2, traceback.format_exc())
+            continue
+        total += rep["moved"]
+        UI.vprint(1, f"   [{rec.get('icao', '')}] partial shell {rec.get('resource')} "
+                     f"({rec.get('id')}): our ground graded to {rep['stations']} rim "
+                     f"station(s) at {rep['moved']} posting(s) ({rep['raised']} raised, "
+                     f"{rep['lowered']} lowered), {rep['unserved']} unserved")
+    return total
 
 
 def _metric(tile):
@@ -462,6 +533,15 @@ def _edge_lines(tile, records) -> list:
     if untrimmed:
         UI.vprint(1, f"   {untrimmed} zero footprint(s) drawn untrimmed: no mapped water cached")
     return lines
+
+
+def _rim_lines(tile, rims) -> list:
+    """Every partial shell's plan edge, tile-relative ``LineString`` s for
+    the DUMMY constrained lines (the mesh meets the rim on a drawn edge)."""
+    from shapely.geometry import LineString
+    off = np.array([tile.lon, tile.lat])
+    return [LineString(np.asarray(g, float)[:, ::-1] - off)
+            for rec in rims for g in rec["rim"].get("rings") or () if len(g) >= 2]
 
 
 def write_alt(tile) -> None:
@@ -607,16 +687,17 @@ def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
     import O4_UI_Utils as UI
     from shapely.geometry import MultiLineString
     records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
-    if not records:
+    rims = rim_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
+    if not records and not rims:
         write_unfill(tile)
         return 0
     UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
-    total = bake(tile, records, patch_area)
+    total = bake(tile, records, patch_area, rims)
     if not total:
         write_unfill(tile)
         return 0
     write_alt(tile)
-    lines = _edge_lines(tile, records)
+    lines = _edge_lines(tile, records) + _rim_lines(tile, rims)
     if lines:
         vector_map.encode_MultiLineString(MultiLineString(lines), tile.dem.alt_vec,
                                           "DUMMY", check=True)

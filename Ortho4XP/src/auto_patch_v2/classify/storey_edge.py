@@ -121,7 +121,7 @@ def _plan(s) -> _t.Any:
     return s.footprint.convex_hull
 
 
-def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
+def storey_height(band: StoreyBand, run, to_xy, plan: bool = False) -> "float | None":
     """The authored rise of the storey the contact ``run`` stands under
     (module docstring), or ``None``."""
     from ..airport.unit_storey import part_footprint
@@ -129,9 +129,10 @@ def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
     under = [s for s in band.storeys if _plan(s).buffer(band.weld_m).intersects(zone)]
     rise = [round(p.base_y - s.floor_y, 1) for s in under for p in s.parts
             if (g := part_footprint(p, to_xy)) is not None and g.intersects(zone)]
-    # a run under the storey's plan that no upper part stands on (#2279):
-    # the storey's own rise, the most common over its parts
-    rise = rise or [round(p.base_y - s.floor_y, 1) for s in under for p in s.parts]
+    if plan and not rise:
+        # a landside's run under the storey's plan that no upper part
+        # stands on (#2279): the storey's own rise, the most common
+        rise = [round(p.base_y - s.floor_y, 1) for s in under for p in s.parts]
     return float(min(_st.multimode(rise))) if rise else None
 
 

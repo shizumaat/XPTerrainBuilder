@@ -349,11 +349,14 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
     return float(unary_union(lateral).length)
 
 
-def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
+def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy,
+                 h: float | None = None) -> None:
     """Record on ``final[i]`` that §27 kept it groundside across a storey
-    (``classify.storey_edge``), and hand its run to ``cuts``."""
+    (``classify.storey_edge``), and hand its run to ``cuts``; ``h``, when
+    given, is the storey's rise already read."""
     from . import storey_edge as _se
-    h = _se.storey_height(storey, run, to_xy) if to_xy is not None else None
+    if h is None and to_xy is not None:
+        h = _se.storey_height(storey, run, to_xy)
     ev = dict(final[i][4], **{_se.STOREY_M_KEY: round(float(run.length), 1)})
     if h is not None:
         # #1905: an upper floor over lower ground is no level of the lot
@@ -378,10 +381,10 @@ def _landside_of_storey(final: list[list], i: int, run, shared: float, storey,
     from . import storey_edge as _se
     if run is None or storey is None or to_xy is None or run.length <= shared:
         return False
-    h = _se.storey_height(storey, run, to_xy)
+    h = _se.storey_height(storey, run, to_xy, plan=True)
     if h is None or _se.ground_confirms(storey, final[i][2], run, h) is not True:
         return False
-    _keep_across(final, i, run, storey, cuts, to_xy)
+    _keep_across(final, i, run, storey, cuts, to_xy, h)
     final[i][4] = dict(final[i][4], **{_se.STOREY_LANDSIDE_KEY: 1.0})
     return True
 

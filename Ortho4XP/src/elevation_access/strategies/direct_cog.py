@@ -40,7 +40,23 @@ __all__ = [
 #: line per island (read once, at the first line touching the box).
 #: Lines keep file order, and the warp lets LATER inputs win on overlap,
 #: so a file lists the source it trusts most last.
+#:
+#: An optional third field names the raster's CRS when the file itself
+#: carries none: ``cog_source=W,S,E,N|<url>|EPSG:n``.  The Dutch
+#: Caribbean lidar (DUTCHCARIBBEAN50CM) ships an engineering CRS with no
+#: datum, and each island has its own; the warp has one ``srcSRS`` for
+#: every input, so the CRS travels WITH its source as a
+#: ``vrt://<path>?a_srs=EPSG:n`` wrapper (:func:`_assign_source_srs`).
 COG_SOURCE_KEY = "cog_source"
+
+
+def _assign_source_srs(path, srs):
+    """``path`` read as if its raster declared ``srs`` (``EPSG:n``).
+
+    GDAL's ``vrt://`` connection string assigns the CRS at open time, so
+    a mosaic of islands in different engineering CRSs warps in one call.
+    """
+    return "vrt://%s?a_srs=%s" % (path, srs)
 
 
 def cog_sources(definition):
@@ -48,16 +64,24 @@ def cog_sources(definition):
 
     Repeated lines arrive ``;``-joined (the reader's
     ``MULTI_VALUE_KEYS``).  A malformed line is skipped: one bad footprint
-    must not widen a source to every airport.
+    must not widen a source to every airport, and a CRS field that is not
+    ``EPSG:<digits>`` must not warp a raster into the wrong place.
     """
     pairs = []
     for record in str(definition.get(COG_SOURCE_KEY, "")).split(";"):
-        if "|" not in record:
+        fields = [field.strip() for field in record.split("|")]
+        if len(fields) not in (2, 3):
             continue
-        (box_text, path) = record.split("|", 1)
-        box = _parse_bounding_box(box_text.strip())
-        if box is not None and path.strip():
-            pairs.append((box, _stac_asset_href_to_vsicurl(path.strip())))
+        box = _parse_bounding_box(fields[0])
+        if box is None or not fields[1]:
+            continue
+        path = _stac_asset_href_to_vsicurl(fields[1])
+        if len(fields) == 3:
+            srs = fields[2].upper()
+            if not (srs.startswith("EPSG:") and srs[5:].isdigit()):
+                continue
+            path = _assign_source_srs(path, srs)
+        pairs.append((box, path))
     return pairs
 
 

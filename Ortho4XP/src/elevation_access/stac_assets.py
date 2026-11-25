@@ -147,10 +147,11 @@ def _stac_asset_href_to_vsicurl(href):
     """Turn a STAC asset href into a GDAL virtual path for a window read.
 
     ``https://`` / ``http://`` hrefs become ``/vsicurl/<url>``; an ``s3://``
-    href becomes ``/vsis3/<bucket/key>``; an already-virtual path is left
-    untouched.  Only the requested window is read regardless.
+    href becomes ``/vsis3/<bucket/key>``; an already-virtual path
+    (``/vsi…``, or a ``vrt://`` connection string) is left untouched.
+    Only the requested window is read regardless.
     """
-    if href.startswith("/vsi"):
+    if href.startswith(("/vsi", "vrt://")):
         return href
     if href.startswith("s3://"):
         return "/vsis3/" + href[len("s3://") :]

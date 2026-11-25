@@ -6252,6 +6252,8 @@ def test_every_shipped_provider_normalises_to_a_box_list():
         # Colorado tiles (the hull would reach KASE, which it does not
         # cover).
         "CWCB7V2LAS",
+        # Saba, Sint Eustatius and Bonaire: one lidar file per island.
+        "DUTCHCARIBBEAN50CM",
         # #2272: RGE ALTI overseas, one box per territory (the hull would
         # span the Atlantic and the Indian Ocean).
         "FRANCEDOM1M",

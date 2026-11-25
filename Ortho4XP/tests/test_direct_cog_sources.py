@@ -12,8 +12,14 @@ import os
 import O4_Airport_Elevation_Insets as INSETS
 import pytest
 from elevation_access import registry
-from elevation_access.definitions import DEM_CLASS_KEY
-from elevation_access.strategies.direct_cog import COG_SOURCE_KEY, cog_sources
+from elevation_access.definitions import DEM_CLASS_KEY, provider_serves_country
+from elevation_access.stac_assets import _stac_asset_href_to_vsicurl
+from elevation_access.strategies.direct_cog import (
+    COG_SOURCE_KEY,
+    _assign_source_srs,
+    cog_sources,
+)
+from elevation_access.warp import _vsicurl_allowed_extensions
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROVIDERS = os.path.normpath(
@@ -100,3 +106,55 @@ def test_npolars0_ranks_ahead_of_arcticdem_in_svalbard(shipped):
                                    "public.data.npolar.no/")
         for entry in sources)
     assert strategy.discover(npi, FAR_BOX) is None
+
+
+#: Saba (TNCS) airport box, the closing case of the Dutch Caribbean lidar.
+SABA_BOX = (-63.226, 17.640, -63.218, 17.648)
+
+
+def test_a_third_field_assigns_the_source_crs():
+    """``W,S,E,N|url|EPSG:n``: the CRS travels with its source as a
+    ``vrt://`` wrapper; a CRS field that is not ``EPSG:<digits>`` drops
+    the line instead of warping it to the wrong place."""
+    pairs = cog_sources(_definition([
+        "1,2,3,4|https://example.test/a.tif|epsg:10641",
+        "1,2,3,4|https://example.test/b.tif|+proj=tmerc",
+        "1,2,3,4|https://example.test/c.tif|EPSG:",
+        "1,2,3,4|https://example.test/d.tif|EPSG:1|extra",
+        "1,2,3,4|/vsicurl/https://example.test/e.tif|EPSG:10759",
+    ]))
+    assert pairs == [
+        ((1.0, 2.0, 3.0, 4.0),
+         "vrt:///vsicurl/https://example.test/a.tif?a_srs=EPSG:10641"),
+        ((1.0, 2.0, 3.0, 4.0),
+         "vrt:///vsicurl/https://example.test/e.tif?a_srs=EPSG:10759"),
+    ]
+    assert _assign_source_srs("/vsicurl/x.tif", "EPSG:4326") == (
+        "vrt:///vsicurl/x.tif?a_srs=EPSG:4326")
+
+
+def test_a_vrt_wrapper_is_already_virtual_and_keeps_the_curl_fence():
+    wrapped = "vrt:///vsicurl/https://example.test/a.TIF?a_srs=EPSG:10641"
+    assert _stac_asset_href_to_vsicurl(wrapped) == wrapped
+    # The extension fence reads through the wrapper to the curl path.
+    assert _vsicurl_allowed_extensions([wrapped]) == ".tif,.tiff,.vrt"
+
+
+def test_dutch_caribbean_lidar_serves_the_bes_islands_only(shipped):
+    bes = shipped["DUTCHCARIBBEAN50CM"]
+    assert bes["enabled"] and bes["role"] == "airport_inset"
+    assert len(bes["coverage_bboxes"]) == 3
+    # apt.dat's TNCS/TNCE/TNCB country rows read NLD.
+    assert provider_serves_country(bes, "NLD")
+    assert provider_serves_country(bes, "BES")
+    assert not provider_serves_country(bes, "SXM")
+    assert "geoid_shift" not in bes  # local MSL, passed through
+    strategy = registry.ACCESS_STRATEGIES["direct_cog"]()
+    assert strategy.discover(bes, SABA_BOX) == [{
+        "source": "vrt:///vsicurl/https://basisdata.nl/hwh-ortho/"
+                  "Caribisch_NL/LiDAR/caribisch/Saba/02a_DTM_50cm/"
+                  "M_SABA2023.TIF?a_srs=EPSG:10641"}]
+    # Sint Maarten (TNCM) lies between the islands' boxes: not claimed.
+    assert strategy.discover(bes, (-63.115, 18.035, -63.100, 18.045)) is None
+    # Every source names its island's engineering CRS.
+    assert all("?a_srs=EPSG:10" in path for (_box, path) in cog_sources(bes))

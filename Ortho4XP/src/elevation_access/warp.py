@@ -68,6 +68,10 @@ def _vsicurl_allowed_extensions(warp_inputs):
     extensions = {".tif", ".tiff", ".vrt"}
     saw_curl_input = False
     for source in warp_inputs:
+        if isinstance(source, str) and source.startswith("vrt://"):
+            # A ``vrt://<path>?a_srs=…`` wrapper (direct_cog's per-source
+            # CRS) reads through to its inner path.
+            source = source[len("vrt://"):].split("?", 1)[0]
         if not isinstance(source, str) or not source.startswith("/vsi"):
             # Local scratch files and already-open datasets (the wcs
             # strategy hands the warp a Dataset) never go through curl.

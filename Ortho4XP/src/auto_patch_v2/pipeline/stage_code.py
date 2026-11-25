@@ -2861,7 +2861,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
-    solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
+    solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
     solve.wall_cut solve.warm_seed
     classify.reachability
@@ -3090,7 +3090,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
-    solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
+    solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
     solve.wall_cut solve.warm_seed
     classify.reachability
@@ -3269,7 +3269,7 @@ CODE_MODULES["emit"] = _mods("""
     planar.strip_keepout solve solve.api solve.design solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
-    solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
+    solve.fill_order solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
     solve.project_strip solve.round_normal solve.rows solve.runway_first solve.wall_cut
     solve.warm_seed verify.roads
     classify.reachability

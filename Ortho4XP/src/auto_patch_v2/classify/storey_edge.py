@@ -43,7 +43,8 @@ from ..law import Law
 from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
-__all__ = ["ARM_PAD_KEY", "STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
+__all__ = ["ARM_PAD_KEY", "STOREY_AIR_Z_KEY", "STOREY_LANDSIDE_KEY", "STOREY_M_KEY",
+           "STOREY_PLAN_KEY", "STOREY_UNIT_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
            "StoreyBand", "UPPER_AIR_Z_KEY", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY",
            "arm_storeys",
            "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
@@ -52,6 +53,20 @@ __all__ = ["ARM_PAD_KEY", "STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KE
 STOREY_M_KEY = "airside_edge_storey_m"
 #: evidence: that storey's authored rise over its unit's airside floor (m)
 STOREY_Y_KEY = "airside_edge_storey_y"
+#: evidence: the lot is its unit's LANDSIDE, kept groundside by the
+#: majority of its contact across the storey (#2279)
+STOREY_LANDSIDE_KEY = "airside_edge_storey_landside"
+#: evidence: the PLANS of the storeys a unit's landside meets (#2279 step
+#: 2, spec ``docs/specs/2279-kerb-frontage-spec.md``): one exterior ring
+#: per storey hull, the engine's xy frame — the kerb line its frontage
+#: stands at (``planar/kerb_frontage``, ``constraints/kerb_frontage``)
+STOREY_PLAN_KEY = "airside_edge_storey_plan"
+#: evidence: the ``airport.partition`` unit of each of those storeys
+STOREY_UNIT_KEY = "airside_edge_storey_unit"
+#: evidence: the airside ground the storey was confirmed against
+#: (:func:`_air_ground`): a kerb vertex stands where its own ground confirms
+#: the storey the same way (``constraints/kerb_frontage``)
+STOREY_AIR_Z_KEY = "airside_edge_storey_air_z"
 #: evidence: a storey rise the lot's ground does not confirm (reported)
 STOREY_UNCONFIRMED_KEY = "airside_edge_storey_unconfirmed_y"
 #: evidence: the upper pad a road's ARM climbs to (:func:`arm_storeys`)
@@ -81,6 +96,9 @@ class StoreyBand:
     dem: _t.Any = None
     #: how far from the run the ground is read (``[design] pad_frontage_m``)
     reach_m: float = 0.0
+    #: the storeys' PLANS (:func:`_plan`), widened by the weld: a unit's
+    #: landside reads its contact across them (#2279)
+    plan: _t.Any = None
 
 
 def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
@@ -100,17 +118,32 @@ def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
     weld = float(law.tables.emit.identity.weld_spacing_m)
     return StoreyBand(unary_union([s.footprint for s in st]).buffer(weld), tuple(st),
                       weld, air, getattr(airport, "dem", None),
-                      float(design_law(law).pad_frontage_m))
+                      float(design_law(law).pad_frontage_m),
+                      unary_union([_plan(s) for s in st]).buffer(weld))
 
 
-def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
+def _plan(s) -> _t.Any:
+    """THE PLAN A STOREY SPANS (#2279): the convex hull of its upper parts'
+    footprints.  A lot's apron contact UNDER that plan runs under the
+    building — the unit stands between the lot and the apron — even where
+    no single upper part covers it (MEASURED PHLI: the pack's landside lot
+    ``pav63`` reaches the apron along the terminal's 540 m airside face,
+    9-11 m in front of the nearest upper part, inside the storey's hull)."""
+    return s.footprint.convex_hull
+
+
+def storey_height(band: StoreyBand, run, to_xy, plan: bool = False) -> "float | None":
     """The authored rise of the storey the contact ``run`` stands under
     (module docstring), or ``None``."""
     from ..airport.unit_storey import part_footprint
     zone = run.buffer(band.weld_m)
-    rise = [round(p.base_y - s.floor_y, 1) for s in band.storeys
-            if s.footprint.buffer(band.weld_m).intersects(zone) for p in s.parts
+    under = [s for s in band.storeys if _plan(s).buffer(band.weld_m).intersects(zone)]
+    rise = [round(p.base_y - s.floor_y, 1) for s in under for p in s.parts
             if (g := part_footprint(p, to_xy)) is not None and g.intersects(zone)]
+    if plan and not rise:
+        # a landside's run under the storey's plan that no upper part
+        # stands on (#2279): the storey's own rise, the most common
+        rise = [round(p.base_y - s.floor_y, 1) for s in under for p in s.parts]
     return float(min(_st.multimode(rise))) if rise else None
 
 
@@ -131,12 +164,22 @@ def ground_confirms(band: StoreyBand, lot, run, rise: float) -> "bool | None":
     if (band.dem is None or band.air is None or lot is None or run is None
             or run.is_empty or run.length <= 0.0):
         return None
-    reach = max(float(band.reach_m), float(lot.area) / float(run.length))
     z_lot = _median_dem(band.dem, lot)
-    z_air = _median_dem(band.dem, band.air.intersection(run.buffer(reach)))
+    z_air = _air_ground(band, lot, run)
     if z_lot is None or z_air is None:
         return None
     return z_lot - z_air >= 0.5 * float(rise)
+
+
+def _air_ground(band: StoreyBand, lot, run) -> "float | None":
+    """The airside's ground :func:`ground_confirms` reads the storey
+    against: the DEM median over the airside within the lot's mean depth
+    off ``run`` (at least the band's ``reach_m``), or ``None``."""
+    if (band.dem is None or band.air is None or lot is None or run is None
+            or run.is_empty or run.length <= 0.0):
+        return None
+    reach = max(float(band.reach_m), float(lot.area) / float(run.length))
+    return _median_dem(band.dem, band.air.intersection(run.buffer(reach)))
 
 
 def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
@@ -147,26 +190,91 @@ def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
     lot meets the airside nowhere: its level is the storey's, MEASURED
     LPHR: a 2 m run past the parapet's end held the forecourt at the apron
     against its pad's upper level); a piece under ``min_area_m2`` is
-    dropped.  Returns the lots cut."""
+    dropped.  A unit's LANDSIDE (#2279, ``STOREY_LANDSIDE_KEY``) is cut
+    back from the storey's plan as well, and what it drew under the plan
+    stays the apron §27 made it (:func:`_storeys_met`); the plans ride on the
+    lot as its kerb line (:func:`_kerb_evidence`).  Returns the lots
+    cut."""
     knife = float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law)
+    weld = float(law.tables.emit.identity.weld_spacing_m)
     n = 0
     extra: list[list] = []
     for i, run in sorted(cuts.items()):
         f = final[i]
-        weld = float(law.tables.emit.identity.weld_spacing_m)
         if band is not None and band.air is not None:
             run = run.union(f[2].boundary.intersection(band.air.boundary.buffer(weld)))
         cut = run.buffer(weld + knife, join_style="mitre", mitre_limit=2.0)
+        met = _storeys_met(f, run, band, weld)
+        plan = _floor(f[2], met, band, weld) if met else None
+        if plan is not None:
+            cut = cut.union(plan.buffer(knife, join_style="mitre", mitre_limit=2.0))
+            ev = dict(f[4], **_kerb_evidence(plan, met))
+            if (z_air := _air_ground(band, f[2], run)) is not None:
+                ev[STOREY_AIR_Z_KEY] = round(z_air, 2)
+            f = final[i] = [*f[:4], ev, *f[5:]]
         parts = sorted((p for p in polygon_parts(f[2].difference(cut))
                         if p.area >= min_area_m2), key=lambda p: -p.area)
         if not parts:
             continue
         n += 1
         final[i] = [f[0], f[1], parts[0], *f[3:]]
-        extra.extend([f[0], f"{f[1]}#{k}", p, *f[3:]] for k, p in enumerate(parts[1:], 1))
+        pieces = [[f[0], p, f[4], f[5]] for p in parts[1:]]
+        if plan is not None:
+            kerb = (STOREY_LANDSIDE_KEY, STOREY_Y_KEY, STOREY_PLAN_KEY, STOREY_UNIT_KEY,
+                    STOREY_AIR_Z_KEY)
+            ev = {k: v for k, v in f[4].items() if k not in kerb}
+            ev = dict(ev, kind="apron", airside_edge_flip=1.0, airside_edge_was=f[0])
+            pieces += [["apron", p, ev, "apron"] for p in polygon_parts(f[2].intersection(plan))
+                       if p.area >= min_area_m2]
+        extra.extend([r, f"{f[1]}#{k}", p, f[3], e, kd]
+                     for k, (r, p, e, kd) in enumerate(pieces, 1))
     final.extend(extra)
     return n
+
+
+def _storeys_met(f, run, band: "StoreyBand | None", weld: float) -> list:
+    """#2279 A UNIT'S LANDSIDE STOPS AT THE BUILDING: the storeys whose
+    plans a landside lot ``f`` meets the apron under (``[]`` for any other
+    lot).  What the lot drew under them is the building's airside floor —
+    it stays the apron §27 made it (MEASURED PHLI: as a lot, its pieces lay
+    between the unit's pads at its two levels — 3,125 pad rows relaxed;
+    cut away, the terminal read as a deck-roofed pit 3.8 m under its
+    apron) — and the lot meets it across a cut-back at the plan's edge,
+    the building's wall."""
+    if band is None or not f[4].get(STOREY_LANDSIDE_KEY):
+        return []
+    zone = run.buffer(weld)
+    return [s for s in band.storeys if _plan(s).buffer(weld).intersects(zone)]
+
+
+def _floor(lot, met, band: StoreyBand, weld: float) -> _t.Any:
+    """#2279 step 2 THE BUILDING'S AIRSIDE FLOOR in a landside lot: the
+    storeys' own body — their upper parts' footprints closed across the
+    frontage radius (``band.reach_m``, ``[design] pad_frontage_m``) — and
+    each piece of the lot inside the plan but off that body that touches
+    the airside (a bay of the airside face).  A piece inside the plan that
+    fronts no airside is the LANDSIDE's (MEASURED PHLI: the hull held the
+    kerb drive along the terminal's landside face, 2.9 k m2 in two strips
+    67-72 m from any airside, at the floor a storey under its kerb)."""
+    r = max(float(band.reach_m), weld)
+    body = unary_union([s.footprint.buffer(r).buffer(-r) for s in met])
+    hull = unary_union([_plan(s) for s in met])
+    body = body.intersection(hull)
+    air = band.air.buffer(weld) if band.air is not None else None
+    bays = [p for p in polygon_parts(lot.intersection(hull).difference(body))
+            if air is not None and p.intersects(air)]
+    return unary_union([body, *bays])
+
+
+def _kerb_evidence(floor, met) -> dict:
+    """The landside's KERB LINE as evidence (#2279 step 2): the rings of
+    the building's airside floor in the lot (:func:`_floor`, rounded to
+    the centimetre) and the storeys' units."""
+    parts = polygon_parts(floor)
+    return {STOREY_PLAN_KEY: tuple(tuple((round(x, 2), round(y, 2)) for x, y in p.exterior.coords)
+                                   for p in parts),
+            STOREY_UNIT_KEY: tuple(int(s.unit) for s in met)}
 
 
 def _arm(face, pad, others, floors, weld: float, opening: float):

@@ -104,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--json", type=Path, default=None)
     a = ap.parse_args(argv)
+    # owner 2026-11-25: the census takes its memory on the machine ledger
+    # before it loads anything (O4_Machine_Jobs; released at exit)
+    import O4_Machine_Jobs as _jobs
+    _jobs.admit_process("end_area_census")
     pkls = list(a.pkls) + (registered_captures() if a.registered else [])
     if not pkls:
         ap.error("no captures (name pickles or pass --registered)")

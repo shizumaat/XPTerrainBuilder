@@ -222,7 +222,10 @@ if __name__ == "__main__":
     # the snapshot are the other two halves, and both come from the
     # build entry's own implementation, never a second arrangement.
     from build_airport import (owner_install_roots,        # noqa: E402
-                               xplane_install_roots)
+                               xplane_install_roots,
+                               _step_ledger_gigabytes, claim_lane_memory)
+    import O4_Machine_Slots as SLOTS                       # noqa: E402
+    claim_lane_memory(os.getcwd())
     from shared_repo_guard import (install_snapshot,       # noqa: E402
                                    pack_roots_for_tile)
     _install = xplane_install_roots()
@@ -242,7 +245,12 @@ if __name__ == "__main__":
                 ("2 mesh", MESH.build_mesh),
             )[first_step - 1:]:
                 print(f"=== step {step_name} ===", flush=True)
-                result = step(tile)
+                # ONE machine slot and the step's memory on the machine
+                # ledger, as the build entry's tile steps take them
+                with SLOTS.step(gb=_step_ledger_gigabytes(step_name, tile),
+                                what=f"mesh-only {latitude:+03d}"
+                                     f"{longitude:+04d} step {step_name}"):
+                    result = step(tile)
                 if not result:
                     raise SystemExit(
                         f"step {step_name} FAILED (returned {result})")

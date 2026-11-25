@@ -137,9 +137,6 @@ def low_refusal(pm, airport, law, air, plan) -> list[str]:
 
 def census(path: str) -> dict:
     """One capture's rows (module docstring)."""
-    from shapely.ops import unary_union
-
-    from auto_patch_v2.airport.unit_storey import part_footprint
     from auto_patch_v2.law import Law
     from auto_patch_v2.pipeline.frontage_publication import (
         frontage_levels, map_sides, terminal_frontage_records)
@@ -149,12 +146,8 @@ def census(path: str) -> dict:
     law = Law.for_airport(icao)
     levels = frontage_levels(pm, law, airport)
     recs = terminal_frontage_records(pm, law, airport, levels)
-    to_xy, to_ll = airport.frame.entry(), airport.frame.transformers()[1]
-    plans = {}
-    for r in levels:
-        u = airport.partition.units[r.unit]
-        plans[r.unit] = unary_union([g for m in u.members for p in m.parts
-                                     if (g := part_footprint(p, to_xy)) is not None])
+    to_ll = airport.frame.transformers()[1]
+    plans = {r.unit: r.plan for r in levels}
     air = map_sides(pm, law)[0]
     today = _today(pm, airport, law, air, plans)
     rows = []
@@ -163,7 +156,8 @@ def census(path: str) -> dict:
         lat, lon = to_ll(c.x, c.y)
         row = {**{k: v for k, v in rec.items() if k != "face_ll"},
                "lat": round(lat, 6), "lon": round(lon, 6), **today[r.unit]}
-        if r.rise < 0.0 and r.witness is not None:
+        if r.rise < 0.0 or any(a[0] > r.air_y for a in r.clues.get("air_planes", ())[:1]):
+            # a storey DOWN, or the airside's own objects above the floor read
             row["low_refusal"] = low_refusal(pm, airport, law, air, plans[r.unit])
         rows.append(row)
     return {"icao": icao, "path": path, "rows": rows}
@@ -182,13 +176,14 @@ def differs(row: dict) -> bool:
 
 
 def _clues(c: dict) -> str:
-    return (f"span {c['face_span']} walls {len(c['retaining_walls'])} "
+    return (f"air_planes {[a[0] for a in c.get('air_planes', [])][:4]} "
+            f"span {c['face_span']} walls {len(c['retaining_walls'])} "
             f"fences {len(c['fences'])} upper_roads {len(c['upper_roads'])} "
             f"neighbours {len(c['neighbours'])}")
 
 
 def _fmt(icao: str, r: dict) -> str:
-    return (f"  {icao} {r['unit']:12s} {r['plan_m2']:9.0f} m2  air {r['air_y']:+6.2f} "
+    return (f"  {icao} {r['unit']:12s} {str(r['block']):11s} {r['plan_m2']:9.0f} m2  air {r['air_y']:+6.2f} "
             f"land {'   -  ' if r['land_y'] is None else format(r['land_y'], '+6.2f')} "
             f"rise {r['rise']:+6.2f} {str(r['witness'] or '-'):12s} "
             f"g {r['g_air']}/{r['g_land']} {r['verdict']:11s} face {r['face_m']:6.0f} m "

@@ -413,6 +413,38 @@ def _band_m() -> float:
     return BAND_M
 
 
+def _unsupported(cand, pg, band: float) -> list:
+    """The parts of ``cand`` no other part of ``pg`` carries: none whose plan
+    meets theirs stands lower by more than ``band`` and reaches up to
+    within ``band`` of their base.  A roof, a canopy deck or an upper
+    floor slab stands on the unit's own walls, never on the ground, and
+    states no groundside floor (``unit_floor``'s "elevated" rule, read
+    from the parts themselves: MEASURED PHLI, LPHR, ELLX, the storey parts
+    carry no ``Part.feet``)."""
+    from shapely.strtree import STRtree
+    if not cand:
+        return []
+    geoms = [g for _p, g in pg]
+    tree = STRtree(geoms)
+    out = []
+    for p, g in cand:
+        y = float(p.base_y)
+        hit = False
+        for j in tree.query(g):
+            q = pg[int(j)][0]
+            if q is p or not (float(q.base_y) < y - band
+                              and float(q.base_y) + float(getattr(q, "height_m", 0.0) or 0.0)
+                              >= y - band):
+                continue
+            inter = geoms[int(j)].intersection(g)
+            if not inter.is_empty and (inter.area > 0.0 or g.area == 0.0):
+                hit = True
+                break
+        if not hit:
+            out.append((p, g))
+    return out
+
+
 def _storey_parts(pg, t: float, near, air, law) -> list[Level]:
     """RUNG L1 (spec §1.3): the unit's solid parts off the airside-near
     band standing at least a storey off ``t``, either sign, as planes; the
@@ -421,7 +453,7 @@ def _storey_parts(pg, t: float, near, air, law) -> list[Level]:
     ``Part.feet`` nor ``[placement] chain_min_height_m`` can gate them."""
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
     off = [(p, g) for p, g in pg if abs(p.base_y - t) >= step and not g.intersects(near)]
-    return sorted(_planes(off, air, _band_m()), key=lambda lv: (-lv.parts, -lv.area_m2))
+    return sorted(_planes(_unsupported(off, pg, _band_m()), air, _band_m()), key=lambda lv: (-lv.parts, -lv.area_m2))
 
 
 def _split_level(u, t: float, shells, step: float) -> list[Level]:
@@ -442,7 +474,7 @@ def _grounds(dem, plan, air, face, near_m: float, reach_m: float, at=None,
     """``(g_air, g_land)`` (DEM medians; ``None`` where nothing is read).
 
     With ``at`` (the groundside floor's own parts, rung L1): the airside
-    within reach of them, and the ground that floor meets -- the map's
+    within reach of them (of the plan where none is), and the ground that floor meets -- the map's
     groundside pavement under and within ``near_m`` of them (``ground``),
     else their own plan there off the airside's near band.  MEASURED PHLI
     ``unit:23`` (+4.10 storey): airside 47.12 by the storey, 48.86 round
@@ -453,7 +485,8 @@ def _grounds(dem, plan, air, face, near_m: float, reach_m: float, at=None,
     reach outside the face (outside the plan's outline where no face
     qualifies), off the plan and the airside's near band."""
     if at is not None and not at.is_empty:
-        za = dem_samples(dem, air.intersection(at.buffer(reach_m)))
+        za = (dem_samples(dem, air.intersection(at.buffer(reach_m)))
+              or dem_samples(dem, air.intersection(plan.buffer(reach_m))))
         zone = at.buffer(near_m).difference(air.buffer(near_m))
         if ground is not None and not (gz := ground.intersection(zone)).is_empty:
             zone = gz
@@ -491,7 +524,9 @@ def _verdict(t: float, levels, ground, span, step: float) -> str:
 def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels]:
     """THE UNIT LEVELS (spec §1.2): one record per pack unit of ``airport``
     standing at airside pavement ``air`` whose solid plan is at least
-    ``[placement] cluster_pad_min_m2`` (the commercial-terminal test).
+    ``[placement] cluster_pad_min_m2`` (the commercial-terminal test), or
+    over whose members the map minted a storey shell (today's R7 read it
+    two-level at any size: LPHR's terminal is 1,800 m2).
 
     The ladder (spec §1.3), first rung that holds: L1 the unit's storey
     parts (:func:`_storey_parts`); L2 a storey shell over its members
@@ -499,8 +534,12 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     inset is credible lidar (``law.inset_class.lidar_credible``) and the
     landside ground stands a storey off the airside (owner 25h Q2).  L3-L5
     (kerb decks, skirts, linked buildings) are step 2's; their witnesses
-    are published as clues.  ``ground``: the map's groundside pavement
-    (the face's second test), ``None`` to skip it."""
+    are published as clues, with ``air_planes``: the planes of the
+    unit's parts at the airside no other part carries (most parts first)
+    -- MEASURED LDSP ``unit:5``: :func:`unit_floor` reads 0 (four grounded
+    parts), while the apron's own objects (fire vehicles, stairs, the
+    apron slab) stand at +3.0 with no ground feet.  ``ground``: the map's
+    groundside pavement (the face's second test), ``None`` to skip it."""
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
     if part is None or frame is None or air is None or air.is_empty:
@@ -520,15 +559,16 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     for ui, u, _parts, t in _floors(part, near, to_xy):
         plans = _unit_plans(part, to_xy) if plans is None else plans
         plan = unary_union([g for _p, g in plans.solid[ui]])
-        if plan.is_empty or plan.area < min_m2:
-            continue
+        shell = _split_level(u, t, shells, step)
+        if plan.is_empty or (plan.area < min_m2 and not shell):
+            continue                       # a storey shell is read at any size (LPHR)
         levels, witness = _storey_parts(plans.solid[ui], t, near, air, law), _L1
         at = None
         if levels:
             at = unary_union([g for p, g in plans.solid[ui] if abs(p.base_y - levels[0].y)
                               <= _band_m() and not g.intersects(near)])
         else:
-            levels, witness = _split_level(u, t, shells, step), _L2
+            levels, witness = shell, _L2
         face = landside_face(plan, air, ground, near_m, reach)
         g = _grounds(dem, plan, air, face, near_m, reach, at, ground)
         if not levels and None not in g and abs(g[1] - g[0]) >= step:
@@ -536,6 +576,10 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
             if credible:
                 levels, witness = [Level(round(t + g[1] - g[0], 2), 0.0, 0, 0.0)], _L6
         clues = face_clues(ui, plan, face, airport, plans, reach, near_m, dem_samples)
+        nr = [(p, q) for p, q in plans.solid[ui] if q.intersects(near)]
+        clues["air_planes"] = [[lv.y, lv.parts, lv.area_m2] for lv in sorted(
+            _planes(_unsupported(nr, plans.solid[ui], _band_m()), air, _band_m()),
+            key=lambda lv: -lv.parts)]
         out.append(UnitLevels(
             ui, plan, float(t), levels[0].y if levels else None,
             tuple(sorted(levels, key=lambda lv: lv.dist_m)), witness if levels else None,

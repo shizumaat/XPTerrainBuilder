@@ -1780,6 +1780,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.proximity",
         "auto_patch_v2.constraints.public_road_release",
         "auto_patch_v2.constraints.ramp_runout",
+        "auto_patch_v2.constraints.rim_pins",
         "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_bridge_ceiling",
         "auto_patch_v2.constraints.road_ramp",
@@ -1998,6 +1999,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "eat_anchor_rect": "eat",
     "water_pins": "water",
     "fill_toe_pins": "fill_bank",
+    "rim_pins": "rim_pins",
     "seam_pins": "seams",
     "flat_datum": "flat_site",
     "foot_rows": "foot_rows",
@@ -2137,6 +2139,14 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
     "hard_plane": _mods(_GENERATOR_CORE + """
         constraints.hard_plane model.airport model.hard_plane
+    """),
+    "rim_pins": _mods(_GENERATOR_CORE + """
+        geom.exact geom.terrain_deck
+        constraints.gap_follow constraints.geometry constraints.groundside
+        constraints.precedence constraints.rim_pins model.airport
+        constraints.contiguity constraints.end_lip constraints.roads constraints.strips
+        geom.containment law.inset_class model.end_area model.islands model.map_memo
+        model.platform model.threshold_datum
     """),
     "steep_apron": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2575,6 +2585,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pavement_cap constraints.platform constraints.precedence
     constraints.public_road_release
     constraints.proximity constraints.ramp_runout constraints.shell_datum
+    constraints.rim_pins
     constraints.riser constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
@@ -3061,6 +3072,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.public_road_release
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.shell_datum
+    constraints.rim_pins
     constraints.riser constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.threshold_seam

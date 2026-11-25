@@ -805,6 +805,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.proximity",
     "auto_patch_v2.constraints.public_road_release",
     "auto_patch_v2.constraints.ramp_runout",
+    "auto_patch_v2.constraints.rim_pins",
     "auto_patch_v2.constraints.riser",
     "auto_patch_v2.constraints.road_bridge_ceiling",
     "auto_patch_v2.constraints.road_ramp",

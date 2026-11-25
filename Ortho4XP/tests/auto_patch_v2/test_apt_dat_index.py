@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from auto_patch_v2.airport import apt_dat as A
 
 

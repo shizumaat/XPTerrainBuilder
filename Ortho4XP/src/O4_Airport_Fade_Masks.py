@@ -37,15 +37,14 @@ import pickle
 from typing import Iterator
 
 import numpy
-import shapely
-from PIL import Image, ImageDraw
-from shapely import affinity, ops
-from shapely.strtree import STRtree
-from shapely.geometry import MultiPolygon, Point, Polygon
-
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
+import shapely
+from PIL import Image, ImageDraw
+from shapely import affinity, ops
+from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.strtree import STRtree
 
 # Texture tiles are 4096x4096, the same size as the orthophoto DDS and the sea
 # masks (``O4_Mask_Utils``).

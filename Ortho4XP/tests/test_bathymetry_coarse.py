@@ -10,13 +10,12 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 gdal = pytest.importorskip("osgeo.gdal")
-from osgeo import osr  # noqa: E402
-
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
 import O4_Bathymetry_Coarse as COARSE  # noqa: E402
 import O4_Bathymetry_Source_Revision as REVISION  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Geo_Utils as GEO  # noqa: E402
+from osgeo import osr  # noqa: E402
 
 LAT, LON, ZOOM = 24, -78, 14
 

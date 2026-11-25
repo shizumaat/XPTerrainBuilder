@@ -28,14 +28,13 @@ import os
 from typing import NamedTuple, Optional
 
 import numpy
-from PIL import Image
-
 import O4_Bathymetry_Band as BAND
 import O4_Bathymetry_Source_Revision as SOURCE_REVISION
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
 from elevation_access.failures import warp_failure_is_transient
+from PIL import Image
 
 __all__ = ["CoarseFill", "ensure_coarse_fill", "fill_is_settled",
            "fill_state", "square_alpha"]

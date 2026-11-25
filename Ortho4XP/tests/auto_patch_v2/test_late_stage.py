@@ -4,10 +4,9 @@ less every vertex a leader carries; the constants are the base map's levels
 by the coordinate join; a vertex neither has is counted, never guessed."""
 from __future__ import annotations
 
-import pytest
-
 import types
 
+import pytest
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.pipeline import stage_one_map as som
 
@@ -227,11 +226,10 @@ def test_stations_are_standing_rings_within_reach_at_the_pieces_cap():
     """Spec §55 (1), (13): a ring within the follow reach of the piece is a
     station source at the PIECE's cap; a mapped-road ribbon welded to the
     piece is a follower and is none; one beside no piece is standing."""
-    from shapely.geometry import box
-
     from auto_patch_v2.law import Law
     from auto_patch_v2.law.tables import role_cap
     from auto_patch_v2.pipeline.late_stage import late_stations
+    from shapely.geometry import box
     law = Law.for_airport("HECA")
     coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0),        # apron, 1.45 m west
               (40.0, 0.0), (48.0, 0.0), (48.0, 40.0), (40.0, 40.0),      # ribbon welded east
@@ -273,9 +271,8 @@ def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
     carried a last-stage cell (``gap_free(cl)`` is not ``None``) — and
     ``gap_free`` of a classification without one is ``None``."""
     import ast
-    import inspect
-
     import importlib
+    import inspect
     _build = importlib.import_module("auto_patch_v2.pipeline.build")
     tree = ast.parse(inspect.getsource(_build))
     calls, guarded = [], []
@@ -303,10 +300,9 @@ def test_the_cut_hands_each_part_its_own_group_and_its_lot_verdict(monkeypatch):
     each part's stations — ``own`` the ones nearest the part that are in its
     own level group (a station the floors merged in is not), ``lot_rows``
     true only when every station nearest the part is a road's or an apron's."""
-    from shapely.geometry import box
-
     from auto_patch_v2.classify import gap_terrace as gt
     from auto_patch_v2.pipeline import late_stage as ls
+    from shapely.geometry import box
     st = [gt.Station((0.0, 0.0), 96.0, "road", 0.08, 0.0, "service_road:r"),
           gt.Station((9.0, 0.0), 96.5, "apron", 0.08, 0.0, "apron:a"),
           gt.Station((20.0, 0.0), 90.0, "pad", 0.08, 1.0, "building:b"),

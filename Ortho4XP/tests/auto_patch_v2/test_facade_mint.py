@@ -7,8 +7,6 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import Polygon
-
 from auto_patch_v2.airport import facade
 from auto_patch_v2.classify import facade_mint as fm
 from auto_patch_v2.classify.roles import Cell, is_late_cell, is_osm_ribbon
@@ -16,6 +14,7 @@ from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import Law
 from auto_patch_v2.model import planar as mp
 from auto_patch_v2.model.airport import Building, FacadeEdge, FacadeRead
+from shapely.geometry import Polygon
 
 SQ = ((0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (0.0, 20.0))
 
@@ -162,6 +161,7 @@ def test_both_exits_of_the_design_solve_project_the_strips():
     """``staged_solve = false`` returns through the same projection (the
     single solve leaves a strip on its own terrain otherwise)."""
     import inspect
+
     from auto_patch_v2.solve import design
     src = inspect.getsource(design.solve_design)
     assert src.count("return _with_hold_report(caller_map, *_with_facade_strips(") == 2

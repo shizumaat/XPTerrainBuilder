@@ -11,10 +11,9 @@ import re
 import types
 
 import numpy
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Geo_Utils as GEO
+import pytest
 from elevation_access import definitions as ea_definitions
 from elevation_access.strategies.wcs_kvp import WcsKvpStrategy
 

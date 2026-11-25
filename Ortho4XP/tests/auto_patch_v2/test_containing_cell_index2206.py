@@ -3,9 +3,8 @@ full per-call scan it replaced, for random faces and points incl. ties."""
 import random
 import types
 
-from shapely.geometry import Point, Polygon
-
 from auto_patch_v2.constraints import geometry as G
+from shapely.geometry import Point, Polygon
 
 
 def _old(planar, vw, v, structure_roles):

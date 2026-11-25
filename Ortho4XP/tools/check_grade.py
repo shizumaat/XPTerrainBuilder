@@ -8248,7 +8248,8 @@ PAVCAP_WELD_M = 1.0
 def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
                                   late_unknown: Optional[set] = None,
                                   late_floor_m: float = 0.0,
-                                  weld_nodes: Optional[dict] = None) -> List[Violation]:
+                                  weld_nodes: Optional[dict] = None,
+                                  terrace_joints_m: Optional[list] = None) -> List[Violation]:
     """RULINGS 2026-09-29ac: NO PAVEMENT OF ANY CLASS IS STEEPER THAN THE
     ROAD CAP.  Every pavement vertex pair — consecutive vertices of one
     pavement ring, and vertices of two different pavement rings within
@@ -8261,7 +8262,11 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
     drive — whichever law priced it, or none.  REPORT (``cockpit =
     "grade"``); the engine holds it HARD (``constraints/pavement_cap.py``).
     Structure ramps are not pavement (their own ruled caps, ``_RAMP_ROLES``)
-    and neither is a platform COLLAR (a 1:3 bank by ruling 28a (1))."""
+    and neither is a platform COLLAR (a 1:3 bank by ruling 28a (1)).  A
+    pair across a DECLARED joint is allowed that joint's step, as the
+    within-shape family allows it (owner RULINGS 2026-10-19l: the census
+    exempts declared wall terraces; #2279: a landside kerb's wall).
+    ``terrace_joints_m`` the declared joints (``_terrace_joints_to_m``)."""
     cap = PAVEMENT_ROAD_CAP
     pts: List[Tuple[float, float, float, str, "Way"]] = []
     out: List[Violation] = []
@@ -8298,6 +8303,8 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
         floor = late_floor_m if late_unknown and na in late_unknown \
             and nb in late_unknown else 0.0
         floor += _weld_give(weld_nodes, na, nb, d)
+        if terrace_joints_m:
+            floor += _terrace_step_allowance(terrace_joints_m, *pa[:2], *pb[:2])
         if de <= cap * d + noise + floor:
             return
         key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
@@ -13397,7 +13404,8 @@ def run_checks(
     pav_cap = _fam("pavement_over_road_cap",
                    _check_pavement_over_road_cap(
                        ways, nodes, ll_to_m, late_unknown=_late_unknown,
-                       late_floor_m=_late_floor_m, weld_nodes=_weld_nodes))
+                       late_floor_m=_late_floor_m, weld_nodes=_weld_nodes,
+                       terrace_joints_m=terrace_joints_m))
     _pv("PAVEMENT pair steeper than the ROAD cap (owner RULINGS "
         "2026-09-29ac: the road grade cap is the fallback ceiling of every "
         "pavement class; ring edges + welded neighbours <= 1 m)",

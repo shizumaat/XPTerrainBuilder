@@ -120,7 +120,20 @@ def test_qp_surface_is_the_per_try_path(monkeypatch):
     per-try path's minimum (``RoundNormal`` withheld) to rounding: the shared
     tries factorise in the QP's one order (``solve/fill_order``, lane
     ``lsplu``), the per-try path lets SuperLU order each matrix, so the two
-    may differ by a try where a step's gain is at rounding level."""
+    may differ by a try where a step's gain is at rounding level.
+
+    That includes the EXIT's name: seed 2's last round gains ONE ulp of F
+    (5.7e-14 at F 445.39), so whether its best try lowers F at all —
+    ``optimal`` — or not — ``no_descent`` — is the factorisation's last
+    bit.  That bit is the machine's on BOTH paths: SuperLU's dense kernels
+    are the vendor BLAS (Accelerate on macOS, OpenBLAS ``DYNAMIC_ARCH`` on
+    Linux and Windows, its kernel picked per CPU), and lane ``lci``'s probe
+    (runs 45533971765, 45534159396; seeds 1-5) saw the per-try path end
+    seed 5 ``no_descent`` on a macos-15 runner and ``optimal`` elsewhere,
+    seed 2 in 14, 20 or 21 solves by runner, every objective within one
+    ulp and the two paths' x within 6e-9.  Both exits are the minimum
+    (``design_report.note_qp``; ``design.py`` counts both converged);
+    ``round_cap`` is the failure."""
     kw = dict(method="normal", solver_tol=1e-10, solver_max_iter=1000,
               low_rank="bordered", rel_tol=1e-12)
     for seed in (1, 2):
@@ -129,9 +142,10 @@ def test_qp_surface_is_the_per_try_path(monkeypatch):
         with monkeypatch.context() as m:
             m.setattr(design_qp, "RoundNormal", lambda *a, **k: None)
             old = design_qp.solve_one_sided(*prob, None, None, None, **kw)
-        assert np.allclose(new.x, old.x, rtol=0.0, atol=1e-7)
-        assert new.status == old.status == "optimal"
-        assert new.objective == pytest.approx(old.objective, rel=1e-12)
+        seen = [(r.status, r.rounds, r.solves, r.objective) for r in (new, old)]
+        assert np.allclose(new.x, old.x, rtol=0.0, atol=1e-7), seen
+        assert {new.status, old.status} <= {"optimal", "no_descent"}, seen
+        assert new.objective == pytest.approx(old.objective, rel=1e-12), seen
         assert old.solves > old.rounds        # the fixture does back off
 
 

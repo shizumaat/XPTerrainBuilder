@@ -3214,7 +3214,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.sunken_ramp airport.wall_class
     airport.wall_sheets classify
-    classify.airside_edge classify.evidence classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
+    classify.airside_edge classify.evidence classify.facade_mint classify.frontage_road
+    geom.lens geom.many_buffers
     classify.gap_apron classify.fence_division
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles

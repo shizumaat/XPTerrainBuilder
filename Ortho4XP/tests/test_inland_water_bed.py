@@ -194,10 +194,15 @@ def test_dsf_build_sets_the_bed_before_the_ratios():
 
 
 def test_dsf_build_keeps_the_rasters_it_read_early():
-    """The rasters are read before the ratios; nothing may reset them
-    before they are written (the first closing build wrote none)."""
+    """The rasters are fetched before the ratios (beside the mesh read,
+    ``O4_Step_Overlap.beside``, #1264) and taken into ``bDEMN``/``bDEMS``
+    once; nothing may reset them before they are written (the first closing
+    build wrote none)."""
     import inspect
     import re
     source = inspect.getsource(DSF._build_dsf_body)
-    read = source.index("= elevation_and_bathymetry_data(tile)")
-    assert not re.search(r"\bbDEM[NS]\s*=\s*b\"\"", source[read:])
+    fetch = source.index("OVERLAP.beside(elevation_and_bathymetry_data, tile")
+    ratios = source.index("compute_depth_ratio_bounds_from_masks(")
+    taken = source.index("(bDEMN, bDEMS) = (rasters.result()")
+    assert fetch < ratios < taken
+    assert not re.search(r"\bbDEM[NS]\s*=\s*b\"\"", source[fetch:])

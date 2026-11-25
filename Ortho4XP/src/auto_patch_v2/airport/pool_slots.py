@@ -16,12 +16,12 @@ given back is a core given back, never an oversubscribed one.  The
   above the running tasks are released at once;
 * **a waiter is served** — while another process of the session waits for
   a slot (``O4_Machine_Slots.slot_waiters``) the pool gives back one slot
-  per waiter as its tasks finish, down to :func:`yield_floor` (half its
+  per waiter as its tasks finish, down to :func:`_yield_floor` (half its
   workers): a pool is never starved by the steps it yields to;
 * **pressure sheds** — while the machine's memory pressure stops this
   session starting work (``O4_Machine_Slots.memory_pressed``: another
   application needs the memory) the pool gives back its slots as its
-  tasks finish, down to :func:`yield_floor`, and takes none (owner
+  tasks finish, down to :func:`_yield_floor`, and takes none (owner
   2026-11-25T18:12Z: "scale back if other apps start");
 * **slots come back** — with queued tasks and no waiter the pool takes
   free slots again, never waiting and never above its worker count;
@@ -40,13 +40,13 @@ import typing as _t
 
 import O4_Machine_Slots as _slots
 
-__all__ = ["SlotBook", "Feeder", "Job", "yield_floor", "LOOK_S"]
+__all__ = ["SlotBook", "Feeder", "Job", "LOOK_S"]
 
 #: seconds between looks at the session's waiters and free slots
 LOOK_S = 0.25
 
 
-def yield_floor(workers: int) -> int:
+def _yield_floor(workers: int) -> int:
     """The slots a pool keeps while other processes wait: half its
     workers, at least one."""
     return max(1, int(workers) // 2)
@@ -98,10 +98,10 @@ class SlotBook:
         want = min(self.workers, busy + queued)
         waiting = self.waiters()
         if waiting:
-            want = min(want, max(yield_floor(self.workers), self.count - waiting))
+            want = min(want, max(_yield_floor(self.workers), self.count - waiting))
         pressed = self.pressed()
         if pressed:
-            want = min(want, yield_floor(self.workers))
+            want = min(want, _yield_floor(self.workers))
         held = self.count
         if held > max(want, busy):
             self._shed(held - max(want, busy), yielded=bool(waiting) and queued > 0)

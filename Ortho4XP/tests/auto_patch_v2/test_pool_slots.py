@@ -74,7 +74,7 @@ def test_an_ungated_session_feels_no_pressure(monkeypatch):
 
 
 def test_the_floor_is_half_the_workers_and_never_none():
-    assert [PS.yield_floor(n) for n in (1, 2, 3, 12)] == [1, 1, 1, 6]
+    assert [PS._yield_floor(n) for n in (1, 2, 3, 12)] == [1, 1, 1, 6]
 
 
 def test_idle_slots_go_back_and_come_back(session):

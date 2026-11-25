@@ -16,10 +16,10 @@ module is the same machinery for a whole job — never a second one:
   printing ONE line a minute (needed GB, free GB, who holds memory), then
   RESERVES it on the ledger for the job's life.  The reservation is an OS
   lock: a crash or kill releases it with the process.
-* :func:`estimate_gigabytes` — the job's MEASURED peak (``ru_maxrss`` of
-  its last run, recorded at exit in :func:`peaks_path`) times
+* :func:`_estimate_gigabytes` — the job's MEASURED peak (``ru_maxrss`` of
+  its last run, recorded at exit in :func:`_peaks_path`) times
   ``step_memory.RECORDED_PEAK_MARGIN``; with no record, :data:`DEFAULT_GB`.
-* :func:`admissible_workers` — how many workers of a pool the machine
+* :func:`_admissible_workers` — how many workers of a pool the machine
   admits now: pools are sized by headroom, never by cores alone.
 
 SCALE BACK (owner 2026-11-25T18:12Z: "use all available resources, but
@@ -47,8 +47,7 @@ import O4_Machine_Memory as _MEM
 import O4_Machine_Slots as _SLOTS
 from o4_engine import step_memory as _STEP_MEMORY
 
-__all__ = ["DEFAULT_GB", "admissible_workers", "admit", "admit_process", "claim_lane",
-           "estimate_gigabytes", "peaks_path"]
+__all__ = ["DEFAULT_GB", "admit", "admit_process", "claim_lane"]
 
 #: a job's memory before its first recorded peak (gigabytes), by kind.
 #: ``capture`` / ``replay``: one ``v2_solve_replay`` process measured at
@@ -75,7 +74,7 @@ SAY_EVERY_S = 60.0
 ENV_PEAKS = "O4_JOB_PEAKS_PATH"
 
 
-def peaks_path() -> str:
+def _peaks_path() -> str:
     """Where measured job peaks live: ``$O4_JOB_PEAKS_PATH`` or
     ``~/.ortho4xp/job_peaks.json`` (one per user, beside the ledger)."""
     return os.environ.get(ENV_PEAKS, "").strip() or os.path.join(
@@ -88,14 +87,14 @@ def _key(kind: str, subject: str) -> str:
 
 def _read_peaks() -> dict:
     try:
-        with open(peaks_path(), encoding="utf-8") as handle:
+        with open(_peaks_path(), encoding="utf-8") as handle:
             data = json.load(handle)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
-def estimate_gigabytes(kind: str, subject: str = "") -> float:
+def _estimate_gigabytes(kind: str, subject: str = "") -> float:
     """The job's expected memory: its own recorded peak (else the kind's
     largest recorded peak) times the recorded-peak margin, or
     :data:`DEFAULT_GB`."""
@@ -130,7 +129,7 @@ def _record_peak(kind: str, subject: str, gigabytes: float) -> None:
     with contextlib.suppress(OSError, ValueError):
         peaks = _read_peaks()
         peaks[_key(kind, subject)] = round(gigabytes, 2)
-        path = Path(peaks_path())
+        path = Path(_peaks_path())
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".job_peaks")
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -159,7 +158,7 @@ def admit(kind: str, subject: str = "", *, need_gb: "float | None" = None,
     Yields the gigabytes reserved.  ``give_up()`` true ends a wait with
     ``SystemExit``."""
     claim_lane(Path(__file__).resolve().parents[1])
-    need = estimate_gigabytes(kind, subject) if need_gb is None else float(need_gb)
+    need = _estimate_gigabytes(kind, subject) if need_gb is None else float(need_gb)
     what = ("%s %s" % (kind, subject)).strip()
     began = clock()
     said = None
@@ -208,7 +207,7 @@ def _say(emit, line: str) -> None:
         emit(line, flush=True) if emit is print else emit(line)
 
 
-def admissible_workers(per_worker_gb: float, want: int) -> int:
+def _admissible_workers(per_worker_gb: float, want: int) -> int:
     """Workers of ``per_worker_gb`` the machine admits now, at most
     ``want`` and at least one (the caller's own process runs one)."""
     want = max(1, int(want))

@@ -112,12 +112,13 @@ def test_a_crashing_job_gives_its_memory_back(gated):
 def test_the_measured_peak_becomes_the_next_estimate(gated, tmp_path):
     with JOBS.admit("capture", "HECA"):
         pass
-    assert json.loads((tmp_path / "peaks.json").read_text(encoding="utf-8")) == {"capture HECA": 7.0}
+    peaks = (tmp_path / "peaks.json").read_text(encoding="utf-8")
+    assert json.loads(peaks) == {"capture HECA": 7.0}
     margin = step_memory.RECORDED_PEAK_MARGIN
-    assert JOBS.estimate_gigabytes("capture", "heca") == round(7.0 * margin, 2)
+    assert JOBS._estimate_gigabytes("capture", "heca") == round(7.0 * margin, 2)
     # another airport of the kind: the kind's largest measured peak
-    assert JOBS.estimate_gigabytes("capture", "KCLT") == round(7.0 * margin, 2)
-    assert JOBS.estimate_gigabytes("replay", "HECA") == JOBS.DEFAULT_GB["replay"]
+    assert JOBS._estimate_gigabytes("capture", "KCLT") == round(7.0 * margin, 2)
+    assert JOBS._estimate_gigabytes("replay", "HECA") == JOBS.DEFAULT_GB["replay"]
 
 
 def test_an_ungated_process_records_no_peak(gated, tmp_path, monkeypatch):
@@ -129,11 +130,11 @@ def test_an_ungated_process_records_no_peak(gated, tmp_path, monkeypatch):
 
 def test_pools_are_sized_by_headroom_not_cores(gated):
     gated["answers"] = [MEM.Verdict(ok=True, spare_gb=25.0)]
-    assert JOBS.admissible_workers(10.0, 16) == 3    # itself + 2 more fit
+    assert JOBS._admissible_workers(10.0, 16) == 3    # itself + 2 more fit
     gated["answers"] = [MEM.Verdict(ok=True, spare_gb=500.0)]
-    assert JOBS.admissible_workers(10.0, 16) == 16   # an idle machine: every core
+    assert JOBS._admissible_workers(10.0, 16) == 16   # an idle machine: every core
     gated["answers"] = [REFUSED]
-    assert JOBS.admissible_workers(10.0, 16) == 1    # pressed: the caller alone
+    assert JOBS._admissible_workers(10.0, 16) == 1    # pressed: the caller alone
 
 
 def test_the_lane_is_named_by_its_worktree(monkeypatch, tmp_path):

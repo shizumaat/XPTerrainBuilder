@@ -5,11 +5,26 @@ Owner 2026-11-20T14:20Z (ELLX, verbatim): "the terrain should meet it's outer ed
 
 Round 1 recognises a PARTIAL SHELL (`airport/ground_rim`: an origin set whose ground sheet holds ≥ 0.5 of its plan and of its outer rim and models ≥ 5 m of relief beyond a plane), seats it rigid and grades the FREE tile raster to its rim stations (`airport/rim_grade`). Two defects keep it from merging: the population is too broad (§1), and the rim stays open where it lies inside the airport patch, whose postings the tile never moves (§2).
 
-## 1. Narrowing (recognition)
+## 1. Narrowing (recognition): THE SHEET IS OUR GROUND, REMODELLED
 
-MEASURED — see §4 table.
+Round 1's gates (plan ≥ 50 m; sheet ≥ 0.5 of the plan and of the outer rim; sheet relief ≥ 5 m beyond a plane) hold 152 origin sets in 64 packs of the owner's 1,482-pack library (one-worker census, §4.1; 56 of them in one simHeaven X-World pack): bridges and viaducts (EGLL, RJTT, KEWR, LIPV, KDEN, KLAX, EGSS, LGAV `Bridges1_00`), tunnels (VHHH, EDDF), elevated roads (KTPA, KBWI, KMEM, KPDX, EPWA), landmarks (Burj Al Arab, Opera House, mosques, stadiums), hangars and cargo sheds, BIKF's earth-covered bunkers, hills and rocks. Each models relief the AUTHOR added; ELLX's sets re-model the ground they stand on.
 
-## 2. The patch half: a groundside face touching a rim takes the rim
+`airport/ground_rim._is_our_ground` adds three gates at the seat, read over the sheet cells (`g` our ground over the seat's zero):
+
+| Gate | Constant | Reads | ELLX (4 sets) | Nearest refused |
+|---|---|---|---|---|
+| FOLLOW (RULINGS 25f: never a terrace far from credible terrain) | `MIN_FOLLOW_SHARE` 0.8 | share of the sheet with `|top − g| ≤ AT_GRADE_M` (1.5 m) | 0.85–0.96 | BIKF bunker 0.69/0.71, EDDH logo 0.70; the ONLY set failing this gate alone: X-World `Magdeburg_Kanalbruecke` (a canal bridge) 0.70 |
+| RELIEF EXPLAINED (our ground has the sheet's relief) | `MAX_UNEXPLAINED` 0.5 | 5–95 % span beyond a plane of `top − g`, over that of `top` | 0.21–0.31 | EDDH logo 0.53, BIKF bunker 0.59/0.61; failing this gate alone: KMCI `Hangrao` 0.92, PHNL fuel farm 0.87, X-World Baton Rouge capitol 0.83 |
+| SKIN (a ground surface, never a deck over a void) | `MIN_SKIN_SHARE` 0.9 at `SKIN_M` 0.5 m | share of the sheet with `top − low ≤ 0.5 m` | 0.95–1.00 | failing this gate alone: ENGM `Ham3` 0.81, KTPA `East2_ElevatedHWY` 0.52, KBNA taxiway bridge 0.06 (all three follow our ground at 0.93–0.97) |
+
+Every gate is a share or a ratio; no pack, object or airport is named; each gate alone refuses at least one set the other two pass (load-bearing). Result: 4 sets in 1 pack (ELLX `Terminal-A` + SkyPark 49.635, 6.217; `Lux_Fuel_base` 49.634, 6.221; `firestation` 49.626, 6.201; `pool_5` 49.619, 6.186). Full table §4.1.
+
+NOT KEPT, contrary to the round-2 brief's keep list: KSRQ `mesh_hill`, EBBR `hill_03`, LGSR `Colina`, CYAZ `Rock_1`, BGGH `Rocks3`. They are hills and rocks: relief the author added on top of the ground (relief not explained, 0.78–1.29; follow 0.35–0.70). No measured share separates them from the landmarks and blast fences (CYQB `APTjunk`, KTPA `Fedex_Blast`, EDDH `logo`, LGTS `lgts_libtextures1`, all skin 1.00 with rim-follow 0.84–0.90 above KSRQ's 0.93 … CYAZ's 0.24). A hill's flush rim is another witness (its RIM at grade, the body free) and an owner question (§6 Q1), not this module.
+
+## 2. The patch half: a groundside face touching a rim takes the rim — MEASURED AND REFUTED (deleted)
+
+**Status.** Implemented as `constraints/rim_pins` (draft below, kept for the record), replayed at ELLX in three arms (§4.2), and DELETED from the branch: as yielding pins it closes 20 of 1,460 open rim stations and still moves 82 stage-2 apron vertices up to 0.74 m; as hard pins it closes the groundside rim (pool_5 service roads 101 → 0 open, firestation lot 132 → 81, Terminal-A lots 189 → 102) but moves 2,342 stage-1 airside levels up to 0.32 m and 1,642 final airside heights up to 9.9 m. Airside is king, so neither arm can land. What carries the rim inside the patch is the frontage spec's rung L4 (`docs/specs/terminal-frontage-split-level-20261125.md`: the frontage level from the sheet, lots following it ≤ 5 %), not a pin; its consumer C23 is void. The draft rule as specified:
+
 
 ### 2.1 The rule
 Per recognised set (`constraints/rim_pins.rim_sets`: every `TerrainModel.rim` of `airport.terrain_models`, once per set), every vertex of a GROUNDSIDE VALUE face (`constraints/groundside.groundside_face_roles`: `groundside_pavement`, `service_road`, `service_junction`, `parking_lot` — car lots included) that
@@ -58,7 +73,53 @@ A lot touching a rim TAKES THE RIM: its rim-pinned vertices are constants; 25e's
 * Ground strips (zone bands: `graded_strip`, clearances) are airside-side roles and are never pinned.
 
 ## 3. Build-time impact
-`rim_pins`: one KD-tree query per set over the groundside vertices; none without a recognised set (every airport but the hits in §4). Recognition adds two shares to `ground_rim._recognise` (vectorised over the plan raster already built).
+Recognition adds three vectorised shares over the sheet cells already rasterised (`_is_our_ground`), only for a set that passed round 1's gates (152 in the whole library; 4 at ELLX, 0 at every other airport the census reads). No patch-side cost (rim_pins deleted).
 
 ## 4. Measurements
-FILLED IN BELOW.
+
+### 4.1 Population (one-worker census over 1,482 packs: `tmp/lps2/feat.py`, the round-1 gates plus the features; 2026-11-25)
+152 sets / 64 packs pass round 1. Kept by §1: 4 sets / 1 pack, all ELLX:
+
+| Set (first row) | Rows | lat, lon | follow | unexplained | skin | relief m | z0 m | rim stations |
+|---|---|---|---|---|---|---|---|---|
+| `Terminal-A` + SkyPark | 157 | 49.63502, 6.21678 | 0.85 | 0.30 | 0.97 | 7.9 | 374.74 | 3,117 |
+| `Lux_Fuel_base` | 14 | 49.63412, 6.22076 | 0.87 | 0.26 | 0.95 | 12.9 | 376.45 | 744 |
+| `firestation` | 17 | 49.62619, 6.20094 | 0.96 | 0.31 | 1.00 | 5.7 | 374.06 | 711 |
+| `pool_5` | 12 | 49.61864, 6.18593 | 0.95 | 0.21 | 0.99 | 8.3 | 346.59 | 736 |
+
+(z0 / stations from `tools/terrain_model_census.py` on the ELLX pack with the branch code: `rim` gate 4.) Refused, by the brief's list: EGLL 5/3/2/12/11/9.obj, VHHH tunnels, EDDF `Tunnel_1`/cargo, ENGM `Ham1-3`, KDEN train bridge/walls, KLAX `Bridge_T1`, KTPA (3), CYVR `BS2`, EPWA viaduct, KMEM, KPDX, KBWI `Highway`, LGAV `Bridges1_00`, Burj Al Arab, BIKF `bunker1` ×2 and `radar`, hangars (EGAA, KMCI), KSRQ / EBBR / LGSR hills and CYAZ / BGGH / XNZHN rocks (§1). Certified BIKF and LGAV hold no partial shell: their builds are unchanged by this branch (every rim code path is gated on a recognised set).
+
+### 4.2 ELLX in-patch rim (capture `ELLX.pkl`, branch 3582e8679 + the §1 gates; replay `--from constraints`)
+Gap = our solved patch surface at a rim station − the author's ground there. OPEN = gap < −0.5 m (the shell's edge stands over our ground: you see under it); BURIED = gap > +0.5 m.
+
+| Set | in patch | arm | OPEN | max open | by role (OPEN / stations, p50 gap) |
+|---|---|---|---|---|---|
+| pool_5 | 486 / 751 | no pins | 103 | 1.42 | service_road 101/446 (+0.35) |
+| | | yielding pins | 78 | 1.23 | service_road 76/446 (+0.25) |
+| | | hard pins | 4 | 0.63 | service_road 0/446 (+0.08) |
+| Lux_Fuel_base | 662 / 736 | no pins | 427 | 3.02 | building 398/630 (−2.96), service_road 29/32 |
+| | | yielding | 431 | 3.67 | building 402/630 (−3.55) |
+| | | hard | 485 | 12.72 | building 472/630 (−12.51) |
+| firestation | 335 / 709 | no pins | 210 | 3.05 | parking_lot 132/245 (−2.08), apron 54/54 (−1.58), strip 23/27 |
+| | | yielding | 210 | 2.81 | parking_lot 132/245 (−1.80) |
+| | | hard | 157 | 2.81 | parking_lot 81/245 (−0.16) |
+| Terminal-A + SkyPark | 2,253 / 3,139 | no pins | 720 | 6.31 | apron 420/1,642 (+3.72), parking_lot 189/296 (−3.55), service_road 104/297 (+0.48) |
+| | | yielding | 721 | 5.65 | parking_lot 189/296 (−2.90) |
+| | | hard | 594 | 5.37 | parking_lot 102/296 (−0.11), service_road 77/297 |
+
+Airside: yielding pins 1,156 minted, 1,121 released (`PIN YIELD`), stage-1 levels identical, 82 stage-2 apron vertices moved (max 0.744 m at 49.63555, 6.21959, an apron|lot vertex east of Terminal-A); hard pins: all 1,156 hold, 2,342 stage-1 levels move (max 0.317 m), 1,642 final airside heights (max 9.89 m). A third arm, the author's ground substituted as the groundside vertices' `dem_z` (1,168 vertices, no pins), moves nothing (OPEN 1,460 → 1,460; airside 0): the lots do not read their DEM where they meet a rim.
+
+The rim's in-patch share is 47–90 %; of the 3,736 in-patch stations, 1,696 stand on apron (airside: never moves) and 648 on building pads; only ~1,300 are groundside at all.
+
+### 4.3 Free (tile-raster) rim, before the grade (census `gap` = station − our DEM outside, p5 / p95; over 0.5 m)
+pool_5 −3.82 / +1.19 (558 of 736); fuel base −1.61 / +2.78 (416 of 744); firestation −2.34 / +1.16 (464 of 711); Terminal-A −3.10 / +1.59 (1,930 of 3,117). After the grade: not measured here (tile build; integration).
+
+### 4.4 The seat (round 1) against main's
+Round 1 seats each set as ONE rigid `terrain model` frame (rebake plan of this replay: `seat` "terrain model", elevation = z0). Main's last ELLX plan (`Patches/+40+000/+49+006`, 2026-11-19) seats the same rows by §16g units: `Terminal-A.001` "on pad building42 at 375.90" (here 374.85: −1.05 m), `firestation.001` "on pad building21 at 366.34", `Lux_Fuel_base.001` "connected group at 380.62", `pool_5.001` "seats within 0.5 m, at 344.28". Only the Terminal-A pair is plainly the same frame; the others are split bodies whose zeros are not directly comparable. A partial shell that carries an airside floor (Terminal-A: 1,642 rim stations on apron) is seated by our DEM, not by its pad: MERGE BLOCKER until the integration drawn gate at 49.6350, 6.2168 shows the terminal's airside floor unmoved (§6 Q2).
+
+## 5. LDSP (RULINGS 2026-11-25f/h)
+No LDSP set reaches round 1's gates (census: the Aerosoft LDSP packs yield no row), so this module neither seats LDSP's terminal nor grades our ground to its terrace: 25f holds by construction, and the FOLLOW gate (§1) refuses any later sheet standing off credible ground. The sky bridge (#2287): LDSP's terminal is ONE origin set (56 rows within 600 m of 43.5366, 16.2990 share the origin; main's plan: `unit:5`, 44 members, `connectors` empty), so the bridge and the lower-level building are authored in one rigid frame and already meet each other as authored. The existing skew (`airport/connector_warp`, RULINGS 2026-11-18h (3): the #2144 deck warp, piers vertical, capped at `[deck] shear_max_grade` 10 %) acts only on a connector between two SEPARATELY seated buildings. It can take the sky bridge only once the frame is split into two seats (the frontage spec's L5 linked building, or a §16g connector reading that names the bridge). A 5.8 m storey then needs ≥ 58 m of bridge at 10 %. The bridge body was not identified here (candidates by extent: `LDSP_NewTerminal_6` 100 × 227 m, y −2.7..9.7; `LDSP_NewTerminal_7`, y 0.6..18.0).
+
+## 6. Owner questions
+- **Q1.** Hills and rocks (KSRQ `mesh_hill`, EBBR `hill_03`, LGSR `Colina`, CYAZ `Rock_1`, BGGH `Rocks3`): their rim meeting our ground is a different witness (the body is relief we do not have). Should their RIM be graded to like a partial shell's, with a new witness to tell them from landmarks and blast fences?
+- **Q2.** A partial shell that also carries an airside floor (ELLX Terminal-A + SkyPark): should its rigid frame take the PAD's seat (airside is king; the landside sheet then stands where the pad puts it, our ground graded up to it), or the DEM fit (round 1, −1.05 m against main)?

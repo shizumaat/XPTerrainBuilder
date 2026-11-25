@@ -128,24 +128,6 @@ class _RimSet:
     relief_m: float
     stations: np.ndarray          # (n, 3): east, north, z MSL
     rings: tuple                  # outline rings, frame metres
-    #: THE SHEET SURFACE (#2197 round 2, the patch half): ``(e0, n0, step,
-    #: z)`` -- the plan grid's corner, its cell and ``z`` MSL of every sheet
-    #: cell (``nan`` off the sheet): the author's ground the patch meets
-    sheet: tuple = ()
-
-    def sheet_at(self, e: np.ndarray, n: np.ndarray) -> np.ndarray:
-        """The author's ground (z MSL) at frame ``(e, n)``; ``nan`` off
-        the sheet."""
-        e, n = np.asarray(e, float), np.asarray(n, float)
-        out = np.full(e.shape, np.nan)
-        if not self.sheet:
-            return out
-        e0, n0, step, z = self.sheet
-        j = np.floor((e - e0) / step).astype(np.int64)
-        i = np.floor((n - n0) / step).astype(np.int64)
-        ok = (i >= 0) & (j >= 0) & (i < z.shape[0]) & (j < z.shape[1])
-        out[ok] = z[i[ok], j[ok]]
-        return out
 
 
 def _set_raster(solids: _t.Sequence[np.ndarray], heading: float) -> "_t.Any | None":
@@ -319,8 +301,7 @@ def _recognise(r: _t.Any, xy: tuple[float, float], heading: float,
     if relief < MIN_RELIEF_M or not _is_our_ground(r, sheet, dem - z0, e, n, relief):
         return None
     return _RimSet((float(xy[0]), float(xy[1])), float(heading), z0, plan, sheet_share,
-                  rim_share, relief, _rim_stations(r, sheet, z0), _outline_rings(r),
-                  (r.e0, r.n0, r.step, np.where(sheet, z0 + r.top, np.nan).astype(np.float32)))
+                  rim_share, relief, _rim_stations(r, sheet, z0), _outline_rings(r))
 
 
 def _sheet_relief(e: np.ndarray, n: np.ndarray, top: np.ndarray) -> float:

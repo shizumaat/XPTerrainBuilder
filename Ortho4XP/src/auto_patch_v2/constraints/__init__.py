@@ -21,7 +21,7 @@ from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_
                deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting,
                pad_sunk_level, pads,
                platform,
-               proximity, ramp_runout, rim_pins, road_bridge_ceiling, road_ramp, roads, routes,
+               proximity, ramp_runout, road_bridge_ceiling, road_ramp, roads, routes,
                runway_chord, runway_mean_slope,
                runway_profile, runway_step,
                seams, shell_datum, steep_apron, strips,
@@ -167,9 +167,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("water_pins", water.water_pins),
     # #1915 (RULINGS 2026-11-06a (2)): the old-DEM fill's toe is on the ground
     ("fill_toe_pins", fill_bank.fill_toe_pins),
-    # #2197 round 2: a groundside face touching a partial shell takes its
-    # ground rim (yielding, groundside: before the seam's senior pins)
-    ("rim_pins", rim_pins.rim_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
     # THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b): a rigid body

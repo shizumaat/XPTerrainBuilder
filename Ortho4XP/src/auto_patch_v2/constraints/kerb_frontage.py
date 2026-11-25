@@ -15,7 +15,8 @@ outside the plan and within ``[design]
 pad_frontage_m`` of it — the landside's FRONTAGE on the building, the
 radius §20 and §28 read the pad relation by — that is no stage-1
 (airside) vertex and no pad's, and whose own ground confirms the storey as
-§27 read it (half the rise over the airside's ground), takes ONE one-way row ``z_v - z_D = y``, ``D`` the
+§27 read it (half the rise over the airside's ground), takes ONE one-way
+row ``z_v - z_D = y``, ``D`` the
 block's DATUM COLUMN (``model.platform.datum_vertices``, the landing rows'
 column): the kerb deck's bottom.  Stage 2's row, ``D`` a constant there:
 the kerb follows the unit, the unit and the airside never follow the kerb.
@@ -28,7 +29,8 @@ the fallback road cap).
 Across the cut-back the plan's edge IS the building's wall (RULINGS
 2026-11-25b (5): pavements touching, the step is a wall): every row
 spanning a kerb vertex and a vertex at the plan (inside it or within the
-groundside cut-back of its edge) or any airside or pad vertex — the apron-edge ramp, §28 to a pad under the storey, a
+groundside cut-back of its edge) or any airside or pad vertex — the
+apron-edge ramp, §28 to a pad under the storey, a
 road stub's within-shape pair — is withdrawn, so neither it nor its
 ceiling twin ties the kerb to the floor a storey below; and a road's §37
 ramp rows on a kerb vertex (its own-ground target and ceiling) give way
@@ -94,7 +96,8 @@ def wall_line(planar: PlanarMap, law: Law):
     if kerb:
         reach = float(design_law(law).pad_frontage_m)
         back = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
-        near = unary_union(points([planar.vertices[v].xy for v in kerb]).tolist()).buffer(reach + back)
+        near = unary_union(points([planar.vertices[v].xy for v in kerb]).tolist())
+        near = near.buffer(reach + back)
         polys = [rec["plan"].buffer(back) for _b, rec in _records(planar)
                  if rec.get("plan") is not None]
         from .groundside import groundside_face_roles
@@ -157,7 +160,7 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
             continue
         y, air_z = float(rec["y"]), rec.get("air_z")
         d = shapely.distance(plan, points([planar.vertices[v].xy for v in gv]))
-        for v, dv in zip(gv, d):
+        for v, dv in zip(gv, d, strict=True):
             if 0.0 < dv <= reach and _confirms(planar.vertices[v].dem_z, air_z, y):
                 kerb.setdefault(v, (block, y))
     wall: set[int] = set()
@@ -172,7 +175,7 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
                 and x0 <= vx.xy[0] <= x1 and y0 <= vx.xy[1] <= y1]
         if cand:
             inside = shapely.covers(P, points([planar.vertices[v].xy for v in cand]))
-            wall = {v for v, k in zip(cand, inside) if k}
+            wall = {v for v, k in zip(cand, inside, strict=True) if k}
         # and every airside or pad vertex: what the kerb meets there is the
         # building or its floor (MEASURED PHLI: a pad of the unit standing
         # past the storey's body held the kerb 4.1 m down by its rim strip)

@@ -43,10 +43,10 @@ from ..law import Law
 from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
-__all__ = ["ARM_PAD_KEY", "STOREY_AIR_Z_KEY", "STOREY_LANDSIDE_KEY", "STOREY_M_KEY", "STOREY_PLAN_KEY",
-           "STOREY_UNIT_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
+__all__ = ["ARM_PAD_KEY", "STOREY_AIR_Z_KEY", "STOREY_LANDSIDE_KEY", "STOREY_M_KEY",
+           "STOREY_PLAN_KEY", "STOREY_UNIT_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
            "StoreyBand", "UPPER_AIR_Z_KEY", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY",
-           "air_ground", "arm_storeys",
+           "arm_storeys",
            "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
 
 #: evidence: metres of a lot's apron contact §27 read as across a storey
@@ -64,7 +64,7 @@ STOREY_PLAN_KEY = "airside_edge_storey_plan"
 #: evidence: the ``airport.partition`` unit of each of those storeys
 STOREY_UNIT_KEY = "airside_edge_storey_unit"
 #: evidence: the airside ground the storey was confirmed against
-#: (:func:`air_ground`): a kerb vertex stands where its own ground confirms
+#: (:func:`_air_ground`): a kerb vertex stands where its own ground confirms
 #: the storey the same way (``constraints/kerb_frontage``)
 STOREY_AIR_Z_KEY = "airside_edge_storey_air_z"
 #: evidence: a storey rise the lot's ground does not confirm (reported)
@@ -165,13 +165,13 @@ def ground_confirms(band: StoreyBand, lot, run, rise: float) -> "bool | None":
             or run.is_empty or run.length <= 0.0):
         return None
     z_lot = _median_dem(band.dem, lot)
-    z_air = air_ground(band, lot, run)
+    z_air = _air_ground(band, lot, run)
     if z_lot is None or z_air is None:
         return None
     return z_lot - z_air >= 0.5 * float(rise)
 
 
-def air_ground(band: StoreyBand, lot, run) -> "float | None":
+def _air_ground(band: StoreyBand, lot, run) -> "float | None":
     """The airside's ground :func:`ground_confirms` reads the storey
     against: the DEM median over the airside within the lot's mean depth
     off ``run`` (at least the band's ``reach_m``), or ``None``."""
@@ -210,7 +210,7 @@ def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
         if plan is not None:
             cut = cut.union(plan.buffer(knife, join_style="mitre", mitre_limit=2.0))
             ev = dict(f[4], **_kerb_evidence(plan, met))
-            if (z_air := air_ground(band, f[2], run)) is not None:
+            if (z_air := _air_ground(band, f[2], run)) is not None:
                 ev[STOREY_AIR_Z_KEY] = round(z_air, 2)
             f = final[i] = [*f[:4], ev, *f[5:]]
         parts = sorted((p for p in polygon_parts(f[2].difference(cut))
@@ -221,8 +221,9 @@ def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
         final[i] = [f[0], f[1], parts[0], *f[3:]]
         pieces = [[f[0], p, f[4], f[5]] for p in parts[1:]]
         if plan is not None:
-            ev = {k: v for k, v in f[4].items() if k not in (STOREY_LANDSIDE_KEY, STOREY_Y_KEY, STOREY_PLAN_KEY,
-                                                         STOREY_UNIT_KEY, STOREY_AIR_Z_KEY)}
+            kerb = (STOREY_LANDSIDE_KEY, STOREY_Y_KEY, STOREY_PLAN_KEY, STOREY_UNIT_KEY,
+                    STOREY_AIR_Z_KEY)
+            ev = {k: v for k, v in f[4].items() if k not in kerb}
             ev = dict(ev, kind="apron", airside_edge_flip=1.0, airside_edge_was=f[0])
             pieces += [["apron", p, ev, "apron"] for p in polygon_parts(f[2].intersection(plan))
                        if p.area >= min_area_m2]

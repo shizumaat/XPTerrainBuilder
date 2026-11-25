@@ -24,10 +24,10 @@ from shapely.ops import unary_union
 
 from ..model.registries import LANDSIDE_KERB
 
-__all__ = ["landside_plans", "publish_kerbs"]
+__all__ = ["publish_kerbs"]
 
 
-def landside_plans(cells) -> dict[str, tuple]:
+def _landside_plans(cells) -> dict[str, tuple]:
     """``{lot ref: (plan, rise, units, the airside ground or None)}`` of every LANDSIDE lot cell
     carrying its kerb line (``classify/storey_edge._kerb_evidence``)."""
     from ..classify.storey_edge import (STOREY_AIR_Z_KEY, STOREY_LANDSIDE_KEY,
@@ -51,7 +51,7 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -
     """Put each landside lot's kerb record on its unit block's ``held``
     entry (module docstring); returns the lots published, the refused
     counted into ``counts`` (``kerb_frontage_refused``)."""
-    plans = landside_plans(cells)
+    plans = _landside_plans(cells)
     if not plans or airport is None or getattr(airport, "frame", None) is None:
         return 0
     from .low_level import UP_KIND, unit_share
@@ -75,8 +75,9 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -
             if unit_of[k] in units:
                 cand.append((k not in upper, -cover, k))
         if not cand:
+            why = f"{ref}: no held block of its unit"
             counts["kerb_frontage_refused"] = "; ".join(
-                filter(None, (counts.get("kerb_frontage_refused"), f"{ref}: no held block of its unit")))
+                filter(None, (counts.get("kerb_frontage_refused"), why)))
             continue
         block = min(cand)[2]
         rec = {"lot": ref, "y": round(y, 3), "plan": plan, "air_z": air_z}

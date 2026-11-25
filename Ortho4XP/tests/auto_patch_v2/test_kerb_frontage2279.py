@@ -17,7 +17,7 @@ from auto_patch_v2.constraints import kerb_frontage as kf
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Diff, Source
 from auto_patch_v2.model.registries import LANDSIDE_KERB
-from auto_patch_v2.planar.kerb_frontage import landside_plans
+from auto_patch_v2.planar.kerb_frontage import _landside_plans
 from shapely.geometry import Polygon, box
 
 LAW = Law.for_airport("SYNT")
@@ -69,7 +69,7 @@ def test_the_kerb_drive_in_the_plan_stays_the_landsides():
     assert plan.area == pytest.approx(hull.area - drive.area, rel=1e-3)
     assert lot[4][STOREY_UNIT_KEY] == (0,)
     cell = types.SimpleNamespace(ref="lot0", evidence=lot[4])
-    got = landside_plans([cell])
+    got = _landside_plans([cell])
     assert got["lot0"][1] == 4.1 and got["lot0"][0].area == pytest.approx(plan.area)
 
 

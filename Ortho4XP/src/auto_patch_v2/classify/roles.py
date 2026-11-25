@@ -954,7 +954,11 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
     # beside a pad armed that pad's knife, whose mitred corner then cut two
     # EXISTING groundside cells (pav57, dsf:objpav405) — a ribbon changing
     # the cells pass A nodes.  The ribbon takes the same set-back itself.
-    cells, n_cut = _cut_back_groundside(cells, law, rules, airport)
+    # RULINGS 2026-11-25g: a held two-floor unit's landside face is a wall
+    from .frontage_wall import frontage_walls
+    walls = frontage_walls(airport, law, cells)
+    stats["frontage_walls"] = len(walls)
+    cells, n_cut = _cut_back_groundside(cells, law, rules, airport, walls=walls)
     stats["mixed_pad_cutbacks"] = n_cut
     stats["pad_rim_welds"] = sum(1 for c in cells if c.evidence.get(WELD_KEY))
     # §52 (RULINGS 2026-10-04d (3)): the facade strips and lots — after §27
@@ -999,7 +1003,7 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
     # (the reach's pad roads, RULINGS 2026-10-22g, were minted with the
     # ribbons, before ``n_before``: they are read by the witness as well)
     cells, n_cut_rib = _cut_back_groundside(
-        cells, law, rules, airport, hold=False,
+        cells, law, rules, airport, hold=False, walls=walls,
         only=[i for i, c in enumerate(cells) if i >= n_before or c.evidence.get("pad_road")])
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
@@ -1285,7 +1289,9 @@ def _road_evidence(scored, ev: Evidence, rules: Rules, *,
 def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
                          airport: Airport | None = None,
                          only: _t.Iterable[int] | None = None,
-                         hold: bool = True) -> tuple[list[Cell], int]:
+                         hold: bool = True,
+                         walls: _t.Mapping[str, _t.Any] | None = None
+                         ) -> tuple[list[Cell], int]:
     """THE PAD'S GROUNDSIDE EDGE (owner RULINGS 2026-10-09j, spec §63;
     before it the pad set-back of 2026-09-01g/i and 2026-09-04u).  Each
     groundside pavement cell is read against every pad beside it AS DRAWN
@@ -1311,6 +1317,12 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
     pad RAMPS to it (owner RULINGS 2026-10-13a (3) "Ramp it" — the
     terrace is not the answer where a road reaches a pad; the road's run
     is the §37 (6) ramp's, ``constraints/pad_ramp.pad_ramp_rewrite``).
+
+    ``walls`` (``classify/frontage_wall.frontage_walls``, RULINGS
+    2026-11-25g): ``{pad ref: landside face}`` of the pads under a held
+    two-floor unit -- a cell touching such a pad within ``pad_frontage_m``
+    of its face is HELD (knifed) whatever ``hold`` says: its frontage
+    stands at the groundside floor, the step to the pad is a wall.
 
     Returns the cells and the number the KNIFE cut (the held terraces)."""
     back = law.tables.structures.building_pad.groundside_cutback_m
@@ -1373,9 +1385,12 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
             # a lot a storey up (``storey_edge``) meets the pad's UPPER
             # LEVEL, a road's arm its upper pad (#2068): welded, never held
             # off as a hillside (#1101)
-            if hold and STOREY_Y_KEY not in c.evidence and c.evidence.get(ARM_PAD_KEY) != ref \
-                    and is_held_step(
-                    law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)):
+            wall = (walls or {}).get(ref)
+            if STOREY_Y_KEY not in c.evidence and c.evidence.get(ARM_PAD_KEY) != ref and (
+                    (wall is not None and g.distance(wall) <= float(
+                        law.tables.emit.design.pad_frontage_m))
+                    or (hold and is_held_step(
+                        law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)))):
                 held.append(ref)
                 cutters.append(knives[ref])    # HELD: the terrace's knife
             else:

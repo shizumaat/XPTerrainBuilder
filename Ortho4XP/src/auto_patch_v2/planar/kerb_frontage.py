@@ -14,7 +14,17 @@ on first (``reg.landings``, ``UP_KIND``), else the one the plan covers
 most.  The record goes on the block's ``held`` entry under
 :data:`model.registries.LANDSIDE_KERB` (the ``kerbs`` / floor-yard
 precedent: a held block's own annotations), read by
-``constraints/kerb_frontage``."""
+``constraints/kerb_frontage``.
+
+THE FRONTAGE LAW, BOTH SIGNS (RULINGS 2026-11-25g (2); spec
+``terminal-frontage-split-level-20261125.md`` §3.1, C12): a unit's HELD
+two-floor record (``planar/unit_levels_read``, on its block under
+:data:`model.registries.UNIT_LEVELS`) publishes the same kerb record --
+its plan, its signed rise, its airside ground, and its LANDSIDE FACE
+(``airport/frontage_face``: the band is read along the face, not the whole
+outline) -- on its block, unless a landside lot of the unit already
+carries one (the storey's own lot, PHLI: one generator, one record).  A
+record far from our ground (``far``, 25f) or unconfirmed publishes none."""
 from __future__ import annotations
 
 import typing as _t
@@ -25,6 +35,21 @@ from shapely.ops import unary_union
 from ..model.registries import LANDSIDE_KERB
 
 __all__ = ["publish_kerbs"]
+
+
+def _unit_records(reg, units_taken: set) -> list:
+    """``(block, record)`` for every held block carrying a HELD two-floor
+    record of a unit no landside lot published (module docstring)."""
+    from ..airport.unit_storey import HELD
+    from ..model.registries import UNIT_LEVELS
+    out = []
+    for block, h in sorted(reg.held.items()):
+        u = h.get(UNIT_LEVELS)
+        if u is None or u.verdict != HELD or u.land_y is None or u.unit in units_taken:
+            continue
+        out.append((block, {"lot": None, "unit": u.unit, "y": round(float(u.rise), 3),
+                            "plan": u.plan, "face": u.face, "air_z": u.ground[0]}))
+    return out
 
 
 def _landside_plans(cells) -> dict[str, tuple]:
@@ -52,7 +77,7 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -
     entry (module docstring); returns the lots published, the refused
     counted into ``counts`` (``kerb_frontage_refused``)."""
     plans = _landside_plans(cells)
-    if not plans or airport is None or getattr(airport, "frame", None) is None:
+    if airport is None or getattr(airport, "frame", None) is None:
         return 0
     from .low_level import UP_KIND, unit_share
     to_xy = airport.frame.entry()
@@ -84,5 +109,13 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -
         reg.held[block] = {**reg.held[block],
                            LANDSIDE_KERB: (*reg.held[block].get(LANDSIDE_KERB, ()), rec)}
         n += 1
+    taken = {u for _plan, _y, units, _z in plans.values() for u in units}
+    k = 0
+    for block, rec in _unit_records(reg, taken):
+        reg.held[block] = {**reg.held[block],
+                           LANDSIDE_KERB: (*reg.held[block].get(LANDSIDE_KERB, ()), rec)}
+        k += 1
     counts["kerb_frontages"] = n
-    return n
+    if k:
+        counts["unit_frontages"] = k
+    return n + k

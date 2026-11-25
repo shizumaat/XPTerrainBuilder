@@ -159,9 +159,17 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
         if not gv:
             continue
         y, air_z = float(rec["y"]), rec.get("air_z")
-        d = shapely.distance(plan, points([planar.vertices[v].xy for v in gv]))
+        # a unit's two-floor record reads its band along its landside FACE
+        # (``planar/kerb_frontage._unit_records``; spec §1.4)
+        face = rec.get("face")
+        line = face if face is not None and not face.is_empty else plan
+        d = shapely.distance(line, points([planar.vertices[v].xy for v in gv]))
+        if line is not plan:
+            d = np.where(shapely.covers(plan, points([planar.vertices[v].xy for v in gv])),
+                         0.0, d)
+        half = 0.0 if rec.get("lot") is None else 0.5
         for v, dv in zip(gv, d, strict=True):
-            if 0.0 < dv <= reach and _confirms(planar.vertices[v].dem_z, air_z, y):
+            if 0.0 < dv <= reach and _confirms(planar.vertices[v].dem_z, air_z, y, half):
                 kerb.setdefault(v, (block, y))
     wall: set[int] = set()
     if kerb and plans:
@@ -183,13 +191,30 @@ def _derive(planar: PlanarMap, law: Law, recs) -> tuple[dict, set]:
     return kerb, wall
 
 
-def _confirms(dem_z, air_z, y: float) -> bool:
+def _confirms(dem_z, air_z, y: float, half: float = 0.5) -> bool:
     """Whether a frontage vertex's own ground confirms the storey as §27
     read it for the whole lot (``classify/storey_edge.ground_confirms``):
-    at least half the rise over the airside's ground.  Where it does not
-    the landside has come down to the floor's ground (a lot's end past the
-    building) and the kerb is no level of it."""
-    return air_z is None or (dem_z is not None and float(dem_z) - float(air_z) >= 0.5 * y)
+    at least half the rise over the airside's ground, on the rise's side
+    (a storey DOWN: at least half of it under -- RULINGS 2026-11-25g, both
+    signs).  Where it does not the landside has come down (or up) to the
+    floor's ground (a lot's end past the building) and the kerb is no
+    level of it.
+
+    ``half`` 0 (a unit's two-floor record, ``planar/kerb_frontage.
+    _unit_records``): the record's verdict already read half the rise on
+    the face's own ground (``unit_storey._verdict``); a band vertex need
+    only stand on the rise's side of the airside ground.  The airport DEM
+    is smoothed (``Ortho4XP/CLAUDE.md`` "DEM frame") and cannot show a
+    wall's step at the wall: MEASURED LDSP, the frontage road's kerb
+    vertices read 14.4-15.9 against the apron's 17.16 while the face's
+    ground reads 11.41 (owner 25h addendum: the road in front stands at
+    least a storey under the airside)."""
+    if air_z is None:
+        return True
+    if dem_z is None:
+        return False
+    dz = float(dem_z) - float(air_z)
+    return dz >= half * y if y >= 0.0 else dz <= half * y
 
 
 def _pavement(law: Law) -> frozenset[str]:

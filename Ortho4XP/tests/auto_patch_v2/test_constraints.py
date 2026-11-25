@@ -298,7 +298,10 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
                                        "steep_road_release",
                                        # #2073: a bridge's carried page is
                                        # not graded over the span
-                                       "bridge_span_release"}
+                                       "bridge_span_release",
+                                       # #2279 step 2: the rows across a
+                                       # landside kerb's wall
+                                       "kerb_wall_withdrawn"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message

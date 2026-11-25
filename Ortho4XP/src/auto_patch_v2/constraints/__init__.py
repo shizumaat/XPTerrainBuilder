@@ -17,7 +17,7 @@ from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
 from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank,
                flat_site, foot_rows, groundside, hard_plane, door_pad,
-               junction_mesh,
+               junction_mesh, kerb_frontage,
                deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting,
                pad_sunk_level, pads,
                platform,
@@ -157,6 +157,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage
     # rule read the other way — the lot / service road follows the pad.
     ("groundside_frontage_level", pad_frontage_gs.groundside_frontage_level),
+    # #2279 step 2: a unit's LANDSIDE lot meets the building at its kerb --
+    # the unit block's datum + the storey's rise, one-way
+    ("kerb_frontage_level", kerb_frontage.kerb_frontage_rows),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36): the rect beyond a departure end is PINNED
     # a tail height below the departure surface, and the taxi rows either

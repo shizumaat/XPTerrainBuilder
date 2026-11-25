@@ -20,6 +20,7 @@ from . import (
     bridge_span_release,
     ceiling,
     eat,
+    kerb_frontage,
     pavement_cap,
     public_road_release,
     ramp_runout,
@@ -98,6 +99,13 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
         walls[pavement_cap.GEN] = time.perf_counter() - t0
         counts[pavement_cap.GEN] = len(fb)
         rows.extend(fb)
+    # #2279 step 2: the building's wall between a unit's landside kerb and
+    # the floor a storey below (``constraints/kerb_frontage``) -- after
+    # the ceiling and the fallback cap, so neither's twin ties the kerb
+    # back down
+    rows, n_kerb = kerb_frontage.kerb_wall_exempt(rows, planar, law)
+    counts["kerb_wall_withdrawn"] = n_kerb
+    walls["kerb_wall_withdrawn"] = 0.0
     # A PUBLIC ROAD FOLLOWS ITS TERRAIN (owner RULINGS 2026-10-22h, #1254):
     # LAST, so the ceiling's twins and the fallback yield with the rest
     t0 = time.perf_counter()

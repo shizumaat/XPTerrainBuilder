@@ -17,19 +17,19 @@ from __future__ import annotations
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
 # site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
+import os as _o4os, sys as _o4sys                                    # noqa: E401,E402
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.abspath(__file__))), "src"))
 import O4_Console_Encoding as _o4console                             # noqa: E402
 _o4console.configure_console_streams()
 
-import argparse
-import importlib.util
-import json
-import pickle
-import subprocess
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import importlib.util  # noqa: E402
+import json  # noqa: E402
+import pickle  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"

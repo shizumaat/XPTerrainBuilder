@@ -2181,7 +2181,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.threshold_seam
         constraints.strips constraints.transverse geom.trend
         constraints.weld_floor geom.base_slab geom.cluster_outline geom.containment
-        geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area law.inset_class
+        geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area
+        law.inset_class
         model.islands model.map_memo model.platform model.threshold_datum
         geom.slope_pad
         constraints.group_level constraints.face_index
@@ -2236,7 +2237,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.proximity constraints.roads
-        constraints.strips geom.containment model.airport model.end_area law.inset_class model.islands
+        constraints.strips geom.containment model.airport model.end_area law.inset_class
+        model.islands
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
@@ -2433,7 +2435,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.stretches
         constraints.strips constraints.transverse geom.containment model.airport
-        model.end_area law.inset_class model.islands model.map_memo model.platform model.threshold_datum
+        model.end_area law.inset_class model.islands model.map_memo model.platform
+        model.threshold_datum
         constraints.apron constraints.cluster_pad constraints.face_index constraints.group_level
         constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
         constraints.routes constraints.taxi constraints.taxi_route_yield geom.base_slab
@@ -3076,7 +3079,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.constraint_codec model.constraints model.end_area law.inset_class model.frame
+    model.airport model.constraint_codec model.constraints model.end_area law.inset_class
+    model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
     model.pad_terrace model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum

@@ -120,12 +120,12 @@ def test_a_rim_under_another_kept_shell_is_that_shells(tmp_path, rock):
 
 
 def test_seat_offset_is_the_one_rule():
-    assert SS.seat_offset(np.array([0.5, 2.0]), 4.0)["dz"] == 0.0
-    r = SS.seat_offset(np.array([-1.5, 2.0]), 4.0)
+    assert SS._seat_offset(np.array([0.5, 2.0]), 4.0)["dz"] == 0.0
+    r = SS._seat_offset(np.array([-1.5, 2.0]), 4.0)
     assert r["dz"] == -1.5 and r["fixed"] and r["gap_after_m"] == 0.0
-    r = SS.seat_offset(np.array([-6.0, 2.0]), 4.0)
+    r = SS._seat_offset(np.array([-6.0, 2.0]), 4.0)
     assert r["dz"] == -4.0 and not r["fixed"] and r["gap_after_m"] == 2.0
-    assert SS.seat_offset(np.array([]), 4.0)["dz"] == 0.0
+    assert SS._seat_offset(np.array([]), 4.0)["dz"] == 0.0
 
 
 def test_a_small_shell_record_carries_its_plan_and_no_cut(tmp_path):

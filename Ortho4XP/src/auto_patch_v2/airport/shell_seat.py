@@ -53,8 +53,8 @@ import numpy as np
 from ..geom import shape_class as _sc
 from ..geom.water_level import SEA_LEVEL_M
 
-__all__ = ["CELL_M", "WATER_TOL_M", "Placed", "placed", "stations", "edge_depth",
-           "skirt_depth", "rim_need", "seat_offset", "seat_shells", "shells_box", "log_line"]
+__all__ = ["CELL_M", "WATER_TOL_M", "placed", "edge_depth", "rim_need", "seat_shells",
+           "shells_box", "log_line"]
 
 #: the plan grid of the stations (``terrain_cut.HOLD_CELL_M``, the drawn
 #: instrument's)
@@ -65,7 +65,7 @@ WATER_TOL_M = 0.01
 
 
 @_dc.dataclass(frozen=True)
-class Placed:
+class _Placed:
     """One kept shell placed in its own frame (metres east / north of its
     anchor; ``raster`` heights over its frame zero ``z0``)."""
 
@@ -88,7 +88,7 @@ class Placed:
         return out
 
 
-def placed(rec: _t.Mapping[str, _t.Any]) -> "Placed | None":
+def placed(rec: _t.Mapping[str, _t.Any]) -> "_Placed | None":
     """A shell's own seat record (``shell``: file, anchor, heading;
     ``elevation`` its frame zero) placed, or ``None`` where its file
     cannot be read."""
@@ -108,11 +108,11 @@ def placed(rec: _t.Mapping[str, _t.Any]) -> "Placed | None":
     if r is None:
         return None
     to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
-    return Placed(str(rec.get("model") or rec.get("id")), str(rec.get("resource", "")),
+    return _Placed(str(rec.get("model") or rec.get("id")), str(rec.get("resource", "")),
                   float(rec["elevation"]), r, to_xy, to_ll)
 
 
-def stations(pl: Placed) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _stations(pl: _Placed) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """``(ij, lons, lats, low)``: every outline cell of the shell, where
     its ground is read (``OUTSIDE_M`` outside it) and the skirt's lowest
     surface there (over the frame zero)."""
@@ -132,7 +132,7 @@ def edge_depth(r: _sc.Raster) -> np.ndarray:
     return np.where(cov, ndimage.distance_transform_edt(~rim) * r.step, -1.0)
 
 
-def skirt_depth(pl: Placed, ij: np.ndarray, low: np.ndarray) -> float:
+def _skirt_depth(pl: _Placed, ij: np.ndarray, low: np.ndarray) -> float:
     """THE SKIRT'S DEPTH (module doc) over the stations ``ij`` (their
     lowest surfaces ``low``; none: 0)."""
     if not len(ij):
@@ -148,7 +148,7 @@ def skirt_depth(pl: Placed, ij: np.ndarray, low: np.ndarray) -> float:
     return max(0.0, float(np.median(rise)))
 
 
-def seat_offset(need: np.ndarray, depth: float) -> dict[str, _t.Any]:
+def _seat_offset(need: np.ndarray, depth: float) -> dict[str, _t.Any]:
     """THE SEAT (module doc) from the land stations' ``need`` and the
     skirt's ``depth``: ``dz``, the largest gap before (at ``dz = 0``) and
     after, the HEADROOM (how far the shell could rise with no gap: the
@@ -170,13 +170,13 @@ def _ground(surface: _t.Callable, lats: np.ndarray, lons: np.ndarray) -> np.ndar
     return np.array([np.nan if z is None else float(z) for z in got], float)
 
 
-def rim_need(pl: Placed, others: _t.Sequence[Placed], surface: _t.Callable
+def rim_need(pl: _Placed, others: _t.Sequence[_Placed], surface: _t.Callable
              ) -> dict[str, np.ndarray]:
     """THE STATIONS read (module doc): per station ``ij``, ``low``, our
     ground ``z`` (``nan`` off the mesh), ``need`` (``z - (z0 + low)``) and
     the masks ``wet``, ``shared`` and ``land`` (the stations the seat
     reads)."""
-    ij, lons, lats, low = stations(pl)
+    ij, lons, lats, low = _stations(pl)
     z = _ground(surface, lats, lons)
     wet = np.isfinite(z) & (z <= SEA_LEVEL_M + WATER_TOL_M)
     shared = np.zeros(len(z), bool)
@@ -187,15 +187,15 @@ def rim_need(pl: Placed, others: _t.Sequence[Placed], surface: _t.Callable
             "shared": shared & ~wet, "land": land}
 
 
-def _seat_one(pl: Placed, others: _t.Sequence[Placed], surface: _t.Callable
+def _seat_one(pl: _Placed, others: _t.Sequence[_Placed], surface: _t.Callable
               ) -> dict[str, _t.Any]:
     st = rim_need(pl, others, surface)
     land = st["land"]
-    depth = skirt_depth(pl, st["ij"][land], st["low"][land])
+    depth = _skirt_depth(pl, st["ij"][land], st["low"][land])
     return {"model": pl.model, "resource": pl.resource, "z0": pl.z0,
             "stations": int(len(land)), "land": int(land.sum()), "wet": int(st["wet"].sum()),
             "shared": int(st["shared"].sum()), "off_mesh": int((~np.isfinite(st["z"])).sum()),
-            "depth_m": depth, **seat_offset(st["need"][land], depth)}
+            "depth_m": depth, **_seat_offset(st["need"][land], depth)}
 
 
 def seat_shells(records: _t.Sequence[_t.Mapping[str, _t.Any]], surface: _t.Callable

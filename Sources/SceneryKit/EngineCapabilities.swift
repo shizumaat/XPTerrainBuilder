@@ -91,6 +91,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// How each airport uses its custom patch (#2179): `custom_patch_use`,
     /// `custom_patches` rows' `airports`, `BuildAirportsReady.custom_patch_use`.
     public static let customPatchUse = "custom_patch_use"
+    /// The terrain row's per-object override in Adjust… (#2272): its
+    /// `objects` and `pack_adjust` `objects`.
+    public static let packTerrainObjects = "pack_terrain_objects"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

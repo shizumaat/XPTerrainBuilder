@@ -197,3 +197,68 @@ def test_t4_floors_win_in_the_owned_zone():
     TF.conform_plane(r, to_xy, rings, 428.4, other, box_, _no_cap)        # its own: holds
     assert _at(r, 0.0, 0.0) == pytest.approx(405.0, abs=1e-6)
     assert _at(r, 0.0, -40.0 - 0.5 * w) == pytest.approx(405.0, abs=1e-6)
+
+
+def test_a_rim_buried_by_the_ground_is_tucked_shoulder_then_talus():
+    """#2272: a small shell at its author's height, its rim top 20 m under
+    a coarse DEM's ground -- the ground is lowered to it (shoulder, then a
+    1:1 talus up to our ground), never at a frozen posting nor in another
+    composite's ground."""
+    to_xy, to_ll = TC.projector(LAT, LON)
+    sxy = np.array([[0.0, 0.0]])
+    r = _raster()
+    rep = TF.rim_tuck(r, to_xy, to_ll, sxy, np.array([370.0]), np.array([380.0]), _no_cap)
+    w = r.shoulder_m()
+    assert rep["supports"] == 1 and rep["lowered"] > 0 and rep["raised"] == 0
+    assert _at(r, 0.0, 0.0) == pytest.approx(380.0, abs=1e-6)
+    assert _at(r, 0.0, 5.0) == pytest.approx(380.0, abs=0.05)         # in the shoulder
+    assert _at(r, 0.0, 15.0) == pytest.approx(380.0 + (15.0 - w), abs=0.2)
+    assert _at(r, 0.0, 70.0) == pytest.approx(400.0)                  # beyond the reach
+    # frozen postings (an airport patch) and another composite's ground stay
+    r3 = _raster(frozen=lambda rows, cols, lons, lats: lats > LAT - 1e-12)
+    TF.rim_tuck(r3, to_xy, to_ll, sxy, np.array([370.0]), np.array([380.0]), _no_cap)
+    assert _at(r3, 0.0, 5.0) == pytest.approx(400.0)
+    sq = np.array([[-50.0, 100.0], [50.0, 100.0], [50.0, 200.0], [-50.0, 200.0], [-50.0, 100.0]])
+    lo, la = to_ll(sq[:, 0], sq[:, 1])
+    r4 = _raster()
+    TF.rim_tuck(r4, to_xy, to_ll, np.array([[0.0, 150.0]]), np.array([370.0]),
+                np.array([380.0]), _no_cap, [TF.Owned((np.c_[lo, la],))])
+    assert _at(r4, 0.0, 150.0) == pytest.approx(400.0)
+
+
+def test_a_floating_skirt_is_filled_and_each_posting_follows_its_nearest_edge():
+    """A cliff's rim: its crest (x < 0) stands 30 m over the ground, its
+    foot (x > 0) 20 m under it.  Each posting conforms to its NEAREST rim
+    cell: raised to the crest's skirt on one side, lowered to the foot's
+    top on the other -- neither a fill from the crest buries the foot nor a
+    tuck from the foot strands the crest; inside the plan never over the
+    cut bound."""
+    to_xy, to_ll = TC.projector(LAT, LON)
+    sxy = np.array([[-40.0, 0.0], [40.0, 0.0]])
+    bot, top = np.array([428.0, 370.0]), np.array([430.0, 380.0])
+    r = _raster()
+    rep = TF.rim_tuck(r, to_xy, to_ll, sxy, bot, top, _no_cap)
+    assert rep["raised"] > 0 and rep["lowered"] > 0
+    assert _at(r, -40.0, 0.0) == pytest.approx(428.0, abs=1e-6)
+    assert _at(r, 40.0, 0.0) == pytest.approx(380.0, abs=1e-6)
+    assert _at(r, -45.0, 0.0) == pytest.approx(428.0, abs=0.05)
+    assert _at(r, 45.0, 0.0) == pytest.approx(380.0, abs=0.05)
+    r2 = _raster()
+    TF.rim_tuck(r2, to_xy, to_ll, sxy, bot, top, lambda lons, lats: np.full(len(lons), 410.0))
+    assert r2.alt.max() == pytest.approx(410.0)
+
+
+def test_a_shell_edge_never_floats_between_postings():
+    """#2272: a shell is one surface (bottom = top).  Its rim steps from a
+    410 m crest to a 395 m foot within one 5 m posting step: each posting
+    that near stands at the crest, so no rim point floats over the ground
+    drawn between postings; the foot's edge is hidden by the ground over it."""
+    to_xy, to_ll = TC.projector(LAT, LON)
+    sxy = np.array([[0.5, 0.0], [4.0, 0.0]])
+    z = np.array([410.0, 395.0])
+    r = _raster()
+    TF.rim_tuck(r, to_xy, to_ll, sxy, z, z, _no_cap)
+    assert _at(r, 5.0, 0.0) == pytest.approx(410.0, abs=1e-3)     # nearest the foot
+    for x in np.linspace(-2.0, 6.0, 17):
+        rim = 410.0 if x <= 2.25 else 395.0
+        assert _at(r, float(x), 0.0) >= rim - 1e-3

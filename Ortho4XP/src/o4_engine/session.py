@@ -2614,7 +2614,7 @@ class EngineSession:
         self._emit_known(PackAdjust, fields)
 
     def pack_adjust(self, pack_root="", action="", lat=None, lon=None,
-                    items=None, shown=None, steps=None):
+                    items=None, shown=None, steps=None, objects=None):
         """THE USER'S ANSWER (capability ``pack_adjust``, #1916):
         ``action`` is ``"update"`` (the rows of ``items`` applied, the rows
         of ``shown`` left unticked remembered as never), ``"never"``,
@@ -2622,13 +2622,16 @@ class EngineSession:
         (capability ``pack_adjust_edit``, the pack row's Adjust…)
         ``"adjust"`` (every row and Optimise step as the pack is now) and
         ``"change"`` (only the rows of ``shown`` and the ``steps`` whose
-        tick differs are written).  Replies ``{"status": "started"}`` at
+        tick differs are written; ``objects``: the terrain row's
+        per-object ticks, path -> hidden, #2272).  Replies ``{"status": "started"}`` at
         once and completes with a ``PackAdjust`` event
         (``adjust_stage.adjust_choice``)."""
         from auto_patch import adjust_stage as _AS
         picked = None if items is None else [str(x) for x in items]
         seen = None if shown is None else [str(x) for x in shown]
         chosen = None if steps is None else [str(x) for x in steps]
+        ticks = (None if not isinstance(objects, dict)
+                 else {str(k): bool(v) for k, v in objects.items()})
 
         def answer(r, a, la, lo):
             # an answer the tile's mesh reads is a rebuild the tile owes
@@ -2638,7 +2641,7 @@ class EngineSession:
             from . import tile_rebuild_pending as _TRP
             was = _AE.tile_state(r)
             out = _AS.adjust_choice(r, a, la, lo, items=picked, shown=seen,
-                                    steps=chosen) or {}
+                                    steps=chosen, objects=ticks) or {}
             if out.get("rebuild") and la is not None and lo is not None:
                 _TRP.mark(la, lo, r, out.get("pack", ""), was,
                           _AE.tile_state(r))

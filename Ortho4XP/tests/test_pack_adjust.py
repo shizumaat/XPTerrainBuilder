@@ -271,7 +271,7 @@ def test_the_command_is_registered_and_never_blocks(monkeypatch):
     got = []
     session.subscribe(got.append)
 
-    def fake(root, action, lat, lon, items=None, shown=None, steps=None):
+    def fake(root, action, lat, lon, items=None, shown=None, steps=None, objects=None):
         UI.pack_adjust(pack="P", pack_root=root, state="never",
                        items=[{"key": k} for k in shown or ()])
 

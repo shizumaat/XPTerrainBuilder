@@ -27,7 +27,11 @@ model's record (no ``erode_m``) is not held.
 THE FILL (#2077 rule B, ``auto_patch_v2.airport.terrain_fill``): after
 every cut, a relief skin's ZERO PLANE (``cut["plane"]``) conforms the
 ground under its town to its frame zero, then every record whose ``cut``
-carries ``"fill": true`` has the ground raised to its outer rim.  Neither
+carries ``"tuck": true`` (a small terrain shell, #2272) has the ground
+near its rim conformed to its nearest edge (``terrain_fill.rim_tuck``:
+raised to a floating skirt, lowered to a buried top), and every other
+record whose ``cut`` carries ``"fill": true`` has the ground raised to its
+outer rim.  Neither
 touches the tile's edge postings nor an airport patch's boundary
 (``patch_area``: the vector step's ``patches_area``, the mesh step's
 ``O4_Mesh_Utils.patch_coverage_polygon``), and a rim fill stays clear of
@@ -75,10 +79,15 @@ _EDGE_POSTS = 2
 
 
 def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
-    """The user hides this model: it is offered (``hideable``) and the
-    pack's "Hide terrain objects" answer is ``update``."""
-    return bool(rec.get("hideable")) and \
-        _PC.Store(_PC.TERRAIN_CHOICES).choice(pack_root) == "update"
+    """The user hides this model: the pack's "Hide terrain objects" answer
+    is ``update`` and it is offered (``hideable``) -- as the user's
+    per-object answers move it (#2272, ``pack_terrain.offered``)."""
+    if _PC.Store(_PC.TERRAIN_CHOICES).choice(pack_root) != "update":
+        return False
+    from auto_patch_v2.airport import pack_terrain as _pt
+    res = str(rec.get("resource", ""))
+    return res in _pt.offered([res] if rec.get("hideable") else [],
+                              _PC.terrain_answers(pack_root))
 
 
 def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
@@ -211,6 +220,8 @@ class _Composite(_t.NamedTuple):
     support_z: np.ndarray
     owned: _t.Any                  # its ground (``terrain_fill.Owned``)
     floor: _t.Any                  # its zero footprint alone (``Owned``)
+    #: the rim's TOP less ``UNDER_M`` (the rim tuck's supports, #2272)
+    support_top: np.ndarray
 
 
 def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | None":
@@ -230,7 +241,8 @@ def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | No
     rings = tuple(np.asarray(r, float) for r in [*_tc.outline_rings(fit, to_ll), *plane])
     return _Composite(rec, fit, to_xy, to_ll, np.c_[sx, sy],
                       float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M,
-                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)))
+                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)),
+                      float(rec["elevation"]) + grid.top[ri, rj] - UNDER_M)
 
 
 def _raster(dem, tile, patch_area):
@@ -281,9 +293,9 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
 
 
 def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
-    """THE FILL (module doc): every plane, then every rim fill; the
-    postings changed and the change (:func:`write_unfill`'s record, the
-    planes' and fills' ``alt - before`` at the postings they moved)."""
+    """THE FILL (module doc): every plane, every rim tuck, every rim fill;
+    the postings changed and the change (:func:`write_unfill`'s
+    record, their ``alt - before`` at the postings they moved)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
@@ -323,7 +335,20 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
                      f"({c.rec.get('id')}): the ground of its zero footprint conformed to "
                      f"{float(plane['z']):.2f} m at {k} posting(s)")
     for c in comps:
-        if not c.rec["cut"].get("fill"):
+        if not c.rec["cut"].get("tuck"):
+            continue
+        # #2272: a small shell at its author's height -- the ground near its
+        # rim conformed to its nearest edge, raised or lowered (its fill)
+        rep = _tf.rim_tuck(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z,
+                           c.support_top, bound([c]),
+                           [o.owned for o in comps if o is not c] + [c.floor])
+        total += rep["raised"] + rep["lowered"]
+        UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain shell {c.rec.get('resource')} "
+                     f"({c.rec.get('id')}): the ground tucked under its rim, "
+                     f"{rep['raised']} posting(s) raised and {rep['lowered']} lowered "
+                     f"from {rep['supports']} support(s)")
+    for c in comps:
+        if not c.rec["cut"].get("fill") or c.rec["cut"].get("tuck"):
             continue
         # floors win -- its own town's floor too: a cliff's crest never
         # raises the zero footprint at its foot through the cliff

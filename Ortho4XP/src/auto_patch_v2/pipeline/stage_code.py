@@ -314,6 +314,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
+        "auto_patch_v2.airport.terrain_shell",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.touch_graph",
@@ -637,6 +638,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
+        "auto_patch_v2.airport.terrain_shell",
         "auto_patch_v2.airport.thin_plates",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
@@ -1121,6 +1123,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
+        "auto_patch_v2.airport.terrain_shell",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.touch_graph",
@@ -1354,6 +1357,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
+        "auto_patch_v2.airport.terrain_shell",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.touch_graph",
@@ -1650,6 +1654,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
+        "auto_patch_v2.airport.terrain_shell",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.touch_graph",
@@ -2477,7 +2482,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2621,7 +2627,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.level_base
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2736,7 +2743,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -2944,7 +2952,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_unit airport.level_base
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3173,7 +3182,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -3347,7 +3357,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.level_base
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
+    airport.terrain_feature airport.terrain_model airport.terrain_shell
+    airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter

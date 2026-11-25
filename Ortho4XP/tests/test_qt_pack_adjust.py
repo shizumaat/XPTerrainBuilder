@@ -338,3 +338,40 @@ def test_the_tiles_still_owed_are_rebuilt_once_after_the_run(window,
     assert window._pack_art_boxes == [], "no question"
     window._on_engine_event(_event(state="pending", items=rows, rebuild=True))
     assert len(asked) == 2, "a debt the window already rebuilt is not looped"
+
+
+def test_the_terrain_row_lists_its_objects_and_sends_their_ticks(qapp):
+    """#2272: the terrain row in Adjust… lists every terrain object the
+    last build recognised, each ticked when the row hides it; a tick that
+    moves while the row is ticked rebuilds the tile, and Apply sends the
+    ticks as ``objects``."""
+    objects = [{"path": "Ortho/Cliffs.obj", "hideable": False, "hidden": False},
+               {"path": "Ortho/RocksE.obj", "hideable": True, "hidden": True}]
+    event = _event(state="adjust", items=[
+        {"key": "terrain", "count": 1, "uses": 1, "automatic": False,
+         "checked": True, "applied": True, "rebuild": True, "objects": objects}])
+    box, buttons = QTADJ.pack_adjust_box(event)
+    assert {p: b.isChecked() for p, (b, _w) in box.object_boxes.items()} == {
+        "Ortho/Cliffs.obj": False, "Ortho/RocksE.obj": True}
+    assert box.apply.text() == QTADJ.APPLY_BUTTON
+    box.object_boxes["Ortho/Cliffs.obj"][0].setChecked(True)
+    assert box.apply.text() == QTADJ.APPLY_REBUILD_BUTTON
+    assert box.answer_extra("change")["objects"] == {
+        "Ortho/Cliffs.obj": True, "Ortho/RocksE.obj": True}
+
+
+def test_the_terrain_object_copy_matches_the_mac_app():
+    swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "SceneryKit", "PackAdjust.swift")
+    if not os.path.exists(swift):
+        pytest.skip("Swift sources not present in this tree")
+    text = open(swift, encoding="utf-8").read()
+
+    def joined(start, end):
+        i = text.index(start)
+        return "".join(re.findall(r'"([^"]*)"', text[i:text.index(end, i)]))
+    assert '"%s"' % QTADJ.TERRAIN_OBJECTS_HEADING in text
+    assert joined("static let terrainObjectMatched", "static let terrainObjectKept") \
+        == QTADJ.TERRAIN_OBJECT_MATCHED
+    assert joined("static let terrainObjectKept", "static let rebuildNote") \
+        == QTADJ.TERRAIN_OBJECT_KEPT

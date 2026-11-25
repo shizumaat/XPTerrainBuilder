@@ -1549,7 +1549,7 @@ def pytest_xdist_auto_num_workers(config):
     """``-n auto`` asks the machine, not the cores alone (owner 2026-11-25,
     eight lanes' suites and replays at once met macOS's low-swap kills):
     the workers of :data:`XDIST_WORKER_GB` the machine memory ledger admits
-    now (``O4_Machine_Jobs.admissible_workers``), at most the cores.  An
+    now (``O4_Machine_Jobs._admissible_workers``), at most the cores.  An
     idle machine gets every core, as before.  A CI runner (``CI`` set: a
     dedicated machine below the gate's headroom for good) and an explicit
     ``PYTEST_XDIST_AUTO_NUM_WORKERS`` keep xdist's own answer."""
@@ -1557,7 +1557,7 @@ def pytest_xdist_auto_num_workers(config):
         return None
     try:
         import O4_Machine_Jobs as _jobs
-        return _jobs.admissible_workers(XDIST_WORKER_GB, os.cpu_count() or 1)
+        return _jobs._admissible_workers(XDIST_WORKER_GB, os.cpu_count() or 1)
     except Exception:                      # noqa: BLE001 — xdist decides
         return None
 

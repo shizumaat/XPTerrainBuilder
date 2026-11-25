@@ -476,11 +476,6 @@
  },
  {
   "path": "Ortho4XP/src/O4_Machine_Memory.py",
-  "name": "Reservation",
-  "reason": "integration test-558: the record type reserve() returns (module doc, lmemshare); callers hold it via reserve(), its name is the ledger's API contract"
- },
- {
-  "path": "Ortho4XP/src/O4_Machine_Memory.py",
   "name": "Snapshot",
   "reason": "integration test-558: the reading snapshot() returns (lmemshare); world_yield and the waits read its fields, the type name is the ledger's API"
  },

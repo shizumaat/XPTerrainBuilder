@@ -32,9 +32,10 @@ __all__ = [
 RECHECK_DAYS_DEFAULT = 30.0
 
 #: Definition keys that do not change what the provider ANSWERS: the
-#: user's ranking and switch, and the per-airport LAS footprint the
-#: ladder records once.
-_NOT_THE_QUESTION = ("priority", "enabled", "footprint_polygon_wgs84")
+#: user's ranking and switch, the per-airport LAS footprint the ladder
+#: records once, and how the bake treats the answer (#2280).
+_NOT_THE_QUESTION = ("priority", "enabled", "footprint_polygon_wgs84",
+                     "stereo_surface_model")
 
 
 def recheck_days() -> float:

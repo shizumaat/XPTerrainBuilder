@@ -52,6 +52,13 @@ vertical_datum=EGM2008 (reduced from WGS84 ellipsoidal heights)
 surface_model_building_masking=True
 footprint_mask_buffer_m=6
 
+# A STEREO (photogrammetric) surface model (#2280): no texture to match over
+# water, blunders under cloud (EKVG: +50..+160 m mounds in the lake, a
+# 140 m block over its shore).  Its pixels under inland water and its
+# blunders against the base DEM's local envelope keep the base
+# (src/elevation_access/surface_model_refusal.py).
+stereo_surface_model=True
+
 license=Creative Commons Attribution 4.0 (CC BY 4.0)
 attribution=ArcticDEM, Polar Geospatial Center, University of Minnesota (DEMs provided by the Polar Geospatial Center under NSF-OPP awards 1043681, 1559691, 1542736, 1810976 and 2129685)
 

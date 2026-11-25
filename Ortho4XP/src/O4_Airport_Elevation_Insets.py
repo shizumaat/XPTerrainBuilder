@@ -193,6 +193,7 @@ from elevation_access.provider_fill import (
     declared_provider_fills, mask_provider_fill)
 from elevation_access.sentinel_smear import mask_sentinel_smear
 from elevation_access.partial_inset_coast import refuse_partial_coast
+from elevation_access.surface_model_refusal import refuse_surface_model_cells
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -663,6 +664,12 @@ def initialize_elevation_providers_dict(providers_directory=None):
         # masking pass (see mask_building_footprints_in_surface_model).
         definition[SURFACE_MODEL_BUILDING_MASKING] = _parse_boolean(
             definition.get(SURFACE_MODEL_BUILDING_MASKING, "False")
+        )
+        # #2280: a photogrammetric (stereo) surface model has no texture to
+        # match over water and blunders under cloud; its insets keep the
+        # base there (elevation_access.surface_model_refusal).
+        definition[STEREO_SURFACE_MODEL] = _parse_boolean(
+            definition.get(STEREO_SURFACE_MODEL, "False")
         )
         # A global model of fallback quality that needs no masking (the
         # bare-earth FABDEM, made from a radar DSM by machine learning):
@@ -2901,6 +2908,8 @@ def _polygon_mapping(geometry):
 # =====================================================================
 # Definition flag naming the pass; parsed to bool at registry load.
 SURFACE_MODEL_BUILDING_MASKING = "surface_model_building_masking"
+#: #2280: the provider is a photogrammetric (stereo) surface model.
+STEREO_SURFACE_MODEL = "stereo_surface_model"
 # Definition flag: a global model of FALLBACK quality whatever its grid
 # (FABDEM, #1942); parsed to bool at registry load.
 FALLBACK_QUALITY = "fallback_quality"
@@ -7552,6 +7561,10 @@ def bake_airport_insets_into_alt_dem(tile):
                  or {}).get(inset_path)
         if coast:
             entry["coast_refused"] = coast
+        surface = (getattr(tile.dem, "inset_surface_refusals", None)
+                   or {}).get(inset_path)
+        if surface:
+            entry["surface_refused"] = surface
         baked_provenance.append(entry)
     UNPATCHED.record_inset_sources(tile, baked_provenance)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
@@ -7625,17 +7638,23 @@ def _inset_bake_provenance_entry(inset_path):
     return entry
 
 
-def _provider_dem_class(provider_code):
-    """The ``dem_class=`` the provider's CURRENT definition declares
-    (#1929), or ``None``.  Read from the registry, never the inset's
-    sidecar: the class belongs to the source, so an inset fetched before
-    the declaration is classed by it too."""
+def _current_provider_definition(provider_code):
+    """The provider's CURRENT registry definition, or ``None``.  Read from
+    the registry, never the inset's sidecar: a declaration belongs to the
+    source, so an inset fetched before it is classed by it too."""
     if not provider_code:
         return None
     if not elevation_providers_dict:
         initialize_elevation_providers_dict()
     definition = elevation_providers_dict.get(str(provider_code).upper())
-    if not isinstance(definition, dict):
+    return definition if isinstance(definition, dict) else None
+
+
+def _provider_dem_class(provider_code):
+    """The ``dem_class=`` the provider's CURRENT definition declares
+    (#1929), or ``None``."""
+    definition = _current_provider_definition(provider_code)
+    if definition is None:
         return None
     return declared_dem_class(definition.get(DEM_CLASS_KEY))
 
@@ -7674,6 +7693,7 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
     if inset is None:
         inset = _bake_inset_raster(tile, inset_path)
         _refuse_partial_coast(tile, inset_path, inset)
+        _refuse_surface_model_cells(tile, inset_path, inset)
     if inset.alt_dem is None:
         return
     bake_window = _bake_window(base_dem, inset)
@@ -7818,6 +7838,57 @@ def _refuse_partial_coast(tile, inset_path, inset):
                100.0 * INSET_MIN_AIRPORT_COVER_FRAC, record["refused"],
                record["sub_sea"]),
         )
+
+
+def _tile_inland_water(tile):
+    """The tile's inland water (``O4_Vector_Map.cached_water_multipolygon``,
+    the one reader, cache only), memoised on the tile; ``None`` unknown."""
+    cached = getattr(tile, "_inset_inland_water", "unset")
+    if cached != "unset":
+        return cached
+    try:
+        import O4_Vector_Map as VMAP  # lazy: the vector map imports us
+        water = VMAP.cached_water_multipolygon(tile)
+    except Exception as error:                             # pragma: no cover
+        UI.vprint(1, "   [inset] inland water unavailable (%s: %s) - "
+                     "surface-model insets keep their water pixels."
+                  % (type(error).__name__, error))
+        water = None
+    tile._inset_inland_water = water
+    return water
+
+
+def _refuse_surface_model_cells(tile, inset_path, inset):
+    """#2280: a STEREO SURFACE-MODEL inset (its provider declares
+    ``stereo_surface_model=True``) keeps the base under inland water and
+    at its blunders
+    (:mod:`elevation_access.surface_model_refusal`); one line says what
+    was refused, and the bake's provenance carries it."""
+    if getattr(inset, "alt_dem", None) is None or not inset_path:
+        return
+    definition = _current_provider_definition(
+        _inset_provider_code_from_path(inset_path))
+    if not (definition or {}).get(STEREO_SURFACE_MODEL):
+        return
+    already = hasattr(inset, "surface_refusal")
+    centre_latitude = tile.lat + (tile.dem.y0 + tile.dem.y1) / 2.0
+    record = refuse_surface_model_cells(
+        inset, tile.dem, _tile_inland_water(tile),
+        (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
+    if record is None:
+        return
+    refusals = getattr(tile.dem, "inset_surface_refusals", None)
+    if refusals is None:
+        refusals = tile.dem.inset_surface_refusals = {}
+    refusals[inset_path] = record
+    if not already:
+        UI.vprint(
+            1,
+            "   [inset] %s (stereo surface model): %d pixel(s) under inland water "
+            "and %d blunder pixel(s) (up to %.0f m off the base's local "
+            "envelope) refused - the base DEM models them (#2280)."
+            % (os.path.basename(inset_path), record["water"],
+               record["blunder"], record["blunder_max_m"]))
 
 
 def _bake_inset_raster(tile, inset_path):

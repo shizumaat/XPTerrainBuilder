@@ -61,6 +61,7 @@ from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
 from .channel_ramp import crest_with_ramps, exit_ramps
 from .channel_stretch import witnessed_stretch
 from .channel_strip import strip_refusal, strips_crossed
+from .channel_building import building_polygons, building_refusal, buildings_on_floor
 from .channel_depth import VisibleFloor, crest_through_feet, extend_axis
 from .structure_underpass import aeroway_decks
 from ..airport.dem import dem_z_at
@@ -411,11 +412,21 @@ def identify_channels(airport: Airport, classification, law: Law,
     # median between them is real fill the mesh must keep (scout §1b/§2a).
     groups = _merge(live, ch.merge_m, ch.corridor_max_half_width_m)
     channels: list[Channel] = []
+    pads = building_polygons(classification)
     for k, grp in enumerate(groups):
         c = _build_one(airport, law, f"channel:{k}", grp, union, objects, stats,
                        pit_shell_ids, cuts)
-        if c is not None:
-            channels.append(c)
+        if c is None:
+            continue
+        # §45 (23) PROPOSED (#2266): a neck never infers a cut under a building
+        on_floor = (buildings_on_floor(c, pads, law)
+                    if c.datum_source == DATUM_CLEARANCE and set(c.witnesses) == {WITNESS_NECK}
+                    else [])
+        if on_floor:
+            stats.refused.append(building_refusal(c, on_floor))
+            stats.datum_clearance -= 1
+            continue
+        channels.append(c)
     stats.channels = len(channels)
     stats.decks = sum(len(c.decks) for c in channels)
     stats.ways = sum(len(c.ways) for c in channels)

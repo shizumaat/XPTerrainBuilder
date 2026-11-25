@@ -1888,7 +1888,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     keepouts.extend(bank_cuts)
     # the channel's cells first: an object floor over a channel owns its
     # footprint and trims the channel back to its rim (#1903, LGAV)
-    channels_in = add_channel_cells(channels, law, new_cells, footprints, keepouts, stats)
+    channels_in = add_channel_cells(channels, law, new_cells, footprints, keepouts, stats,
+                                    [p for c, p in zip(cells, polys, strict=False)
+                                     if c.role == "building"])
     floors_in = add_object_floor_cells(object_floors, law, new_cells, footprints, hull_knives,
                                        keepouts, cells, polys, stats.object_floors)
     if not channels_in and not tunnels and not floors_in:

@@ -1027,6 +1027,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.build",
     "auto_patch_v2.planar.cell_knife",
     "auto_patch_v2.planar.channel",
+    "auto_patch_v2.planar.channel_building",
     "auto_patch_v2.planar.channel_claims",
     "auto_patch_v2.planar.channel_depth",
     "auto_patch_v2.planar.channel_floor",

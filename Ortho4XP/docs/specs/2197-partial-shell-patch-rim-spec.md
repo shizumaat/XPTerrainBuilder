@@ -1,4 +1,4 @@
-# Spec #2197 round 2 — partial shells: the narrowed population, and the patch half (lane lpartshell2, 2026-11-25)
+# Spec #2197 rounds 2–3 — partial shells: the narrowed population, the patch half, the airside floor (lanes lpartshell2, lpartshell3, 2026-11-25)
 
 Base `claude/lpartshell` 34c5814d2 (round 1, not merged) on `claude/project-thread-ddpu46` 302511b0c.
 Owner 2026-11-20T14:20Z (ELLX, verbatim): "the terrain should meet it's outer edges flush all the way around so you can't see under it." Owner 2026-11-22T16:25Z (LDSP): "we need to recognize that and seat and grade things so it blends into the natural terrain correctly."
@@ -123,3 +123,30 @@ No LDSP set reaches round 1's gates (census: the Aerosoft LDSP packs yield no ro
 ## 6. Owner questions
 - **Q1.** Hills and rocks (KSRQ `mesh_hill`, EBBR `hill_03`, LGSR `Colina`, CYAZ `Rock_1`, BGGH `Rocks3`): their rim meeting our ground is a different witness (the body is relief we do not have). Should their RIM be graded to like a partial shell's, with a new witness to tell them from landmarks and blast fences?
 - **Q2.** A partial shell that also carries an airside floor (ELLX Terminal-A + SkyPark): should its rigid frame take the PAD's seat (airside is king; the landside sheet then stands where the pad puts it, our ground graded up to it), or the DEM fit (round 1, −1.05 m against main)?
+
+## 7. Round 3 (lane lpartshell3, 2026-11-25): the airside floor; why its rim is not graded yet
+
+Owner target (RULINGS 2026-11-25k): the objects do not move (each stays on its airside pad as today); our ground OUTSIDE the patch meets each set's outer edge flush within 0.5 m, feathered back; inside the patch the edge is the frontage work's (L4); only the four ELLX sets qualify. Q2 is answered by 25k: the pad, never the DEM fit.
+
+### 7.1 What landed
+THE AIRSIDE FLOOR (`ground_rim`): a recognised set whose ground contacts touch apt.dat airside pavement (`airside_floor`'s witness, `TOUCH_M`) is NO rigid frame: its rows are read like any object (planar holds the pads, the object stage seats the bodies), and its `_RimSet` rides its first row (`PlacedObject.rim_set` → `Airport.rim_sets`, `ground_rim.rim_sets_of`, shared by `pack_stage` and the replay twin) and is named on the build log. All four ELLX sets carry an airside floor, so round 1's rigid frame applies to none of them. Their rim is NOT graded to (§7.3).
+
+### 7.2 Measurements (capture `tmp/lps3/cap/ELLX.pkl`, branch on `claude/project-thread-ddpu46` 94516fd72; replay `--from constraints --emit --rebake-plan`; object stage `tools/obj8_split_report.py`)
+- **Objects vs control.** Same capture replayed with the control code (`origin/claude/project-thread-ddpu46` src+tools): the patch .osm is byte-identical, every graded vertex identical (22,525, max |dz| 0), the rebake plan identical but for the rim records, and the object stage's 1,000+ bodies identical (0 differing, kept 132 = 132). Unit seats on both arms: Terminal-A `fu:99:4893` on building42 **375.86**, firestation `fu:76:3559` on building21 **367.14**, pool_5 on building8 **344.28**, Lux_Fuel_base `fu:131:6239` **376.23** (one member on building49). The 13:45 control numbers (374.76 / 366.34 / 380.62 / 344.28) are pre-lfront1 main: building42's flat seat moved 374.83 → 375.94 m on the merged base, in both arms (not this branch).
+- **The pad zero is refuted (deleted).** WIP `rim_pad_seat` read the set's zero as the median, over its ground contacts on the pad holding most of them, of the pad plane less the contact's lowest authored surface. Result: Terminal-A 366.65 (−9.2 m off its unit), firestation 359.05 (−8.1), Lux 375.56 (−0.7), pool 348.38 (+4.1): the lowest surface of a covered cell is a deck or a basin floor, not the floor the object stage seats on. Restricting the contacts to the frame datum (|y| ≤ 0.5 m) on the graded surface: pool 344.43 (+0.15), Terminal-A 376.25 (+0.39), firestation 367.08 (but its bodies sit at 372.84–375.58 m on their median ground, not the pad), Lux 1 contact. No contact rule reproduces the object stage.
+- **Why no pre-mesh zero exists.** The object stage splits each set into bodies with their own zeros (firestation.017: five bodies, 372.84 / 374.37 / 374.55 / 375.58 / 375.58; Lux_Fuel_base.014 rides a connected group at 376.23 though its pad is building47 at 375.56), and it runs after the mesh. The rim grade bakes the DEM before the mesh. A rim zero would have to come from the object stage itself.
+- **Free rim gaps (acceptance number, offline).** a lane scratch script (first use, not promoted): the airport DEM (`tile_route.airport_ground`) at the tile posting (1/11016°), patch = union of the graded faces frozen, `rim_grade` run per set; gap = ground − station, free = outside the patch; over = |gap| > 0.5 m.
+
+| Set | free stations | no grade: over (p5/p95) | grade at the OBJECT STAGE's zero (oracle): over (p5/p95) | grade at the refuted pad zero: over vs the real edge |
+|---|---|---|---|---|
+| pool_5 (344.28) | 135 | 133 (+1.00/+2.48) | 22 (−0.38/+1.08) | 133 |
+| Lux_Fuel_base (376.23) | 60 | 54 (−3.13/+8.55) | 49 (−3.00/+3.97) | 59 |
+| firestation (374.37, one of five) | 374 | 166 (−2.45/+2.38) | 118 (−1.85/+1.40) | 343 |
+| Terminal-A (375.87) | 230 | 204 (−2.78/+2.53) | 158 (−2.04/+2.17) | 218 |
+
+Even at the right zero the grade leaves 22–158 free stations past the bar: the stations next to the patch are bracketed by frozen postings, the target is an 8-station IDW mean, and a single zero does not fit a set split into several. **The acceptance bar (0 free stations over 0.5 m) is not met by any arm.**
+
+### 7.3 Proposal (round 4; design, not done here)
+1. **The rim's zero comes from the object stage**: grade per STATION at the zero of the body whose plan holds it (the station → body map is the object stage's split), never one set zero. Two homes: (a) the patch stage runs `placement_write.build_plan` over the graded surface for the units holding a rim set's rows (on a pad the mesh IS the patch, so pad and family zeros are mesh-free; bodies on their median ground read the DEM, which the grade then moves: one fixed-point pass); or (b) the rim grade moves to the object stage and the tile re-meshes the rim window. Cost to measure first (the whole ELLX object-stage replay is ~2.5 min).
+2. **Stations next to the patch**: a free station within a posting of a frozen posting cannot be served by the tile raster; those belong with the in-patch edge (L4), and the acceptance number should count them apart.
+3. Re-measure the table above with (1) and (2); the bar is the drawn gate at the four sites.

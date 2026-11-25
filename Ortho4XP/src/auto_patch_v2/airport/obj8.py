@@ -907,8 +907,8 @@ class PlacedObject:
     #: ``airport/walled_plate.mark``), else ``None``
     walled_plate: object | None = None
     #: #2197: a PARTIAL SHELL carrying an airside floor (``ground_rim``,
-    #: THE AIRSIDE FLOOR), on its set's first row: the ``_RimSet`` whose rim
-    #: is seated on the set's pad after the solve (``rim_pad_seat``)
+    #: THE AIRSIDE FLOOR), on its set's first row: its ``_RimSet`` (read
+    #: like any object; its rim not graded to, ``ground_rim`` module doc)
     rim_set: object | None = None
 
     @property

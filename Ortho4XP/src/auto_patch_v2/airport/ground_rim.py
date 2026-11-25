@@ -80,9 +80,12 @@ buffered by its ``TOUCH_M``) carries an airside floor -- its buildings
 stand on (or share their unit with) a held pad.  Such a set is NO rigid
 frame at the DEM fit: its rows are read like any object, so the planar
 holds their pads and the object stage seats them on the pad (§16g units);
-only its rim travels on (``Airport.rim_sets``) and is seated at the PAD'S
-zero after the solve (``rim_pad_seat``), so our free ground is graded to
-the rim where the pad puts it.  A set with no airside floor is the rigid
+only its rim travels on (``Airport.rim_sets``) and is NOT graded to yet
+(RULINGS 2026-11-25k: the object stays where its pad puts it; our ground
+meets its rim).  The object stage splits such a set into bodies on their
+own zeros (pad, family, median ground: ELLX's firestation 372.8-375.6 m),
+known only after the mesh, so no pre-mesh zero of the rim is lawful
+(#2197 r3, spec section 7).  A set with no airside floor is the rigid
 frame at the DEM-fit ``z0`` above.
 
 Nothing here names a pack, an object or an airport.
@@ -144,7 +147,7 @@ class _RimSet:
     rings: tuple                  # outline rings, frame metres
     #: ``(k, 3)`` east, north and lowest surface (authored ``y``) of a
     #: sample of the covered plan cells: the set's ground contacts, which
-    #: its pad seat reads (``rim_pad_seat``)
+    #: THE AIRSIDE FLOOR's witness reads
     feet: "np.ndarray | None" = None
     #: THE AIRSIDE FLOOR (module doc): its plan touches airside pavement
     airside: bool = False
@@ -433,7 +436,7 @@ def placement_models(placements: _t.Sequence[tuple],
     (``terrain_model.set_members`` then maps every row of the origin to
     it: one rigid frame at ``z0``); ``pads``: each set that carries one,
     its ``_RimSet`` by its first row id (its rows are read like any
-    object; its rim is seated on its pad after the solve)."""
+    object; its rim is not graded to, module doc)."""
     from .terrain_model import TerrainModel
     out: dict[str, _t.Any] = {}
     pads: dict[str, _RimSet] = {}
@@ -450,7 +453,7 @@ def placement_models(placements: _t.Sequence[tuple],
 
 def rim_sets_of(objects: _t.Iterable[_t.Any]) -> tuple:
     """``Airport.rim_sets``: ``(id, def path, _RimSet)`` of every read
-    placement carrying a set seated on its pad (``obj8.PlacedObject.
+    placement carrying a set with an airside floor (``obj8.PlacedObject.
     rim_set``) -- the one assembly the build and its replay share."""
     return tuple((o.id, o.path, o.rim_set) for o in objects
                  if getattr(o, "rim_set", None) is not None)
@@ -484,6 +487,6 @@ def log_line(icao: str, models: _t.Iterable[_t.Any], pads: _t.Iterable[tuple] = 
         [f"{m.path} ({m.id}) one frame at {m.z0:.2f} m, ground sheet "
          f"{m.rim.sheet_share:.0%} of its plan and {m.rim.rim_share:.0%} of its rim, "
          f"{len(m.rim.stations)} rim station(s) our ground is graded to" for m in got]
-        + [f"{path} ({oid}) carries an airside floor: seated on its pad, "
-           f"{len(rs.stations)} rim station(s) graded to the pad's seat"
+        + [f"{path} ({oid}) carries an airside floor: read like any object, "
+           f"its {len(rs.stations)} rim station(s) not graded to (no pre-mesh seat)"
            for oid, path, rs in on_pad])

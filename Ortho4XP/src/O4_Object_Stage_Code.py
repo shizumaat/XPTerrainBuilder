@@ -227,7 +227,6 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.generated_tile",     # #2178: one tile's share of the recipe
     "auto_patch_v2.airport.ground_frame_riders",
     "auto_patch_v2.airport.ground_rim",
-    "auto_patch_v2.airport.rim_pad_seat",
     "auto_patch_v2.airport.ground_shell",
     "auto_patch_v2.airport.hanging_objects",
     "auto_patch_v2.airport.hung_rows",

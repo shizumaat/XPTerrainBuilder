@@ -581,9 +581,9 @@ class Airport:
     terrain_models: tuple = ()
     #: #2197: THE PARTIAL SHELLS CARRYING AN AIRSIDE FLOOR (``airport/
     #: ground_rim``), one ``(first row id, def path, ground_rim._RimSet)``
-    #: per set: its rows are read like any object (its pad seats them) and
-    #: its rim is seated on that pad after the solve
-    #: (``airport/rim_pad_seat``).  Empty = none (or an older capture).
+    #: per set: its rows are read like any object (its pad seats them); its
+    #: rim is reported, not graded to (``ground_rim`` module doc).  Empty =
+    #: none (or an older capture).
     rim_sets: tuple = ()
     #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
     #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),

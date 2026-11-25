@@ -80,9 +80,9 @@ def test_flatten_area_keeps_clear_of_the_terminal():
 
 
 def test_no_terminal_leaves_the_area_unchanged():
-    apt = _apt()
+    tile, apt = _tile(), _apt()
     a = APT._taxiway_flatten_area(apt, geometry.MultiPolygon())
     layer = _layer()
     layer.dicosmtags["w"].pop(10)
-    b = APT._taxiway_flatten_area(apt, APT._terminal_area(_tile(), layer))
+    b = APT._taxiway_flatten_area(apt, APT._terminal_area(tile, layer))
     assert a.equals_exact(b, 0.0)

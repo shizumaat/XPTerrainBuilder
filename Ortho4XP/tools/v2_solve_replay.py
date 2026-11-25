@@ -906,7 +906,11 @@ def _site_read(pm, airport, z, sites, near_m: float = 12.0) -> list[dict]:
                     "roles": sorted({r for h in hits for r in h["roles"]}),
                     "shapes": sorted({h["shape"] for h in hits}),
                     "max_step_m": round(step, 2),
-                    "nearest": hits[:3]})
+                    "nearest": hits[:3],
+                    # every ROAD vertex in the horizon (#2271: a road's
+                    # depth under its DEM is the site figure)
+                    "road_vertices": [h for h in hits
+                                      if any("road" in r for r in h["roles"])]})
     return out
 
 

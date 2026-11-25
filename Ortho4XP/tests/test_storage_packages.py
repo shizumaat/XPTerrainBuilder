@@ -152,21 +152,41 @@ def test_a_restore_lays_every_input_back_with_nothing_to_download(data, monkeypa
     assert PACKAGES.restore(*NEW) is None    # never packaged
 
 
-def test_the_budget_packages_old_tiles_in_their_turn(data, monkeypatch):
-    """Over a SET budget by more than the caches hold (#2087 order): the
-    oldest tile first -- the built tile with no airport is packaged
-    before its downloads go (package first, owner 2026-11-11T16:45Z) --
-    then the next oldest airport tile shrinks to its package; the tile
-    used this week keeps everything."""
+def _over(nbytes):
+    """A SET budget ``nbytes`` over its 90 % low water."""
     used = TOTAL.status(ST.storage_scan()["stores"])["used_bytes"]
-    monkeypatch.setattr(TOTAL, "_budget_bytes",
-                        lambda raw=None: int((used - 450_000) / 0.9) + 1)
+    return lambda raw=None: int((used - nbytes) / 0.9) + 1
+
+
+def _emptied(folder):
+    return not os.path.isdir(folder) or not os.listdir(folder)
+
+
+def test_the_budget_takes_rebuild_data_before_any_map_data(data, monkeypatch):
+    """Over a SET budget by more than the caches hold: the oldest tiles'
+    rebuild data goes -- each built tile packaged before its first file
+    goes (package first, owner 2026-11-11T16:45Z) -- and their ~1 MB map
+    data stays while any tile's rebuild data could go instead (#2207)."""
+    monkeypatch.setattr(TOTAL, "_budget_bytes", _over(450_000))
     TOTAL.hold(_sweep(), time.time())
     assert sorted(PACKAGES.packaged()) == ["+30+031", "+32+031"]
     assert os.path.isfile(PACKAGES.packaged()["+32+031"]["path"])
+    for tile in (BARE, OLD):
+        assert _emptied(data[tile]["cache"])     # rebuild data gone ...
+        assert os.listdir(data[tile]["osm"])     # ... map data kept
+    assert os.listdir(data[FAV]["cache"])        # the favorite: last
+
+
+def test_the_budget_packages_old_tiles_in_their_turn(data, monkeypatch):
+    """Over by more than every clearable tile's rebuild data: then the
+    map data, the oldest tile first, an airport tile shrinking to its
+    package; the tile used this week keeps everything, the favorite's
+    map data goes last."""
+    monkeypatch.setattr(TOTAL, "_budget_bytes", _over(1_250_000))
+    TOTAL.hold(_sweep(), time.time())
+    assert _emptied(data[FAV]["cache"])                    # rebuild data first
     assert not os.path.isdir(data[BARE]["osm"])            # in its package
     assert not os.path.isdir(data[OLD]["osm"])             # in its package
-    assert not os.path.isdir(data[OLD]["cache"]) or not os.listdir(data[OLD]["cache"])
     # Both are neighbours of the tile used this week: their base rasters
     # are its build's inputs, kept (#2087).
     assert os.path.exists(data[BARE]["hgt"]) and os.path.exists(data[OLD]["hgt"])

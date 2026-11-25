@@ -178,6 +178,12 @@ LIFTED_CAP_TAG = "o4_grade_law_cap_lifted"
 RAMP_ROLES = ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp")
 
 
+def _neck_pairs(planar: PlanarMap, law: Law) -> list:
+    """``constraints/lot_neck.neck_pair_bounds`` (bound late: one reader)."""
+    from ..constraints.lot_neck import neck_pair_bounds
+    return neck_pair_bounds(planar, law)
+
+
 def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]:
     """§34 (9): face id -> the DESIGNED grade of the pinched run, for every
     RAMP face of a corridor whose ``Tunnel.pinched`` record the structures
@@ -742,6 +748,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                        or {}).get(v, ""))]
                                  for v, (r, st, t)
                                  in sorted(planar.road_route_frame.items())],
+            # THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283):
+            # LAW INPUT -- every lot pair the road law prices, with its bound
+            "lot_neck_pairs": _neck_pairs(planar, law),
             # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):
             # ``[lat, lon, the CORE ribbon's altitude just outside]`` per
             # pinned road vertex.  LAW INPUT — the census's

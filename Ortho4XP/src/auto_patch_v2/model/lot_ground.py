@@ -7,13 +7,21 @@ and ``constraints`` releases the road that leaves the lot among them.
 """
 from __future__ import annotations
 
-from .planar import PlanarMap
+from .planar import PlanarMap, is_car_lot_ref
 
-__all__ = ["LOT_DATUM_ROLE", "lot_datum_vertices"]
+__all__ = ["LOT_DATUM_ROLE", "is_datum_lot", "lot_datum_vertices"]
 
 #: THE LOT ROLE that follows its ground (owner RULINGS 2026-11-25e (1)): a
 #: groundside PARKING LOT; every other groundside body keeps its plane
 LOT_DATUM_ROLE = "parking_lot"
+
+
+def is_datum_lot(face) -> bool:
+    """``face`` is a lot the datum reads: a parking lot of the main map.  A
+    last-stage CAR LOT (``carlot:``) is not -- its own stage already gives
+    its body its ground under the lot cap (``constraints/car_lot_follow``)
+    with every standing level a constant."""
+    return face.role == LOT_DATUM_ROLE and not is_car_lot_ref(face.ref)
 
 
 def lot_datum_vertices(planar: PlanarMap) -> frozenset[int]:
@@ -45,7 +53,7 @@ def lot_datum_vertices(planar: PlanarMap) -> frozenset[int]:
     held: set[int] = set()
     for f in planar.faces.values():
         vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
-        if f.role == LOT_DATUM_ROLE and f.id not in levelled:
+        if is_datum_lot(f) and f.id not in levelled:
             lot_v |= vs
         else:
             held |= vs

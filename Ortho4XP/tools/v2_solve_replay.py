@@ -2855,7 +2855,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     try:
         # issue #359: the build's follower pass (the lot follows its pad)
         from auto_patch_v2.pipeline.lot_follow import lot_follow_rewrite
-        _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
+        _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z, law)
         # issue #517: the build's ceiling between two junctions held low
         from auto_patch_v2.constraints.taxi_trend import low_hold_retarget
         def _hold_rw(pm_x, lv):

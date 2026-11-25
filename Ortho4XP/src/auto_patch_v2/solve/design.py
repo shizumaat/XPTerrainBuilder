@@ -107,7 +107,6 @@ _LAG_OFF = 1.0e9
 
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_rim_vertices, ground_roles  # noqa: E402
-from ..model.lot_ground import lot_datum_vertices  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
 from .design_stage import _groundside_minter, _welded_faces, stage_one_on  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
@@ -317,17 +316,6 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         shadow = seed_rep.pop("stage2_shadow", None)
     else:
         shadow = None
-    # THE LOT IS STAGE 2'S OWN (owner RULINGS 2026-11-25e (1), #2283 EKVG):
-    # a lot with no level target follows its ground, so a stage-1 level the
-    # coordinate join hands it -- the base map's apron there, before the
-    # pads cut it groundside (``pipeline/stage_one_map.base_pad_map``) -- is
-    # no constant of stage 2 and carries no stage-1 hold row.  MEASURED
-    # EKVG ``pav0#beyond1``: frozen at the apron's 84-87 m over DEM 79-93 m
-    lot_free = lot_datum_vertices(planar) & fixed2.keys()
-    if lot_free:
-        free2 = frozenset(free2) | lot_free
-        fixed2 = {v: z for v, z in fixed2.items() if v not in lot_free}
-
     def _stage2_set(cs_x: ConstraintSet, free_x) -> ConstraintSet:
         # the caller's rewrite re-reads the set it was BOUND to (the un-
         # yielded one): a pin stage 1 RELEASED stays released in stage 2
@@ -373,7 +361,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         sol2, rep2.follow_stage = solve_follow(
             cs2_used, sol2, follow_rewrite, lambda cs_f, fx: _solve_stage(
                 planar2, cs_f, law, options, method=method, low_rank=low_rank,
-                fixed=fx, label="follow"))
+                fixed=fx, label="follow", lot_datum=True))
     rep2.reach_seed = seed_rep
     # issue #143: the §37 (9) joins the rewrite released because their road
     # row is welded to a stage-1 constant (``road_ramp.welded_join_release``)
@@ -443,7 +431,6 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.free_membrane_rows += rep1.free_membrane_rows
     rep2.apron_trend_rows += rep1.apron_trend_rows
     rep2.ground_datum_rows += rep1.ground_datum_rows
-    rep2.lot_datum_rows += rep1.lot_datum_rows
     rep2.level_belt_rows += rep1.level_belt_rows
     rep2.foot_rows += rep1.foot_rows
     rep2.bank_rows += rep1.bank_rows
@@ -539,7 +526,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  projection_memo: dict | None = None,
                  seed: WarmSeed | None = None,
                  label: str = "single",
-                 lp_memo: "LpMemo | None" = None
+                 lp_memo: "LpMemo | None" = None,
+                 lot_datum: bool = False
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -556,6 +544,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     assemble / §5a LP / QP / projection / report seconds, #2206 6a).
     ``lp_memo``: the stage-1 passes' §5a :class:`~.feasibility.LpMemo`
     (#2206 step 4; ``None`` reads the LP every time).
+    ``lot_datum``: :func:`assemble`'s -- the follower pass's alone.
     """
     opt = options or Options()
     d = design_law(law)
@@ -563,7 +552,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     t0 = time.perf_counter()
     n = len(planar.vertices)
     base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed,
-                      stage_roles=stage_roles)
+                      stage_roles=stage_roles, lot_datum=lot_datum)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
     # §20b (4): a column with NO LEVEL is not this stage's answer.  The level
     # belt (§23.4) normally leaves none — it gives every level-free piece its

@@ -26,13 +26,25 @@ pad and 7 cap rows broken by up to 0.085 m; with the window, the lot's
 bending to the roads beside it still held the median there until the row
 was priced at the pad's own flatness (:data:`LOT_FOLLOW_RULING`).  The pad is a
 constant here, so the row only ever moves the lot: no loop, no leader to
-lose (stage 2's two-way coupling sank ``building8`` 1.13 m at HECA)."""
+lose (stage 2's two-way coupling sank ``building8`` 1.13 m at HECA).
+
+THE LOT THAT FOLLOWS ITS GROUND (owner RULINGS 2026-11-25e, #2283 EKVG) is
+a follower too: every lot vertex with no level target
+(``model/lot_ground.lot_datum_vertices``) is freed here, carries the weak
+``z = DEM`` row (``solve/design_assemble`` 9', ``lot_datum``) and its road
+leaving the lot at a neck is priced under the road law
+(``constraints/lot_neck.neck_release``, applied to this pass's rows only).
+Stage 2 solved the lot at its body's plane, so the airside, the pads and
+the roads round it are this pass's constants and the lot's ground pulls
+none of them (airside is king; MEASURED EKVG with the datum in stage 2:
+``building4`` landing collars 0.41 m)."""
 from __future__ import annotations
 
 import heapq
 import typing as _t
 
 from ..model.constraints import ConstraintSet, Linear, Source
+from ..model.lot_ground import lot_datum_vertices
 from ..model.planar import PlanarMap, face_vertex_set
 
 __all__ = ["LOT_FOLLOW_RULING", "lot_follow_rewrite"]
@@ -104,15 +116,18 @@ def _cap_windows(cs: ConstraintSet, fixed: _t.Mapping[int, float],
     return {v: (lo.get(v, -inf), hi.get(v, inf)) for v in free}
 
 
-def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
-                       ) -> tuple[ConstraintSet, dict[int, float], dict] | None:
+def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float],
+                       law: _t.Any) -> tuple[ConstraintSet, dict[int, float], dict] | None:
     """``(rows, constants, report)`` of the follower pass, or ``None`` when
     no lot follows (the pass does not run)."""
+    from ..constraints.lot_neck import neck_release
     from .stage_one_map import late_constraints
-    free = _followers(pm)
+    levelled = _followers(pm)
     pairs = _record(pm).get("pairs") or {}
-    level = {v: q for v, q in pairs.items() if v in free and q not in free}
-    if not level:
+    level = {v: q for v, q in pairs.items() if v in levelled and q not in levelled}
+    ground = lot_datum_vertices(pm) - levelled
+    free = (levelled if level else set()) | ground
+    if not free:
         return None
     fixed = {v: float(z[v]) for v in range(len(z)) if v not in free}
     # A FOLLOWER TWO CONSTANTS' CAPS CANNOT BOTH REACH (an empty window)
@@ -127,6 +142,10 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
         fixed.update({v: float(z[v]) for v in torn})
         level = {v: q for v, q in level.items() if v in free}
         if not level:
+            # no lot left to level: its vertices keep stage 2's answer
+            fixed.update({v: float(z[v]) for v in free & levelled})
+            free = free - levelled
+        if not free:
             return None
     kept, dropped = late_constraints(cs, fixed)
     win = _cap_windows(kept, fixed, free)
@@ -141,7 +160,9 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float]
                            Source("wall_terrace", LOT_FOLLOW_RULING,
                                   (f"vertex:{v}",)),
                            follows=(int(v),)))
-    cs_f = ConstraintSet.from_rows([*kept.rows(), *rows])
+    own, necks = neck_release(kept.rows(), pm, law) if ground else (list(kept.rows()), 0)
+    cs_f = ConstraintSet.from_rows([*own, *rows])
     return cs_f, fixed, {"followers": len(free), "lot_level_rows": len(rows),
+                         "ground_followers": len(ground & free), "neck_rows": necks,
                          "clamped_to_cap": clamped, "held_torn": len(torn),
                          "dropped": dropped}

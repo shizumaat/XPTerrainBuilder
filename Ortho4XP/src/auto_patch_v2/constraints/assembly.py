@@ -2,8 +2,7 @@
 ALL of the generators' rows, run once after them — the water and seam
 exemptions, the senior structure datum, the EAT pin's withdrawal, the road
 ramp on a landing run-out, the 5 % ceiling, the universal pavement cap, the
-public road's release to its terrain, the road leaving a lot (#2283) and
-the bridge span's (#2073).
+public road's release to its terrain and the bridge span's (#2073).
 
 ``constraints.generate`` runs the generators and hands their concatenated
 rows here; no generator reads another's rows, so these passes are the only
@@ -21,7 +20,6 @@ from . import (
     bridge_span_release,
     ceiling,
     eat,
-    lot_neck,
     pavement_cap,
     public_road_release,
     ramp_runout,
@@ -112,12 +110,6 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     rows, n_steep = public_road_release.steep_release(rows, planar, law)
     walls[public_road_release.STEEP_GEN] = time.perf_counter() - t0
     counts[public_road_release.STEEP_GEN] = n_steep
-    # THE ROAD LEAVING A LOT CLIMBS WITH ITS GROUND (owner RULINGS
-    # 2026-11-25e (2), #2283): with the roads', after every cap
-    t0 = time.perf_counter()
-    rows, n_neck = lot_neck.neck_release(rows, planar, law)
-    walls[lot_neck.GEN] = time.perf_counter() - t0
-    counts[lot_neck.GEN] = n_neck
     # THE PAGE A MAPPED BRIDGE CARRIES IS NOT GRADED OVER THE SPAN (#2073;
     # owner 2026-11-13T22:48Z): with the public road's, after every cap
     t0 = time.perf_counter()

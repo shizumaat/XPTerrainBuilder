@@ -51,6 +51,14 @@ def test_lot_vertices_are_the_lots_own():
     assert lot_datum_vertices(pm) == {0, 1}
 
 
+def test_a_car_lot_is_its_own_stage():
+    """A last-stage car lot already takes its ground in its own stage
+    (``constraints/car_lot_follow``): it carries no datum here."""
+    car = types.SimpleNamespace(id=1, role="parking_lot", ring=(0, 1, 2), holes=(),
+                                ref="carlot:7")
+    assert lot_datum_vertices(_map([car], [1.0, 2.0, 3.0])) == frozenset()
+
+
 def test_a_lot_with_a_level_target_keeps_it():
     faces = [_face(1, "parking_lot", [0, 1, 2]), _face(2, "parking_lot", [3, 4, 5])]
     dem = [1.0] * 6
@@ -115,8 +123,10 @@ def _rows_map():
           (57.0, 150.0), (63.0, 150.0),          # 50 m on
           (60.0, -10.0)]                         # airside
     dem = [80.0, 80.0, 82.0, 82.12, 86.5, 86.62, 79.0]
-    vertices = [types.SimpleNamespace(xy=p, dem_z=z) for p, z in zip(xy, dem, strict=True)]
-    lot = types.SimpleNamespace(id=1, role="parking_lot", ring=(0, 1, 2, 3, 4, 5), holes=())
+    vertices = [types.SimpleNamespace(xy=p, dem_z=z, key=(62.0 + 1e-5 * p[1], -7.0 + 1e-5 * p[0]))
+                for p, z in zip(xy, dem, strict=True)]
+    lot = types.SimpleNamespace(id=1, role="parking_lot", ring=(0, 1, 2, 3, 4, 5), holes=(),
+                                ref="dsf:pol1")
     return types.SimpleNamespace(vertices=vertices, faces={1: lot},
                                  ring_vertices=lambda ring: tuple(ring))
 
@@ -173,3 +183,32 @@ def test_airside_is_never_touched(pm):
     row = _diff(pm, 6, 4)
     (out,), n = lot_neck.neck_release([row], pm, LAW)
     assert out is row and n == 0
+
+
+def test_the_published_pairs_are_the_releases_own(pm):
+    """The verify / census read (``lot_neck_pairs``) prices each pair at
+    the bound the release gave its row: one reading, two consumers."""
+    pub = {(tuple(a), tuple(b)): bound for a, b, bound in lot_neck.neck_pair_bounds(pm, LAW)}
+    key = {v: tuple(pm.vertices[v].key) for v in range(len(pm.vertices))}
+    for a, b in ((2, 4), (2, 3), (0, 4)):
+        (out,), _n = lot_neck.neck_release([_diff(pm, a, b)], pm, LAW)
+        got = pub.get((key[a], key[b]), pub.get((key[b], key[a])))
+        assert got == pytest.approx(out.cap * out.d, abs=1e-3), (a, b)
+    assert (key[0], key[1]) not in pub          # inside the lot: its own law
+    assert all(key[6] not in k for k in pub)    # airside is never published
+
+
+def test_the_lot_follows_after_stage_two_alone(pm):
+    """THE FOLLOWER PASS (airside is king): the lot's own vertices are the
+    only unknowns, every other vertex a constant at its stage-2 level, and
+    the neck rows are priced in this pass only."""
+    from auto_patch_v2.model.constraints import ConstraintSet
+    from auto_patch_v2.pipeline.lot_follow import lot_follow_rewrite
+    pm.road_terrace, pm.preferred_z = {}, {}
+    cs = ConstraintSet.from_rows([_diff(pm, 2, 4), _diff(pm, 0, 1), _diff(pm, 6, 0)])
+    z = [80.0] * len(pm.vertices)
+    cs_f, fixed, rep = lot_follow_rewrite(pm, cs, z, LAW)
+    assert set(fixed) == {6}
+    assert rep["ground_followers"] == 6 and rep["neck_rows"] == 1
+    road = [d for d in cs_f.diffs if {d.a, d.b} == {2, 4}]
+    assert road and road[0].cap > 0.05

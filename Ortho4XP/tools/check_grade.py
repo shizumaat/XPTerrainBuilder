@@ -931,6 +931,27 @@ def _pad_relief_by_nid(nodes: Dict[str, Tuple[float, float]],
     return _field_by_nid(nodes, pad_relief_ll)
 
 
+def _pair_field_by_nids(nodes: Dict[str, Tuple[float, float]],
+                        pairs_ll: list) -> Dict[tuple, float]:
+    """``[[lat, lon], [lat, lon], value]`` records joined to node ids by
+    rounded lat/lon (7 dp, like every per-vertex field): ``(min nid, max
+    nid) -> value``.  A record naming a node the patch lacks is dropped."""
+    out: Dict[tuple, float] = {}
+    if not pairs_ll:
+        return out
+    idx = {(round(la, 7), round(lo, 7)): nid for nid, (la, lo) in nodes.items()}
+    for rec in pairs_ll:
+        try:
+            (la, lo), (lb, lob), val = rec[0], rec[1], float(rec[2])
+        except (TypeError, IndexError, ValueError):
+            continue
+        na = idx.get((round(float(la), 7), round(float(lo), 7)))
+        nb = idx.get((round(float(lb), 7), round(float(lob), 7)))
+        if na is not None and nb is not None and na != nb:
+            out[(min(na, nb), max(na, nb))] = val
+    return out
+
+
 def _road_frame_by_nid(nodes: Dict[str, Tuple[float, float]],
                        road_route_frame_ll: list) -> Dict[str, tuple]:
     """§37 (7) THE ROAD'S ROUTE FRAME per nid (owner RULINGS 2026-09-13av;
@@ -9937,6 +9958,7 @@ def _check_within_shape(ways: List[Way],
                         apron_tier: Optional[dict] = None,
                         pad_relief_by_nid: Optional[Dict[str, float]] = None,
                         road_frame_by_nid: Optional[Dict[str, tuple]] = None,
+                        neck_by_nids: Optional[Dict[tuple, float]] = None,
                         shoulder_nid_set: Optional[set] = None,
                         shoulder_cap: Optional[float] = None,
                         runway_caps_by_ref: Optional[Dict[str, float]] = None,
@@ -9996,6 +10018,15 @@ def _check_within_shape(ways: List[Way],
             road_frame_by_nid=road_frame_by_nid):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
+        # THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283): a
+        # lot pair the road law prices is judged at the bound the build's
+        # release gave it (sidecar ``lot_neck_pairs``), its shape's
+        # quantisation envelope kept
+        _nk = (neck_by_nids.get((min(c.nid_a, c.nid_b), max(c.nid_a, c.nid_b)))
+               if neck_by_nids and not c.transverse_road else None)
+        if _nk is not None and c.dist > 0:
+            allowance = _nk + _pair_quant_noise_m(c.way)
+            c.cap = _nk / c.dist
         # JUNCTION STRETCH CAPS (RULINGS 2026-09-04y, applying 04t-3): a
         # junction body pair priced at the BODY cap (never a frontage /
         # portion / cross-section pair, which the law already tightened)
@@ -12747,6 +12778,7 @@ def run_checks(
     crown_drops_ll: Optional[list] = None,
     pad_relief_ll: Optional[list] = None,
     road_route_frame_ll: Optional[list] = None,
+    lot_neck_pairs_ll: Optional[list] = None,
     road_coverage_join_ll: Optional[list] = None,
     deck_anchors: Optional[list] = None,
     pack_bridge_under_deck: Optional[list] = None,
@@ -12951,6 +12983,7 @@ def run_checks(
     pad_relief_by_nid = _pad_relief_by_nid(nodes, pad_relief_ll or [])
     # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av)
     road_frame_by_nid = _road_frame_by_nid(nodes, road_route_frame_ll or [])
+    neck_by_nids = _pair_field_by_nids(nodes, lot_neck_pairs_ll or [])
     # §40 (2) as amended: the SHOULDER vertices, off the solve's own line
     # §50.2 Y20: ref -> the EFFECTIVE cap the build priced that runway at
     _runway_caps_by_ref: Dict[str, float] = {
@@ -13081,6 +13114,7 @@ def run_checks(
         taxi_box=taxi_box, taxi_box_out=_taxi_box_rows,
         apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid,
         road_frame_by_nid=road_frame_by_nid,
+        neck_by_nids=neck_by_nids,
         shoulder_nid_set=_shoulder_nids,
         shoulder_cap=shoulder_transverse_max,
         runway_caps_by_ref=_runway_caps_by_ref,

@@ -51,14 +51,13 @@ from ..geom.centreline import medial_directions
 from ..law import Law
 from ..law.tables import road_terrain_cap, role_cap
 from ..model.constraints import Diff, Row
-from ..model.lot_ground import LOT_DATUM_ROLE, lot_datum_vertices
+from ..model.lot_ground import LOT_DATUM_ROLE, is_datum_lot, lot_datum_vertices
 from ..model.planar import PlanarMap, face_vertex_set
 from . import roads
 from .roads import stage_one_vertices
 
-__all__ = ["GEN", "neck_release"]
+__all__ = ["neck_pair_bounds", "neck_release"]
 
-GEN = "lot_neck_release"
 #: the widened bound stands this far (relative) over the ground's own
 #: difference, so the ground is strictly inside it (the public road's slack)
 _SLACK = 1e-3
@@ -88,7 +87,7 @@ def _lot_roads(planar: PlanarMap, law: Law) -> list[_LotRoad]:
     own = lot_datum_vertices(planar) - stage_one_vertices(planar, law)
     if not own:
         return []
-    lots = [_polygon(planar, f) for f in planar.faces.values() if f.role == LOT_DATUM_ROLE]
+    lots = [_polygon(planar, f) for f in planar.faces.values() if is_datum_lot(f)]
     rules = load_rules()
     tol = rules.cells.on_tol_m
     out: list[_LotRoad] = []
@@ -112,34 +111,101 @@ def _polygon(planar: PlanarMap, face: _t.Any) -> _t.Any:
     return Polygon(xy(face.ring), [xy(h) for h in face.holes]).buffer(0)
 
 
+@_dc.dataclass(frozen=True)
+class _LotNecks:
+    """THE ONE READING of the roads the lots narrow into: which pair of
+    vertices the road law prices, and at what bound.  The follower pass's
+    rows (:func:`neck_release`) and the published pairs the in-build verify
+    and the census price (:func:`neck_pair_bounds`) both read it, so the
+    instrument and the solve cannot drift."""
+
+    roads: tuple[_LotRoad, ...]
+    road_of: _t.Mapping[int, int]
+    lot_v: frozenset[int]
+    air: frozenset[int]
+    core: _t.Any
+    caps: "_Caps"
+
+    def bound(self, planar: PlanarMap, a: int, b: int, d: float
+              ) -> tuple[float, bool] | None:
+        """``(bound metres, box)`` the road law gives the pair ``a``-``b``
+        ``d`` metres apart, or ``None`` where it is the lot's (or the
+        airside's).  ``box``: both on one road, priced as its box (may
+        tighten the lot's cap); otherwise the road's grade over the chord
+        (only ever widens)."""
+        if d <= 0.0 or a in self.air or b in self.air:
+            return None
+        ka, kb = self.road_of.get(a), self.road_of.get(b)
+        if ka is not None and ka == kb:
+            return self.caps.box(planar, a, b, d, self.roads[ka]), True
+        if ka is not None or kb is not None or (
+                a in self.lot_v and b in self.lot_v and _crosses(planar, a, b, self.core)):
+            return self.caps.grade(planar, a, b, d) * d, False
+        return None
+
+
+def _lot_necks(planar: PlanarMap, law: Law) -> _LotNecks | None:
+    """The :class:`_LotNecks` of ``planar``, or ``None`` where no lot
+    narrows into a road."""
+    found = _lot_roads(planar, law)
+    if not found:
+        return None
+    lot_v = frozenset(v for f in planar.faces.values() if is_datum_lot(f)
+                      for v in face_vertex_set(planar, f))
+    core = prep(unary_union([r.polygon for r in found]).buffer(-load_rules().cells.on_tol_m))
+    return _LotNecks(tuple(found), {v: k for k, r in enumerate(found) for v in r.vertices},
+                    lot_v, frozenset(stage_one_vertices(planar, law)), core, _Caps(law))
+
+
 def neck_release(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                  ) -> tuple[list[Row], int]:
     """``(rows, repriced)``: ``rows`` with every grade row of a lot's road
     priced under the road law (module docstring)."""
-    found = _lot_roads(planar, law)
-    if not found:
+    necks = _lot_necks(planar, law)
+    if necks is None:
         return list(rows), 0
-    road_of = {v: k for k, r in enumerate(found) for v in r.vertices}
-    lot_v = {v for f in planar.faces.values() if f.role == LOT_DATUM_ROLE
-             for v in face_vertex_set(planar, f)}
-    air = stage_one_vertices(planar, law)
-    core = prep(unary_union([r.polygon for r in found]).buffer(-load_rules().cells.on_tol_m))
-    caps = _Caps(law)
     out: list[Row] = []
     n = 0
     for row in rows:
         new = row
-        if isinstance(row, Diff) and row.d > 0.0 and row.a not in air and row.b not in air:
-            ka, kb = road_of.get(row.a), road_of.get(row.b)
-            if ka is not None and ka == kb:
-                new = _priced(row, caps.box(planar, row, found[ka]) / row.d,
-                              tighten=row.source.generator == roads.GEN)
-            elif ka is not None or kb is not None or (
-                    row.a in lot_v and row.b in lot_v and _crosses(planar, row, core)):
-                new = _priced(row, caps.grade(planar, row, row.d), tighten=False)
+        if isinstance(row, Diff):
+            got = necks.bound(planar, row.a, row.b, row.d)
+            if got is not None:
+                bound, box = got
+                new = _priced(row, bound / row.d,
+                              tighten=box and row.source.generator == roads.GEN)
         n += new is not row
         out.append(new)
     return out, n
+
+
+def neck_pair_bounds(planar: PlanarMap, law: Law) -> list[list[_t.Any]]:
+    """THE PUBLISHED NECK PAIRS (sidecar ``lot_neck_pairs``): ``[[lat, lon],
+    [lat, lon], bound m]`` for every pair of a lot face's own vertices the
+    road law prices (:meth:`_LotNecks.bound`) -- LAW INPUT for the in-build
+    verify (``verify/within``) and the census (``within_shape``), which
+    price a lot pair there at this bound instead of the lot's chord cap.
+    Empty where no lot narrows into a road."""
+    necks = _lot_necks(planar, law)
+    if necks is None:
+        return []
+    out: list[list[_t.Any]] = []
+    for f in planar.faces.values():
+        if not is_datum_lot(f):
+            continue
+        vs = sorted(face_vertex_set(planar, f))
+        if not any(v in necks.road_of for v in vs):
+            continue
+        for i, a in enumerate(vs):
+            pa = planar.vertices[a]
+            for b in vs[i + 1:]:
+                pb = planar.vertices[b]
+                d = ((pa.xy[0] - pb.xy[0]) ** 2 + (pa.xy[1] - pb.xy[1]) ** 2) ** 0.5
+                got = necks.bound(planar, a, b, d)
+                if got is not None:
+                    out.append([[pa.key[0], pa.key[1]], [pb.key[0], pb.key[1]],
+                                round(got[0], 4)])
+    return out
 
 
 class _Caps:
@@ -151,33 +217,32 @@ class _Caps:
         cap = role_cap(law, LOT_DATUM_ROLE)
         self.transverse = float(cap.transverse) if cap is not None else 0.0
 
-    def grade(self, planar: PlanarMap, row: Diff, run: float) -> float:
+    def grade(self, planar: PlanarMap, a: int, b: int, run: float) -> float:
         """The road's longitudinal cap over ``run`` metres of the pair: the
         road cap, rising with the ground's own difference to the steep cap."""
-        za, zb = planar.vertices[row.a].dem_z, planar.vertices[row.b].dem_z
+        za, zb = planar.vertices[a].dem_z, planar.vertices[b].dem_z
         if za is None or zb is None or run <= 0.0:
             return self.road
         g = abs(float(za) - float(zb)) * (1.0 + _SLACK) / run
         return min(self.steep, max(self.road, g))
 
-    def box(self, planar: PlanarMap, row: Diff, road: _LotRoad) -> float:
+    def box(self, planar: PlanarMap, a: int, b: int, d: float, road: _LotRoad) -> float:
         """The pair's bound in metres: ``g x |ds| + transverse x |dt|`` in
         the road's local frame at the pair's midpoint."""
-        (ax, ay), (bx, by) = planar.vertices[row.a].xy, planar.vertices[row.b].xy
+        (ax, ay), (bx, by) = planar.vertices[a].xy, planar.vertices[b].xy
         dx, dy = ax - bx, ay - by
         u = road.direction(0.5 * (ax + bx), 0.5 * (ay + by))
         if u is None:
-            return self.grade(planar, row, row.d) * row.d
+            return self.grade(planar, a, b, d) * d
         ds = abs(dx * u[0] + dy * u[1])
         dt = abs(dy * u[0] - dx * u[1])
-        return self.grade(planar, row, ds) * ds + self.transverse * dt
+        return self.grade(planar, a, b, ds) * ds + self.transverse * dt
 
 
-def _crosses(planar: PlanarMap, row: Diff, core: _t.Any) -> bool:
+def _crosses(planar: PlanarMap, a: int, b: int, core: _t.Any) -> bool:
     """The pair's chord runs over a lot's road (``core``: the roads less
     their edge, so a chord ending on a road's kerb does not cross it)."""
-    return core.intersects(LineString([planar.vertices[row.a].xy,
-                                       planar.vertices[row.b].xy]))
+    return core.intersects(LineString([planar.vertices[a].xy, planar.vertices[b].xy]))
 
 
 def _priced(row: Diff, cap: float, *, tighten: bool) -> Diff:

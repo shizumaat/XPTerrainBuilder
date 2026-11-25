@@ -105,7 +105,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
              fixed: _t.Mapping[int, float] | None = None,
-             stage_roles: _t.AbstractSet[str] | None = None) -> Base:
+             stage_roles: _t.AbstractSet[str] | None = None,
+             lot_datum: bool = False) -> Base:
     """Sections 1-9 of the module docstring: the sheets and their
     triangulation, the zone ramp, the reduction, and every always-on row
     (bending, road chains, the chord, the zone DEM fit, the law's equalities,
@@ -628,9 +629,15 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     parking lot with no level target carries the weak ``z = DEM`` row
     #     at ``ground_datum`` per vertex instead of its body's plane — its
     #     grade rows (``law``) outrank it, so it follows the DEM within its
-    #     5 % cap (``design_ground.lot_datum_vertices``).  A vertex a pad
-    #     or a law equality levels keeps that level.
-    lot_v = lot_datum_vertices(planar) - pad_follow - hard_follow - datum_v
+    #     5 % cap (``model/lot_ground.lot_datum_vertices``).  A vertex a pad
+    #     or a law equality levels keeps that level.  ``lot_datum``: the
+    #     FOLLOWER PASS's assembly alone (``pipeline/lot_follow``), where
+    #     every other vertex is a constant at its stage-2 level — airside is
+    #     king: in stage 2 the lot keeps its body's plane, so the datum can
+    #     pull no landing, apron or road (MEASURED EKVG, the datum in stage
+    #     2: ``building4`` landing collars 0.41 m, ``pav0`` 0.02 m).
+    lot_v = (lot_datum_vertices(planar) - pad_follow - hard_follow - datum_v
+             if lot_datum else set())
     lot_n = 0
     for vid in sorted(lot_v):
         if rows.add(((vid, 1.0),), float(planar.vertices[vid].dem_z),

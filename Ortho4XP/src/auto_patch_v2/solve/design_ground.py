@@ -93,7 +93,7 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     # feasible): its DEM reads the road under the deck, and a datum there,
     # tied to the stations by the deck's span, sank KIAH's taxiway bridge
     # obj24551 1.8 m toward the road under it
-    decked = _deck_ground_vertices(planar, is_ground)
+    decked = _deck_ground_vertices(planar, is_ground, law)
     # #2090 C3a: an AGP plate's ground stands at its floor (P1), never pulled
     # to the DEM; its bank keeps the datum
     decked |= _agp_plate_vertices(planar)
@@ -120,28 +120,63 @@ def _agp_plate_vertices(planar: PlanarMap) -> set[int]:
             for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
 
 
-def _deck_ground_vertices(planar: PlanarMap, ground_fids: _t.AbstractSet[int]) -> set[int]:
+def _deck_ground_vertices(planar: PlanarMap, ground_fids: _t.AbstractSet[int],
+                          law: Law) -> set[int]:
     """The vertices of a deck's own ground (``deck_ground:<object>`` faces)
     that follow the deck and so take no datum -- save one that also bounds
     another ground face OUTSIDE every deck ring (#2072): there it is that
     face's ground, the deck's span never holds it (``constraints/edge_deck.
     _bridge_ground``), and with no level of its own bending alone stood
-    KIAH obj24551's corner 21.9 m over the DEM."""
+    KIAH obj24551's corner 21.9 m over the DEM -- and save one of a BANKED
+    deck's ground past the bank's run-on (#2235, :func:`_past_the_run_on`):
+    the span holds it under a ceiling only, the blend, so its level is the
+    ground's."""
     decked = {v for f in planar.faces.values()
               if str(getattr(f, "ref", "")).startswith(DECK_GROUND_REF + ":")
               for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
-    rings = [db.ring for db in getattr(planar, "decks", ()) or () if len(db.ring) >= 3]
-    if not decked or not rings:
+    decks = [db for db in getattr(planar, "decks", ()) or () if len(db.ring) >= 3]
+    if not decked or not decks:
         return decked
     from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
-    under = prep(unary_union([Polygon(r).buffer(0.5) for r in rings]))
+    under = prep(unary_union([Polygon(db.ring).buffer(0.5) for db in decks]))
+    past = _past_the_run_on(planar, decks, law)
 
     def shared(v: int) -> bool:
         return any(fid in ground_fids and not str(planar.faces[fid].ref).startswith(
             DECK_GROUND_REF + ":") for fid in planar.vertices[v].incident_faces)
-    return {v for v in decked if not shared(v) or under.contains(Point(planar.vertices[v].xy))}
+
+    def follows(v: int) -> bool:
+        p = Point(planar.vertices[v].xy)
+        return under.contains(p) or not (shared(v) or past(v, p))
+    return {v for v in decked if follows(v)}
+
+
+def _past_the_run_on(planar: PlanarMap, decks: list, law: Law):
+    """``(v, point) -> bool``: ``v`` lies on BANKED decks' ground alone
+    (``model/deck_bank.banked``, every piece of each object) and past every
+    deck's run-on (``bank_past_m`` beyond its ring) -- where
+    ``constraints/edge_deck._span_rows`` holds the ground under the bank's
+    blend as a one-sided ceiling (#2235), so the ground's datum levels it."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+
+    from ..model.deck_bank import bank_past_m, banked
+    run = max(0.5, bank_past_m(law))
+    on = prep(unary_union([Polygon(db.ring).buffer(run, join_style="mitre") for db in decks]))
+    walled = {getattr(db, "object_id", None) for db in decks if not banked(db)}
+    prefix = DECK_GROUND_REF + ":"
+
+    def owner(fid: int) -> "str | None":
+        ref = str(getattr(planar.faces[fid], "ref", "") or "")
+        return ref[len(prefix):].split("#")[0] if ref.startswith(prefix) else None
+
+    def past(v: int, p) -> bool:
+        oids = {owner(f) for f in planar.vertices[v].incident_faces} - {None}
+        return bool(oids) and not oids & walled and not on.contains(p)
+    return past
 
 
 def ground_rim_vertices(planar: PlanarMap) -> frozenset[int]:

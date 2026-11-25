@@ -109,6 +109,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "HAMBURG1M",
         "AUSTRIA1M",
         "NETHERLANDS50CM",
+        # The BES islands' 2023 lidar (Saba, Sint Eustatius, Bonaire).
+        "DUTCHCARIBBEAN50CM",
         "SOUTHTYROL50CM",
         "SARDINIA1M",
         "ITALY10M",
@@ -155,6 +157,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "CUDEMHAWAII",
         "CUDEMPUERTORICO",
         "CUDEMUSVI",
+        # The same USVI tiles as the BRITISH Virgin Islands' terrain inset.
+        "CUDEMBVI",
         "CUDEMCNMI",
         "CUDEMAMERICANSAMOA",
         "CUDEMCONUS",
@@ -334,6 +338,22 @@ def test_shipped_definitions_parse(shipped_registry):
         shipped_registry["NEWZEALAND1M"]["access_strategy"] == "static_stac"
     )
     assert shipped_registry["NEWZEALAND1M"]["asset_compression"] == "lerc"
+    # The British Virgin Islands read CUDEM's USVI catalog as TERRAIN
+    # through their own inset sibling; the bathymetry definition itself
+    # never enters inset selection.
+    bvi = shipped_registry["CUDEMBVI"]
+    assert bvi["role"] == ea_definitions.ROLE_AIRPORT_INSET
+    assert bvi["access_strategy"] == "static_stac"
+    assert bvi["catalog_url"] == shipped_registry["CUDEMUSVI"]["catalog_url"]
+    assert bvi["priority"] < shipped_registry["USGS3DEP"]["priority"]
+    for country in ("VGB", "GBR"):  # TUPJ/TUPA read VGB, TUPW GBR
+        assert ea_definitions.provider_serves_country(bvi, country)
+    assert not ea_definitions.provider_serves_country(bvi, "VIR")
+    inset_codes = [
+        definition["code"]
+        for definition in INSETS.select_provider_definitions("auto")
+    ]
+    assert "CUDEMBVI" in inset_codes and "CUDEMUSVI" not in inset_codes
     assert shipped_registry["SRTM"]["enabled"] is False
     assert shipped_registry["ALOS"]["enabled"] is False
     assert shipped_registry["VIEWFINDER1"]["priority"] == 60.0

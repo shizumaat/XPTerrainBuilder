@@ -387,6 +387,12 @@ def _terrain_cut(tile) -> list:
         body = json.dumps({"elevation": r.get("elevation"), "cut": r.get("cut")},
                           sort_keys=True, default=str)
         out.append(f"{r.get('id')}:{hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]}")
+    # #2197: a partial shell's rim grade, by its content
+    for r in terrain_cut_stage.rim_records(FNAMES.patch_dir(tile.lat, tile.lon)):
+        body = json.dumps({"elevation": r.get("elevation"), "rim": r.get("rim")},
+                          sort_keys=True, default=str)
+        out.append(f"{r.get('id')}:rim:"
+                   f"{hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]}")
     return sorted(out)
 
 

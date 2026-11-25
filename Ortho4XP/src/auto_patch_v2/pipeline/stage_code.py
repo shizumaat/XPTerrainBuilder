@@ -223,6 +223,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
+        "auto_patch_v2.airport.ground_rim",
         "auto_patch_v2.airport.ground_route_ways",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
@@ -533,6 +534,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
         "auto_patch_v2.airport.grade_ledger",
+        "auto_patch_v2.airport.ground_rim",
         "auto_patch_v2.airport.ground_route_ways",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
@@ -1039,6 +1041,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
+        "auto_patch_v2.airport.ground_rim",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
@@ -1269,6 +1272,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
+        "auto_patch_v2.airport.ground_rim",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.hung_wall_seat",
@@ -1572,6 +1576,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
+        "auto_patch_v2.airport.ground_rim",
         "auto_patch_v2.airport.ground_route_ways",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
@@ -2495,7 +2500,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2641,7 +2646,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.level_base
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -2757,7 +2762,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -2966,7 +2971,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3196,7 +3201,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
@@ -3371,7 +3376,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.frame_entry airport.jetways airport.line_object
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
-    airport.bridged_ground airport.ground_shell
+    airport.bridged_ground airport.ground_shell airport.ground_rim
     airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter

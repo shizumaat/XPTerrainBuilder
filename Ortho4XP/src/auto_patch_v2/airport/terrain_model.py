@@ -185,6 +185,10 @@ class TerrainModel:
     #: #2272: a SMALL TERRAIN SHELL (``airport/terrain_shell``), seated at
     #: its author's ``OBJECT_MSL`` datum
     small: bool = False
+    #: #2197: a PARTIAL SHELL (``airport/ground_rim._RimSet``): an origin set
+    #: whose outer rim is its author's ground; the tile build grades our
+    #: ground to its rim stations (``cut``-free; its own row carries ``rim``)
+    rim: _t.Any = None
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -654,6 +658,14 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                "corr": round(m.corr, 3), "quality_cover": round(m.quality_cover, 3)}
         if getattr(m, "seat_by", ""):
             rec["by"] = m.seat_by
+        if oid == m.id and getattr(m, "rim", None) is not None:
+            # #2197: the tile build grades our ground to the rim stations
+            from .ground_rim import rim_record
+            if to_ll is None:
+                to_ll = airport.frame.transformers()[1]
+            rec["rim"] = rim_record(m.rim, to_ll)
+            out.append(rec)
+            continue
         if getattr(m, "small", False):
             # #2272 round 3: one rigid body seated by its skirt on the drawn
             # mesh (``terrain_shell``, THE SEAT); our ground is never cut
@@ -711,6 +723,7 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     a ground shell has its own, ``ground_shell.log_line``)."""
     models = sorted({m.id: m for m in models
                      if not getattr(m, "seat_by", "") and not getattr(m, "skin", False)
+                     and getattr(m, "rim", None) is None
                      and (not getattr(m, "ground", "") or getattr(m, "fill", False))}.values(),
                     key=lambda m: m.id)
     if not models:

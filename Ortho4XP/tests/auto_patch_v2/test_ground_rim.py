@@ -214,3 +214,30 @@ def test_the_tile_stage_reads_and_grades_rim_records(tmp_path, monkeypatch):
     assert k > 0 and float(dem.alt_dem.max()) > 204.0
     assert dem.terrain_fill_delta is not None and np.all(dem.terrain_fill_delta["delta"] >= 0)
     assert len(TCS._rim_lines(tile, rims)) == 1
+
+
+def test_a_hill_the_author_added_is_not_our_ground():
+    """#2197 round 2: the plaza's valley on FLAT ground of ours -- relief we
+    do not have (a hill, a rock, a bridge's approach) -- is refused."""
+    plaza = _plaza(-60, -40, 60, 40)
+    assert GR._recognise(GR._set_raster([plaza], 0.0), (0.0, 0.0), 0.0,
+                        lambda x, y: np.zeros(np.shape(x))) is None
+
+
+def test_a_deck_over_a_void_is_no_skin():
+    """#2197 round 2: the valley as a 2 m slab (a deck, a bridge) follows
+    our ground yet is no ground skin."""
+    plaza = _plaza(-60, -40, 60, 40)
+    under = plaza.copy()
+    under[:, :, 1] -= 2.0
+    assert GR._recognise(GR._set_raster([plaza, under], 0.0), (0.0, 0.0), 0.0,
+                        _ground) is None
+
+
+def test_a_sheet_far_from_our_ground_is_refused_never_dragged_to():
+    """RULINGS 2026-11-25f: a terrace whose ground half follows ours and
+    half stands 4 m over it is left as authored: no set, no rim stations."""
+    def ground(x, y):
+        return _v(x) - 4.0 * (np.asarray(x, float) > 0.0)
+    plaza = _plaza(-60, -40, 60, 40)
+    assert GR._recognise(GR._set_raster([plaza], 0.0), (0.0, 0.0), 0.0, ground) is None

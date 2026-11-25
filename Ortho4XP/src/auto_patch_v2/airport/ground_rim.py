@@ -40,6 +40,25 @@ from its least-squares plane by at least :data:`MIN_RELIEF_M`
 plate and deck measured departs by under 2 m).  An apron plate, a pad or a
 car park laid on a grade is no partial shell.
 
+THE SHEET IS OUR GROUND, REMODELLED (#2197 round 2, the narrowing; spec
+``docs/specs/2197-partial-shell-patch-rim-spec.md`` §1): round 1's three
+shares also held 92 sets in 61 packs whose "ground" is a bridge deck, a
+viaduct's approach, a tunnel's portal, a landmark's plinth, a hangar's
+apron, an earth-covered bunker, a hill or a rock -- relief the author
+added, not the ground it stands on.  At the seat, the sheet must also:
+
+* FOLLOW our ground (:data:`MIN_FOLLOW_SHARE` of its cells within
+  ``ground_shell.AT_GRADE_M`` of it): the author's ground is ours, never
+  a terrace standing far from credible terrain (RULINGS 2026-11-25f: such
+  a pack is left as authored and our ground never rises to it);
+* have its RELIEF EXPLAINED by ours: the sheet's departure from OUR ground
+  carries at most :data:`MAX_UNEXPLAINED` of the sheet's own relief (the
+  same 5th-95th percentile span beyond a plane) -- a bridge, a plinth or
+  a hill models relief our ground does not have;
+* be a SKIN (:data:`MIN_SKIN_SHARE` of its cells no thicker than
+  :data:`SKIN_M`, top to lowest surface): a ground surface, never a deck
+  or a slab over a void.
+
 THE SEAT (never moves the object's shape): one rigid frame, every row of
 the set ``OBJECT_MSL`` at ``z0`` plus its own lift (``terrain_model``'s
 SEAT path).  ``z0`` is the origin's ground (``X-Plane``'s own seat of an
@@ -68,6 +87,7 @@ import numpy as np
 from .terrain_shaped import MIN_RELIEF_M
 
 __all__ = ["SHEET_STEP_M", "MIN_SHEET_SHARE", "MIN_RIM_SHARE", "MIN_RELIEF_M",
+           "MIN_FOLLOW_SHARE", "MAX_UNEXPLAINED", "MIN_SKIN_SHARE", "SKIN_M",
            "placement_models", "rim_record", "log_line"]
 
 #: the most two neighbouring cells of the ground sheet may differ (m)
@@ -76,6 +96,18 @@ SHEET_STEP_M = 0.5
 MIN_SHEET_SHARE = 0.5
 #: the least share of the set's outer rim the ground sheet holds
 MIN_RIM_SHARE = 0.5
+#: the least share of the sheet within ``AT_GRADE_M`` of our ground at the
+#: seat (module doc, THE SHEET IS OUR GROUND; census: genuine 0.85-0.96,
+#: the nearest refused skin 0.69-0.71)
+MIN_FOLLOW_SHARE = 0.8
+#: the most of the sheet's relief its departure from our ground may carry
+#: (census: genuine 0.21-0.31, the nearest refused skin 0.53)
+MAX_UNEXPLAINED = 0.5
+#: the least share of the sheet that is a skin (census: genuine 0.95-1.00;
+#: the bridges and elevated roads that follow our ground 0.06-0.81)
+MIN_SKIN_SHARE = 0.9
+#: the thickest a skin cell stands, top to lowest surface (m)
+SKIN_M = 0.5
 #: the plan grid of the set (m; ``terrain_cut.HOLD_CELL_M``)
 CELL_M = 1.0
 _MAX_CELLS = 1_000_000
@@ -284,7 +316,7 @@ def _recognise(r: _t.Any, xy: tuple[float, float], heading: float,
     if sheet_share < MIN_SHEET_SHARE or rim_share < MIN_RIM_SHARE:
         return None
     relief = _sheet_relief(e[sheet], n[sheet], r.top[sheet])
-    if relief < MIN_RELIEF_M:
+    if relief < MIN_RELIEF_M or not _is_our_ground(r, sheet, dem - z0, e, n, relief):
         return None
     return _RimSet((float(xy[0]), float(xy[1])), float(heading), z0, plan, sheet_share,
                   rim_share, relief, _rim_stations(r, sheet, z0), _outline_rings(r),
@@ -301,6 +333,20 @@ def _sheet_relief(e: np.ndarray, n: np.ndarray, top: np.ndarray) -> float:
     coef, *_ = np.linalg.lstsq(a, top, rcond=None)
     lo, hi = np.percentile(top - a @ coef, [5.0, 95.0])
     return float(hi - lo)
+
+
+def _is_our_ground(r: _t.Any, sheet: np.ndarray, g: np.ndarray, e: np.ndarray,
+                   n: np.ndarray, relief: float) -> bool:
+    """THE SHEET IS OUR GROUND, REMODELLED (module doc): it follows ``g``
+    (our ground over the seat's zero), our ground explains its relief, and
+    it is a skin."""
+    from .ground_shell import AT_GRADE_M
+    dev = (r.top - g)[sheet]
+    if float(np.mean(np.abs(dev) <= AT_GRADE_M)) < MIN_FOLLOW_SHARE:
+        return False
+    if _sheet_relief(e[sheet], n[sheet], dev) > MAX_UNEXPLAINED * relief:
+        return False
+    return float(np.mean((r.top - r.low)[sheet] <= SKIN_M)) >= MIN_SKIN_SHARE
 
 
 def _span_m(solids: _t.Sequence[np.ndarray]) -> float:

@@ -125,3 +125,27 @@ def test_no_kerb_where_the_ground_has_come_down_to_the_floor(monkeypatch):
     pm.vertices[1].dem_z = 47.0          # under air_z + half the rise
     kerb, _wall = kf.kerb_vertices(pm, LAW)
     assert not kerb
+
+
+def test_the_census_road_cap_allows_a_declared_wall():
+    """K3: a pavement pair across a declared wall joint is allowed the
+    wall's step by ``pavement_over_road_cap`` (RULINGS 2026-10-19l)."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
+    import check_grade as cg
+
+    def ll_to_m(lat, lon):
+        return ((lon - 31.40) * 96_000.0, (lat - 30.12) * 111_320.0)
+    nodes = {"a": (30.12, 31.40), "b": (30.12 + 0.6 / 111_320.0, 31.40),
+             "c": (30.12 + 0.6 / 111_320.0, 31.40 + 5.0 / 96_000.0),
+             "d": (30.12, 31.40 + 5.0 / 96_000.0)}
+    lot = cg.Way(wid="lot", role="parking_lot", ref="lot0", aeroway="",
+                 nids=["b", "c"], elevs=[51.2, 51.2], tags={"role": "parking_lot"})
+    floor = cg.Way(wid="apron", role="apron", ref="apron0", aeroway="",
+                   nids=["a", "d"], elevs=[47.1, 47.1], tags={"role": "apron"})
+    bare = cg._check_pavement_over_road_cap([lot, floor], nodes, ll_to_m)
+    joint = [([(-10.0, 0.3), (10.0, 0.3)], 4.11)]
+    walled = cg._check_pavement_over_road_cap([lot, floor], nodes, ll_to_m,
+                                              terrace_joints_m=joint)
+    assert len(bare) == 2 and walled == []

@@ -228,17 +228,31 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
            cum: _t.Sequence[float], rw, i: int, j: int,
            za: float, zb: float, k_law: float | None,
            paved: _t.Mapping[str, bool] | None = None,
-           lidar: bool = False) -> JunctionProfile | None:
+           lidar: bool = False,
+           follow_ground: bool = False,
+           flats: bool = True) -> JunctionProfile | None:
     """THE DESIGNED PROFILE of the span ``st[i]``..``st[j]`` (module
     docstring), or ``None`` where no junction applies (the uniform §50
     yield stands).  ``paved``: the junction witness (:func:`junctions`);
-    ``lidar``: the DEM is a credible lidar inset (RULINGS 2026-10-28a)."""
+    ``lidar``: the DEM is a credible lidar inset (RULINGS 2026-10-28a).
+
+    ``follow_ground`` (owner RULINGS 2026-11-25b (2), #2274): a yielded
+    runway on credible ground with NO junction is designed too — the same
+    smoothing spline of its DEM between the pins, held WITHIN THE LAW'S
+    vertical curve (the wavelength lengthens until the largest change of
+    grade fits ``k_law``; the straight §50 line is its limit), so it is
+    steeper where the ground is steeper and gentler where it is gentler
+    instead of one uniform grade.  ``flats`` false: no junction flats are
+    read (a runway yielded under the 29ac pavement ceiling, whose taxiways
+    and aprons yield with it under 30ah / 10-10j instead)."""
     span = cum[j] - cum[i]
     dz = zb - za
     if span <= 0.0 or dz == 0.0:
         return None
-    js = junctions(pm, law, xy, st, cum, rw, i, j, abs(dz) / span, paved)
-    if not js:
+    # the junction flats are a STEEP runway's (26n); a yielded runway the
+    # pavement beside it can still follow (``flats`` false) follows its ground
+    js = junctions(pm, law, xy, st, cum, rw, i, j, abs(dz) / span, paved) if flats else ()
+    if not js and not follow_ground:
         return None
     margin = float(law.tables.emit.design.runway_yield_margin)
     unit = float(law.tables.common.vertical_curve_k_grade_unit)
@@ -260,6 +274,8 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
     g = smoothest_grades(d, dz, caps, ground, wl)
     if g is None:
         return None
+    if not js:
+        g = _within_curve(d, dz, caps, ground, wl, g, k_law, unit)
     z = {st[i]: za}
     h = za
     for k, (gk, dk) in enumerate(zip(g, d, strict=True)):
@@ -271,3 +287,34 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
     k_need = unit / (rate * _CURVE_SLACK) if rate > 0.0 else None
     k_pub = None if k_need is None or (k_law and k_need >= k_law) else k_need
     return JunctionProfile(js, max(abs(x) for x in g), rate, k_pub, z)
+
+
+#: how far the ground-following wavelength may lengthen (a multiple of the
+#: law's) before the design settles for the straight §50 line
+_MAX_STRETCH = 64.0
+
+
+def _rate(g: _t.Sequence[float], d: _t.Sequence[float]) -> float:
+    """The largest change of grade per metre between two chords."""
+    return max((abs(g[k + 1] - g[k]) / (0.5 * (d[k] + d[k + 1]))
+                for k in range(len(g) - 1)), default=0.0)
+
+
+def _within_curve(d, dz, caps, ground, wl: float, g: list[float],
+                  k_law: float | None, unit: float) -> list[float]:
+    """RULINGS 2026-11-25b (2): the ground-following grades ``g`` whose
+    largest change of grade fits the law's vertical curve ``k_law`` (with
+    the design's own ``_CURVE_SLACK``) — the spline at the shortest
+    wavelength, doubling from ``wl``, that fits; the straight line where
+    none up to ``_MAX_STRETCH`` times does."""
+    if not k_law or ground is None:
+        return g
+    lim = unit / (float(k_law) * _CURVE_SLACK)
+    w = float(wl)
+    while _rate(g, d) > lim:
+        w *= 2.0
+        if w > wl * _MAX_STRETCH:
+            span = sum(d)
+            return [dz / span] * len(d)
+        g = smoothest_grades(d, dz, caps, ground, w) or g
+    return g

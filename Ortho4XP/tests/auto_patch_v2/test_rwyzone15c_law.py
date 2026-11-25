@@ -263,3 +263,23 @@ def test_a_long_fall_gentler_than_the_escarpment_is_a_drop_too(faa):
     assert 40.0 - step <= got <= 40.0 + step
     assert end_area_length(_Profile(40.0, 0.12), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D") \
         == pytest.approx(rsa)
+
+
+def test_a_hill_ends_a_code_1_end_area_at_its_foot_on_credible_ground(icao):
+    """#2276 / owner RULINGS 2026-11-25b (1): ground RISING 18 % from 20 m
+    beyond a code-1 end (TFFJ 10's hill) ends the end area at the hill's
+    foot when a rise may end it (credible lidar); a code-4 end, or a code-1
+    end without credible ground, keeps its graded end area."""
+    from auto_patch_v2.model.end_area import end_area_length
+    hill = _Profile(20.0, -0.18)
+    step = icao.tables.emit.design.edge_grid_m
+    got = end_area_length(hill, (1000.0, 0.0), (1.0, 0.0), icao, 1, "A", rises=True)
+    assert 20.0 - step <= got <= 20.0 + step
+    rsa1 = runway_safety_area_length_m(icao, 1, "A")
+    assert end_area_length(hill, (1000.0, 0.0), (1.0, 0.0), icao, 1, "A") == pytest.approx(rsa1)
+    rsa4 = runway_safety_area_length_m(icao, 4, "D")
+    assert end_area_length(hill, (1000.0, 0.0), (1.0, 0.0), icao, 4, "D", rises=True) \
+        == pytest.approx(rsa4)
+    # ground rising gently (inside the climb surface's reach) keeps it too
+    assert end_area_length(_Profile(20.0, -0.04), (1000.0, 0.0), (1.0, 0.0), icao, 1, "A",
+                           rises=True) == pytest.approx(rsa1)

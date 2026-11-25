@@ -73,6 +73,7 @@ def test_the_longitudinal_rows_yield_the_cross_section_does_not(law):
         released_vertices,
         terrain_release,
     )
+    from auto_patch_v2.law.tables import road_terrain_cap
     from auto_patch_v2.pipeline.publication import lifted_caps
     airport, pm, road = _built(law, "residential")
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), pm.road_ramp_z)
@@ -92,7 +93,9 @@ def test_the_longitudinal_rows_yield_the_cross_section_does_not(law):
     out, n = terrain_release([lon, cross], pm, law)
     assert n == 1
     t = pm.road_ramp_z
-    assert out[0].cap * out[0].d == pytest.approx(abs(t[a] - t[b]) * (1 + RELEASE_SLACK))
+    # the target's own difference, never under the steep-ground cap (#2284)
+    assert out[0].cap * out[0].d == pytest.approx(
+        max(abs(t[a] - t[b]) * (1 + RELEASE_SLACK), road_terrain_cap(law) * d_ab))
     assert out[1] == cross
     # a row is never tightened
     loose = dc.replace(lon, cap=0.5)

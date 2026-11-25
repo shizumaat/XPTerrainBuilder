@@ -65,7 +65,7 @@ def test_a_deck_ground_vertex_a_zone_face_shares_outside_the_ring_keeps_its_datu
     faces = {10: ("graded_strip", f"{DECK_GROUND_REF}:dsf:obj1", (1, 2, 3, 5)),
              11: ("graded_strip", "adjacent_ground:taxi:F:zone2#1", (2, 3, 4)),
              12: ("graded_strip", "adjacent_ground:taxi:F:zone2#2", (1, 5, 4))}
-    got = DG._deck_ground_vertices(_ground_pm(xy, faces), {10, 11, 12})
+    got = DG._deck_ground_vertices(_ground_pm(xy, faces), {10, 11, 12}, LAW)
     # 2, 3: outside the ring and shared with a zone face -> the zone's datum;
     # 1, 5: under the deck -> follow the deck even where a zone face shares them
     assert got == {1, 5}

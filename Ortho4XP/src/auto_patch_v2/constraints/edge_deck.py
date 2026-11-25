@@ -254,7 +254,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     vertex on the BANK instead of flush -- :func:`_bank_drop` under its
     seat -- and runs on ``past`` metres beyond the ring's edges on the
     bridge's own ground (owner sim read 2026-11-17T19:42Z: "that embankment
-    needs to extend about 1m past the bridge edges")."""
+    needs to extend about 1m past the bridge edges"); past that run-on the
+    blend is a one-sided ceiling (#2235), the ground's datum below it."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -341,11 +342,12 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         # (:func:`_blend_drop`); a vertex of any other cell -- a building pad
         # under the ring (KJFK building39: its edge pulled 2 m down with the
         # bank) -- keeps the seat's level
-        drop = 0.0
+        drop, blended = 0.0, False
         if bank is not None and (_bridge_ground(planar, vx)
                                  or _open_ground(planar, vx, walls=gen)):
-            drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
-                else _blend_drop(es, p, ring_past, bank, kerb, rim)
+            blended = not ring_in.contains(p) and not inside.contains(p)
+            drop = _blend_drop(es, p, ring_past, bank, kerb, rim) if blended \
+                else _bank_drop(es, p, bank)
             if gen and kerb is not None and not kerb.is_empty:
                 # the bank keeps off the airside beside the deck everywhere,
                 # as the blend beyond the run-on does: one field, no step
@@ -355,7 +357,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                 # bank 0.1 m inside the ring)
                 drop = min(drop, bank * kerb.distance(p))
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
-        rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
+        # PAST THE RUN-ON THE BANK IS A CEILING (#2235): the blend is the cut
+        # taking ground away, never filling it (:func:`_blend_rows`).  Held
+        # two-sided, the deck's own ground in the open stretch between two
+        # decks over at-grade roads was filled toward the deck where the
+        # blend daylit (drop 0): the rows the roads beside could not bear
+        # were relaxed, the rest stood lone vertices 4-6 m over the ground
+        # (MEASURED KMCO o4gen_67d98f59, 28.422975,-81.306380)
+        if not blended:
+            rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
 
 

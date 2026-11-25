@@ -157,10 +157,11 @@ def _fine_of(dem: _t.Any) -> "_t.Callable | None":
 
 def _hidden_terrain(airport: _t.Any) -> frozenset[str]:
     """The terrain objects the user hid (#2077 4.2): the pack's "Hide
-    terrain objects" answer ``update`` over the offer a build remembered
-    (``pack_choice``); empty without a pack or an answer."""
+    terrain objects" answer ``update`` over the offer a build remembered,
+    and the offer this build finds (#2285, ``pack_choice.terrain_hiding``);
+    empty without a pack."""
     try:
-        from .pack_choice import hidden_terrain as _hidden
+        from .pack_choice import terrain_hiding as _hidden
         return _hidden(str(airport.pack.pack_root or ""))
     except Exception:
         return frozenset()

@@ -48,6 +48,8 @@ THE FINGERPRINT covers everything the reading is a function of:
   airside floor a storey over its zero is read at that floor
   (``airside_floor``), so the pavement it is read against is part of the
   reading (:func:`_airside_digest`);
+* THE TERRAIN OBJECTS THE READING HIDES (#2285, :func:`_hiding_digest`):
+  the pack's "Hide terrain objects" answer dissolves a model's frame;
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
@@ -301,6 +303,19 @@ def _airside_digest(airport) -> str:
     return h.hexdigest()
 
 
+def _hiding_digest(airport) -> str:
+    """sha256 of the terrain objects the reading hides (#2285,
+    ``basin_witness._hidden_terrain``): a hidden model's frame dissolves,
+    so a "Hide terrain objects" answer is part of the reading -- without
+    it a cached reading kept a model the pack DSF had just hidden (TNCS
+    1.0.581: eight shells hidden in the DSF, seated in the patch)."""
+    from .basin_witness import _hidden_terrain
+    got = _hidden_terrain(airport)
+    kept = getattr(got, "kept", None)
+    return hashlib.sha256(repr((sorted(got), None if kept is None else sorted(kept)))
+                          .encode()).hexdigest()
+
+
 #: ``fingerprint -> pristine stamps`` of the fingerprints this process
 #: took: :func:`write` stores them in the payload header and :func:`read`
 #: checks them (§12a: size in the key, mtime + content hash in the header).
@@ -549,6 +564,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     h.update(f"resolved:{rd[0]}:{rd[1]}|".encode())
     h.update(f"bridges:{_bridge_digest(airport)}|".encode())
     h.update(f"airside:{_airside_digest(airport)}|".encode())
+    h.update(f"terrain_hidden:{_hiding_digest(airport)}|".encode())
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd

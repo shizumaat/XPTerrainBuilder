@@ -1478,6 +1478,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         placements, {k: m for k, m in found.items() if k not in gone}), placements, geom)
     riders = frozenset(_tm.set_members(placements, gone)) - frozenset(gone)
     models.update(gone)
+    # #2285: a terrain object hidden by the pack's default is hidden by name
+    hidden = frozenset(hidden) | {m.path for k, m in gone.items() if k in found}
     features = features | frozenset(models)
     # spec 2120-F R1: a frame standing its airside floor a storey over its
     # zero is read at that floor (``airside_floor``; ``airside`` its witness)

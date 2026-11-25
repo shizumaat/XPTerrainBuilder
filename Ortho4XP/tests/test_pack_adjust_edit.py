@@ -85,6 +85,8 @@ def pack(tmp_path, monkeypatch):
     for name in ("pack_adjust", "pack_old_forests", "pack_optimise", "vprint"):
         monkeypatch.setattr(UI, name, lambda *a, **k: None)
     DS.GROUND.store.remember(str(root), "update")
+    # the user declined the terrain row (a pack with no answer hides it, #2285)
+    DS.TERRAIN.store.remember(str(root), "never")
     return seen
 
 
@@ -110,6 +112,17 @@ def test_the_report_ticks_the_pack_as_it_is(pack):
         ("dedupe", False), ("swap", False), ("textures", False)], \
         "a pack not optimised: every step off"
     assert pack["writes"] == pack["undos"] == pack["optimise"] == []
+
+
+def test_a_pack_with_no_terrain_answer_hides_the_offer(pack):
+    """#2285: with no answer the terrain row is "update" -- the report
+    ticks it and the tile's cut reads it hidden."""
+    DS.TERRAIN.store.remember(pack["root"], "")
+    assert DS.TERRAIN.store.choice(pack["root"]) == "update"
+    [row] = [r for r in _report(pack)["items"] if r["key"] == "terrain"]
+    assert row["checked"] is True and row["applied"] is False
+    assert TC._hidden({"resource": "objects/hill.obj", "hideable": True}, pack["root"])
+    assert not TC._hidden({"resource": "objects/rock.obj"}, pack["root"])
 
 
 def test_nothing_changed_writes_nothing(pack):

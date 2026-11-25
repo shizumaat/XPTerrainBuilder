@@ -513,7 +513,8 @@ def placement_models(placements: _t.Sequence[tuple],
     the resolved file or ``None``, ``geometry(def path)`` its parsed
     geometry (the reader's cache) or ``None``.  ``water``: the water
     witness (:func:`_fit_seat`).  ``hidden``: the def paths the user hid
-    (module doc, HIDING) -- such a model comes back with ``ground =
+    (module doc, HIDING; a ``pack_choice._TerrainHiding`` also hides the
+    offer, #2285, ``pack_choice.hides``) -- such a model comes back with ``ground =
     "hidden"`` (``ground_shell.HIDDEN``): its row is left out and its
     frame dissolves.
 
@@ -525,6 +526,7 @@ def placement_models(placements: _t.Sequence[tuple],
     is kept on the model (:attr:`TerrainModel.datum`) so the rows the
     author stood on it keep their place (:func:`set_members`)."""
     from .obj8 import is_stock_library_resource
+    from .pack_choice import hides
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
     for oid, dpath, xy, heading, elev, kind in placements:
@@ -542,15 +544,16 @@ def placement_models(placements: _t.Sequence[tuple],
         m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
         if m is None:
             continue
+        gone = hides(hidden, str(dpath), m["hideable"])
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
                                      m["quality_cover"],
-                                     m["hideable"] or str(dpath) in hidden,
+                                     m["hideable"] or gone,
                                      str(path_of(dpath) or ""),
                                      datum=datum,
                                      fill=True,
-                                     ground="hidden" if str(dpath) in hidden else "",
+                                     ground="hidden" if gone else "",
                                      small=shape.small)
     return out
 

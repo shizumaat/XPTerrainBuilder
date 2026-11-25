@@ -17,6 +17,7 @@ __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
            "GATEWAY_CHOICES", "GROUND_CHOICES", "GENERIC_CHOICES", "TERRAIN_CHOICES",
            "TERRAIN_FOUND", "TERRAIN_MODELS", "TERRAIN_OBJECTS", "PRIORITY_CHOICES",
            "terrain_answers", "OVERLAP_FOUND", "hidden_terrain",
+           "TERRAIN_DEFAULT", "TERRAIN_STORE", "terrain_hiding", "hides",
            "Store", "store_path", "read", "read_all",
            "write", "relative", "step_list"]
 
@@ -120,13 +121,17 @@ class Store:
     it remembers (default ``"update"`` / ``"never"``)."""
 
     def __init__(self, name: str,
-                 allowed: _t.Callable[[object], bool] = _remembered) -> None:
+                 allowed: _t.Callable[[object], bool] = _remembered,
+                 default: str = "") -> None:
         self.name = name
         self.allowed = allowed
+        #: the answer of a pack with none remembered (``""``: ask)
+        self.default = default
 
     def choice(self, pack_root: str) -> str:
-        """``"update"`` | ``"never"`` | ``""`` (ask)."""
-        return read(store_path(self.name), pack_root, self.allowed)
+        """``"update"`` | ``"never"`` | ``""`` (ask); :attr:`default` when
+        the pack has no answer."""
+        return read(store_path(self.name), pack_root, self.allowed) or self.default
 
     def remember(self, pack_root: str, choice: str) -> None:
         """Remember (or, with ``""``, forget) the answer for a pack."""
@@ -141,9 +146,57 @@ def relative(pack_root: str, path: str) -> str:
         return path.replace(os.sep, "/")
 
 
+#: THE TERRAIN ROW'S DEFAULT (owner 2026-11-25, #2285, on RULINGS
+#: 2026-11-24k (1)): a pack with no answer HIDES every terrain object the
+#: build offers -- our ground under it is quality elevation (10 m or finer
+#: over 90 % of its plan) that models it (``terrain_model.quality``).  The
+#: user's "never" and per-object Keep answers still keep one.
+TERRAIN_DEFAULT = "update"
+#: the "Hide terrain objects" answers, :data:`TERRAIN_DEFAULT` for none
+TERRAIN_STORE = Store(TERRAIN_CHOICES, default=TERRAIN_DEFAULT)
+
+
+class _TerrainHiding(frozenset):
+    """The terrain objects a build hides (:func:`terrain_hiding`): the set
+    is the paths hidden by name (:func:`hidden_terrain`); :attr:`kept` is
+    ``None`` when the pack does not hide its offer, else the paths the
+    user keeps -- every other object this build finds hideable is hidden
+    too (:func:`hides`), so a pack's first build hides what it offers."""
+
+    kept: "frozenset[str] | None" = None
+
+    def __new__(cls, paths: _t.Iterable[str] = (),
+                kept: "_t.Iterable[str] | None" = None) -> "_TerrainHiding":
+        self = super().__new__(cls, paths)
+        self.kept = None if kept is None else frozenset(kept)
+        return self
+
+
+def hides(hidden: _t.AbstractSet[str], path: str, hideable: bool) -> bool:
+    """Is the terrain object ``path`` hidden: named in ``hidden``, or
+    offered (``hideable``) where ``hidden`` is a :class:`_TerrainHiding`
+    that hides its offer and the user does not keep it."""
+    if path in hidden:
+        return True
+    kept = getattr(hidden, "kept", None)
+    return bool(hideable) and kept is not None and path not in kept
+
+
+def terrain_hiding(pack_root: str) -> _TerrainHiding:
+    """THE BUILD'S HIDING for a pack (#2285): :func:`hidden_terrain`, and
+    when the pack's answer is ``update`` (:data:`TERRAIN_DEFAULT` with
+    none) the objects the user keeps (``pack_terrain.KEEP``)."""
+    if not pack_root or TERRAIN_STORE.choice(pack_root) != "update":
+        return _TerrainHiding(hidden_terrain(pack_root))
+    from .pack_terrain import KEEP
+    return _TerrainHiding(hidden_terrain(pack_root),
+                         (p for p, a in terrain_answers(pack_root).items() if a == KEEP))
+
+
 def hidden_terrain(pack_root: str) -> frozenset[str]:
     """The terrain objects the user HID (#2077 4.2): the pack's
-    :data:`TERRAIN_CHOICES` answer ``update`` over the offer the last build
+    :data:`TERRAIN_CHOICES` answer ``update`` (:data:`TERRAIN_DEFAULT`
+    with none, #2285) over the offer the last build
     remembered (:data:`TERRAIN_FOUND`, ``drape_stage.terrain_paths``) as the
     per-object answers move it (:data:`TERRAIN_OBJECTS`, #2272); empty
     otherwise.  The build reads it (their frames dissolve,
@@ -151,7 +204,7 @@ def hidden_terrain(pack_root: str) -> frozenset[str]:
     (``provenance.terrain_hidden_identity``)."""
     if not pack_root:
         return frozenset()
-    if Store(TERRAIN_CHOICES).choice(pack_root) != "update":
+    if TERRAIN_STORE.choice(pack_root) != "update":
         return frozenset()
     from .pack_terrain import decode, offered
     found = Store(TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v)).choice(pack_root)

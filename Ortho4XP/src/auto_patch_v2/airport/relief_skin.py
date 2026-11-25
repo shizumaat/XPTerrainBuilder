@@ -168,8 +168,9 @@ def placement_skins(placements: _t.Sequence[tuple],
     deck: they come first).  ``dem_many`` / ``fine``: the hide offer
     (``terrain_model.quality``, the skin re-matched to the quality ground
     for that test only).  ``hidden``: the def paths the user hid (they
-    come back with ``ground = "hidden"``)."""
+    come back with ``ground = "hidden"``; ``pack_choice.hides``)."""
     from .obj8 import is_stock_library_resource
+    from .pack_choice import hides
     out: dict[str, _tm.TerrainModel] = {}
     shapes: dict[str, "_tm.Shape | None"] = {}
     for oid, dpath, xy, heading, _elev, kind in placements:
@@ -189,11 +190,12 @@ def placement_skins(placements: _t.Sequence[tuple],
             continue
         cover, hideable = (0.0, False) if dem_many is None else \
             _tm.quality(shape, xy2, float(heading), dem_many, fine)
+        gone = hides(hidden, str(dpath), hideable)
         out[str(oid)] = _tm.TerrainModel(
             str(oid), str(dpath), xy2, float(heading), z0, 0.0, 0.0, 0.0,
-            shape.grid.area_m2, shape.relief_m, cover, hideable or str(dpath) in hidden,
+            shape.grid.area_m2, shape.relief_m, cover, hideable or gone,
             str(path_of(dpath) or ""), fill=True, skin=True,
-            ground="hidden" if str(dpath) in hidden else "")
+            ground="hidden" if gone else "")
     return out
 
 

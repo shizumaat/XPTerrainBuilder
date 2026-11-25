@@ -5,7 +5,7 @@ Issues: #2279 (PHLI), #2288 and #2287 (LDSP), #2197 (ELLX, LDSP), #2062 (LPHR).
 Law read: RULINGS 2026-11-25g, 25f, 25e, 25c, 25b (5), 2026-11-20r, 2026-11-13v/13w/13x, 2026-10-19ai, owner answer 47 (2026-10-20), 2026-09-12r (§28), 2026-09-13aj (§37 (6)), 2026-10-09j, 2026-08-30l.
 Specs read: `low-level-pad-spec.md` (§5 the upper level), `2062-storey-shell-spec.md`, `unit-platform-spec.md`, lane specs `2279-kerb-frontage-spec.md` (branch `claude/lphli2`) and `2197-partial-shell-patch-rim-spec.md` (worktree `lpartshell2`, uncommitted).
 
-Owner questions Q1-Q4 (§6) are open; answers are recorded in RULINGS when given.
+Owner answered Q1-Q4 on 2026-11-25T19:43Z: RULINGS 2026-11-25h (Q1 multi-level groundside read from face height and clues; Q2 yes; Q3 yes, walls/fences/pavement edges mark steeper steps; Q4 try one level per block).
 
 ## 0. Verified / not verified
 

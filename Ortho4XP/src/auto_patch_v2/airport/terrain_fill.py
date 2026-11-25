@@ -57,6 +57,13 @@ R2'/R3', 2026-11-15): the raster Triangle4XP reads keeps the planes and
 fills :data:`DRY_M` off mapped water (the conformed raster stays in memory
 for the roads and comes back to every land vertex through the ``.alt``'s
 sidecar); every quay piece is drawn whatever its area (:func:`quay_rings`).
+
+A SMALL TERRAIN SHELL (#2272 round 2, ``terrain_cut`` THE SHELL) is seated
+at its author's height: its body is cut, its edge band is not, and the
+ground near its body edge is FEATHERED to it (:func:`edge_feather`, S4)
+before its rim fill (S5: in the band uncapped, under the body capped by the
+cut).  Round 1's rim tuck (lowering the ground to the rim's bottom, a moat
+at the rim) is gone.
 """
 from __future__ import annotations
 
@@ -66,11 +73,11 @@ import typing as _t
 
 import numpy as np
 
-from ..geom.terrain_deck import UNDER_M
+from ..geom.terrain_deck import CELL_M, UNDER_M
 
 __all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "QUAY_M", "DRY_M", "Raster",
-           "posting_shoulder_m", "rim_fill", "rim_tuck", "conform_plane", "quay_rings",
-           "Owned"]
+           "posting_shoulder_m", "rim_fill", "edge_feather", "FEATHER_M", "conform_plane",
+           "quay_rings", "Owned"]
 
 #: the reach of a fill or a plane from its supports (m)
 REACH_M = 60.0
@@ -87,6 +94,9 @@ QUAY_M = 1.0
 #: the water's triangles see the ground the control saw; the vertices
 #: then take the conformed ground back (``terrain_cut_stage.refill_land``)
 DRY_M = REACH_M
+#: THE FEATHER (#2272 round 2 S4): the ground this near a kept shell's body
+#: edge is lowered toward it (the fills' reach, the insets' default feather)
+FEATHER_M = REACH_M
 _M_PER_DEG = 111_320.0
 
 
@@ -95,7 +105,9 @@ class Raster:
     """One elevation raster: ``alt[row, col]`` (changed in place), posting
     ``(row, col)`` at ``lon0 + col * dlon``, ``lat0 - row * dlat``
     (absolute degrees), and ``frozen(rows, cols, lons, lats)`` True at the
-    postings never changed (the tile edge, an airport patch) or ``None``."""
+    postings never changed (the tile edge, an airport patch) or ``None``;
+    ``frozen_dist(rows, cols, lons, lats)`` the metres from each posting to
+    the nearest frozen ground (``None``: none near; :func:`edge_feather`)."""
 
     alt: np.ndarray
     lon0: float
@@ -103,6 +115,7 @@ class Raster:
     dlon: float
     dlat: float
     frozen: "_t.Callable | None" = None
+    frozen_dist: "_t.Callable | None" = None
 
     def posting_m(self) -> tuple[float, float]:
         """The posting's ``(east, north)`` steps in metres, at mid-raster."""
@@ -291,79 +304,55 @@ def rim_fill(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
     return rep
 
 
-def rim_tuck(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
-             support_xy: np.ndarray, support_bot: np.ndarray, support_top: np.ndarray,
-             cap: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-             owned: _t.Iterable[Owned] = ()) -> dict[str, int]:
-    """THE RIM TUCK (#2272, owner decision 2026-11-24T15:33Z (3): a small
-    terrain shell seated at its author's height has "our ground tucked
-    under" it), for a record whose ``cut`` carries ``"tuck": true`` in
-    place of its :func:`rim_fill`.  SUPPORTS: every outer-rim cell, its
-    bottom and its TOP less ``UNDER_M``.  Each free posting within
-    :data:`REACH_M` of the rim is CONFORMED TO ITS NEAREST support ``k`` at
-    distance ``d``: clipped to
+def edge_feather(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
+                 supports_xy: np.ndarray, residual: np.ndarray,
+                 feather_m: float = FEATHER_M) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """THE FEATHER (#2272 round 2 S4) of one kept shell on ``raster``:
+    ``(rows, cols, delta)`` of the free postings it lowers, ``delta < 0``
+    (the raster is NOT changed: the caller takes the most negative
+    ``delta`` over every shell and leaves the bodies out).
 
-        [bot_k - r, top_k + r],   r = max(0, d - W)
-
-    -- raised to the skirt where the rim floats, lowered to the top where a
-    coarse DEM's ground buries it, the shoulder then a 1:1 talus to our
-    ground.  The NEAREST support, not every one in reach: a shell's rim
-    spans a cliff (its crest 40 m over its foot 60 m away), and a fill from
-    the crest buries the foot while a tuck from the foot strands the crest.
-    NEVER FLOATING: a posting within one posting step of the rim is never
-    left under the highest rim bottom that near (a shell is one surface,
-    bottom = top): a zero-thickness edge the ground dips under shows the
-    void beneath it, while ground a step over a cliff foot's edge hides it.
-    #2272 replay (TFFJ, 16 shells, 3,627 rim cells, 10 m postings): rim
-    cells over 0.5 m above the ground between postings 136 with the rim
-    fill, 1,075 with the nearest edge alone, 139 with this floor; the
-    ground over the rim, mean 4.61 m (fill) -> 2.22 m (p95 12.8 -> 7.4).
-    Inside the plan never above the cut bound (``cap``); never within
-    ``W`` of another composite's ground (``owned``), never at a frozen
-    posting (the tile's edge, an airport patch: airside is king).
-    ``{"supports", "raised", "lowered"}``."""
+    ``supports_xy`` the body-edge cells' frame points (``to_xy`` / ``to_ll``
+    the shell's projector), ``residual`` each one's ``e = min(0, seat -
+    ground)``, read on the raster before any cut.  Each free posting within
+    ``feather_m`` of a support takes ``w * E``: ``E`` the inverse-distance-
+    squared mean of ``e`` over its 16 nearest supports (distance floored at
+    half a plan cell), ``w = clip(1 - d / feather_m) * clip(d_frozen /
+    feather_m)`` -- ``d`` to the nearest support, ``d_frozen`` to the
+    nearest frozen ground (``Raster.frozen_dist``): zero at a frozen
+    posting and at ``feather_m``, continuous between.  Only lowers; never
+    under ``min(ground, 0)`` (the sea datum)."""
     from scipy.spatial import cKDTree
-    rep = {"supports": int(len(support_xy)), "raised": 0, "lowered": 0}
-    if not len(support_xy):
-        return rep
-    sxy = np.asarray(support_xy, float)
-    bot, top = np.asarray(support_bot, float), np.asarray(support_top, float)
-    w = raster.shoulder_m()
-    lo, la = to_ll(np.r_[sxy[:, 0].min() - REACH_M, sxy[:, 0].max() + REACH_M],
-                   np.r_[sxy[:, 1].min() - REACH_M, sxy[:, 1].max() + REACH_M])
+    none = (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0))
+    sxy = np.asarray(supports_xy, float).reshape(-1, 2)
+    e = np.minimum(np.asarray(residual, float), 0.0)
+    if not len(sxy) or not (e < 0.0).any():
+        return none
+    f = float(feather_m)
+    lo, la = to_ll(np.r_[sxy[:, 0].min() - f, sxy[:, 0].max() + f],
+                   np.r_[sxy[:, 1].min() - f, sxy[:, 1].max() + f])
     rows, cols, lons, lats = raster.window(float(lo.min()), float(la.min()),
                                            float(lo.max()), float(la.max()))
     if not len(rows):
-        return rep
+        return none
     x, y = to_xy(lons, lats)
-    d, k = cKDTree(sxy).query(np.c_[x, y], distance_upper_bound=REACH_M)
-    near = np.isfinite(d) & ~_owned_mask(owned, to_xy, x, y, w)
+    k = min(16, len(sxy))
+    d, idx = cKDTree(sxy).query(np.c_[x, y], k=k, distance_upper_bound=f)
+    d, idx = d.reshape(len(x), k), idx.reshape(len(x), k)
+    near = np.isfinite(d[:, 0])
     if not near.any():
-        return rep
-    rows, cols, lons, lats = rows[near], cols[near], lons[near], lats[near]
-    r = np.maximum(0.0, d[near] - w)
-    low = np.maximum(bot[k[near]] - r, _skirt_floor(sxy, bot, np.c_[x[near], y[near]],
-                                                    max(raster.posting_m())))
-    hi = np.minimum(np.maximum(top[k[near]] + r, low), cap(lons, lats))
-    low = np.minimum(low, hi)
+        return none
+    rows, cols, lons, lats, d, idx = (a[near] for a in (rows, cols, lons, lats, d, idx))
+    ok = np.isfinite(d)
+    wgt = np.where(ok, 1.0 / np.maximum(np.where(ok, d, 1.0), 0.5 * CELL_M) ** 2, 0.0)
+    big = np.where(ok, e[np.minimum(idx, len(e) - 1)], 0.0)
+    w = np.clip(1.0 - d[:, 0] / f, 0.0, 1.0)
+    if raster.frozen_dist is not None:
+        w *= np.clip(np.asarray(raster.frozen_dist(rows, cols, lons, lats), float) / f, 0.0, 1.0)
     old = raster.alt[rows, cols].astype(float)
-    new = np.clip(old, low, hi)
-    up, down = new > old + 1e-6, new < old - 1e-6
-    raster.alt[rows[up | down], cols[up | down]] = new[up | down]
-    rep["raised"], rep["lowered"] = int(up.sum()), int(down.sum())
-    return rep
-
-
-def _skirt_floor(sxy: np.ndarray, bot: np.ndarray, xy: np.ndarray, step: float) -> np.ndarray:
-    """Per posting at ``xy``: the highest rim bottom within ``step`` (one
-    posting step; ``-inf`` with none) -- :func:`rim_tuck`'s NEVER FLOATING
-    floor."""
-    from scipy.spatial import cKDTree
-    out = np.full(len(xy), -np.inf)
-    for i, ks in enumerate(cKDTree(sxy).query_ball_point(xy, step)):
-        if ks:
-            out[i] = float(bot[ks].max())
-    return out
+    delta = np.maximum(w * (wgt * big).sum(1) / wgt.sum(1), np.minimum(old, 0.0) - old)
+    down = delta < -1e-6
+    return rows[down], cols[down], np.minimum(delta[down], 0.0)
 
 
 def quay_rings(rings_ll: _t.Sequence, to_xy: _t.Callable, to_ll: _t.Callable,

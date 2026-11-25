@@ -2115,6 +2115,20 @@ def audit_interp_alt_extent(tile, vertices, changed_indices, coverage,
 
 
 ################################################################################
+def _ribbon_vertices(tile, vertices, interp_alt_tris, water_valued, pins):
+    """The road-ribbon vertices (``O4_Road_Bank.ribbon_vertices``) among
+    the INTERP_ALT corners that are neither water, a patch pin nor inside
+    the patch coverage (#2272 S6: those stay fixed)."""
+    import shapely
+    skip = set(water_valued) | set(pins)
+    cand = numpy.fromiter({v for tri in interp_alt_tris for v in tri} - skip, dtype=numpy.int64)
+    cover = patch_coverage_polygon(tile)
+    if cover is not None and cover[0] is not None and len(cand):
+        v = numpy.asarray(vertices).reshape(-1, 6)
+        cand = cand[~shapely.contains_xy(cover[0], v[cand, 0], v[cand, 1])]
+    return ROAD_BANK.ribbon_vertices(tile, vertices, cand)
+
+
 def post_process_nodes_altitudes(tile):
     dico_attributes = VECT.Vector_Map.dico_attributes
     UI.vprint(1, "-> Loading of the mesh computed by Triangle4XP.")
@@ -2474,10 +2488,14 @@ def post_process_nodes_altitudes(tile):
     # #2053 round 3: THE HOLD -- the free vertices under an object the mesh
     # holds the cut ground under (auto_patch.terrain_cut_stage.hold)
     # (``fixed`` is lazy: read only when the tile holds an object)
+    # #2272 S6: a shell frees the road-ribbon vertices under its body
+    # (lazy: identified only when the tile holds a shell)
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
     TERRAIN_CUT.hold(tile, vertices, corners, itertools.chain(
         (v for tri in interp_alt_tris for v in tri), water_valued,
-        pins[0] if pins is not None else ()), water_valued)
+        pins[0] if pins is not None else ()), water_valued,
+        ribbons=lambda: _ribbon_vertices(tile, vertices, interp_alt_tris, water_valued,
+                                         pins[0] if pins is not None else ()))
     if lifted_water:
         UI.vprint(
             1,

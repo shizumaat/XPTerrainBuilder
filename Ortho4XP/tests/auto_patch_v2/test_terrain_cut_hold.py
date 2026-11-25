@@ -313,3 +313,98 @@ def test_the_road_profile_sampler_reads_the_cut_ground_under_a_held_object(squar
     assert s.lowered == 1
     none = types.SimpleNamespace(terrain_models=(("dsf:obj9", "x.obj", _model(""), 0.0),))
     assert OG.object_sampler(flat, none) is flat
+
+
+# -- THE SHELL's body (#2272 round 2 S6) -------------------------------------
+
+def _shell_rec(elevation=0.0):
+    return {"id": "dsf:obj5", "resource": "s.obj", "elevation": elevation, "icao": "TEST",
+            "cut": {"file": "s.obj", "lat": -22.5, "lon": -43.5, "heading": 0.0,
+                    "fill": True, "shell": True}}
+
+
+def test_the_body_ring_encloses_every_sample_deeper_than_the_band_less_a_metre():
+    """S6: every 1 m sample of the solid deeper than ``BAND_M - 1 m`` (the
+    1 m grid's own edge distance, as ``tools/drawn_cover`` reads it) lies
+    inside the body ring, and the ring keeps clear of the plan outline."""
+    import shapely
+    from auto_patch_v2.airport.terrain_shaped import bin_triangles
+    from scipy import ndimage
+    p = _flat_square(60.0)
+    p2 = p.copy()
+    p2[:, :, 0] += 45.0                     # an L: a second square beside it
+    tris = np.concatenate([p, p2[:1]])
+    x0, z0, bot, _top = bin_triangles(tris, TC.HOLD_CELL_M)
+    cov = np.isfinite(bot)
+    rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
+    edge = ndimage.distance_transform_edt(~rim) * TC.HOLD_CELL_M
+    ii, jj = np.nonzero(cov & (edge > TC.BAND_M - TC.HOLD_CELL_M))
+    pts = shapely.points(np.c_[x0 + ii * TC.HOLD_CELL_M, z0 + jj * TC.HOLD_CELL_M])
+    region = TC.body_region(tris)
+    assert shapely.contains(region, pts).all()
+    outline = shapely.union_all(shapely.polygons(tris[:, :, [0, 2]]))
+    assert region.boundary.distance(outline.boundary) > TC.BAND_M - 3.0
+    g = DeckGrid(*bin_triangles(tris))
+    fit = TC.cut_fit(g, 0.0, 0.0, skirt=True)
+    for r in TC.body_rings(fit, TC.projector(-22.5, -43.5)[1], tris):
+        assert np.allclose(r[0], r[-1])
+
+
+def _use_solid(monkeypatch, p):
+    from auto_patch_v2.airport.terrain_shaped import bin_triangles
+    monkeypatch.setattr(TM, "plan_solid", lambda path: p)
+    monkeypatch.setattr(TM, "plan_grid", lambda path: DeckGrid(*bin_triangles(p)))
+
+
+def _shell_mesh(z=5.0, step=5.0, n=25):
+    """A lattice mesh (``step`` m, the plan outline at +/-30 m on its lines)."""
+    return _tile_mesh(z, step, n)
+
+
+def _vid(tile, v, e, n):
+    to_xy, _ll = TC.projector(-22.5, -43.5)
+    x, y = to_xy(tile.lon + v[0::6], tile.lat + v[1::6])
+    return int(np.argmin(np.hypot(x - e, y - n)))
+
+
+def test_the_shell_hold_holds_the_body_fixes_the_outline_and_frees_a_ribbon(square, monkeypatch):
+    """S6 on a synthetic mesh flat at 5 m over a 65 m shell at 2 m: every
+    body sample ends under the shell; the outline ring's vertices never
+    move; a road-ribbon vertex under the body (fixed as INTERP_ALT) is
+    lowered; a patch vertex there stays and its samples are unresolved."""
+    import shapely
+    p = _flat_square(65.0)          # its plan cells' outline on the lattice, +/-35 m
+    _use_solid(monkeypatch, p)
+    rec = _shell_rec(elevation=2.0)
+    monkeypatch.setattr(TCS, "_held_records", lambda tile: TCS._held([rec]))
+    tile, v, tris = _shell_mesh()
+    rib, patch = _vid(tile, v, 0.0, 0.0), _vid(tile, v, 10.0, 10.0)
+    before = v.copy()
+    got = TCS.hold(tile, v, tris, {rib, patch}, ribbons=lambda: [rib])["dsf:obj5"]
+    assert got["lowered"] > 0 and got["unresolved"] > 0
+    assert v[6 * rib + 2] < before[6 * rib + 2]                      # the ribbon: free
+    assert v[6 * patch + 2] == before[6 * patch + 2]                 # the patch: fixed
+    fit = TCS._fit(rec)
+    to_xy, _ll = TC.projector(-22.5, -43.5)
+    lx, lz = fit.local(*to_xy(tile.lon + v[0::6], tile.lat + v[1::6]))
+    on = shapely.distance(TC.plan_region(fit).boundary, shapely.points(np.c_[lx, lz])) < 0.05
+    assert on.sum() >= 8
+    np.testing.assert_array_equal(v[2::6][on], before[2::6][on])
+    # without the patch vertex every body sample is held under the shell
+    tile, v, tris = _shell_mesh()
+    got = TCS.hold(tile, v, tris, {rib}, ribbons=[rib])["dsf:obj5"]
+    assert got["unresolved"] == 0 and got["worst_m"] == pytest.approx(3.0 + UNDER_M, abs=1e-6)
+
+
+def test_a_shell_under_the_sea_datum_is_never_held(square, monkeypatch):
+    """RULINGS 2026-11-25a (3): a shell whose body is seated under the sea
+    datum runs under the water by design -- no sample is held, no vertex
+    moves; water-valued vertices never move either way."""
+    _use_solid(monkeypatch, _flat_square(60.0))
+    rec = _shell_rec(elevation=-3.0)
+    monkeypatch.setattr(TCS, "_held_records", lambda tile: TCS._held([rec]))
+    tile, v, tris = _shell_mesh(z=1.0)
+    before = v.copy()
+    got = TCS.hold(tile, v, tris, set())["dsf:obj5"]
+    assert got["samples"] == 0 and got["lowered"] == 0
+    np.testing.assert_array_equal(v, before)

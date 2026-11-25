@@ -22,16 +22,21 @@ step's curvature weight map its plan boxes (``O4_Mesh_Utils.
 build_curv_tol_weight_map``), and :func:`hold` lowers the free vertices
 of the drawn mesh under the object's bound after the altitudes are post
 processed (``O4_Mesh_Utils.post_process_nodes_altitudes``).  A terrain
-model's record (no ``erode_m``) is not held.
+model's record (no ``erode_m``) is not held -- unless it is a SHELL.
+
+A SHELL (#2272 round 2, ``cut["shell"]``, ``auto_patch_v2.airport.
+terrain_cut`` THE SHELL): its body is cut and its edge band is not
+(``_fit``'s ``skirt``); its body-edge residuals are read before any cut
+(:func:`_residuals`) and the ground near its body edge FEATHERED to it
+before the rim fills (:func:`_feather`, S4); its body ring is drawn beside
+its outline (:func:`_outline`); the mesh HOLDS its body (S6, :func:`hold`:
+its outline's vertices fixed, a road ribbon's vertex under the body free).
 
 THE FILL (#2077 rule B, ``auto_patch_v2.airport.terrain_fill``): after
 every cut, a relief skin's ZERO PLANE (``cut["plane"]``) conforms the
-ground under its town to its frame zero, then every record whose ``cut``
-carries ``"tuck": true`` (a small terrain shell, #2272) has the ground
-near its rim conformed to its nearest edge (``terrain_fill.rim_tuck``:
-raised to a floating skirt, lowered to a buried top), and every other
-record whose ``cut`` carries ``"fill": true`` has the ground raised to its
-outer rim.  Neither
+ground under its town to its frame zero, then the shells' feather, then
+every record whose ``cut`` carries ``"fill": true`` has the ground raised
+to its outer rim.  Neither
 touches the tile's edge postings nor an airport patch's boundary
 (``patch_area``: the vector step's ``patches_area``, the mesh step's
 ``O4_Mesh_Utils.patch_coverage_polygon``), and a rim fill stays clear of
@@ -139,7 +144,7 @@ def _fit(rec, band: tuple[float, float] | None = None):
     reach = band if band is not None and c.get("fill") else (_tc.BAND_M, None)
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
                        float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)),
-                       float(reach[0]), reach[1])
+                       float(reach[0]), reach[1], skirt=bool(c.get("shell")))
 
 
 def _cut_one(dem, tile, rec) -> int:
@@ -169,6 +174,10 @@ def _cut_one(dem, tile, rec) -> int:
     lats = tile.lat + dem.y1 - rows.ravel() * dy
     ground = a[rows.ravel(), cols.ravel()].astype(float)
     z, inside = _tc.cut_heights(fit, to_xy, lons, lats, ground)
+    if c.get("shell"):
+        # RULINGS 2026-11-25a (3): a shell's body under the sea datum runs
+        # under the water -- the ground is never cut under ``min(ground, 0)``
+        z = np.maximum(z, np.minimum(ground, 0.0))
     cut = inside & np.isfinite(z) & (z < ground)
     a[rows.ravel()[cut], cols.ravel()[cut]] = z[cut]
     return int(cut.sum())
@@ -187,6 +196,7 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
         return 0
     if records is None:
         records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
+    residuals = _residuals(dem, tile, records)
     total = 0
     for rec in records:
         try:
@@ -201,7 +211,7 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
     dem.terrain_fill_delta = None
     if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:
-            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area)
+            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area, residuals)
             total += k
         except Exception as exc:
             UI.vprint(1, f"   terrain composites not filled ({exc})")
@@ -220,8 +230,6 @@ class _Composite(_t.NamedTuple):
     support_z: np.ndarray
     owned: _t.Any                  # its ground (``terrain_fill.Owned``)
     floor: _t.Any                  # its zero footprint alone (``Owned``)
-    #: the rim's TOP less ``UNDER_M`` (the rim tuck's supports, #2272)
-    support_top: np.ndarray
 
 
 def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | None":
@@ -235,14 +243,31 @@ def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | No
         return None
     c = rec["cut"]
     to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
-    ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
-    sx, sy = _tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))
+    sxy, bot = _rim_supports(rec, grid, fit)
     plane = (c.get("plane") or {}).get("rings") or ()
     rings = tuple(np.asarray(r, float) for r in [*_tc.outline_rings(fit, to_ll), *plane])
-    return _Composite(rec, fit, to_xy, to_ll, np.c_[sx, sy],
-                      float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M,
-                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)),
-                      float(rec["elevation"]) + grid.top[ri, rj] - UNDER_M)
+    return _Composite(rec, fit, to_xy, to_ll, sxy, float(rec["elevation"]) + bot - UNDER_M,
+                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)))
+
+
+def _rim_supports(rec, grid, fit) -> tuple[np.ndarray, np.ndarray]:
+    """``(frame points, bottoms)`` of a record's outer-rim cells: on its
+    plan grid -- or, for a SHELL (S5), on THE HOLD's 1 m grid of its
+    solid, so a rim cell is read at the rim: a 5 m cell centred off the
+    edge reads a skirt's bottom over ground metres downhill (#2272)."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
+    c = rec["cut"]
+    tris = _tm.plan_solid(str(c["file"])) if c.get("shell") else None
+    if tris is None:
+        ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
+        sx, sy = _tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))
+        return np.c_[sx, sy], grid.bot[ri, rj]
+    from auto_patch_v2.airport.terrain_shaped import bin_triangles
+    x0, z0, bot, _top = bin_triangles(np.asarray(tris, float), _tc.HOLD_CELL_M)
+    ri, rj = np.nonzero(_tm.outer_rim(np.isfinite(bot)))
+    sx, sy = _tc._to_frame(fit, np.c_[x0 + _tc.HOLD_CELL_M * ri, z0 + _tc.HOLD_CELL_M * rj])
+    return np.c_[sx, sy], bot[ri, rj]
 
 
 def _raster(dem, tile, patch_area):
@@ -262,7 +287,24 @@ def _raster(dem, tile, patch_area):
             import shapely
             out |= shapely.contains_xy(patch_area, lons - tile.lon, lats - tile.lat)
         return out
-    return _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
+    raster = _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
+    px, py = raster.posting_m()
+    metric, patch_m = _metric(tile), []
+
+    def frozen_dist(rows, cols, lons, lats):
+        """Metres to the nearest frozen posting (the tile's edge, a patch)."""
+        out = np.minimum.reduce([(rows - _EDGE_POSTS + 1) * py, (ny - _EDGE_POSTS - rows) * py,
+                                 (cols - _EDGE_POSTS + 1) * px, (nx - _EDGE_POSTS - cols) * px])
+        if patch_area is not None and len(rows):
+            import shapely
+            if not patch_m:
+                patch_m.append(shapely.transform(patch_area, metric))
+                shapely.prepare(patch_m[0])
+            q = metric(np.c_[np.asarray(lons) - tile.lon, np.asarray(lats) - tile.lat])
+            out = np.minimum(out, shapely.distance(patch_m[0], shapely.points(q)))
+        return out.astype(float)
+    raster.frozen_dist = frozen_dist
+    return raster
 
 
 def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
@@ -292,8 +334,77 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
     return None if c1 < c0 or r1 < r0 else (r0, r1, c0, c1)
 
 
-def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
-    """THE FILL (module doc): every plane, every rim tuck, every rim fill;
+def _residuals(dem, tile, records) -> dict:
+    """THE FEATHER's supports (#2272 round 2 S4), read on the raster BEFORE
+    any cut: per shell record (keyed by ``id``) ``(supports_xy, e)`` -- its
+    body-edge cells (``terrain_model.outer_rim`` of ``terrain_cut.
+    body_mask``) in its frame and ``e = min(0, z0 + top - UNDER_M - ground)``.
+    A body edge seated under the sea datum is no support (the water is a
+    datum, RULINGS 2026-09-09m)."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
+    from auto_patch_v2.geom.terrain_deck import UNDER_M
+    out = {}
+    shells = [r for r in records if r["cut"].get("shell")]
+    if not shells:
+        return out
+    raster = _raster(dem, tile, None)
+    for rec in shells:
+        c = rec["cut"]
+        try:
+            grid = _tm.plan_grid(str(c["file"]))
+            if grid is None:
+                continue
+            ri, rj = np.nonzero(_tm.outer_rim(_tc.body_mask(grid.covered)))
+            sx, sy = _tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))
+            seat = float(rec["elevation"]) + grid.top[ri, rj] - UNDER_M
+            ground = raster.sample(*_tc.projector(float(c["lat"]), float(c["lon"]))[1](sx, sy))
+            ok = np.isfinite(ground) & (seat >= 0.0)
+            out[id(rec)] = (np.c_[sx, sy][ok], np.minimum(seat - ground, 0.0)[ok])
+        except Exception as exc:
+            UI.vprint(1, f"   terrain shell {rec.get('resource')}: no feather ({exc})")
+    return out
+
+
+def _feather(raster, comps, residuals) -> tuple[int, float]:
+    """THE FEATHER (#2272 round 2 S4) over every kept shell of ``comps``:
+    ONE correction, the most negative of the shells' (``terrain_fill.
+    edge_feather``), at the postings outside every kept body and ``W``
+    clear of every other composite's ground; ``(postings, worst m)``."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    shells = [c for c in comps if id(c.rec) in residuals]
+    if not shells:
+        return 0, 0.0
+    nx = raster.alt.shape[1]
+    idx, dz = [np.zeros(0, np.int64)], [np.zeros(0)]
+    for c in shells:
+        r, k, d = _tf.edge_feather(raster, c.to_xy, c.to_ll, *residuals[id(c.rec)])
+        idx.append(r.astype(np.int64) * nx + k)
+        dz.append(d)
+    flat, inv = np.unique(np.concatenate(idx), return_inverse=True)
+    if not len(flat):
+        return 0, 0.0
+    corr = np.zeros(len(flat))
+    np.minimum.at(corr, inv, np.concatenate(dz))
+    rows, cols = flat // nx, flat % nx
+    lons, lats = raster.lon0 + cols * raster.dlon, raster.lat0 - rows * raster.dlat
+    keep = corr < 0.0
+    for c in shells:
+        z, inside = _tc.cut_heights(c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))
+        keep &= ~(inside & np.isfinite(z))
+    others = [o.owned for o in comps if not o.rec["cut"].get("shell")]
+    if others and keep.any():
+        x, y = shells[0].to_xy(lons, lats)
+        keep &= ~_tf._owned_mask(others, shells[0].to_xy, x, y, raster.shoulder_m())
+    raster.alt[rows[keep], cols[keep]] += corr[keep].astype(raster.alt.dtype)
+    return int(keep.sum()), float(-corr[keep].min()) if keep.any() else 0.0
+
+
+def _fill_all(dem, tile, records, patch_area, residuals=None) -> tuple[int, "dict | None"]:
+    """THE FILL (module doc): every plane, the shells' feather (from
+    ``residuals``, :func:`_residuals`), every rim fill;
     the postings changed and the change (:func:`write_unfill`'s
     record, their ``alt - before`` at the postings they moved)."""
     import O4_UI_Utils as UI
@@ -334,26 +445,27 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain composite {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground of its zero footprint conformed to "
                      f"{float(plane['z']):.2f} m at {k} posting(s)")
+    if residuals:
+        k, worst = _feather(raster, comps, residuals)
+        total += k
+        UI.vprint(1, f"   terrain shells (#2272 S4): the ground feathered to their bodies' "
+                     f"edges at {k} posting(s), worst {worst:.2f} m")
     for c in comps:
-        if not c.rec["cut"].get("tuck"):
-            continue
-        # #2272: a small shell at its author's height -- the ground near its
-        # rim conformed to its nearest edge, raised or lowered (its fill)
-        rep = _tf.rim_tuck(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z,
-                           c.support_top, bound([c]),
-                           [o.owned for o in comps if o is not c] + [c.floor])
-        total += rep["raised"] + rep["lowered"]
-        UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain shell {c.rec.get('resource')} "
-                     f"({c.rec.get('id')}): the ground tucked under its rim, "
-                     f"{rep['raised']} posting(s) raised and {rep['lowered']} lowered "
-                     f"from {rep['supports']} support(s)")
-    for c in comps:
-        if not c.rec["cut"].get("fill") or c.rec["cut"].get("tuck"):
+        if not c.rec["cut"].get("fill"):
             continue
         # floors win -- its own town's floor too: a cliff's crest never
-        # raises the zero footprint at its foot through the cliff
-        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, bound([c]),
-                           [o.owned for o in comps if o is not c] + [c.floor])
+        # raises the zero footprint at its foot through the cliff.  A
+        # shell's rim under the sea datum runs under the water by design
+        # (RULINGS 2026-11-25a (3)): no support, never lifted nor filled
+        # (RULINGS 2026-11-25a (3)): no support, never lifted nor filled.
+        # Another kept shell's ground is no owned ground to a shell's rim
+        # fill (S5: both bodies are cut, so both caps hold instead)
+        shell = bool(c.rec["cut"].get("shell"))
+        dry = (c.support_z >= 0.0) if shell else slice(None)
+        peers = [o for o in comps if o is not c and shell and o.rec["cut"].get("shell")]
+        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy[dry], c.support_z[dry],
+                           bound([c, *peers]),
+                           [o.owned for o in comps if o is not c and o not in peers] + [c.floor])
         total += rep["raised"]
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain model {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground filled to its rim at "
@@ -411,13 +523,18 @@ def _wet(tile, dem, rows, cols) -> np.ndarray:
 
 
 def _outline(rec) -> list:
-    """The plan's edge of one record, tile-relative ``(lon, lat)`` rings."""
+    """The plan's edge of one record -- and a shell's BODY RING (S6) --
+    as absolute ``(lon, lat)`` rings."""
     from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
     fit = _fit(rec)
     if fit is None:
         return []
     c = rec["cut"]
-    return _tc.outline_rings(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1])
+    to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))[1]
+    rings = _tc.outline_rings(fit, to_ll)
+    tris = _tm.plan_solid(str(c["file"])) if c.get("shell") else None
+    return rings if tris is None else rings + _tc.body_rings(fit, to_ll, tris)
 
 
 def _tile_water(tile):
@@ -644,8 +761,9 @@ def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
 
 
 def _held(records) -> list:
-    """The records THE HOLD applies to: their ``cut`` names ``erode_m``."""
-    return [r for r in records if "erode_m" in r["cut"]]
+    """The records THE HOLD applies to: their ``cut`` names ``erode_m``, or
+    is a shell's (S6)."""
+    return [r for r in records if "erode_m" in r["cut"] or r["cut"].get("shell")]
 
 
 def _held_records(tile) -> list:
@@ -728,10 +846,31 @@ def wet_weight_cells(tile, records=None) -> tuple[np.ndarray, np.ndarray]:
     return ll[hit].astype(np.int64), kk[hit].astype(np.int64)
 
 
+#: a mesh vertex this near a shell's plan outline is the outline ring's (m)
+_RING_TOL_M = 0.05
+
+
+def _shell_free(fit, held, lx, lz, free, ribbon) -> np.ndarray:
+    """A SHELL's free vertices (S6): its plan outline's ring FIXED (the rim
+    never floats by the hold), a road ribbon's vertex under its body FREE
+    (the shell covers the road there); ``held`` its ``hold_bound``."""
+    import shapely
+    from auto_patch_v2.airport import terrain_cut as _tc
+    pts = shapely.points(np.c_[lx, lz])
+    plan, body = _tc.plan_region(fit), _tc.body_region(None, held)
+    if plan is not None:
+        free = free & (shapely.distance(plan.boundary, pts) > _RING_TOL_M)
+    if body is not None and ribbon.any():
+        free = free | (ribbon & shapely.contains(body.buffer(_RING_TOL_M), pts))
+    return free
+
+
 def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec,
-              floor: np.ndarray | None = None) -> dict:
+              floor: np.ndarray | None = None, ribbons: np.ndarray | None = None) -> dict:
     """THE HOLD of one record on the mesh (``vertices`` flat, six per
-    vertex, changed in place); the counts for its log line."""
+    vertex, changed in place); the counts for its log line.  A shell's
+    (S6): held at its body's samples, :func:`_shell_free`'s vertices free
+    (``ribbons`` the road-ribbon vertices)."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_model as _tm
     from auto_patch_v2.geom.terrain_deck import UNDER_M
@@ -746,16 +885,28 @@ def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec,
     cl, ca = lon[corners], lat[corners]
     meet = (cl.max(1) >= w) & (cl.min(1) <= e) & (ca.max(1) >= s) & (ca.min(1) <= n)
     vids, inv = np.unique(corners[meet], return_inverse=True)
-    x0, z0, bound = _tc.hold_bound(tris, float(c["erode_m"]), float(c.get("floor_m", 0.0)))
-    ii, jj = np.nonzero(np.isfinite(bound))
+    shell = bool(c.get("shell"))
+    held = _tc.hold_bound(tris, float(c.get("erode_m", _tc.ERODE_M)),
+                          float(c.get("floor_m", 0.0)), skirt=shell)
+    x0, z0, bound = held
+    ok = np.isfinite(bound)
+    if shell:
+        # RULINGS 2026-11-25a (3): a shell's body under the sea datum runs
+        # under the water by design -- never held (nor judged)
+        ok &= float(rec["elevation"]) + np.where(ok, bound, 0.0) - UNDER_M >= 0.0
+    ii, jj = np.nonzero(ok)
     rep = {"triangles": int(meet.sum()), "samples": int(len(ii)), "lowered": 0,
            "worst_m": 0.0, "unresolved": 0}
     if not len(vids) or not len(ii):
         return rep
     lx, lz = fit.local(*to_xy(lon[vids], lat[vids]))
     z_old = vertices[6 * vids + 2].astype(float)
+    free = ~np.isin(vids, fixed)
+    if shell:
+        free = _shell_free(fit, held, lx, lz, free,
+                           np.isin(vids, ribbons if ribbons is not None else ()))
     z_new, rep["unresolved"] = _tc.hold_heights(
-        np.c_[lx, lz], z_old, inv.reshape(-1, 3), ~np.isin(vids, fixed),
+        np.c_[lx, lz], z_old, inv.reshape(-1, 3), free,
         np.c_[x0 + _tc.HOLD_CELL_M * ii, z0 + _tc.HOLD_CELL_M * jj],
         float(rec["elevation"]) + bound[ii, jj] - UNDER_M,
         None if floor is None else floor[vids])
@@ -788,7 +939,7 @@ def water_floor(vertices, corners, water) -> np.ndarray | None:
     return floor
 
 
-def hold(tile, vertices, corners, fixed, water=()) -> dict:
+def hold(tile, vertices, corners, fixed, water=(), ribbons=()) -> dict:
     """THE HOLD (module doc) on the post-processed mesh: ``vertices`` the
     flat six-per-vertex node array (tile-relative x, y, altitude, normal
     x, normal y, carried altitude; changed in place: a lowered vertex's
@@ -796,7 +947,9 @@ def hold(tile, vertices, corners, fixed, water=()) -> dict:
     ``(m, 3)`` triangles, ``fixed`` the vertices it never moves (the
     INTERP_ALT corners, the water-valued ones, the patch pins), ``water``
     the water-valued vertices (their altitude floors the land beside them,
-    ``water_floor``).  One log
+    ``water_floor``), ``ribbons`` the road-ribbon vertices among ``fixed``
+    (a shell frees those under its body, S6) -- or a callable returning
+    them, called only when a shell is held.  One log
     line per held record; ``{id: counts}``.  Never raises."""
     import O4_UI_Utils as UI
     try:
@@ -809,16 +962,24 @@ def hold(tile, vertices, corners, fixed, water=()) -> dict:
     fixed = np.fromiter((int(v) for v in fixed), np.int64)
     corners = np.asarray(corners, np.int64)
     floor = water_floor(vertices, corners, water)
+    rib = None
+    if any(r["cut"].get("shell") for r in records):
+        try:
+            rib = np.fromiter((int(v) for v in (ribbons() if callable(ribbons) else ribbons)),
+                              np.int64)
+        except Exception as exc:
+            UI.vprint(1, f"   the hold: no road ribbons read ({exc})")
     out = {}
     for rec in records:
         try:
-            r = _hold_one(tile, vertices, corners, fixed, rec, floor)
+            r = _hold_one(tile, vertices, corners, fixed, rec, floor, rib)
         except Exception as exc:
             UI.vprint(1, f"   terrain object {rec.get('resource')} not held ({exc})")
             UI.vprint(2, traceback.format_exc())
             continue
         out[str(rec.get("id"))] = r
-        UI.vprint(1, f"   [{rec.get('icao', '')}] the hold (#2053) {rec.get('resource')} "
+        what = "(#2272 S6) the body of" if rec["cut"].get("shell") else "(#2053)"
+        UI.vprint(1, f"   [{rec.get('icao', '')}] the hold {what} {rec.get('resource')} "
                      f"({rec.get('id')}): {r['lowered']} vertex(es) lowered under the "
                      f"object, worst {r['worst_m']:.2f} m; {r['unresolved']} of "
                      f"{r['samples']} sample(s) unresolved")

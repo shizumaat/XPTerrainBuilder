@@ -127,6 +127,51 @@ larger posting step, ``terrain_cut_stage._fill_band``) -- never over the
 lowest top within ``clip_m`` = one posting diagonal.  Every other record
 keeps :data:`BAND_M`.
 
+THE SHELL (#2272 round 2, spec ``docs/specs/terrain-shells-2272-round2.md``;
+owner RULINGS 2026-11-24k (3)): a small terrain shell kept at its author's
+``OBJECT_MSL`` datum writes ``cut["shell"]``.  It has a BODY (deeper than
+:data:`BAND_M` from its plan edge, :func:`body_mask`) and an EDGE BAND (the
+outer ``BAND_M``, where a shell carries its skirt -- 4-10 m of rise in its
+outer 5 m at TFFJ).
+
+* S2 THE BODY SHOWS: under the body the ground is cut to its own top
+  eroded over the body alone (``erode(top, ERODE_M) - UNDER_M``, the skirt's
+  low never bleeds in); in the fill band's inner part (``BAND_M`` < edge
+  <= ``W + s``) never under the lowest body top within one posting diagonal.
+* S3 THE EDGE BAND IS NOT CUT (``_bound(..., skirt=True)`` is ``inf``
+  there): our ground may stand over the shell there -- the skirt is buried.
+* S4 THE FEATHER (``terrain_fill.edge_feather``): the ground within
+  ``terrain_fill.FEATHER_M`` of the body's edge is lowered toward it, from
+  the residuals read before any cut; one correction over every kept shell.
+* S5 NO EDGE FLOATS: the rim fill (``terrain_fill.rim_fill``) raises the
+  ground to every rim cell still over it -- uncapped in the band, capped
+  by the cut under the body.
+* S6 THE BODY IS HELD BY THE MESH: its BODY RING (:func:`body_rings`, the
+  :func:`hold_bound` body samples deeper than ``BAND_M - HOLD_CELL_M``)
+  is a second DUMMY constrained ring, and THE HOLD lowers the free
+  vertices inside it until every drawn triangle stands under ``z0 + top -
+  UNDER_M`` at every 1 m body sample: the outline ring's vertices FIXED,
+  a road ribbon's vertex under the body FREE, water / patch pins / patch
+  INTERP_ALT FIXED, the water floor standing.
+* UNDER WATER (owner RULINGS 2026-11-25a (3)): a kept shell whose rim
+  reaches the water is meant to run under it (modelled underwater cliffs).
+  A body edge, a rim cell or a body sample seated under the sea datum is no
+  feather support, no rim-fill support and no hold sample; the feather
+  never lowers under ``min(ground, 0)``; water stays a datum (its vertices
+  fixed, the fills' change kept off them, ``terrain_cut_stage``).
+
+THE SHELL's consumer rows (the census above holds for the rest; RULINGS
+2026-08-30l, the spec's section 5): Triangle4XP reads the cut, feather and
+rim fill (the dry raster within ``DRY_M`` of mapped water); the curvature
+weights ride the fill records' boxes; the outline and body rings are DUMMY
+lines; ``unfill_water`` / ``refill_land`` carry the feather in the delta
+sidecar; the road banks run before the hold and may be lowered under a
+body; roads and an unpatched airport's pavement follow the feathered and
+cut ground; the airport patch, ``ProductionDem``, the masks and the DSF
+elevation raster are never changed; a hidden shell has no cut, feather,
+rings nor hold; riders follow the cut ground (reported, not judged); two
+abutting shells are both cut and take one feather.
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """
@@ -140,7 +185,8 @@ import numpy as np
 from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit, target_at
 
 __all__ = ["ERODE_M", "BAND_M", "HOLD_CELL_M", "cut_fit", "projector", "cut_heights",
-           "outline_rings", "plan_box", "hold_bound", "hold_heights"]
+           "outline_rings", "plan_region", "body_rings", "body_region", "body_mask",
+           "plan_box", "hold_bound", "hold_heights"]
 
 #: the radius the top is eroded over inside the plan (module doc): wider
 #: than the triangles the mesher leaves on a surface this smooth
@@ -163,9 +209,39 @@ def _floor(bot: np.ndarray, top: np.ndarray, floor_m: float) -> np.ndarray:
     return np.where(top - bot >= floor_m, bot, top)
 
 
+def _disc(radius_m: float, cell: float) -> np.ndarray:
+    """A disc footprint of ``radius_m`` on a ``cell``-metre grid (one cell
+    at least)."""
+    k = max(1, int(round(float(radius_m) / cell)))
+    return np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k
+
+
+def _erode(surf: np.ndarray, where: np.ndarray, cell: float, radius_m: float) -> np.ndarray:
+    """The lowest ``surf`` of the cells ``where`` within ``radius_m``."""
+    from scipy import ndimage
+    return ndimage.minimum_filter(np.where(where, surf, np.inf), footprint=_disc(radius_m, cell),
+                                  mode="constant", cval=np.inf)
+
+
+def _edge(cov: np.ndarray, cell: float) -> tuple[np.ndarray, np.ndarray]:
+    """``(rim, edge)``: the edge cells (covered, touching an uncovered one,
+    8-neighbours: the outer rim and the edge of every hole) and every
+    cell's distance to the nearest (m, cell centre to cell centre)."""
+    from scipy import ndimage
+    rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
+    return rim, ndimage.distance_transform_edt(~rim) * cell
+
+
+def body_mask(covered: np.ndarray, cell: float = CELL_M, band_m: float = BAND_M) -> np.ndarray:
+    """A shell's BODY (module doc, THE SHELL) on a ``cell``-metre plan grid:
+    the covered cells farther than ``band_m`` from the plan's edge."""
+    cov = np.asarray(covered, bool)
+    return cov & (_edge(cov, cell)[1] > band_m)
+
+
 def _bound(bot: np.ndarray, top: np.ndarray, cell: float, erode_m: float,
-           floor_m: float, band_m: float = BAND_M, clip_m: float | None = None
-           ) -> np.ndarray:
+           floor_m: float, band_m: float = BAND_M, clip_m: float | None = None,
+           skirt: bool = False) -> np.ndarray:
     """The CUT SURFACE (module doc) of a plan binned on a ``cell``-metre
     grid (``bot`` / ``top`` ``nan`` where uncovered), in metres over the
     model's zero; ``inf`` / undefined off the plan.  ``erode_m``: the
@@ -179,76 +255,83 @@ def _bound(bot: np.ndarray, top: np.ndarray, cell: float, erode_m: float,
     ``L`` the edge-lowest term read at the cell's nearest edge cell, ``T``
     the lowest top within ``clip_m`` of the cell -- so the drop from the
     rim's level to the eroded top lies a triangle and a posting diagonal
-    behind the rim, never under it."""
-    from scipy import ndimage
+    behind the rim, never under it.  ``skirt`` (a SHELL, module doc THE
+    SHELL, #2272 round 2 S2/S3): the edge band is ``inf`` (never cut); the
+    body is its own top eroded over the body alone (the skirt's low never
+    bleeds in), never under the lowest body top within ``clip_m`` where
+    ``BAND_M < edge <= band_m``."""
     cov = np.isfinite(bot)
-    k = max(1, int(round(erode_m / cell)))
-    disc = np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k
-
-    def erode(surf):
-        return ndimage.minimum_filter(np.where(cov, surf, np.inf), footprint=disc,
-                                      mode="constant", cval=np.inf)
-
-    eroded = erode(top)
-    # the edge cells: covered, touching an uncovered one (8-neighbours,
-    # the outer rim and the edge of every hole), and how far each cell is
-    rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
-    edge = ndimage.distance_transform_edt(~rim) * cell
+    rim, edge = _edge(cov, cell)
+    if skirt:
+        body = cov & (edge > BAND_M)
+        out = _erode(top, body, cell, erode_m)
+        if band_m > BAND_M:
+            near_top = _erode(top, body, cell, float(clip_m if clip_m is not None else erode_m))
+            reach = body & (edge <= band_m)
+            out = np.where(reach, np.maximum(out, near_top), out)
+        return np.where(body, out, np.inf)
+    from scipy import ndimage
+    eroded = _erode(top, cov, cell, erode_m)
     if floor_m > 0.0:
-        return np.where(edge <= BAND_M, eroded, erode(_floor(bot, top, floor_m)))
-    b = max(1, int(round(BAND_M / cell)))
-    band = np.hypot(*np.mgrid[-b:b + 1, -b:b + 1]) <= b
-    lowest = ndimage.maximum_filter(np.where(rim, bot, -np.inf), footprint=band,
+        return np.where(edge <= BAND_M, eroded,
+                        _erode(_floor(bot, top, floor_m), cov, cell, erode_m))
+    lowest = ndimage.maximum_filter(np.where(rim, bot, -np.inf), footprint=_disc(BAND_M, cell),
                                     mode="constant", cval=-np.inf)
     out = np.where(edge <= BAND_M, np.maximum(eroded, lowest), eroded)
     if band_m <= BAND_M or not rim.any():
         return out
     _, (ni, nj) = ndimage.distance_transform_edt(~rim, return_indices=True)
-    k = max(1, int(round(float(clip_m if clip_m is not None else erode_m) / cell)))
-    near_top = ndimage.minimum_filter(np.where(cov, top, np.inf),
-                                      footprint=np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k,
-                                      mode="constant", cval=np.inf)
+    near_top = _erode(top, cov, cell, float(clip_m if clip_m is not None else erode_m))
     reach = (edge > BAND_M) & (edge <= band_m)
     return np.where(reach, np.maximum(out, np.minimum(lowest[ni, nj], near_top)), out)
 
 
 def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor_m: float = 0.0,
-              band_m: float = BAND_M, clip_m: float | None = None) -> DeckGrid:
+              band_m: float = BAND_M, clip_m: float | None = None,
+              skirt: bool = False) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
     the cut never fills).  ``erode_m``: the erosion radius (a ground object
     carrying riders takes one cell, ``bridged_ground.ERODE_M``).
     ``floor_m`` > 0: the bound of THE FLOOR; ``band_m`` / ``clip_m``: a fill
-    record's edge band (:func:`_bound`)."""
-    bound = _bound(grid.bot, grid.top, CELL_M, erode_m, floor_m, band_m, clip_m)
+    record's edge band (:func:`_bound`); ``skirt``: a shell's (THE SHELL)."""
+    bound = _bound(grid.bot, grid.top, CELL_M, erode_m, floor_m, band_m, clip_m, skirt)
     return DeckGrid(grid.x0, grid.z0, grid.bot.copy(),
                     np.where(grid.covered, bound, np.nan))
 
 
 def cut_fit(grid: DeckGrid, zero: float, heading: float,
             erode_m: float = ERODE_M, floor_m: float = 0.0,
-            band_m: float = BAND_M, clip_m: float | None = None) -> TerrainFit:
+            band_m: float = BAND_M, clip_m: float | None = None,
+            skirt: bool = False) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
     model's anchor), seated at ``zero``, filling nothing; ``floor_m`` > 0:
     cut to the object's floor per cell (module doc, THE FLOOR); ``band_m``
-    / ``clip_m``: a fill record's edge band (:func:`_bound`, #2077 R1)."""
-    cut = _cut_grid(grid, erode_m, floor_m, band_m, clip_m)
+    / ``clip_m``: a fill record's edge band (:func:`_bound`, #2077 R1);
+    ``skirt``: a shell's band is never cut, its body is (THE SHELL)."""
+    cut = _cut_grid(grid, erode_m, floor_m, band_m, clip_m, skirt)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 
 
-def hold_bound(tris: np.ndarray, erode_m: float, floor_m: float
+def hold_bound(tris: np.ndarray, erode_m: float, floor_m: float, skirt: bool = False
                ) -> tuple[float, float, np.ndarray]:
     """``(x0, z0, bound)``: THE HOLD's bound (module doc) of the authored
     triangles ``tris`` (``(n, 3, 3)``, the plan's static solid) on the
     :data:`HOLD_CELL_M` grid, metres over the model's zero (``nan`` off
     the plan): the cut surface's rule eroded by one cell -- a drawn
     triangle held under it at every sample centre stands under the object
-    between them -- never wider than the record's ``erode_m``."""
+    between them -- never wider than the record's ``erode_m``.  ``skirt``
+    (a shell, THE SHELL S6): the top eroded one cell at the BODY's samples
+    alone -- deeper than ``BAND_M - HOLD_CELL_M`` -- ``nan`` in the edge band."""
     from .terrain_shaped import bin_triangles
     x0, z0, bot, top = bin_triangles(np.asarray(tris, float), HOLD_CELL_M)
+    cov = np.isfinite(bot)
+    if skirt:
+        bound = _erode(top, cov, HOLD_CELL_M, HOLD_CELL_M)
+        return x0, z0, np.where(body_mask(cov, HOLD_CELL_M, BAND_M - HOLD_CELL_M), bound, np.nan)
     bound = _bound(bot, top, HOLD_CELL_M, min(float(erode_m), HOLD_CELL_M), floor_m)
-    return x0, z0, np.where(np.isfinite(bot), bound, np.nan)
+    return x0, z0, np.where(cov, bound, np.nan)
 
 
 def _hold_pairs(xy: np.ndarray, tris: np.ndarray, sample_xy: np.ndarray
@@ -389,19 +472,36 @@ def plan_box(fit: TerrainFit, to_ll: _t.Callable) -> tuple[float, float, float, 
     return float(lo.min()), float(la.min()), float(lo.max()), float(la.max())
 
 
-def outline_rings(fit: TerrainFit, to_ll: _t.Callable) -> list[np.ndarray]:
-    """The plan's EDGE -- the boundary of its covered cells, outer rings and
-    holes -- as ``(n, 2)`` ``(lon, lat)`` rings, simplified within a
-    quarter cell (the constrained line the mesh draws there)."""
+def _cells_region(ii: np.ndarray, jj: np.ndarray, x0: float, z0: float, cell: float,
+                  grow: float = 0.0, runs: bool = False) -> _t.Any:
+    """The union of the ``cell``-metre boxes of grid cells ``(ii, jj)``
+    (centres ``x0 + i * cell`` / ``z0 + j * cell``) -- with ``runs`` one box
+    per run of cells along ``i`` (the same region, far fewer boxes) --
+    grown by ``grow`` (mitred) and simplified within ``grow + cell / 4``."""
     import shapely
+    h = cell / 2.0
+    if not runs:
+        x, z = x0 + cell * np.asarray(ii), z0 + cell * np.asarray(jj)
+        region = shapely.union_all(shapely.box(x - h, z - h, x + h, z + h))
+        if grow > 0.0:
+            region = region.buffer(grow, join_style="mitre")
+        return region.simplify(grow + h / 2.0)
+    o = np.lexsort((ii, jj))
+    i, j = np.asarray(ii)[o], np.asarray(jj)[o]
+    new = np.r_[True, (j[1:] != j[:-1]) | (i[1:] != i[:-1] + 1)]
+    start = np.flatnonzero(new)
+    end = np.r_[start[1:], len(i)] - 1
+    x_lo, x_hi = x0 + cell * i[start] - h, x0 + cell * i[end] + h
+    z = z0 + cell * j[start]
+    region = shapely.union_all(shapely.box(x_lo, z - h, x_hi, z + h))
+    if grow > 0.0:
+        region = region.buffer(grow, join_style="mitre")
+    return region.simplify(grow + h / 2.0)
+
+
+def _rings(fit: TerrainFit, region: _t.Any, to_ll: _t.Callable) -> list[np.ndarray]:
+    """A plan-frame region's outer rings and holes as ``(lon, lat)`` rings."""
     from shapely.geometry import MultiPolygon, Polygon
-    ii, jj = np.nonzero(fit.grid.covered)
-    if not len(ii):
-        return []
-    x = fit.grid.x0 + CELL_M * ii
-    z = fit.grid.z0 + CELL_M * jj
-    h = CELL_M / 2.0
-    region = shapely.union_all(shapely.box(x - h, z - h, x + h, z + h)).simplify(h / 2.0)
     polys = region.geoms if isinstance(region, MultiPolygon) else [region]
     out = []
     for poly in polys:
@@ -411,3 +511,43 @@ def outline_rings(fit: TerrainFit, to_ll: _t.Callable) -> list[np.ndarray]:
             lo, la = to_ll(*_to_frame(fit, np.asarray(ring.coords, float)))
             out.append(np.c_[lo, la])
     return out
+
+
+def plan_region(fit: TerrainFit) -> _t.Any:
+    """The plan's covered cells as one region in the authored plan frame
+    ``(x, z)`` -- what :func:`outline_rings` draws; ``None`` when empty."""
+    ii, jj = np.nonzero(fit.grid.covered)
+    if not len(ii):
+        return None
+    return _cells_region(ii, jj, fit.grid.x0, fit.grid.z0, CELL_M)
+
+
+def outline_rings(fit: TerrainFit, to_ll: _t.Callable) -> list[np.ndarray]:
+    """The plan's EDGE -- the boundary of its covered cells, outer rings and
+    holes -- as ``(n, 2)`` ``(lon, lat)`` rings, simplified within a
+    quarter cell (the constrained line the mesh draws there)."""
+    region = plan_region(fit)
+    return [] if region is None else _rings(fit, region, to_ll)
+
+
+def body_region(tris: np.ndarray, held: "tuple | None" = None) -> _t.Any:
+    """A shell's BODY RING region (THE SHELL S6) in the authored plan frame:
+    the :func:`hold_bound` body samples' cells (``held``: its result when
+    the caller holds it) grown by half a cell and simplified, so every
+    body sample centre lies a quarter cell or more inside it; ``None``
+    without a body."""
+    x0, z0, bound = held if held is not None else hold_bound(tris, ERODE_M, 0.0, skirt=True)
+    ii, jj = np.nonzero(np.isfinite(bound))
+    if not len(ii):
+        return None
+    return _cells_region(ii, jj, x0, z0, HOLD_CELL_M, HOLD_CELL_M / 2.0, runs=True)
+
+
+def body_rings(fit: TerrainFit, to_ll: _t.Callable, tris: np.ndarray) -> list[np.ndarray]:
+    """A shell's BODY RING (THE SHELL S6), the second DUMMY constrained ring
+    beside its plan outline, as ``(lon, lat)`` rings: it encloses every
+    1 m sample deeper than ``BAND_M - HOLD_CELL_M`` (:func:`body_region`
+    of the authored solid ``tris``), so no drawn triangle spans from the
+    rim to the body."""
+    region = body_region(tris)
+    return [] if region is None else _rings(fit, region, to_ll)

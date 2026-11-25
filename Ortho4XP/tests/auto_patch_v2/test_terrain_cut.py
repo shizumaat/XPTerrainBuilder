@@ -197,3 +197,93 @@ def test_t1_a_fill_record_holds_its_rim_level_a_triangle_and_a_diagonal_inside()
         assert np.array_equal(filled[cov], new[cov])
     finally:
         TM.plan_grid = TM_plan
+
+
+# -- THE SHELL (#2272 round 2): the body is cut, the edge band is not ---------
+
+def _skirted(n=41, peak=40.0, skirt=10.0):
+    """A small shell (top == bot): a dome over a SKIRT -- its outer 5 m
+    rises ``skirt`` metres from the rim (0 m) inward."""
+    h = (n - 1) / 2.0
+    i, j = np.mgrid[0:n, 0:n]
+    r = np.hypot(i - h, j - h) * CELL_M
+    big = h * CELL_M
+    top = np.where(r <= big, peak * (1.0 - (r / big) ** 2)
+                   + skirt * np.clip((big - r) / 5.0, 0.0, 1.0), np.nan)
+    return DeckGrid(-h * CELL_M, -h * CELL_M, top.copy(), top)
+
+
+def _shell_rec(lat, lon, elevation=0.0):
+    return {"id": "dsf:obj3", "resource": "s.obj", "seat": TM.SEAT, "elevation": elevation,
+            "cut": {"file": "s.obj", "lat": lat, "lon": lon, "heading": 0.0, "shell": True}}
+
+
+def _fine_tile(ground, n=801, half=0.003):
+    """A raster window of ``n`` x ``n`` postings (about 0.8 m) round the
+    tile's middle, where the records sit."""
+    dem = types.SimpleNamespace(x0=0.5 - half, x1=0.5 + half, y0=0.5 - half, y1=0.5 + half,
+                                alt_dem=np.full((n, n), ground, np.float32))
+    return types.SimpleNamespace(lat=-23, lon=-44, dem=dem)
+
+
+def _cut_postings(tile, g, rec):
+    """``(changed, band, body)`` postings of a bake: band / body by the
+    plan cell each posting falls in."""
+    before = tile.dem.alt_dem.copy()
+    TCS.bake(tile, [rec])
+    a, d = tile.dem.alt_dem, tile.dem
+    n = a.shape[0]
+    r, c = np.mgrid[0:n, 0:n]
+    lons = -44 + d.x0 + c.ravel() * (d.x1 - d.x0) / (n - 1)
+    lats = -23 + d.y1 - r.ravel() * (d.y1 - d.y0) / (n - 1)
+    fit = TCS._fit(rec)
+    lx, lz = fit.local(*TC.projector(rec["cut"]["lat"], rec["cut"]["lon"])[0](lons, lats))
+    i, j, inside = g.cell_of(lx, lz)
+    body = np.zeros(len(lons), bool)
+    body[inside] = TC.body_mask(g.covered)[i[inside], j[inside]]
+    changed = (a != before).ravel()
+    return changed, inside & ~body, body, a.ravel(), before.ravel(), fit, i, j
+
+
+def test_a_skirted_shell_keeps_its_band_uncut_and_its_body_under_the_top(monkeypatch):
+    """S2/S3: under a 100 m ground a skirted dome's body is cut under its
+    top (eroded over the body alone: never down to the skirt's foot) and
+    its edge band -- the skirt -- is never cut, so the ground at its rim
+    stays where it was."""
+    g = _skirted()
+    monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    tile = _fine_tile(100.0)
+    changed, band, body, a, before, fit, i, j = _cut_postings(
+        tile, g, _shell_rec(-22.5, -43.5))
+    assert band.any() and body.any()
+    assert not changed[band].any()                                   # S3
+    assert changed[body].all()
+    assert np.all(a[body] <= fit.grid.top[i[body], j[body]] - UNDER_M + 1e-3)
+    assert np.all(a[body] <= g.top[i[body], j[body]] - UNDER_M + 1e-3)
+    # the body's erosion never reads the skirt: its bound stays over the
+    # skirt's foot (0 m) by the body's own lowest top within ERODE_M
+    assert np.all(a[body] > 5.0)
+
+
+def test_a_flat_shell_is_cut_only_beyond_its_band(monkeypatch):
+    """A flat margin (a shell 5 m high everywhere, 20 m ground): the band
+    keeps the ground, the body is cut to the top less UNDER_M."""
+    g = _skin()
+    flat = DeckGrid(g.x0, g.z0, np.where(g.covered, 5.0, np.nan), np.where(g.covered, 5.0, np.nan))
+    monkeypatch.setattr(TM, "plan_grid", lambda p: flat)
+    tile = _fine_tile(20.0)
+    changed, band, body, a, before, *_ = _cut_postings(tile, flat, _shell_rec(-22.5, -43.5))
+    assert np.all(a[band] == 20.0)
+    assert np.allclose(a[body], 5.0 - UNDER_M, atol=1e-3)
+
+
+def test_skirt_off_is_todays_bound():
+    """``skirt=False`` (every record but a shell's) is byte-identical to
+    the bound before round 2: the terrain model's and the ground object's."""
+    g = _skin()
+    for erode_m, floor_m in ((TC.ERODE_M, 0.0), (5.0, 3.0)):
+        np.testing.assert_array_equal(
+            TC._bound(g.bot, g.top, CELL_M, erode_m, floor_m, skirt=False),
+            TC._bound(g.bot, g.top, CELL_M, erode_m, floor_m))
+    band = TC._bound(g.bot, g.top, CELL_M, TC.ERODE_M, 0.0, 28.0, 14.0, skirt=True)
+    assert np.all(np.isinf(band[g.covered & ~TC.body_mask(g.covered)]))

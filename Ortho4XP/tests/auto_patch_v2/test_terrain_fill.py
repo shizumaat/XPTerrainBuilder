@@ -199,66 +199,129 @@ def test_t4_floors_win_in_the_owned_zone():
     assert _at(r, 0.0, -40.0 - 0.5 * w) == pytest.approx(405.0, abs=1e-6)
 
 
-def test_a_rim_buried_by_the_ground_is_tucked_shoulder_then_talus():
-    """#2272: a small shell at its author's height, its rim top 20 m under
-    a coarse DEM's ground -- the ground is lowered to it (shoulder, then a
-    1:1 talus up to our ground), never at a frozen posting nor in another
-    composite's ground."""
+def _feather(r, sxy, e, f=TF.FEATHER_M):
     to_xy, to_ll = TC.projector(LAT, LON)
-    sxy = np.array([[0.0, 0.0]])
+    return TF.edge_feather(r, to_xy, to_ll, np.asarray(sxy, float), np.asarray(e, float), f)
+
+
+def _apply(r, got):
+    rows, cols, d = got
+    r.alt[rows, cols] += d
+    return r
+
+
+def test_the_feather_only_lowers_and_fades_to_zero_at_its_reach():
+    """#2272 round 2 S4: a body edge 6 m under our ground -- the ground at
+    the edge takes all of it, half of it at half the reach, nothing at
+    the reach; a residual over the ground (``e > 0``) moves nothing."""
+    sxy = [[0.0, 0.0]]
     r = _raster()
-    rep = TF.rim_tuck(r, to_xy, to_ll, sxy, np.array([370.0]), np.array([380.0]), _no_cap)
-    w = r.shoulder_m()
-    assert rep["supports"] == 1 and rep["lowered"] > 0 and rep["raised"] == 0
-    assert _at(r, 0.0, 0.0) == pytest.approx(380.0, abs=1e-6)
-    assert _at(r, 0.0, 5.0) == pytest.approx(380.0, abs=0.05)         # in the shoulder
-    assert _at(r, 0.0, 15.0) == pytest.approx(380.0 + (15.0 - w), abs=0.2)
-    assert _at(r, 0.0, 70.0) == pytest.approx(400.0)                  # beyond the reach
-    # frozen postings (an airport patch) and another composite's ground stay
-    r3 = _raster(frozen=lambda rows, cols, lons, lats: lats > LAT - 1e-12)
-    TF.rim_tuck(r3, to_xy, to_ll, sxy, np.array([370.0]), np.array([380.0]), _no_cap)
-    assert _at(r3, 0.0, 5.0) == pytest.approx(400.0)
-    sq = np.array([[-50.0, 100.0], [50.0, 100.0], [50.0, 200.0], [-50.0, 200.0], [-50.0, 100.0]])
-    lo, la = to_ll(sq[:, 0], sq[:, 1])
-    r4 = _raster()
-    TF.rim_tuck(r4, to_xy, to_ll, np.array([[0.0, 150.0]]), np.array([370.0]),
-                np.array([380.0]), _no_cap, [TF.Owned((np.c_[lo, la],))])
-    assert _at(r4, 0.0, 150.0) == pytest.approx(400.0)
+    rows, cols, d = _feather(r, sxy, [-6.0])
+    assert len(d) and (d < 0.0).all() and d.min() >= -6.0 - 1e-9
+    _apply(r, (rows, cols, d))
+    assert _at(r, 0.0, 0.0) == pytest.approx(394.0, abs=1e-6)
+    assert _at(r, 0.0, 30.0) == pytest.approx(397.0, abs=0.02)
+    assert _at(r, 0.0, 60.0) == pytest.approx(400.0, abs=0.02)
+    assert _at(r, 0.0, 80.0) == pytest.approx(400.0)
+    assert not len(_feather(_raster(), sxy, [3.0])[2])
 
 
-def test_a_floating_skirt_is_filled_and_each_posting_follows_its_nearest_edge():
-    """A cliff's rim: its crest (x < 0) stands 30 m over the ground, its
-    foot (x > 0) 20 m under it.  Each posting conforms to its NEAREST rim
-    cell: raised to the crest's skirt on one side, lowered to the foot's
-    top on the other -- neither a fill from the crest buries the foot nor a
-    tuck from the foot strands the crest; inside the plan never over the
-    cut bound."""
+def test_the_feather_is_continuous():
+    """Neighbouring postings differ by no more than the feather's slope
+    (the edge's residuals blended, the weight linear in distance)."""
+    sxy = np.c_[np.linspace(-50.0, 50.0, 21), np.zeros(21)]
+    e = -6.0 - 4.0 * np.sin(np.linspace(0.0, 3.0, 21))
+    r = _raster()
+    _apply(r, _feather(r, sxy, e))
+    d = r.alt - 400.0
+    step = max(np.abs(np.diff(d, axis=0)).max(), np.abs(np.diff(d, axis=1)).max())
+    assert step <= 10.0 * 5.0 / TF.FEATHER_M + 0.5
+
+
+def test_the_feather_is_zero_at_a_frozen_posting_and_never_under_the_sea():
+    """The weight fades to zero at frozen ground (``Raster.frozen_dist``):
+    a frozen posting never moves, one a quarter reach from it takes a
+    quarter of the weight; the ground is never lowered under min(ground, 0)."""
+    sxy = [[0.0, 0.0]]
+    frozen = lambda rows, cols, lons, lats: lats > LAT + 20.0 / 111_320.0   # noqa: E731
+    r = _raster(frozen=frozen)
+    r.frozen_dist = lambda rows, cols, lons, lats: np.maximum(   # noqa: E731
+        (LAT + 20.0 / 111_320.0 - lats) * 111_320.0, 0.0)
+    _apply(r, _feather(r, sxy, [-8.0]))
+    assert _at(r, 0.0, 25.0) == pytest.approx(400.0)               # frozen
+    assert _at(r, 0.0, 5.0) == pytest.approx(400.0 - 8.0 * (55.0 / 60.0) * (15.0 / 60.0), abs=0.02)
+    r = _raster(3.0)
+    _apply(r, _feather(r, sxy, [-20.0]))
+    assert r.alt.min() == pytest.approx(0.0)
+
+
+def test_two_abutting_shells_take_one_correction():
+    """Two shells' feathers over the same postings: the stage keeps the
+    most negative, never their sum (``terrain_cut_stage._feather``)."""
+    import types
+
+    from auto_patch import terrain_cut_stage as TCS
     to_xy, to_ll = TC.projector(LAT, LON)
-    sxy = np.array([[-40.0, 0.0], [40.0, 0.0]])
-    bot, top = np.array([428.0, 370.0]), np.array([430.0, 380.0])
+
+    class _Fit:          # no body: every posting is outside it
+        pass
     r = _raster()
-    rep = TF.rim_tuck(r, to_xy, to_ll, sxy, bot, top, _no_cap)
-    assert rep["raised"] > 0 and rep["lowered"] > 0
-    assert _at(r, -40.0, 0.0) == pytest.approx(428.0, abs=1e-6)
-    assert _at(r, 40.0, 0.0) == pytest.approx(380.0, abs=1e-6)
-    assert _at(r, -45.0, 0.0) == pytest.approx(428.0, abs=0.05)
-    assert _at(r, 45.0, 0.0) == pytest.approx(380.0, abs=0.05)
-    r2 = _raster()
-    TF.rim_tuck(r2, to_xy, to_ll, sxy, bot, top, lambda lons, lats: np.full(len(lons), 410.0))
-    assert r2.alt.max() == pytest.approx(410.0)
+    comps = []
+    for _side in (-10.0, 10.0):
+        comps.append(types.SimpleNamespace(
+            rec={"cut": {"shell": True}}, fit=_Fit(), to_xy=to_xy, to_ll=to_ll, owned=TF.Owned()))
+    res = {id(comps[0].rec): (np.array([[-10.0, 0.0]]), np.array([-4.0])),
+           id(comps[1].rec): (np.array([[10.0, 0.0]]), np.array([-6.0]))}
+    orig = TC.cut_heights
+    TC.cut_heights = lambda fit, to_xy, lons, lats, g: (np.asarray(g, float),
+                                                        np.zeros(len(lons), bool))
+    try:
+        k, worst = TCS._feather(r, comps, res)
+    finally:
+        TC.cut_heights = orig
+    assert k > 0 and worst == pytest.approx(6.0, abs=0.05)
+    single = _raster()
+    _apply(single, _feather(single, [[10.0, 0.0]], [-6.0]))
+    assert r.alt.min() >= single.alt.min() - 1e-6
+    assert (r.alt <= single.alt + 1e-6).all()
 
 
-def test_a_shell_edge_never_floats_between_postings():
-    """#2272: a shell is one surface (bottom = top).  Its rim steps from a
-    410 m crest to a 395 m foot within one 5 m posting step: each posting
-    that near stands at the crest, so no rim point floats over the ground
-    drawn between postings; the foot's edge is hidden by the ground over it."""
-    to_xy, to_ll = TC.projector(LAT, LON)
-    sxy = np.array([[0.5, 0.0], [4.0, 0.0]])
-    z = np.array([410.0, 395.0])
-    r = _raster()
-    TF.rim_tuck(r, to_xy, to_ll, sxy, z, z, _no_cap)
-    assert _at(r, 5.0, 0.0) == pytest.approx(410.0, abs=1e-3)     # nearest the foot
-    for x in np.linspace(-2.0, 6.0, 17):
-        rim = 410.0 if x <= 2.25 else 395.0
-        assert _at(r, float(x), 0.0) >= rim - 1e-3
+
+
+def test_a_shell_rim_under_the_water_is_never_filled_nor_feathered(monkeypatch):
+    """RULINGS 2026-11-25a (3): a coastal shell runs under the water.  Its
+    rim and body edge seated under the sea datum are no supports: the rim
+    fill lifts no water posting from them and the feather never lowers a
+    posting under the sea datum (nor moves one at or under it)."""
+    import types
+
+    from auto_patch import terrain_cut_stage as TCS
+    from auto_patch_v2.airport import terrain_model as TM
+    from auto_patch_v2.geom.terrain_deck import DeckGrid
+    n = 41
+    h = (n - 1) / 2.0
+    i, _j = np.mgrid[0:n, 0:n]
+    top = np.where(i < 10, -6.0, 8.0) + 0.0 * i      # the west quarter under the sea
+    g = DeckGrid(-h * 5.0, -h * 5.0, top.copy(), top.astype(float))
+    monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    rec = {"id": "s", "resource": "s.obj", "elevation": 0.0, "icao": "T",
+           "cut": {"file": "s.obj", "lat": LAT, "lon": LON, "heading": 0.0,
+                   "fill": True, "shell": True}}
+    nn = 401
+    dlon = POST / math.cos(math.radians(LAT))
+    hh = (nn - 1) // 2
+    alt = np.full((nn, nn), -2.0, np.float32)             # the sea, 2 m deep
+    cols = np.arange(nn)
+    alt[:, cols > hh - 40] = 20.0                         # land from 50 m west of the anchor
+    dem = types.SimpleNamespace(x0=0.0, x1=(nn - 1) * dlon, y0=0.0, y1=(nn - 1) * POST,
+                                alt_dem=alt.copy())
+    tile = types.SimpleNamespace(lat=LAT + hh * POST - (nn - 1) * POST,
+                                 lon=LON - hh * dlon, dem=dem)
+    monkeypatch.setattr(TCS, "_wet", lambda tile, dem, rows, cols: np.zeros(len(rows), bool))
+    res = TCS._residuals(dem, tile, [rec])
+    sxy, e = res[id(rec)]
+    assert len(sxy) and np.all(e <= 0.0)
+    TCS.bake(tile, [rec])
+    sea = alt <= 0.0
+    assert np.all(dem.alt_dem[sea] <= alt[sea] + 1e-6)          # no water lifted
+    assert dem.alt_dem[~sea].min() >= -1e-6                     # never under the datum

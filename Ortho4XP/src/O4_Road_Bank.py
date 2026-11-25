@@ -53,7 +53,7 @@ import O4_Vector_Utils as VECT
 
 __all__ = ["BANK_RUN", "FACE_RUN", "BANK_MAX_WIDTH_M", "BANK_MIN_STEP_M",
            "assign_bank_runs", "bank_foot_lines", "bank_field",
-           "road_bank_values"]
+           "road_bank_values", "ribbon_vertices"]
 
 #: The bank: metres out per metre of height (1:2).
 BANK_RUN = 2.0
@@ -73,6 +73,8 @@ FOOT_FADE_M = 2.0
 BANK_MIN_STEP_M = 2.0
 #: Metres per degree of latitude (``O4_Mesh_Utils.BANK_METRES_PER_DEGREE``).
 _M_PER_DEG = 111120.0
+#: A mesh vertex this far or less outside a ribbon's edge is the ribbon's.
+RIBBON_TOL_M = 0.5
 
 
 def _feet(ground, z, offsets, run):
@@ -276,6 +278,43 @@ def bank_field(payload, tile_lat, tile_lon, xy, zv):
     return pi_[moved], znew[moved]
 
 
+def _payload(tile):
+    """The tile's levelled-road sidecar, or ``None`` when it has none."""
+    path = FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def ribbon_vertices(tile, vertices, candidates):
+    """The ROAD-RIBBON vertices among ``candidates`` (vertex indices, the
+    INTERP_ALT corners): those within the lane width (and
+    :data:`RIBBON_TOL_M`) of a levelled road's centreline in the sidecar
+    -- a shell frees them under its body (``auto_patch.terrain_cut_stage.
+    hold``, #2272 S6).  Empty without a sidecar."""
+    import shapely
+
+    payload = _payload(tile)
+    cand = numpy.unique(numpy.fromiter(candidates, dtype=numpy.int64))
+    if payload is None or not len(cand):
+        return numpy.zeros(0, dtype=numpy.int64)
+    scalx = cos((tile.lat + 0.5) * pi / 180.0)
+    lines = [numpy.column_stack([(numpy.asarray(w["lon"]) - tile.lon) * scalx * _M_PER_DEG,
+                                 (numpy.asarray(w["lat"]) - tile.lat) * _M_PER_DEG])
+             for w in payload.get("ways", ()) if len(w.get("lat") or ()) >= 2]
+    if not lines:
+        return numpy.zeros(0, dtype=numpy.int64)
+    v = numpy.asarray(vertices).reshape(-1, 6)
+    cand = cand[(cand >= 0) & (cand < len(v))]
+    p = shapely.points(numpy.column_stack([v[cand, 0] * scalx * _M_PER_DEG,
+                                           v[cand, 1] * _M_PER_DEG]))
+    reach = float(payload.get("lane_width_m", 0.0)) + RIBBON_TOL_M
+    (hit, _) = shapely.STRtree(shapely.linestrings(lines)).query_nearest(
+        p, max_distance=reach, all_matches=False)
+    return cand[numpy.unique(hit)]
+
+
 def road_bank_values(tile, vertices, fixed):
     """``{vertex index: z}`` for the free mesh vertices the side banks move.
 
@@ -285,11 +324,9 @@ def road_bank_values(tile, vertices, fixed):
     never moved.  Empty when the tile has no levelled-road sidecar or it
     carries no banks.
     """
-    path = FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon)
-    if not os.path.exists(path):
+    payload = _payload(tile)
+    if payload is None:
         return {}
-    with open(path, encoding="utf-8") as handle:
-        payload = json.load(handle)
     v = numpy.asarray(vertices).reshape(-1, 6)
     free = numpy.ones(len(v), dtype=bool)
     fixed = numpy.fromiter(fixed, dtype=numpy.int64)

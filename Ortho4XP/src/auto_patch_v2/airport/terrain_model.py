@@ -660,9 +660,10 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
             if getattr(m, "fill", False):
                 rec["cut"]["fill"] = True
             if getattr(m, "small", False):
-                # #2272: seated at its author's height, the ground that
-                # buries its rim is lowered to it (``terrain_fill.rim_tuck``)
-                rec["cut"]["tuck"] = True
+                # #2272: seated at its author's height -- its body cut and
+                # held, its edge band not cut, the ground feathered to it
+                # (``terrain_cut`` THE SHELL)
+                rec["cut"]["shell"] = True
             if getattr(m, "plane", ()):
                 from ..geom.terrain_deck import UNDER_M
                 # ``to_ll`` is the frame's: one point, ``(lat, lon)``

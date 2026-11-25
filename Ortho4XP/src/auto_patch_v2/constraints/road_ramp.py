@@ -21,12 +21,12 @@ import typing as _t
 from ..geom import exact
 from ..geom.ramp_grade import built_grade, grade_envelope, least_grade
 from ..law import Law
-from ..law.tables import family, role_cap
+from ..law.tables import family
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .edge_floor import seat_pair
-from .public_road_release import steep_vertex_caps
+from .public_road_release import contact_cap, steep_vertex_caps
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
@@ -195,11 +195,9 @@ def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
     edges = getattr(planar, "road_contact_edge", None) or {}
     if not edges:
         return []
-    roles = family(law, "road_cross_section").roles
-    caps = [role_cap(law, r).longitudinal for r in roles if role_cap(law, r)]
-    if not caps:
+    cap = contact_cap(law)
+    if cap is None:
         return []
-    cap = min(caps)
     rows: list[Row] = []
     for v in sorted(edges):
         a, b, u, s = edges[v]
@@ -1098,10 +1096,9 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     if not terr or not terr.get("station") or not levels:
         return cs, {"governed": 0}
     roles = family(law, "road_cross_section").roles
-    caps = [role_cap(law, r).longitudinal for r in roles if role_cap(law, r)]
-    if not caps:
+    cap = contact_cap(law)
+    if cap is None:
         return cs, {"governed": 0}
-    cap = min(caps)
     vis = float(law.tables.emit.cockpit.visual_m)
 
     def _vertex(src: Source) -> int | None:
@@ -1362,11 +1359,9 @@ def _reach_seed(planar: PlanarMap, law: Law, cs: ConstraintSet,
                               "worst": None}
     if not seed:
         return cs, rep
-    roles = family(law, "road_cross_section").roles
-    caps = [role_cap(law, r).longitudinal for r in roles if role_cap(law, r)]
-    if not caps:
+    cap = contact_cap(law)
+    if cap is None:
         return cs, rep
-    cap = min(caps)
     vis = float(law.tables.emit.cockpit.visual_m)
 
     def _vertex(src: Source) -> int | None:

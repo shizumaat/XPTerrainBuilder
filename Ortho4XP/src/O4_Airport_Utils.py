@@ -726,10 +726,61 @@ def build_hangar_areas(tile, airport_layer, dico_airports):
                 )
                 continue
             hangars.append(pol)
-        hangars = VECT.ensure_MultiPolygon(
-            VECT.improved_buffer(ops.unary_union(hangars), 2, 1, 0.5)
-        )
-        dico_airports[airport]["hangar"] = hangars
+        dico_airports[airport]["hangar"] = _building_area(hangars)
+
+
+def _building_area(polygons):
+    """The footprint of mapped airport buildings, grown as a hangar's is."""
+    return VECT.ensure_MultiPolygon(
+        VECT.improved_buffer(ops.unary_union(polygons), 2, 1, 0.5)
+    )
+
+
+def _terminal_area(tile, airport_layer):
+    """Every ``aeroway=terminal`` footprint of the airports layer (ways and
+    multipolygon outers), tile-relative and grown as a hangar's is.
+
+    A terminal is a building the taxiway flatten keeps clear of, like a
+    hangar (#2278): the flatten ring carries the taxiway profile's
+    altitude, so one running under a pack's building drapes the ground
+    under it a metre off its own, and a ``TILTED`` object tilts with it."""
+    tags = airport_layer.dicosmtags
+    rings = [airport_layer.dicosmw[w] for w in airport_layer.dicosmw
+             if tags.get("w", {}).get(w, {}).get("aeroway") == "terminal"]
+    rings += [ring for r, rel in airport_layer.dicosmr.items()
+              if tags.get("r", {}).get(r, {}).get("aeroway") == "terminal"
+              for ring in rel.get("outer", ())]
+    polygons = []
+    for ring in rings:
+        if len(ring) < 4 or ring[0] != ring[-1]:
+            continue
+        try:
+            pol = geometry.Polygon(numpy.round(
+                numpy.array([airport_layer.dicosmn[n] for n in ring])
+                - numpy.array([[tile.lon, tile.lat]]), 7))
+        except (KeyError, ValueError):
+            continue
+        if pol.is_valid and not pol.is_empty:
+            polygons.append(pol)
+    return _building_area(polygons)
+
+
+def _taxiway_flatten_area(apt, buildings):
+    """The taxiway flatten's area: the taxiways less the runways (5 m) and
+    every mapped building -- the hangars and ``buildings`` -- by the
+    building clearance (20 m)."""
+    return VECT.improved_buffer(
+        apt["taxiway"][0].difference(
+            VECT.improved_buffer(apt["runway"][0], 5, 0, 0).union(
+                VECT.improved_buffer(
+                    ops.unary_union([apt["hangar"], buildings])
+                    if not buildings.is_empty else apt["hangar"], 20, 0, 0)
+            )
+        ),
+        3,
+        2,
+        0.5,
+    )
 
 ################################################################################
 def build_apron_areas(tile, airport_layer, dico_airports):
@@ -1197,6 +1248,7 @@ def encode_runways_taxiways_and_aprons(
     patches_area=None,
 ):
     seeds = {"RUNWAY": [], "TAXIWAY": [], "APRON": []}
+    terminals = _terminal_area(tile, airport_layer)
     total_rwy = 0
     total_taxi = 0
     for airport in dico_airports:
@@ -1407,16 +1459,7 @@ def encode_runways_taxiways_and_aprons(
                 )
         ## Then taxiways
         ## Not sure if it is best to separate them from the runway or not...
-        cleaned_taxiway_area = VECT.improved_buffer(
-            apt["taxiway"][0].difference(
-                VECT.improved_buffer(apt["runway"][0], 5, 0, 0).union(
-                    VECT.improved_buffer(apt["hangar"], 20, 0, 0)
-                )
-            ),
-            3,
-            2,
-            0.5,
-        )
+        cleaned_taxiway_area = _taxiway_flatten_area(apt, terminals)
         # update it
         apt["taxiway"] = (cleaned_taxiway_area, apt["taxiway"][1])
         # cleaned_taxiway_area=VECT.improved_buffer(

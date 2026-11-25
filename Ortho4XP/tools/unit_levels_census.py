@@ -136,14 +136,18 @@ def low_refusal(pm, airport, law, air, plan) -> list[str]:
 
 def census(path: str) -> dict:
     """One capture's rows (module docstring)."""
+    with open(path, "rb") as fh:
+        return census_of(pickle.load(fh), path)
+
+
+def census_of(cap: dict, path: str) -> dict:
+    """:func:`census` of an unpickled capture ``cap``."""
     from auto_patch_v2.law import Law
     from auto_patch_v2.pipeline.frontage_publication import (
         frontage_levels,
         map_sides,
         terminal_frontage_records,
     )
-    with open(path, "rb") as fh:
-        cap = pickle.load(fh)
     icao, airport, pm = cap["icao"], cap["airport"], cap["pm"]
     law = Law.for_airport(icao)
     levels = frontage_levels(pm, law, airport)

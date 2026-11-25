@@ -87,7 +87,8 @@ def test_covers_many_equals_the_one_point_lookup(fade_width):
     rim = 0.01 + fade_width / GEO.lon_to_m(0.0)
     lons = numpy.concatenate([lons, [0.01, rim, rim + 1e-9, 0.5]])
     lats = numpy.concatenate([lats, [0.005, 0.005, 0.005, 0.5]])
-    expected = [geometry.covers(x, y) for (x, y) in zip(lons, lats)]
+    expected = [geometry.covers(x, y)
+                for (x, y) in zip(lons, lats, strict=True)]
     assert geometry.covers_many(lons, lats).tolist() == expected
     assert any(expected) and not all(expected)
     empty = FADE.AirportOrthoGeometry(None, 1000.0)

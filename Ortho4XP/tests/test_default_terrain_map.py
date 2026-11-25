@@ -161,7 +161,7 @@ def test_terrain_indices_at_equals_the_one_point_lookup(synthetic_map):
     lons = numpy.concatenate([lons, [1.0, 1.0, 0.0, 5.4, 10.0]])
     lats = numpy.concatenate([lats, [0.5, 1.0, 0.0, 5.2, 10.0]])
     expected = [synthetic_map.terrain_index_at(float(x), float(y))
-                for (x, y) in zip(lons, lats)]
+                for (x, y) in zip(lons, lats, strict=True)]
     assert synthetic_map.terrain_indices_at(lons, lats) == expected
     assert synthetic_map.terrain_indices_at([], []) == []
 

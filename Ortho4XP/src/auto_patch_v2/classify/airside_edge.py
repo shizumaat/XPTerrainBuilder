@@ -364,6 +364,28 @@ def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
         cuts[i] = run
 
 
+def _landside_of_storey(final: list[list], i: int, run, shared: float, storey,
+                        cuts, to_xy) -> bool:
+    """Whether §27 keeps ``final[i]`` groundside as a unit's LANDSIDE (#2279,
+    the majority form of owner answer 47): its contact ``run`` under a
+    storey's PLAN (``StoreyBand.plan``) is longer than the lateral airside
+    contact ``shared`` left beside it, the storey's rise is read and the
+    lot's own ground stands a storey up (``storey_edge.ground_confirms``) —
+    then recorded as :func:`_keep_across` records it.  MEASURED PHLI: ``pav63`` (the pack's
+    landside lot, the forecourt drive and the car parks) meets the apron
+    across the terminal for 450 m and past its two ends for 90 m; its
+    ground stands 4.7 m over the apron's, the storey 4.1 m."""
+    from . import storey_edge as _se
+    if run is None or storey is None or to_xy is None or run.length <= shared:
+        return False
+    h = _se.storey_height(storey, run, to_xy)
+    if h is None or _se.ground_confirms(storey, final[i][2], run, h) is not True:
+        return False
+    _keep_across(final, i, run, storey, cuts, to_xy)
+    final[i][4] = dict(final[i][4], **{_se.STOREY_LANDSIDE_KEY: 1.0})
+    return True
+
+
 def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
                        road_class: _t.AbstractSet[int] | None = None,
@@ -502,6 +524,17 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                 if run is not None and run.length >= min_m:
                     _keep_across(final, i, run, storey, storey_cuts, to_xy)
                 continue
+            # #2279 A LOT THAT MEETS THE APRON MOSTLY ACROSS A STOREY IS THE
+            # UNIT'S LANDSIDE: its runs past the unit's ends are no apron of
+            # its own when its ground confirms the storey (the cut-back takes
+            # them with the rest, ``storey_edge.knife_storeys``)
+            if not was_road[i] and storey is not None:
+                across = []
+                rest = _lateral_airside_m(face, False, tree, air, weld_m, factor, cache,
+                                          road_ctx, storey.plan, across, fences)
+                if _landside_of_storey(final, i, unary_union(across) if across else None,
+                                       rest, storey, storey_cuts, to_xy):
+                    continue
             # §37 (2) A ROAD FLIPS BY SHARE, A LOT BY EDGE (owner RULINGS
             # 2026-09-13q KCLT item 7, over 13j item 7).  A STRIP-class
             # face — one born a road, a road BY EVIDENCE — is a LINE

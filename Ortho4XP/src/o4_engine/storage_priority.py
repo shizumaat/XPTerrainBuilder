@@ -7,22 +7,31 @@
     are removed first"
 
 Over a budget the user set (``storage_budget.hold``), :func:`clear`
-frees ``over_by`` bytes in two phases:
+frees ``over_by`` bytes BULK FIRST, a built tile's rebuild inputs last
+(#2207, owner 2026-11-21: an over-budget pass cleared the ~1 MB map data
+of ~100 built tiles while their imagery stayed):
 
-1. SHARED data -- every cache file that belongs to no one tile (temp,
-   logs, previews, the texture cache, scenery dumps, airport pack caches,
-   regional map extracts, and a tile store's file outside any tile
-   folder), :data:`SHARED_TIERS` cheapest to rebuild first, least
-   recently used first within a tier.
-2. TILES, one at a time, in :func:`_ranked` order: non-favorites before
-   favorites, then the tile used longest ago first (built, flown near or
-   read: the newest of its files' times -- ``storage._last_used`` -- its
-   DSFs and its sharp imagery's ``last_near_at`` / ``fetched_at`` in the
-   on-demand index).  For that tile, :data:`TILE_STEPS` cheapest first:
-   its orthophotos, its masks, its elevation and map data (an airport
-   tile shrinks to its package there, ``storage_packages._package_tile``),
-   its sharp imagery made low-res, its rebuild data -- and only then the
-   next tile.
+1. SHARED bulk -- cache files that belong to no one tile, the first
+   :data:`SHARED_BULK` tiers of :data:`SHARED_TIERS` (temp, logs,
+   previews, the texture cache, scenery dumps, airport pack caches),
+   then the World pack's drapes;
+2. TILE BULK -- :data:`BULK_STEPS` (orthophotos, masks, sharp imagery
+   made low-res) of every clearable tile in :func:`_ranked` order:
+   non-favorites before favorites, then the tile used longest ago first
+   (built, flown near or read: the newest of its files' times --
+   ``storage._last_used`` -- its DSFs and its sharp imagery's
+   ``last_near_at`` / ``fetched_at`` in the on-demand index);
+3. SHARED inputs -- the rest of :data:`SHARED_TIERS` (elevation and map
+   data outside any tile folder, regional extracts, rebuild data);
+4. TILE INPUTS -- :data:`INPUT_STEPS`, each step over every clearable
+   tile before the next step: their rebuild data, then their elevation
+   and map data (an airport tile shrinks to its package there,
+   ``storage_packages._package_tile``); tiles never built first, built
+   tiles last (:func:`_inputs_ranked`).
+
+Within a tier or a tile's step, least recently used first.
+:data:`TILE_STEPS` is one tile's whole order, which :func:`offload`
+(moving, nothing lost) still walks tile by tile.
 
 PROTECTED, never cleared (:func:`_protected`): a shared file written or
 read in the last :data:`RECENT_DAYS` days (#2093), a tile built or queued in
@@ -55,7 +64,8 @@ import O4_File_Names as FNAMES
 from . import package_first as FIRST
 from . import storage as STORAGE
 
-__all__ = ["RECENT_DAYS", "SHARED_TIERS", "TILE_STEPS", "note_session",
+__all__ = ["RECENT_DAYS", "SHARED_TIERS", "SHARED_BULK", "TILE_STEPS",
+           "BULK_STEPS", "INPUT_STEPS", "note_session",
            "session_tiles", "clear", "offload"]
 
 #: A tile used this recently is never cleared: a week covers the tiles
@@ -69,9 +79,17 @@ SHARED_TIERS: tuple = (("tmp", "logs", "previews"), ("imagery", "dds"),
                        ("dsf_dumps", "masks", "airport_mod"),
                        ("elevation", "osm_extracts", "osm"),
                        (STORAGE.REBUILD,))
-#: Phase 2, one tile's data: cheapest to rebuild first.
+#: How many :data:`SHARED_TIERS` go before any tile's own data (#2207).
+SHARED_BULK = 3
+#: One tile's data, as :func:`offload` moves it: cheapest first.
 TILE_STEPS: tuple = (("imagery",), ("masks",), ("elevation", "osm"),
                      (STORAGE.ONDEMAND,), (STORAGE.REBUILD,))
+#: :func:`clear`'s tile bulk: re-downloadable imagery, of every tile
+#: before any tile's rebuild inputs (#2207).
+BULK_STEPS: tuple = (("imagery",), ("masks",), (STORAGE.ONDEMAND,))
+#: :func:`clear`'s last steps, each over every tile: rebuild data, then
+#: the small map and elevation inputs (#2207).
+INPUT_STEPS: tuple = ((STORAGE.REBUILD,), ("elevation", "osm"))
 _DAY = 86400.0
 _SESSION: set = set()
 _LOCK = threading.Lock()
@@ -95,6 +113,8 @@ class _Tile:
     pair: tuple
     last_used: float = 0.0
     favorite: bool = False
+    #: a DSF of it is built (``package_first.built_tiles``)
+    built: bool = False
     rows: dict = field(default_factory=dict)
 
     def saw(self, when: float) -> None:
@@ -143,6 +163,7 @@ def _index_tiles(tiles: dict) -> None:
 def _dsf_times(tiles: dict) -> None:
     for pair, folder in FIRST.built_tiles().items():
         tile = tiles.setdefault(pair, _Tile(pair))
+        tile.built = True
         for root, _dirs, names in os.walk(os.path.join(folder, "Earth nav data")):
             for name in names:
                 try:
@@ -210,6 +231,12 @@ def _ranked(tiles: dict, protected: set) -> list:
                   key=lambda t: (t.favorite, t.last_used, t.pair))
 
 
+def _inputs_ranked(ranked: list) -> list:
+    """``ranked`` with the tiles never built first: a built tile's map
+    and elevation inputs are what a pass keeps longest (#2207)."""
+    return sorted(ranked, key=lambda t: t.built)       # stable
+
+
 def _rows(rows, keep: set) -> list:
     return [r for r in rows
             if os.path.normcase(os.path.abspath(r[1])) not in keep
@@ -234,11 +261,11 @@ def _downgrade(tile: _Tile, sweep) -> int:
 
 
 def _clear_tile(tile: _Tile, need: int, sweep, now: float, keep: set,
-                candidate) -> int:
-    """One tile's :data:`TILE_STEPS` until ``need`` bytes are freed."""
+                candidate, steps: tuple = TILE_STEPS) -> int:
+    """One tile's ``steps`` until ``need`` bytes are freed."""
     from . import storage_packages as PACKAGES
     freed = 0
-    for step in TILE_STEPS:
+    for step in steps:
         if freed >= need or sweep.stopped:
             break
         if step == (STORAGE.ONDEMAND,):
@@ -258,43 +285,72 @@ def _clear_tile(tile: _Tile, need: int, sweep, now: float, keep: set,
 
 
 def clear(over_by: int, sweep, now: float, skip_tiles=()) -> int:
-    """Free ``over_by`` bytes, shared data first, then tile by tile in
-    priority order (module doc); the bytes freed.  ``skip_tiles`` (a
-    run about to build them, ``storage_room``) are protected too."""
-    from . import storage_packages as PACKAGES
+    """Free ``over_by`` bytes, bulk first and a built tile's rebuild
+    inputs last (module doc); the bytes freed.  ``skip_tiles`` (a run
+    about to build them, ``storage_room``) are protected too."""
     shared, tiles = _survey(now)
     protected = _protected(tiles, now) | _pairs(skip_tiles)
     keep = _protected_inputs(protected | _held())
-    freed = 0
-    recent = now - RECENT_DAYS * _DAY
-    for tier in SHARED_TIERS:
-        if freed >= over_by or sweep.stopped:
-            break
-        # #2093: shared data written or read in the last week stays, as a
-        # recent tile does (a running build's map extracts were cleared).
-        rows = [r for kind in tier for r in shared.get(kind, ())
-                if STORAGE._last_used(r[2]) < recent]
-        freed += STORAGE._evict_rows(_rows(rows, keep), over_by - freed, sweep)
-    freed += _drapes(over_by - freed, sweep, now)
-    candidates = None
-    for tile in _ranked(tiles, protected):
-        if freed >= over_by or sweep.stopped:
-            break
-        if sweep.abort():
-            sweep.stopped = True
-            break
-        if candidates is None:
-            candidates = {(c["lat"], c["lon"]): c for c in PACKAGES._candidates()}
-        freed += _clear_tile(tile, over_by - freed, sweep, now, keep,
-                             candidates.get(tile.pair))
+    ranked = _ranked(tiles, protected)
+    walk = _Walk(over_by, sweep, now, keep)
+    walk.shared(shared, SHARED_TIERS[:SHARED_BULK])
+    if not walk.done():
+        walk.freed += _drapes(walk.left(), sweep, now)
+    walk.tiles(ranked, BULK_STEPS)
+    walk.shared(shared, SHARED_TIERS[SHARED_BULK:])
+    for step in INPUT_STEPS:
+        walk.tiles(_inputs_ranked(ranked), (step,))
     _prune(sweep)
-    if freed < over_by and not sweep.stopped and not sweep.dry_run:
+    if walk.left() > 0 and not sweep.stopped and not sweep.dry_run:
         STORAGE.write_log(
             "disk budget still over by %d bytes: the rest belongs to the %d "
             "tile(s) used in the last %d days or this session"
-            % (over_by - freed, len(protected), RECENT_DAYS))
-    return freed
+            % (walk.left(), len(protected), RECENT_DAYS))
+    return walk.freed
 
+
+class _Walk:
+    """:func:`clear`'s running total over its phases."""
+
+    def __init__(self, over_by: int, sweep, now: float, keep: set) -> None:
+        self.over_by, self.sweep, self.now, self.keep = over_by, sweep, now, keep
+        self.freed = 0
+        self._candidates = None
+
+    def left(self) -> int:
+        return self.over_by - self.freed
+
+    def done(self) -> bool:
+        return self.freed >= self.over_by or self.sweep.stopped
+
+    def shared(self, shared: dict, tiers) -> None:
+        """The shared ``tiers``; a file written or read in the last week
+        stays, as a recent tile does (#2093: a running build's map
+        extracts were cleared)."""
+        recent = self.now - RECENT_DAYS * _DAY
+        for tier in tiers:
+            if self.done():
+                return
+            rows = [r for kind in tier for r in shared.get(kind, ())
+                    if STORAGE._last_used(r[2]) < recent]
+            self.freed += STORAGE._evict_rows(_rows(rows, self.keep),
+                                              self.left(), self.sweep)
+
+    def tiles(self, ranked: list, steps: tuple) -> None:
+        """``steps`` of each tile of ``ranked``, in order."""
+        from . import storage_packages as PACKAGES
+        for tile in ranked:
+            if self.done():
+                return
+            if self.sweep.abort():
+                self.sweep.stopped = True
+                return
+            if self._candidates is None:
+                self._candidates = {(c["lat"], c["lon"]): c
+                                    for c in PACKAGES._candidates()}
+            self.freed += _clear_tile(tile, self.left(), self.sweep, self.now,
+                                      self.keep, self._candidates.get(tile.pair),
+                                      steps)
 
 
 def _pairs(tiles) -> set:

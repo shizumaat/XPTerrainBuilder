@@ -21,7 +21,12 @@ and answer with the ``slow_step_choice`` command.
   4. a cache lock held by another process has been waited for
      :data:`LOCK_WAIT_SECONDS` -- :func:`O4_File_Lock.lock_waits`;
   5. the disk the build writes to has less than
-     :data:`DISK_FREE_MIN_BYTES` free.
+     :data:`DISK_FREE_MIN_BYTES` free;
+  0. ahead of all five, a counted phase FLAGGED itself stuck
+     (:func:`o4_engine.task_meter.flag_stuck`, reason
+     ``"phase_flagged"``): the base download below the throughput floor
+     asks at once whether to wait or fall back (#2211, owner
+     2026-11-24).
 
   The ``slow_step_alert_minutes`` app setting is the on/off switch (0 =
   off, any other value on).  No per-airport or per-region number exists
@@ -29,7 +34,9 @@ and answer with the ``slow_step_choice`` command.
 * **ETA.** The session's live remaining-time estimate for the step.
 * **Options.** "Continue" (never ask again for this step) and "Cancel
   this tile" always; "Use coarser data" only while the running phase
-  said it can finish on coarser data.  An open alert is re-sent every
+  said it can finish on coarser data -- in the phase's own words when
+  it gave them (the base download's "Use FABDEM instead", #2211).  An
+  open alert is re-sent every
   :data:`REFRESH_SECONDS` with fresh words until it is answered, it
   clears, or the step ends, then closed (``resolved``).
 """
@@ -47,7 +54,7 @@ import O4_File_Names as FNAMES
 
 from . import download_meter
 from .events import SlowStep
-from .task_meter import idlest_phase, request_coarser, slowest_phase
+from .task_meter import flagged_phase, idlest_phase, request_coarser, slowest_phase
 
 __all__ = ["CRAWL_BYTES_PER_SECOND", "CRAWL_SECONDS", "DEFAULT_ALERT_MINUTES",
            "DISK_FREE_MIN_BYTES", "LOCK_WAIT_SECONDS", "NO_PROGRESS_SECONDS",
@@ -237,6 +244,15 @@ def _words(step, stuck, coarser, remaining):
     return title, "\n\n".join((what, why, eta)), tuple(options)
 
 
+def _option_labels(options, phase):
+    """The button words of ``options``: :data:`OPTION_LABELS`, the
+    "coarser" answer in the phase's own words when it gave them."""
+    labels = dict(OPTION_LABELS)
+    if phase and phase.get("coarser_label"):
+        labels["coarser"] = phase["coarser_label"]
+    return tuple(labels[option] for option in options)
+
+
 class SlowStepWatch:
     """The running step of ONE session's in-process build, watched.
 
@@ -283,6 +299,9 @@ class SlowStepWatch:
         while (len(step["samples"]) > 1
                and step["samples"][1][0] <= now - CRAWL_SECONDS):
             step["samples"].pop(0)
+        flagged = flagged_phase()
+        if flagged:
+            return ("phase_flagged", flagged["what"], flagged["why"]), flagged
         idle = idlest_phase()
         hung = _no_progress(step, now, idle)
         if hung:
@@ -323,7 +342,7 @@ class SlowStepWatch:
         event = SlowStep(
             lat=step["tile"][0], lon=step["tile"][1], step_key=step["key"],
             title=title, message=message, reason=stuck[0], options=options,
-            option_labels=tuple(OPTION_LABELS[o] for o in options),
+            option_labels=_option_labels(options, phase),
             elapsed_seconds=round(now - step["t0"], 1),
             eta_seconds=None if remaining is None else round(remaining, 1))
         self._emit(event)

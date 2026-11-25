@@ -151,6 +151,39 @@ def test_terrain_index_at_nearest_fallback(synthetic_map):
     assert idx in (0, 1, 2)
 
 
+def test_terrain_indices_at_equals_the_one_point_lookup(synthetic_map):
+    # #1264: the bulk lookup answers what the one-point lookup does for
+    # every point -- interiors, shared edges and vertices (first hit of the
+    # same STRtree query), and misses (the nearest fallback).
+    import numpy
+    grid = numpy.linspace(-0.5, 6.0, 27)
+    lons, lats = (a.ravel() for a in numpy.meshgrid(grid, grid))
+    lons = numpy.concatenate([lons, [1.0, 1.0, 0.0, 5.4, 10.0]])
+    lats = numpy.concatenate([lats, [0.5, 1.0, 0.0, 5.2, 10.0]])
+    expected = [synthetic_map.terrain_index_at(float(x), float(y))
+                for (x, y) in zip(lons, lats, strict=True)]
+    assert synthetic_map.terrain_indices_at(lons, lats) == expected
+    assert synthetic_map.terrain_indices_at([], []) == []
+
+
+def test_map_memo_parses_each_dump_once(tmp_path, monkeypatch):
+    # Inside a map_memo block the same dump is parsed once; outside, every
+    # call parses (#1264).
+    text = tmp_path / "x.dsf.text"
+    text.write_text("x", encoding="utf-8", newline="")
+    calls = []
+    monkeypatch.setattr(
+        DefaultTerrainMap, "_from_text_path",
+        classmethod(lambda cls, path, dsf_path=None: calls.append(path)
+                    or object()))
+    with DTM.map_memo():
+        first = DTM._memoized_map(str(text), None)
+        assert DTM._memoized_map(str(text), None) is first
+    assert len(calls) == 1
+    DTM._memoized_map(str(text), None)
+    assert len(calls) == 2
+
+
 def test_overlay_region_not_contained(synthetic_map):
     # A point inside the ignored overlay patch resolves only by nearest
     # fallback -- no physical triangle actually covers it.

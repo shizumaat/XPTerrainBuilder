@@ -36,9 +36,13 @@ DSFTool location + text-dump caching helpers.
 """
 from __future__ import annotations
 
+import contextlib
 import os
+import threading
 
-from shapely.geometry import Point, Polygon
+import numpy
+import shapely
+from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 import O4_File_Names as FNAMES
@@ -98,6 +102,40 @@ def is_water_terrain(terrain_path: str) -> bool:
     return any(token in lowered for token in _WATER_TERRAIN_SUBSTRINGS)
 
 
+# THE MAP MEMO (#1264): one DSF build asks for the same tile's map up to
+# three times (the default-land base, the cliff landclasses, the cliff
+# slope bands), 2.5-3.5 s of dump parsing each on +37-009.  Inside a
+# :func:`map_memo` block the calling thread parses it once; keyed on the
+# dump's path, mtime and size, so an answer is the map a fresh parse makes.
+# Scoped to the thread and the block, like ``O4_Mask_Utils``'s square memo:
+# nothing outlives the step.
+_map_memo = threading.local()
+
+
+@contextlib.contextmanager
+def map_memo():
+    """Parse each default DSF's map once on this thread for the block."""
+    _map_memo.cache = {}
+    try:
+        yield
+    finally:
+        _map_memo.cache = None
+
+
+def _memoized_map(text_path: str, dsf_path: str | None):
+    """The map of ``text_path``: from this thread's memo inside a
+    :func:`map_memo` block, else parsed."""
+    cache = getattr(_map_memo, "cache", None)
+    if cache is None:
+        return DefaultTerrainMap._from_text_path(text_path, dsf_path=dsf_path)
+    stat = os.stat(text_path)
+    key = (text_path, dsf_path, stat.st_mtime_ns, stat.st_size)
+    if key not in cache:
+        cache[key] = DefaultTerrainMap._from_text_path(
+            text_path, dsf_path=dsf_path)
+    return cache[key]
+
+
 class DefaultTerrainMap:
     """Terrain-type lookup built from a default Global Scenery base-mesh DSF."""
 
@@ -128,8 +166,14 @@ class DefaultTerrainMap:
         # Spatial index over the triangle polygons.  ``STRtree.query`` /
         # ``.nearest`` return positional indices into this geometry list,
         # which are exactly the indices into ``_triangle_terrain_index``.
-        self._polygons = [Polygon(tri) for tri in triangles]
-        self._tree = STRtree(self._polygons) if self._polygons else None
+        # One vectorised call: the same polygons ``Polygon(tri)`` makes,
+        # each ring closed on its first vertex.
+        self._polygons = (
+            shapely.polygons(numpy.asarray(triangles, dtype=numpy.float64))
+            if len(triangles) else [])
+        self._tree = STRtree(self._polygons) if len(triangles) else None
+        self._terrain_by_triangle = numpy.asarray(
+            triangle_terrain_index, dtype=numpy.int64)
 
     # ── construction ────────────────────────────────────────────────────
 
@@ -197,7 +241,7 @@ class DefaultTerrainMap:
                 f"default DSF {dsf_path!r} (DSFTool binary missing or "
                 "conversion failed).")
             return None
-        return cls._from_text_path(text_path, dsf_path=dsf_path)
+        return _memoized_map(text_path, dsf_path)
 
     @classmethod
     def _from_text_path(
@@ -328,6 +372,30 @@ class DefaultTerrainMap:
         # Nearest-triangle fallback for out-of-coverage misses.
         nearest_index = int(self._tree.nearest(point))
         return self._triangle_terrain_index[nearest_index]
+
+    def terrain_indices_at(self, lons, lats) -> list[int]:
+        """:meth:`terrain_index_at` of every ``(lons[i], lats[i])``, the
+        same answers, in one tree query (#1264: the DSF asked once per land
+        triangle, 58 s of the default_xplane step on +37-009).
+
+        The bulk query lists each point's hits in the order the one-point
+        query does (both are the same ``STRtree`` call), so the first hit is
+        the same triangle; a point with none takes the per-point fallback.
+        """
+        lons = numpy.asarray(lons, dtype=numpy.float64)
+        lats = numpy.asarray(lats, dtype=numpy.float64)
+        if self._tree is None:
+            return [-1] * len(lons)
+        (inputs, hits) = self._tree.query(
+            shapely.points(lons, lats), predicate="intersects")
+        first = numpy.full(len(lons), -1, dtype=numpy.int64)
+        (hit_inputs, first_rows) = numpy.unique(inputs, return_index=True)
+        first[hit_inputs] = hits[first_rows]
+        indices = numpy.where(
+            first >= 0, self._terrain_by_triangle[first.clip(0)], -1).tolist()
+        for i in numpy.flatnonzero(first < 0).tolist():
+            indices[i] = self.terrain_index_at(float(lons[i]), float(lats[i]))
+        return indices
 
     def terrain_path_at(self, lon: float, lat: float) -> str:
         """Convenience: ``terrain_paths[terrain_index_at(lon, lat)]``."""

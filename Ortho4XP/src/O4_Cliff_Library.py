@@ -53,8 +53,8 @@ def _triangle_terrains(terrain_map, lonlat):
     default-land path does."""
     paths = terrain_map.terrain_paths
     out, majority = [], Counter()
-    for lon, lat in lonlat.mean(1):
-        i = terrain_map.terrain_index_at(lon, lat)
+    centroids = lonlat.mean(1)
+    for i in terrain_map.terrain_indices_at(centroids[:, 0], centroids[:, 1]):
         path = paths[i] if 0 <= i < len(paths) else ""
         if (not path or DEFTER.is_water_terrain(path)
                 or terrain_map.is_projected(i) is False):

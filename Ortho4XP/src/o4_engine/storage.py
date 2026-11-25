@@ -372,6 +372,10 @@ class _Sweep:
                  abort: _t.Callable[[], bool] | None) -> None:
         self.dry_run = dry_run
         self.reason = reason
+        #: the pass's name; :meth:`trigger` adds what it is doing to
+        #: ``reason`` (#2207)
+        self.base = reason
+        self._pending = ""
         self.abort = abort or (lambda: False)
         self.freed: dict = {}
         self.files = 0
@@ -384,6 +388,25 @@ class _Sweep:
         self.spare: tuple = _corpus_roots()
         self._log = None
         self._first = None
+
+    def trigger(self, why: str, detail: str = "", now: bool = False) -> None:
+        """Name the step the pass runs next and WHY (#2207: a budget pass
+        and the age rule logged the same "automatic cleanup"): the lines
+        that follow carry ``why``; one line ``<pass>: <why>: <detail>``
+        (the numbers) is written before the first of them -- at once
+        with ``now`` (the step has decided to clear), else only when the
+        step deletes or moves something."""
+        self.reason = "%s, %s" % (self.base, why)
+        self._pending = "%s: %s%s" % (self.base, why,
+                                     ": " + detail if detail else "")
+        if now:
+            self.announce()
+
+    def announce(self) -> None:
+        """Write the pending :meth:`trigger` line (never in a dry run)."""
+        line, self._pending = self._pending, ""
+        if line and not self.dry_run:
+            self._write(line)
 
     @property
     def first(self):
@@ -411,6 +434,7 @@ class _Sweep:
         size = DISK.freeable_bytes(path, st, unshared=True)
         if self.tier_only:
             return self._offload(store, path, st, size)
+        self.announce()             # the trigger before a package line
         written = self.first.before_delete(store.kind, path)
         if written:
             self.freed[_PACKAGES.KIND] = self.freed.get(_PACKAGES.KIND, 0) - written
@@ -440,6 +464,7 @@ class _Sweep:
         moved = "" if self.dry_run else keep(store.kind, store.path(), path, st)
         if not moved:
             return 0
+        self.announce()
         self._write("moved %d bytes %s to %s (%s, %s)"
                     % (size, path, moved, store.kind, self.reason))
         self.freed[store.kind] = self.freed.get(store.kind, 0) + size
@@ -457,15 +482,17 @@ class _Sweep:
     def _write(self, line: str) -> None:
         if self._log is None:
             os.makedirs(_logs_dir(), exist_ok=True)
+            # line-buffered: package and downgrade lines are appended
+            # through ``write_log`` in between and must land in order
             self._log = open(os.path.join(_logs_dir(), LOG_NAME), "a",
-                             encoding="utf-8", newline="\n")
+                             encoding="utf-8", newline="\n", buffering=1)
         self._log.write(time.strftime("%Y-%m-%dT%H:%M:%SZ ", time.gmtime())
                         + line + "\n")
 
     def result(self) -> dict:
         if self._log is not None:
             self._write("freed %d bytes in %d file(s) (%s)"
-                        % (sum(self.freed.values()), self.files, self.reason))
+                        % (sum(self.freed.values()), self.files, self.base))
             self._log.close()
             self._log = None
         return {"freed_bytes": sum(self.freed.values()), "files": self.files,
@@ -602,6 +629,8 @@ def _evict_to_cap(store: Store, cap: int, sweep: _Sweep, now: float) -> None:
     total = sum(DISK.freeable_bytes(path, st)
                 for path, st, _d in _files(store, now))
     if total > cap:
+        sweep.trigger("cache cap", "%s holds %d bytes, over its %s cap of %d "
+                      "bytes" % (store.kind, total, CAPS_SETTING, cap))
         _evict_oldest([store], total - cap, sweep, now)
 
 
@@ -758,8 +787,13 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     sweep = _Sweep(bool(dry_run), "automatic cleanup", abort)
     now = time.time()
     if days > 0:
+        cutoff = now - days * 86400.0
+        sweep.trigger("age rule", "files not used for %g days (%s=%g, not "
+                      "used since %s)" % (days, AUTO_CLEAN_DAYS, days,
+                                          time.strftime("%Y-%m-%dT%H:%MZ",
+                                                        time.gmtime(cutoff))))
         for store in _caches(()):
-            _clear_store(store, now - days * 86400.0, sweep, now)
+            _clear_store(store, cutoff, sweep, now)
             if sweep.stopped:
                 break
     for kind, cap in caps.items():
@@ -767,6 +801,8 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
             break
         _evict_to_cap(_BY_KIND[kind], int(cap), sweep, now)
     if not sweep.stopped:
+        sweep.trigger("redundant files", "texture-cache copies built tiles "
+                      "hold, caches of packs no longer installed")
         _remove_redundant(sweep, now)
     budget = ondemand = None
     if not sweep.stopped:

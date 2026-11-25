@@ -79,6 +79,7 @@ import scipy.sparse as sp
 # solver below is the module's own — see the docstring's deviation.
 import highspy  # noqa: F401
 
+from .fill_order import FillOrder
 from .linear import RowBlocks, _linear_solve, _objective
 from .round_normal import Prefix, RoundNormal
 
@@ -221,17 +222,21 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     Uk = U if U is not None and int(U.shape[0]) else None
     norm_pool = ThreadPoolExecutor(_NORMAL_WORKERS) if shared and _NORMAL_WORKERS > 1 else None
     this_round: dict = {}
+    #: #1270 (lane ``lsplu``): the QP's ONE fill-reducing ordering, taken
+    #: by its first round and committed between rounds (``solve/fill_order``)
+    order = FillOrder()
 
     def round_normal(sel: np.ndarray) -> None:
         """The round's normal matrix, before its tries."""
         if not shared:
             return
+        order.commit()
         if "pre" not in this_round:
             this_round["pre"] = Prefix(A0, b0, A0T, norm_pool, _NORMAL_WORKERS)
         W = (sp.diags(sw[sel]) @ A1[sel]).tocsr() if sel.size else \
             sp.csr_matrix((0, nc))
         this_round["rn"] = RoundNormal(this_round["pre"], W, sw[sel] * bb[sel], Uk,
-                                       low_rank, norm_pool, _NORMAL_WORKERS)
+                                       low_rank, norm_pool, _NORMAL_WORKERS, order)
 
     def step(x: np.ndarray | None, lam: float,
              sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:

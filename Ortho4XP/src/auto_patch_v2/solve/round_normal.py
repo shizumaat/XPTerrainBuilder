@@ -38,6 +38,9 @@ import scipy.sparse as sp
 
 from .linear import _bordered, _factor, _floored, _normal_back
 
+if _t.TYPE_CHECKING:
+    from .fill_order import FillOrder
+
 __all__ = ["Prefix", "RoundNormal"]
 
 #: a product is cut into row blocks of at least this many rows on threads
@@ -87,8 +90,11 @@ class RoundNormal:
 
     def __init__(self, pre: Prefix, W: sp.csr_matrix, bW: np.ndarray,
                  U: sp.csr_matrix | None, low_rank: str,
-                 pool: _t.Any = None, workers: int = 1) -> None:
+                 pool: _t.Any = None, workers: int = 1,
+                 order: "FillOrder | None" = None) -> None:
         self.pre, self.W, self.bW = pre, W, bW
+        #: the QP's one fill-reducing ordering (``solve/fill_order``)
+        self.order = order
         self.n = n = int(pre.A0.shape[1])
         self.U, self.low_rank = U, low_rank
         #: row i: ``1`` at the partial sum's column i, then W's column i
@@ -111,6 +117,11 @@ class RoundNormal:
             B = _bordered(N, U)
             up = U.tocsc().indptr.astype(np.int64)
             self.border = (B.data, B.indices, B.indptr, dpos + up[:-1], int(B.shape[0]))
+        #: the try's matrix (bordered, or the product's own) laid out in the
+        #: QP's order, once per round (``None`` before the order is taken)
+        self.lay = None
+        if order is not None and self.dpos is not None:
+            self.lay = order.layout(B if self.border is not None else N)
         # the λ term's kernel input (``_diagonal``)
         self._l_idx = np.column_stack([np.arange(n), n + np.arange(n)]).ravel()
         self._l_ptr = np.arange(0, 2 * n + 1, 2, dtype=np.int64)
@@ -138,7 +149,8 @@ class RoundNormal:
         U = self.U
         if self.dpos is None:            # a column with no diagonal yet
             back = _normal_back(_floored(self._off() + sp.diags(dg, format="csc")),
-                                U, self.low_rank)
+                                U, self.low_rank,
+                                _factor if self.order is None else self.order.factor)
         else:
             # ``linear._floored``: its ε from this diagonal, added by the
             # binop's own ``a + b``
@@ -147,7 +159,7 @@ class RoundNormal:
                 data, indices, indptr, dslot, nb = self.border
                 data = data.copy()
                 data[dslot] = md
-                lu = _factor(sp.csc_matrix((data, indices, indptr), shape=(nb, nb)))
+                lu = self._lu(sp.csc_matrix((data, indices, indptr), shape=(nb, nb)))
 
                 def back(r: np.ndarray, rc: np.ndarray) -> np.ndarray:
                     return np.asarray(lu.solve(np.concatenate([r, rc]))[:n], float)
@@ -155,7 +167,8 @@ class RoundNormal:
                 data = self.N.data.copy()
                 data[self.dpos] = md
                 back = _normal_back(sp.csc_matrix((data, self.N.indices, self.N.indptr),
-                                                  shape=(n, n)), U, self.low_rank)
+                                                  shape=(n, n)), U, self.low_rank,
+                                    self._lu)
         x0 = np.asarray(x0, float)
         pre = self.pre
         r_lam = root * x0 - (root * sp.identity(n, format="csr")) @ x0   # ±0
@@ -163,6 +176,10 @@ class RoundNormal:
         rhs = self.L @ np.concatenate([head, self.bW - self.W @ x0]) + root * r_lam
         rc = None if U is None else np.asarray(c, float) - U @ x0
         return x0 + back(rhs, rc)
+
+    def _lu(self, M: sp.csc_matrix):
+        """A try's factorisation of the round's laid-out matrix."""
+        return _factor(M) if self.order is None else self.order.factor(M, self.lay)
 
     def _off(self) -> sp.csc_matrix:
         """The product without its diagonal (the rare column with none)."""

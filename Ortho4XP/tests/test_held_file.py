@@ -24,6 +24,7 @@ import errno
 import json
 import os
 import sys
+import threading
 
 import pytest
 
@@ -52,7 +53,20 @@ def _held_file_error(path, winerror=32):
 def windows(monkeypatch):
     """The policy under a simulated Windows, with the backoff recorded."""
     sleeps = []
-    monkeypatch.setattr(HELD.time, "sleep", sleeps.append)
+    # HELD.time is the shared time module: patching its sleep reaches every
+    # thread in the worker.  Record only this test's own thread; a poller
+    # an earlier test left running (0.25 s download waits, seen on the
+    # Windows runner) keeps its real sleep.
+    test_thread = threading.current_thread()
+    real_sleep = HELD.time.sleep
+
+    def _sleep(seconds):
+        if threading.current_thread() is test_thread:
+            sleeps.append(seconds)
+        else:
+            real_sleep(seconds)
+
+    monkeypatch.setattr(HELD.time, "sleep", _sleep)
     monkeypatch.setattr(HELD, "RETRY_HELD_FILE", True)
     return sleeps
 

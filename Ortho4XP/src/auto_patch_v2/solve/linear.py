@@ -108,24 +108,26 @@ def _bordered(M: sp.csc_matrix, U: sp.csr_matrix) -> sp.csc_matrix:
     return sp.csc_matrix((data, indices, indptr.astype(idx_t)), shape=(n + k, n + k))
 
 
-def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
+def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str,
+                 factor=_factor):
     """``back(r, rc) -> (M + UᵀU)⁻¹ (r + Uᵀ rc)`` on ONE factorisation of the
     (floored) normal matrix ``M``: the low-rank datum term by ``low_rank``
-    (:data:`LOW_RANK_MODES`; ``U is None``: no such term)."""
+    (:data:`LOW_RANK_MODES`; ``U is None``: no such term).  ``factor`` is
+    the factorisation (a QP's ``fill_order.FillOrder.factor``)."""
     n = M.shape[0]
     if U is None:
-        lu = _factor(M)
+        lu = factor(M)
         return lambda r, rc=None: np.asarray(lu.solve(r), float)
     k = int(U.shape[0])
     if low_rank == "bordered":
         # the border carries ``rc`` itself: eliminating y = U x − rc gives
         # (M + UᵀU) x = r + Uᵀ rc.  ONE sparse solve of the augmented system
         # whose Schur complement onto the border is Woodbury's k × k system
-        lu = _factor(_bordered(M, U))
+        lu = factor(_bordered(M, U))
         return lambda r, rc: np.asarray(
             lu.solve(np.concatenate([r, rc]))[:n], float)
     # the identity applied explicitly: k back-solves against LU(M)
-    lu = _factor(M)
+    lu = factor(M)
     Y = lu.solve(np.asarray(U.T.toarray(), float))              # M⁻¹ Uᵀ
     S = np.eye(k) + np.asarray(U @ Y, float)                    # I + U M⁻¹ Uᵀ
 

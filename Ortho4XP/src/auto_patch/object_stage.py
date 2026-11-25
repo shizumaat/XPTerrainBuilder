@@ -9,6 +9,7 @@ nothing of the solve, so the mesh step's code key no longer holds it.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import os
 import re
 import time
@@ -508,7 +509,76 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     ``omit`` is the missing art the user accepted to build without
     (:func:`_art_stage`); the DSF write drops it.  ``foreign``: the part
     outlines of the airport's SIBLING plans (main + companions), which
-    block an isolated share (§9a, ``isolated_seat``)."""
+    block an isolated share (§9a, ``isolated_seat``).
+
+    Two halves (#412 2b): :func:`_plan_half` READS (the pack's dump, the
+    mesh, the design surface) and plans; :func:`_write_half` writes.  A
+    tile's later airports may have their plan half computed ahead, in
+    worker processes (``object_stage_ahead``), and only the write half
+    runs here in the tile's order."""
+    half = _plan_half(plan_, law, mesh_sample, tile, patch_dir, write_enabled,
+                      measure_only, plan_key=plan_key, foreign=foreign)
+    if half is None:
+        return {}
+    return _write_half(half, law, tile, patch_dir, write_enabled, measure_only,
+                       omit=omit, plan_key=plan_key)
+
+
+@_dc.dataclass
+class _PlanHalf:
+    """What :func:`_plan_half` hands :func:`_write_half` — picklable, so a
+    worker process can compute it (``ground``: the neighbour ground,
+    ``tile_route.neighbour_ground``, whose ``.mark`` the write reads — or,
+    from a worker, the ``{tile: mark}`` it read)."""
+    plan_: _t.Any
+    plan: _t.Any
+    files: _t.Any
+    counts: dict
+    siblings: list
+    chains: list
+    graded: _t.Any
+    target_root: str
+    cache: str
+    digest: str
+    pack_name: str
+    ground: _t.Any
+    #: the sampler's ``(w, s, e, n)``: what a guest mark not read ahead is
+    #: read over (:func:`_guest_mark`)
+    bounds: _t.Any = None
+
+
+def _guest_mark(half: _PlanHalf, tile):
+    """The write's ``guest_ground``: ``half.ground.mark``, or — for a half
+    computed in a worker — the marks it read, and for a tile it did not
+    read, the same neighbour ground the serial path reads, built lazily."""
+    if not isinstance(half.ground, dict):
+        return half.ground.mark
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import tile_route as _route
+
+    from . import guest_stage as _guests
+    known = dict(half.ground)
+    fresh: list = []
+
+    def mark(t) -> str:
+        k = (int(t[0]), int(t[1]))
+        if k not in known:
+            if not fresh:
+                fresh.append(_route.neighbour_ground(
+                    half.plan_.icao, (tile.lat, tile.lon), FNAMES.Elevation_dir,
+                    float(getattr(tile, "airport_elevation_inset_feather_m", 60.0)
+                          or 60.0),
+                    meshes=_guests.neighbour_meshes(tile, half.bounds)))
+            known[k] = fresh[0].mark(k)
+        return known[k]
+    return mark
+
+
+def _plan_half(plan_, law, mesh_sample, tile, patch_dir: str,
+               write_enabled: bool, measure_only: bool, *, plan_key: str = "",
+               foreign: _t.Sequence = ()) -> "_PlanHalf | None":
+    """:func:`_place_objects`' reading half: ``None`` where the pack has
+    no DSF or no dump (nothing is placed)."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import deck_profile as _dprof
@@ -528,7 +598,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     dsf_path = _dsf2.dsf_path_in_pack(target_root, tile.lat, tile.lon)
     if not os.path.isfile(dsf_path):
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF at {dsf_path}; skipped")
-        return {}
+        return None
     cache = _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), pack_name)
     # the PRISTINE dump (§3.4, RULINGS 2026-09-11m): ONE resolver, and
     # the cache entry is keyed on that file's CONTENT
@@ -536,7 +606,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     dump_path = _DSFR.ensure_dsf_text_path(pristine_dsf_path(dsf_path), cache)
     if not dump_path:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF text dump; skipped")
-        return {}
+        return None
     dump = _dsf2.read_dump(dump_path)
 
     # #1884 / #2129: past this tile's edge the split reads the ground the
@@ -768,6 +838,27 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     c["overlay_chain_packs"] = len(chains)
     c["overlay_chain_rows"] = sum(len(s.msl_seats) for s in chains)
     c["sibling_deck_riders"] = sum(len(s.msl_seats) for s in siblings)
+    return _PlanHalf(plan_, plan, files, c, siblings, chains, _gd, target_root,
+                    cache, digest, pack_name, _ground,
+                    getattr(mesh_sample, "bounds", None))
+
+
+def _write_half(half: _PlanHalf, law, tile, patch_dir: str, write_enabled: bool,
+                measure_only: bool, *, omit: _t.Sequence = (),
+                plan_key: str = "") -> dict:
+    """:func:`_place_objects`' writing half: the pack (and its sibling and
+    overlay packs) written from ``half``; returns the counts."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import placement_write as _pw
+
+    from . import chain_stage as _chain
+    from . import dsf_reader as _DSFR
+    from . import pack_copy as _copy
+    from . import sibling_stage as _sib
+    plan_, plan, files, c = half.plan_, half.plan, half.files, half.counts
+    siblings, chains, _gd = half.siblings, half.chains, half.graded
+    target_root, cache, digest = half.target_root, half.cache, half.digest
+    pack_name = half.pack_name
     if not write_enabled or measure_only:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
@@ -795,7 +886,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key),
-            gen_recipe=gen, guest_ground=_ground.mark)
+            gen_recipe=gen, guest_ground=_guest_mark(half, tile))
     except (BackupUnproven, TimeoutError, _pa.PackReadOnlyError) as exc:
         # TimeoutError: another write of the pack held its lock (``pack_lock``);
         # PackReadOnlyError: its folders are read-only (#2174), said at once
@@ -872,6 +963,340 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest)
         out["overlay_chain_rows"] = c["overlay_chain_rows"]
     return out
+
+
+# ── #412 2b: a tile's later airports PLANNED AHEAD ───────────────────────
+#
+# The stage places a tile's airports one after another, each airport's
+# write in the tile's order (unchanged).  Their PLAN halves
+# (:func:`_plan_half`: minutes of reading and planning each — KATL's tile
+# 294 s + 115 s, CYYZ's 46 + 49 + 84 s) depend on one another only where
+# one airport's write changes a file another's plan reads.  So the later
+# airports' plan halves are computed AHEAD, each in a worker process on a
+# machine slot (``slot_gated_pool``: never more than the session's free
+# slots), while this process places the first.  When the loop reaches an
+# airport its worker's half is TAKEN only if it is the half this process
+# would compute: the same plan, the same sibling outlines, key and write
+# arms, and every file the worker opened unchanged since (size and mtime)
+# and none modified after the worker started (what it read was never
+# mid-write).  Anything else — a worker not started yet, failed, or a
+# file another airport wrote — and the half is computed here, as before.
+
+
+def _ahead_tile(tile) -> _t.Any:
+    """The tile attributes a plan half reads, picklable."""
+    import types
+    return types.SimpleNamespace(
+        lat=int(tile.lat), lon=int(tile.lon),
+        build_dir=getattr(tile, "build_dir", ""),
+        custom_build_dir=getattr(tile, "custom_build_dir", "") or "",
+        airport_elevation_inset_feather_m=getattr(
+            tile, "airport_elevation_inset_feather_m", 60.0))
+
+
+def _plan_sha(plan_) -> str:
+    """The identity of a rebake plan: its JSON's sha256."""
+    import hashlib
+    return hashlib.sha256(plan_.to_json().encode("utf-8")).hexdigest()
+
+
+def _ahead_jobs(plans: _t.Sequence[str], screens: _t.Mapping, patch_dir: str,
+                mesh_path: str, tile, *, write_enabled: bool, measure_only: bool,
+                sib_outlines: _t.Mapping, reuse) -> list[dict]:
+    """The airports worth planning ahead: every plan but the first (this
+    process starts on it at once), less the ones the loop will skip and
+    those its reuse record would serve."""
+    from . import config as _cfg
+    if not _cfg.PARALLEL_AIRPORTS or len(plans) < 2:
+        return []
+    import O4_Airport_Fit as AIRPORT_FIT
+    import O4_UI_Utils as UI
+    from auto_patch_v2.model import rebake as _rb
+
+    from . import guest_stage as _guests
+    from . import selection as _SELECTION
+    custom = _custom_patch_airports(patch_dir)
+    jobs = []
+    for plan_path in plans[1:]:
+        icao = _plan_icao(plan_path)
+        if (icao in custom or not AIRPORT_FIT.fits(tile, icao)
+                or _SELECTION.auto_patch_not_applied(tile, icao, patch_dir=patch_dir,
+                                                     edited_ok=True)):
+            continue
+        foreign = tuple(o for p, ol in sorted(sib_outlines.get(icao, {}).items())
+                        if p != plan_path for o in ol)
+        if reuse is not None and os.path.isfile(plan_path):
+            try:
+                with open(plan_path, encoding="utf-8") as fh:
+                    plan_ = _rb.RebakePlan.from_json(fh.read())
+                recipe = _reuse_recipe(
+                    reuse, plan_, tile, patch_dir, writes=(write_enabled, measure_only),
+                    omit=(), foreign=foreign, neighbours=_guests.neighbour_marks(
+                        tile, _sampler_bounds(plan_, patch_dir)))
+                if recipe is not None and reuse.would_serve(
+                        icao, _reuse_folder(plan_), recipe):
+                    continue
+            except Exception:                   # noqa: BLE001 — planned ahead
+                pass
+        jobs.append({"plan_path": plan_path, "screen": screens.get(plan_path),
+                     "icao": icao, "key": _plan_key(plan_path),
+                     "patch_dir": patch_dir, "mesh_path": mesh_path,
+                     "tile": _ahead_tile(tile), "write_enabled": write_enabled,
+                     "measure_only": measure_only, "foreign": foreign,
+                     "verbosity": UI.verbosity})
+    return jobs
+
+
+def _plan_ahead(job: dict) -> dict:
+    """THE WORKER: one airport's plan half, its console lines and the
+    files it opened (``reads``: ``{path: (size, mtime_ns)}`` of the plan
+    half's window; ``opened``: every file, the plan's own reading too)."""
+    import contextlib
+    import io
+    import pickle
+
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import file_witness as _fw
+    UI.verbosity = job["verbosity"]
+    out: dict = {"start_ns": time.time_ns(), "half": None, "plan_sha": None,
+                 "error": None, "reads": {}, "written": [], "opened": {}}
+    buf = io.StringIO()
+    every = _fw.FileRecorder(writes=True)
+    every.recording(True)
+    try:
+        with contextlib.redirect_stdout(buf):
+            _plan_ahead_half(job, out)
+        pickle.dumps(out["half"])     # an unpicklable half fails HERE, named
+    except Exception as exc:                    # noqa: BLE001 — computed in the loop
+        out["half"] = None
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        every.recording(False)
+    out["lines"] = buf.getvalue().splitlines()
+    out["elapsed_s"] = (time.time_ns() - out["start_ns"]) / 1e9
+    out["opened"] = every.record()
+    out["written"] = sorted(set(out["written"]) | set(every.written()))
+    return out
+
+
+def _plan_ahead_half(job: dict, out: dict) -> None:
+    """:func:`_plan_ahead`'s body: the plan read as the loop reads it,
+    then :func:`_plan_half` in its own recording window (the reuse's)."""
+    from auto_patch_v2.airport import file_witness as _fw
+    from auto_patch_v2.airport import object_plan as _oplan
+    from auto_patch_v2.airport import rebake_screen as _rscreen
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model import rebake as _rb
+    law = Law.for_airport(job["icao"])
+    if job["screen"]:
+        plan_ = _oplan.read_ahead(_rscreen.read(job["screen"]), job["plan_path"],
+                                  job["patch_dir"], law)
+    else:
+        with open(job["plan_path"], encoding="utf-8") as fh:
+            plan_ = _rb.RebakePlan.from_json(fh.read())
+    # the loop's own skip: no half for an airport it never places (a
+    # half's pack copy would clone a pack nothing writes)
+    if plan_ is None or (not plan_.units
+                         and not _generated_in(job["patch_dir"], job["icao"])):
+        return
+    out["plan_sha"] = _plan_sha(plan_)
+    rec = _fw.FileRecorder(writes=True)
+    rec.recording(True)
+    try:
+        sample = mesh_placement_sampler(job["mesh_path"],
+                                        _sampler_bounds(plan_, job["patch_dir"]))
+        half = _plan_half(plan_, law, sample, job["tile"], job["patch_dir"],
+                          job["write_enabled"], job["measure_only"],
+                          plan_key=job["key"], foreign=job["foreign"])
+    finally:
+        rec.recording(False)
+    if half is not None:
+        read = getattr(half.ground, "marks_read", None)
+        half.ground = read() if read is not None else {}
+    out["half"] = half
+    out["reads"] = rec.record()
+    out["written"] = rec.written()
+
+
+def _ahead_init(siblings: int, live) -> None:
+    """The worker's initializer: dies with the tile's process, and its own
+    work pools share the machine with the tile's other plans."""
+    from auto_patch_v2.airport import pool as _v2_pool
+    _v2_pool.exit_with_parent()
+    _v2_pool.set_share(siblings, live)
+
+
+class _Ahead:
+    """The plans computed ahead for one run of the stage (module note)."""
+
+    def __init__(self, jobs: list[dict]) -> None:
+        import threading
+        self._jobs = {j["plan_path"]: j for j in jobs}
+        self._wanted = set(self._jobs)
+        self._started: set[str] = set()
+        self._done: dict[str, dict] = {}
+        self._executors: list = []
+        self._cond = threading.Condition()
+        self._thread = None
+
+    def start(self) -> "_Ahead":
+        """Start the pool's thread (workers start as slots are granted)."""
+        import threading
+        if self._jobs:
+            self._thread = threading.Thread(target=self._run, daemon=True,
+                                            name="object-stage-ahead")
+            self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        import concurrent.futures as _cf
+        import multiprocessing as _mp
+
+        import O4_Machine_Slots as _SLOTS
+
+        from . import config as _cfg
+        from . import slot_gated_pool as _GATED
+        jobs = list(self._jobs.values())
+        try:
+            ctx = _mp.get_context("spawn")
+            width = min(_cfg.parallel_airports_worker_count(len(jobs)),
+                        _SLOTS.ensure_session()[1])
+            live = ctx.Value("i", 0)
+
+            def start(job):
+                with self._cond:
+                    wanted = job["plan_path"] in self._wanted
+                    if wanted:
+                        self._started.add(job["plan_path"])
+                with live.get_lock():
+                    live.value += 1
+                if not wanted:          # the loop passed it since the poll
+                    fut = _cf.Future()
+                    fut.set_result({"half": None, "error": "not wanted"})
+                    return None, fut
+                with live.get_lock():
+                    live.value += 1
+                ex = _cf.ProcessPoolExecutor(max_workers=1, mp_context=ctx,
+                                             initializer=_ahead_init,
+                                             initargs=(width + 1, live))
+                self._executors.append(ex)
+                return ex, ex.submit(_plan_ahead, job)
+
+            def done(job, fut):
+                with live.get_lock():
+                    live.value -= 1
+                try:
+                    r = fut.result()
+                except Exception as exc:        # noqa: BLE001 — a worker died
+                    r = {"half": None, "error": f"worker: {exc}"}
+                with self._cond:
+                    self._done[job["plan_path"]] = r
+                    self._cond.notify_all()
+
+            def teardown(ex, fut, job):
+                if ex is not None:
+                    _stop_executor(ex)
+
+            _GATED.run(jobs, width=width, start=start, on_done=done,
+                       teardown=teardown,
+                       label=lambda job: "airport %s objects" % job["icao"],
+                       drop=lambda job: job["plan_path"] not in self._wanted)
+        except Exception as exc:                # noqa: BLE001 — the loop computes
+            import O4_UI_Utils as UI
+            UI.vprint(1, f"  [v2 rebake] planning ahead stopped ({exc})")
+        finally:
+            with self._cond:
+                self._wanted.clear()
+                for p in self._started - set(self._done):
+                    self._done[p] = {"half": None, "error": "planning ahead stopped"}
+                self._cond.notify_all()
+
+    def take(self, plan_path: str, plan_, plan_key: str, foreign: _t.Sequence,
+             write_enabled: bool, measure_only: bool) -> "_PlanHalf | None":
+        """The half computed ahead for ``plan_path`` if it is the one this
+        process would compute now (module note), else ``None``."""
+        import O4_UI_Utils as UI
+        if plan_path not in self._jobs:
+            return None
+        with self._cond:
+            self._wanted.discard(plan_path)
+            if plan_path not in self._started:
+                return None
+            while plan_path not in self._done:
+                self._cond.wait(5.0)
+            r = self._done.pop(plan_path)
+        job = self._jobs[plan_path]
+        why = _ahead_refusal(r, job, plan_, plan_key, foreign, write_enabled,
+                             measure_only)
+        if why:
+            UI.vprint(1, f"  [v2 rebake] {job['icao']}: plan computed ahead not "
+                         f"used ({why}); planned here")
+            return None
+        for line in r.get("lines") or ():
+            UI.vprint(0, line)
+        UI.vprint(1, f"  [v2 rebake] {job['icao']}: plan computed ahead in a "
+                     f"worker ({r.get('elapsed_s', 0.0):.1f} s)")
+        from auto_patch_v2.airport import file_witness as _fw
+        _fw.note(r["reads"], r["written"])
+        return r["half"]
+
+    def close(self) -> None:
+        """Drop every plan not yet started and stop the running workers."""
+        with self._cond:
+            self._wanted.clear()
+            self._cond.notify_all()
+        for ex in list(self._executors):
+            _stop_executor(ex, deadline_s=0.0)
+        if self._thread is not None:
+            self._thread.join(timeout=60.0)
+
+
+def _stop_executor(ex, deadline_s: float = 20.0) -> None:
+    """A single-worker executor shut down on a deadline, never by an
+    unbounded join: its worker is given ``deadline_s`` to exit, then
+    terminated, then killed (``driver._teardown_pool``'s rule, for one)."""
+    procs = list((getattr(ex, "_processes", None) or {}).values())
+    try:
+        ex.shutdown(wait=False, cancel_futures=True)
+    except Exception:                           # noqa: BLE001
+        pass
+    end = time.monotonic() + deadline_s
+    for proc in procs:
+        try:
+            proc.join(max(0.0, end - time.monotonic()))
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(2.0)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(5.0)
+        except Exception:                       # noqa: BLE001
+            pass
+
+
+def _ahead_refusal(r: dict, job: dict, plan_, plan_key: str, foreign: _t.Sequence,
+                   write_enabled: bool, measure_only: bool) -> str:
+    """Why a half computed ahead is NOT the half the loop would compute
+    now, or ``""``."""
+    if r.get("error"):
+        return r["error"]
+    if r.get("half") is None:
+        return "nothing planned"
+    if (plan_key, tuple(foreign), bool(write_enabled), bool(measure_only)) != (
+            job["key"], tuple(job["foreign"]), bool(job["write_enabled"]),
+            bool(job["measure_only"])):
+        return "its sibling outlines or write arms differ"
+    if r.get("plan_sha") != _plan_sha(plan_):
+        return "the plan differs"
+    from auto_patch_v2.airport.file_witness import _stamp
+    written = set(r.get("written") or ())
+    for path, stamp in (r.get("opened") or {}).items():
+        now = _stamp(path)
+        if now != (tuple(stamp) if stamp is not None else None):
+            return f"file changed since: {path}"
+        if now is not None and now[1] >= r["start_ns"] and path not in written:
+            return f"file written while it was read: {path}"
+    return ""
 
 
 def _pack_writable_now(pack_root: str, tile) -> bool:
@@ -1143,6 +1568,7 @@ def _object_stage(tile, only: "frozenset[str] | None" = None,
     # each placed airport's pack, then — once, in the ``finally`` below,
     # whatever return the stage takes — every other pack on the tile
     asked: set[str] = set()
+    ahead = None
     try:
         patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
         # RULINGS 2026-09-09w (3): the engine loads ITS OWN plan files only.
@@ -1233,6 +1659,11 @@ def _object_stage(tile, only: "frozenset[str] | None" = None,
         # a sibling's parts block an isolated share; a companion's is read
         # here, the main plan's when it is built below (it sorts first)
         sib_outlines = _sibling_outlines(plans, screens)
+        # #412 2b: the later airports' plan halves, computed ahead
+        ahead = _Ahead(_ahead_jobs(
+            plans, screens, patch_dir, mesh_path, tile, write_enabled=write_enabled,
+            measure_only=measure_only, sib_outlines=sib_outlines, reuse=reuse)
+            if only is None else []).start()
         for plan_path in plans:
             icao = "?"
             try:
@@ -1377,7 +1808,12 @@ def _object_stage(tile, only: "frozenset[str] | None" = None,
                     if p != plan_path for o in ol)
 
                 def _compute(plan_=plan_, law=law, omit=omit, key=key,
-                             foreign=foreign):
+                             foreign=foreign, plan_path=plan_path):
+                    half = ahead.take(plan_path, plan_, key, foreign,
+                                      write_enabled, measure_only)
+                    if half is not None:
+                        return _write_half(half, law, tile, patch_dir, write_enabled,
+                                           measure_only, omit=omit, plan_key=key)
                     return _place_objects(
                         plan_, law,
                         mesh_placement_sampler(mesh_path,
@@ -1443,6 +1879,8 @@ def _object_stage(tile, only: "frozenset[str] | None" = None,
         failed.append(_not_fitted("", "", f"{exc}"))
         UI.vprint(2, traceback.format_exc())
     finally:
+        if ahead is not None:
+            ahead.close()
         if only is None:
             from . import adjust_stage as _adjust
             from . import pack_copy as _pack_copy

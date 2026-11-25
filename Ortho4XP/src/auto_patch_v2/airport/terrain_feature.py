@@ -71,9 +71,9 @@ def is_terrain_feature(g: _t.Any) -> bool:
 
 @functools.lru_cache(maxsize=4096)
 def _file_verdict(path: str, mtime_ns: int, size: int) -> bool:
-    from .obj8 import parse_obj8
+    from .obj8_memo import parse
     try:
-        return is_terrain_feature(parse_obj8(path))
+        return is_terrain_feature(parse(path))
     except (OSError, ValueError):
         return False
 

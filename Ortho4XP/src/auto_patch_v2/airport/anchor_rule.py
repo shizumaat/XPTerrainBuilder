@@ -365,9 +365,23 @@ def _inside(ring: _t.Sequence[tuple[float, float]], lat: float, lon: float) -> b
     return inside
 
 
+#: :func:`_pad_of`'s screen margin in degrees of longitude: a crossing's
+#: interpolated longitude can round past the ring's own extreme by an ulp
+#: (~1e-14 deg), so the box is widened far beyond that and the screen
+#: never drops a point the ray cast would have counted in.
+_PAD_OF_LON_SLACK = 1e-9
+
+
 def _pad_of(pads: _t.Sequence[PadRing], lat: float, lon: float) -> PadRing | None:
-    for p in pads:
-        if len(p.ring) >= 3 and _inside(p.ring, lat, lon):
+    """The first pad (in ``pads`` order) whose ring holds the point.  The
+    ray cast is pre-screened by the ring's box (hoisted per pads object,
+    :func:`_pad_boxes`): a latitude outside the ring's span crosses no
+    edge, and a longitude beyond its span (past the slack) crosses an
+    even count of edges on one side — the same answer, without the cast
+    (#412: 2.8 M casts, 6.4 s of the HECA plan stage)."""
+    for p, y0, x0, y1, x1 in _pad_boxes(pads, _PAD_OF_BOXES):
+        if (y0 <= lat <= y1 and x0 - _PAD_OF_LON_SLACK <= lon
+                <= x1 + _PAD_OF_LON_SLACK and _inside(p.ring, lat, lon)):
             return p
     return None
 
@@ -385,18 +399,23 @@ PAD_MAJORITY = 0.5
 #: tuple is held here, so its ``id`` cannot be reused while cached) and
 #: the cache is a single slot: a second plan in one process replaces it.
 _PAD_BOXES: dict[str, _t.Any] = {"pads": None, "boxes": ()}
+#: :func:`_pad_of`'s own slot of the same hoist (its pads object is not
+#: :func:`pad_majority`'s, and one slot shared by two would thrash)
+_PAD_OF_BOXES: dict[str, _t.Any] = {"pads": None, "boxes": ()}
 
 
-def _pad_boxes(pads: _t.Sequence[PadRing]):
+def _pad_boxes(pads: _t.Sequence[PadRing], slot: "dict[str, _t.Any] | None" = None):
     """``[(pad, lat_min, lon_min, lat_max, lon_max), ...]`` for ``pads``,
-    computed once per pads object (module note)."""
-    if _PAD_BOXES["pads"] is pads:
-        return _PAD_BOXES["boxes"]
+    computed once per pads object (module note), in ``slot``
+    (:data:`_PAD_BOXES` unless given)."""
+    slot = _PAD_BOXES if slot is None else slot
+    if slot["pads"] is pads:
+        return slot["boxes"]
     boxes = [(p, min(v[0] for v in p.ring), min(v[1] for v in p.ring),
               max(v[0] for v in p.ring), max(v[1] for v in p.ring))
              for p in pads if len(p.ring) >= 3]
-    _PAD_BOXES["pads"] = pads
-    _PAD_BOXES["boxes"] = boxes
+    slot["pads"] = pads
+    slot["boxes"] = boxes
     return boxes
 
 

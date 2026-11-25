@@ -1655,9 +1655,20 @@ def _with_carrier(groups: _t.Sequence[_t.Sequence[int]], raw: _t.Sequence[_t.Any
 
 
 def _unit_roots(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple]) -> set[str]:
-    """The connected units (§16g roots) the parts ``pids`` are seated in."""
-    return {_ofs_unit_root(plan_wide[q][0]) for q in pids
-            if plan_wide.get(q) and plan_wide[q][0]}
+    """The connected units (§16g roots) the parts ``pids`` are seated in.
+    Each seat is read once and its root through :func:`_root_of` (#412:
+    10.5 M root spellings, 12 s of the HECA plan stage)."""
+    out: set[str] = set()
+    for q in pids:
+        w = plan_wide.get(q)
+        if w and w[0]:
+            out.add(_root_of(w[0]))
+    return out
+
+
+#: :func:`open_frame_seat.unit_root` memoised — a pure function of the
+#: unit id string, asked of the same few thousand ids millions of times
+_root_of = _functools.lru_cache(maxsize=1 << 16)(_ofs_unit_root)
 
 
 def _own_ground_bodies(staged: _t.Sequence[_t.Any], u: _t.Any) -> list[tuple]:

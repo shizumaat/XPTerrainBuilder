@@ -405,7 +405,7 @@ def _touches(i: int, group: _t.Sequence[int], shims: _t.Sequence[_PShim],
             continue
         theirs = _thin(s.part_boxes, CONNECTOR_BOXES_MAX)
         for b in mine:
-            if any(_pb.box_gap_m(b, y) <= touch_m for y in theirs):
+            if _pb.any_gap_within(b, theirs, touch_m):
                 p = pos(b)
                 lo = p if lo is None or p < lo else lo
                 hi = p if hi is None or p > hi else hi

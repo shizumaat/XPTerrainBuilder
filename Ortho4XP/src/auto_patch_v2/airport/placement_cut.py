@@ -122,12 +122,12 @@ class _LineCutter:
 
     def _read(self) -> bool:
         if self._geom is False:
-            from . import obj8 as _obj8
+            from . import obj8_memo as _memo
             try:
-                self._geom = _obj8.parse_obj8(pristine_path(self.m))
+                self._geom = _memo.parse(pristine_path(self.m))
             except (OSError, ValueError):
                 self._geom = None
-            self._comps = (_obj8.solid_components(self._geom)
+            self._comps = (_memo.components(self._geom)
                            if self._geom is not None else [])
         return self._geom is not None and bool(self._comps)
 

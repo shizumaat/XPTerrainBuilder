@@ -37,7 +37,7 @@ import threading
 import typing as _t
 import weakref
 
-__all__ = ["FileRecorder", "holds"]
+__all__ = ["FileRecorder", "holds", "note"]
 
 _CODE = (".py", ".pyc", ".pyd", ".so", ".dylib", ".dll")
 #: the stage cache's own records and index (``airport/stage_cache``)
@@ -145,6 +145,19 @@ class FileRecorder:
     def replay(self, record: _t.Mapping[str, _t.Any] | None) -> None:
         """Merge a stored record's files (a stage served from cache)."""
         self._paths.update(record or ())
+
+
+def note(reads: _t.Iterable[str], written: _t.Iterable[str] = ()) -> None:
+    """Record ``reads`` / ``written`` in every open window, as if this
+    process had opened them: the files a WORKER opened for a window of
+    this one (#412 2b, ``object_stage``'s plans computed ahead)."""
+    reads, written = tuple(reads), tuple(written)
+    with _LOCK:
+        recs = tuple(_ACTIVE)
+    for rec in recs:
+        rec._paths.update(reads)
+        if rec._written is not None:
+            rec._written.update(written)
 
 
 def holds(record: _t.Mapping[str, _t.Any] | None) -> str | None:

@@ -117,9 +117,9 @@ import typing as _t
 
 import numpy as np
 
-from . import obj8 as _obj8
 from . import obj8_band as _band
 from . import obj8_drape as _drape
+from . import obj8_memo as _obj8_memo
 from . import obj8_warp as _warp
 from .pack_health import light_records as _lr
 
@@ -451,6 +451,19 @@ class _Source:
 
 
 def _read(path: str) -> _Source | None:
+    """:func:`_read_source`, once per file version inside an
+    ``obj8_memo`` scope (a recut reads the same source again), handed out
+    as a COPY: the walk appends to the vertex tables (a band clip's rows),
+    so no two cuts share a table."""
+    src = _obj8_memo.per_file(path, "split_source", _read_source)
+    if src is None:
+        return None
+    return _Source(list(src.header), list(src.vt), list(src.vline),
+                   list(src.vlight), src.idx.copy(), list(src.commands),
+                   src.point_counts_at)
+
+
+def _read_source(path: str) -> _Source | None:
     """Split the file into header / vertex tables / index table / command
     stream.  ``latin-1`` round-trips every byte, so a comment in any
     encoding survives untouched."""
@@ -526,6 +539,19 @@ def _retok(line: str, first: int, delta: tuple[float, float, float],
     normal is left exactly as authored.
     """
     t = line.split()
+    if rot is None:
+        # the untilted row (nearly every row of a cut, #412: 10.5 M at
+        # HECA): the same parse, shift and print, without the lists
+        try:
+            x = float(t[first]) - delta[0]
+            y = float(t[first + 1]) - delta[1]
+            z = float(t[first + 2]) - delta[2]
+        except (IndexError, ValueError):
+            return line
+        t[first] = f"{x:.3f}"
+        t[first + 1] = f"{y:.3f}"
+        t[first + 2] = f"{z:.3f}"
+        return "\t".join(t)
     try:
         p = [float(t[first + j]) - delta[j] for j in range(3)]
     except (IndexError, ValueError):
@@ -603,8 +629,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         return SplitResult(pristine_path, (), "unparsable", counts)
     if not bodies:
         return SplitResult(pristine_path, (), "no_bodies", counts)
-    geom = _obj8.parse_obj8(pristine_path)
-    comps = _obj8.solid_components(geom)
+    geom = _obj8_memo.parse(pristine_path)
+    comps = _obj8_memo.components(geom)
     verts = _coords(src.vt, 1)
     #: the drape cut: the up faces of the draped components (sorted
     #: vertex triples), and the header lines the draped bodies carry

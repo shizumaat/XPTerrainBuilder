@@ -37,7 +37,7 @@ from . import partition_cache as _pcache
 from . import rebake_screen as _rs
 
 __all__ = ["SCREEN_NAME_RE", "REFUSED_FILENAME", "place", "unservable",
-           "from_screen"]
+           "from_screen", "read_ahead"]
 
 #: The sidecar's own file name in the patch directory
 #: (``rebake_screen.SCREEN_FILENAME``).  The object stage's plan-name
@@ -122,6 +122,27 @@ def unservable(patch_dir: str, icao: str) -> str | None:
     if os.path.isfile(os.path.join(patch_dir, PLAN_FILENAME.format(icao=icao))):
         return None
     return _rs.unservable(screen)
+
+
+def read_ahead(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str,
+               law: Law) -> RebakePlan | None:
+    """The plan :func:`from_screen` would hand back, READ WITHOUT A TRACE
+    (#412 2b, a tile's later airports planned ahead in a worker): the
+    plan file standing at ``plan_path``, else the plan built from the
+    screen's partition in memory — nothing written, nothing said, no
+    extension kept.  ``None`` wherever :func:`from_screen` would refuse;
+    the caller holds the answer against the plan the stage really reads."""
+    icao = screen.icao
+    if _rs.stale_reason(screen, law, os.path.join(patch_dir, icao + "_auto.patch.osm")):
+        return None
+    if os.path.isfile(plan_path):
+        with open(plan_path, encoding="utf-8") as fh:
+            return RebakePlan.from_json(fh.read())
+    try:
+        return RebakePlan.from_json(
+            _rs.build_plan(screen, law, keep_extension=False).to_json())
+    except _rs.StaleScreen:
+        return None
 
 
 def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: Law, *,

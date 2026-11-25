@@ -223,6 +223,10 @@ def neighbour_ground(icao: str, here: Tile, elevation_root: str,
 
     z.mark = lambda t: (DEM_MARK if mesh((int(t[0]), int(t[1]))) is None
                         else str(mesh((int(t[0]), int(t[1])))[1]))
+    # #412 2b: the marks of the tiles read so far, as ``.mark`` answers them
+    # (a plan computed in a worker hands these to its write)
+    z.marks_read = lambda: {t: (DEM_MARK if m is None else str(m[1]))
+                            for t, m in got.items()}
     return z
 
 

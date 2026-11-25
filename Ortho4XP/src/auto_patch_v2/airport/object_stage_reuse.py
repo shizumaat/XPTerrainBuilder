@@ -198,6 +198,16 @@ class StageReuse:
                   f"({time.monotonic() - t0:.1f} s)")
         return payload
 
+    def would_serve(self, icao: str, folder: str, recipe: dict) -> bool:
+        """Would :meth:`run` serve ``icao`` from its record NOW?  Reads
+        only; ``object_stage``'s planning ahead asks it so a plan the
+        record would serve is never computed ahead (#412 2b)."""
+        if not (self.on and self.code):
+            return False
+        key = _sc.key_of(self.stage, recipe)
+        return self._serve(_sc.entry_path(folder, icao, self.stage, key), key,
+                           folder, icao, recipe)[1] is None
+
     def _kept(self, path: str) -> bool:
         return path != self.mesh_path and not path.startswith(self._exclude)
 

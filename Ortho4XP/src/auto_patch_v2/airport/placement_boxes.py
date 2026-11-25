@@ -23,6 +23,7 @@ __all__ = ["hull_of", "box_of", "overlap", "overlap_m2", "box_area_m2",
            "ground_at_box", "ground_samples", "ground_under", "contact_ground",
            "foot_box_index", "CONTACT_PTS_MAX",
            "anchor_ground_off", "stands_over_rank", "FOOT_BOXES_MAX", "group_at_zero",
+           "any_gap_within",
            "GROUND_OFF_FEET_MAX",
            "GradedRoles", "graded_roles_from_doc"]
 
@@ -73,6 +74,29 @@ def box_gap_m(a: tuple[float, float, float, float] | None,
     dla = max(0.0, max(a[0] - b[2], b[0] - a[2])) * ml
     dlo = max(0.0, max(a[1] - b[3], b[1] - a[3])) * mo
     return (dla * dla + dlo * dlo) ** 0.5
+
+
+def any_gap_within(a: tuple[float, float, float, float] | None,
+                   others: _t.Iterable[tuple[float, float, float, float] | None],
+                   reach_m: float) -> bool:
+    """``any(box_gap_m(a, b) <= reach_m for b in others)`` with ``a``'s
+    metres per degree read once — the same arithmetic, term for term, so
+    the same answer (#412: the contiguity screens ask it millions of times
+    per airport with one ``a``)."""
+    if not a:
+        return any(0.0 <= reach_m for _b in others)
+    ml, mo = _ar._m_per_deg(0.5 * (a[0] + a[2]))
+    a0, a1, a2, a3 = a
+    for b in others:
+        if not b:
+            if 0.0 <= reach_m:
+                return True
+            continue
+        dla = max(0.0, max(a0 - b[2], b[0] - a2)) * ml
+        dlo = max(0.0, max(a1 - b[3], b[1] - a3)) * mo
+        if (dla * dla + dlo * dlo) ** 0.5 <= reach_m:
+            return True
+    return False
 
 
 def box_area_m2(b: tuple[float, float, float, float]) -> float:
@@ -558,10 +582,6 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
     for gi, g in enumerate(groups):
         if allowed is not None and gi not in allowed:
             continue
-        if reach_m > 0.0 and near and boxes and not any(
-                box_gap_m(a, boxes[i]) <= reach_m
-                for i in g if i < len(boxes) and boxes[i] for a in near):
-            continue
         # THE GROUP'S OWN READING, MEMOISED on its length: this is asked
         # once per carried piece over every group of the member, and
         # §16d (1) multiplies both (LEMD 29.6 M inner steps, 9 s of the
@@ -590,6 +610,13 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
                 or abs(gmax - float(ground)) > tol_m):
             continue
         d = abs(zs - zero)
-        if d <= best_d:
+        # #2110's contiguity is a pure filter of the group, asked LAST (#412:
+        # 4.8 M plan gaps, 7.6 s of the HECA plan stage, nearly all of them
+        # for groups whose zero then failed): a group it refuses is skipped
+        # exactly as before, and only one that would win is asked
+        if d <= best_d and not (reach_m > 0.0 and near and boxes and not any(
+                any_gap_within(a, [boxes[i] for i in g
+                                   if i < len(boxes) and boxes[i]], reach_m)
+                for a in near)):
             best, best_d = gi, d
     return best

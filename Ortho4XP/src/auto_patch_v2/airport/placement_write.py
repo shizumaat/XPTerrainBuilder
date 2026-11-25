@@ -60,6 +60,7 @@ from . import authored_seat as _seat
 from . import backup_state as _bs
 from . import dsf as _dsf
 from . import dsf_write as _dw
+from . import obj8_memo as _obj8_memo
 from . import facade_seat as _fs
 from . import footprint_unit as _fu
 from . import pack_journal as _pj
@@ -119,6 +120,7 @@ class PlacementWriteResult:
 
 # ── step 1: the plan ────────────────────────────────────────────────────
 
+@_obj8_memo.scoped
 def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                *, icao: str, pack_name: str, pack_root: str, dsf_path: str,
                split_tol_m: float, elevated_base_m: float = 0.0,

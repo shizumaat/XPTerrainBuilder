@@ -100,7 +100,7 @@ from .terrain_shaped import MIN_RELIEF_M
 
 __all__ = ["SHEET_STEP_M", "MIN_SHEET_SHARE", "MIN_RIM_SHARE", "MIN_RELIEF_M",
            "MIN_FOLLOW_SHARE", "MAX_UNEXPLAINED", "MIN_SKIN_SHARE", "SKIN_M",
-           "placement_models", "rim_record", "log_line"]
+           "placement_models", "rim_sets_of", "rim_record", "log_line"]
 
 #: the most two neighbouring cells of the ground sheet may differ (m)
 SHEET_STEP_M = 0.5
@@ -446,6 +446,14 @@ def placement_models(placements: _t.Sequence[tuple],
         out[oid] = TerrainModel(oid, paths[oid], rs.xy, rs.heading, rs.z0, 0.0, 0.0, 0.0,
                                 float(len(rs.stations)), 0.0, rim=rs)
     return out, pads
+
+
+def rim_sets_of(objects: _t.Iterable[_t.Any]) -> tuple:
+    """``Airport.rim_sets``: ``(id, def path, _RimSet)`` of every read
+    placement carrying a set seated on its pad (``obj8.PlacedObject.
+    rim_set``) -- the one assembly the build and its replay share."""
+    return tuple((o.id, o.path, o.rim_set) for o in objects
+                 if getattr(o, "rim_set", None) is not None)
 
 
 def rim_record(rs: _RimSet, to_ll: _t.Callable) -> dict[str, _t.Any]:

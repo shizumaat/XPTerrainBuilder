@@ -369,9 +369,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     from ..airport import relief_skin as _relief_skin
     _say("  " + _relief_skin.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     from ..airport import ground_rim as _ground_rim
-    airport = _dc.replace(airport, rim_sets=tuple(
-        (o.id, o.path, o.rim_set) for o in pack_objects
-        if getattr(o, "rim_set", None) is not None))
+    airport = _dc.replace(airport, rim_sets=_ground_rim.rim_sets_of(pack_objects))
     _say("  " + _ground_rim.log_line(icao, (r[2] for r in airport.terrain_models),
                                      airport.rim_sets), out)
     # RULINGS 2026-11-03 (answer 4, #1738): a companion terrain mesh's cuts

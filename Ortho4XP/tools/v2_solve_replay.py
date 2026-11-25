@@ -732,6 +732,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     print(_bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)))
     from auto_patch_v2.airport import ground_shell as _ground_shell
     print(_ground_shell.log_line(icao, (r[2] for r in airport.terrain_models)))
+    # #2197: the partial shells seated on their pads, as ``pack_stage`` does
+    from auto_patch_v2.airport import ground_rim as _ground_rim
+    airport = _dc.replace(airport, rim_sets=_ground_rim.rim_sets_of(pack_objects))
+    print(_ground_rim.log_line(icao, (r[2] for r in airport.terrain_models),
+                               airport.rim_sets))
     # RULINGS 2026-11-03 (answer 4, #1738): the companion terrain mesh, read
     # as the build's ``pipeline/build.pack_stage`` reads it
     from auto_patch_v2.airport import terrain_mesh_witness as _tmw

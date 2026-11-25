@@ -323,6 +323,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.touch_graph",
         "auto_patch_v2.airport.touch_seat",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.frontage_face",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_geometry",
@@ -659,6 +660,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.tunnel_objects",
         "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.frontage_face",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.visible_cut",
         "auto_patch_v2.airport.wall_class",
@@ -1684,6 +1686,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.touch_graph",
         "auto_patch_v2.airport.touch_seat",
         "auto_patch_v2.airport.unit_storey",
+        "auto_patch_v2.airport.frontage_face",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.airport.wall_geometry",
@@ -2552,6 +2555,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.frontage_face
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -2824,6 +2828,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.frontage_face
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -2859,6 +2864,7 @@ CODE_MODULES["solve"] = _mods("""
     law.rebake_schema law.reference_code airport.runway_strip law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area law.inset_class model.frame model.hard_plane model.islands
+    model.lot_ground pipeline.lot_neck
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
@@ -3034,6 +3040,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.frontage_face
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -3059,7 +3066,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.no_step constraints.pad_frontage_gs constraints.pad_fronting
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
-    constraints.public_road_release
+    constraints.public_road_release model.lot_ground
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp constraints.roads constraints.routes
@@ -3265,6 +3272,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.lens geom.many_buffers
     classify.gap_apron classify.fence_division
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.frontage_face
     airport.user_roles
     classify.car_lot
     classify.gap_band
@@ -3301,6 +3309,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraints model.end_area law.inset_class model.frame model.hard_plane
+    model.lot_ground pipeline.lot_neck
     model.islands model.jetway model.map_memo model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
@@ -3330,6 +3339,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
     pipeline.storey_publication
     pipeline.upper_pad_publication
+    pipeline.frontage_publication airport.frontage_face
     airport.shell_ground
     model.free_bridge
     airport.bridge_span constraints.bridge_span_release
@@ -3434,6 +3444,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
+    airport.frontage_face
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -3493,6 +3504,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.deck_flush
     constraints.taxi_route_yield
     pipeline.storey_publication pipeline.upper_pad_publication
+    pipeline.frontage_publication airport.frontage_face
     airport.shell_ground
     model.free_bridge
     constraints.bridge_span_release
@@ -3805,6 +3817,9 @@ CODE_MODULES["emit"] = tuple(sorted({*CODE_MODULES["emit"], *_mods(
     "constraints.deck_carve constraints.deck_floor_follow geom.carve_profile "
     "geom.coons_patch model.deck_carve")}))
 CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"], *_mods("verify.pack_bridge")}))
+# RULINGS 2026-11-25e (2): the publication's neck pairs (verify re-emits)
+CODE_MODULES["verify"] = tuple(sorted({*CODE_MODULES["verify"],
+                                       *_mods("pipeline.lot_neck model.lot_ground")}))
 
 # lphli2 (2026-11-25, #2279 step 2): the landside kerb line published on
 # its block (planar/kerb_frontage) and its rows / wall exempt

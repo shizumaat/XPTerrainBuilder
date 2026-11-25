@@ -17,7 +17,7 @@ import heapq
 import shapely
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["ribbon_centreline"]
+__all__ = ["medial_directions", "ribbon_centreline"]
 
 XY = tuple[float, float]
 
@@ -73,3 +73,22 @@ def ribbon_centreline(poly: Polygon, step: float = 2.0) -> "LineString | None":
     return LineString(path) if len(path) > 1 else None
 
 
+
+
+def medial_directions(poly: Polygon, step: float = 2.0
+                      ) -> list[tuple[XY, XY, XY]]:
+    """Every edge of ``poly``'s medial-axis graph as ``(a, b, unit)``: the
+    LOCAL direction of a ribbon that branches (#2283: a lot's ring road
+    and the road leaving it, where one centreline cannot answer every
+    branch).  Empty with no medial axis."""
+    if poly.is_empty or poly.geom_type != "Polygon":
+        return []
+    out: list[tuple[XY, XY, XY]] = []
+    seen: set[tuple[XY, XY]] = set()
+    for a, nbrs in _graph(poly, step).items():
+        for b, length in nbrs:
+            if (b, a) in seen or length <= 0.0:
+                continue
+            seen.add((a, b))
+            out.append((a, b, ((b[0] - a[0]) / length, (b[1] - a[1]) / length)))
+    return out

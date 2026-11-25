@@ -132,6 +132,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # #2068: the upper pads' levels and rim steps -- a REPORT key
     # (``pipeline/upper_pad_publication``)
     "upper_pads",
+    # RULINGS 2026-11-25g/h: each terminal-sized unit's airside and
+    # groundside floors -- a REPORT key (``pipeline/frontage_publication``)
+    "terminal_frontages",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest
     # law, which the two §45 C14 families judge the emitted surface
@@ -146,6 +149,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "runway_end_pins",
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
+    # RULINGS 2026-11-25e (2) (#2283): the lot pairs the road law prices
+    # and their bound (``pipeline/lot_neck``) -- LAW INPUT
+    "lot_neck_pairs",
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",
     "pair_caps", "seam_pins", "station_caps", "stretches",

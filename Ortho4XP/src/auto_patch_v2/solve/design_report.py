@@ -283,6 +283,10 @@ class DesignReport:
     #: ``graded_strip`` family minus the pavement vertices and minus the
     #: interior pockets enclosed by pavement (09g (1))
     ground_datum_rows: int = 0
+    #: THE LOT'S OWN DATUM (owner RULINGS 2026-11-25e (1)): how many
+    #: parking-lot vertices with no level target carry the weak ``z = DEM``
+    #: row in the follower pass (``model/lot_ground.lot_datum_vertices``)
+    lot_datum_rows: int = 0
     #: THE LEVEL BELT (RULINGS 2026-09-13, lane ``v2zerocrater``; spec §23.4):
     #: how many vertices reached the solve in a piece with NO LEVEL AT ALL —
     #: bending and relative rows only, whose least-squares minimiser is the

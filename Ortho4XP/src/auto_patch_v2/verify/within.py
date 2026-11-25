@@ -204,6 +204,25 @@ def road_frames(p: Patch) -> dict[int, tuple[int, float, float]]:
     return out
 
 
+def _neck_bounds(p: Patch) -> dict[tuple[int, int], float]:
+    """THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283): the
+    published ``lot_neck_pairs`` (``pipeline/lot_neck.neck_pair_bounds``,
+    the release's own reading) joined to vertices by identity key, as
+    ``(min, max) -> bound m``.  A lot pair there is priced at the road
+    law's bound, never the lot's chord cap.  Empty without the key."""
+    pub = p.publication.get("lot_neck_pairs")
+    if not pub:
+        return {}
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out: dict[tuple[int, int], float] = {}
+    for a, b, bound in pub:
+        va = key_of.get((round(float(a[0]), 7), round(float(a[1]), 7)))
+        vb = key_of.get((round(float(b[0]), 7), round(float(b[1]), 7)))
+        if va is not None and vb is not None and va != vb:
+            out[(min(va, vb), max(va, vb))] = float(bound)
+    return out
+
+
 def mesh_pairs(p: Patch) -> set[tuple[int, int]] | None:
     """Published ``mesh_edges`` joined to vertices by identity key, as
     ``(min, max)`` pairs; ``None`` when the patch publishes none."""
@@ -356,6 +375,7 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
     mesh = mesh_pairs(p)
     routed = route_pair_budgets(p)
     rframe = road_frames(p)          # §37 (7)
+    necks = _neck_bounds(p)           # 2026-11-25e (2)
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
@@ -462,9 +482,13 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
                     if not adjacent:
                         continue            # a switchback's two branches
                     road_read = NO_FRAME
+                neck = necks.get((min(a, b), max(a, b))) if necks else None
                 if road_read not in (None, NO_FRAME):
                     bound, transverse = road_read
                     pair_cap = bound / d
+                elif neck is not None:
+                    # the road leaving a lot, priced as the release priced it
+                    pair_cap, transverse = neck / d, False
                 else:
                     transverse = axis is not None and pair_is_transverse(
                         axis, xb - xa, yb - ya, min_deg)

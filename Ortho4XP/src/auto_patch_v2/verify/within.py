@@ -206,7 +206,7 @@ def road_frames(p: Patch) -> dict[int, tuple[int, float, float]]:
 
 def _neck_bounds(p: Patch) -> dict[tuple[int, int], float]:
     """THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283): the
-    published ``lot_neck_pairs`` (``constraints/lot_neck.neck_pair_bounds``,
+    published ``lot_neck_pairs`` (``pipeline/lot_neck.neck_pair_bounds``,
     the release's own reading) joined to vertices by identity key, as
     ``(min, max) -> bound m``.  A lot pair there is priced at the road
     law's bound, never the lot's chord cap.  Empty without the key."""

@@ -234,7 +234,7 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "road_route_frame": "road_route_frame_ll",
     # THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283): LAW
     # INPUT -- the lot pairs the road law prices, with the bound the build's
-    # release gave them (``constraints/lot_neck.neck_pair_bounds``)
+    # release gave them (``pipeline/lot_neck.neck_pair_bounds``)
     "lot_neck_pairs": "lot_neck_pairs_ll",
     # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each
     # coverage exit — LAW INPUT, the value the solve PINNED.

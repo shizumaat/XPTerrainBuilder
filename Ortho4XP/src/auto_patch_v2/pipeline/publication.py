@@ -180,8 +180,8 @@ RAMP_ROLES = ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp")
 
 
 def _neck_pairs(planar: PlanarMap, law: Law) -> list:
-    """``constraints/lot_neck.neck_pair_bounds`` (bound late: one reader)."""
-    from ..constraints.lot_neck import neck_pair_bounds
+    """``pipeline/lot_neck.neck_pair_bounds`` (bound late: one reader)."""
+    from .lot_neck import neck_pair_bounds
     return neck_pair_bounds(planar, law)
 
 

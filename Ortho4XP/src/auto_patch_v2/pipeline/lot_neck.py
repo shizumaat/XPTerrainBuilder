@@ -1,6 +1,7 @@
 """THE ROAD LEAVING A LOT CLIMBS WITH ITS GROUND (owner RULINGS 2026-11-25e
 (2), #2283 EKVG: "we are not recognizing the neck I guess which would allow
-it to climb more there") -- an assembly post-pass (``constraints/assembly``).
+it to climb more there") -- read by the follower pass (``pipeline/lot_follow``)
+and the publication; it lives in ``pipeline`` because it reads ``classify``.
 
 THE NECK.  Where a lot narrows to a road's width the pavement from there on
 is a ROAD, not the lot: the §43 reading at the road's width over each
@@ -47,14 +48,15 @@ from shapely.strtree import STRtree
 from ..classify.evidence import polygon_parts
 from ..classify.neck import road_necks
 from ..classify.rules import load_rules
+from ..constraints import roads
+from ..constraints.roads import stage_one_vertices
 from ..geom.centreline import medial_directions
+from ..geom.exact import dist
 from ..law import Law
 from ..law.tables import road_terrain_cap, role_cap
 from ..model.constraints import Diff, Row
 from ..model.lot_ground import LOT_DATUM_ROLE, is_datum_lot, lot_datum_vertices
 from ..model.planar import PlanarMap, face_vertex_set
-from . import roads
-from .roads import stage_one_vertices
 
 __all__ = ["neck_pair_bounds", "neck_release"]
 
@@ -204,7 +206,7 @@ def neck_pair_bounds(planar: PlanarMap, law: Law) -> list[list[_t.Any]]:
             pa = planar.vertices[a]
             for b in vs[i + 1:]:
                 pb = planar.vertices[b]
-                d = ((pa.xy[0] - pb.xy[0]) ** 2 + (pa.xy[1] - pb.xy[1]) ** 2) ** 0.5
+                d = dist(pa.xy, pb.xy)
                 got = necks.bound(planar, a, b, d)
                 if got is not None:
                     out.append([[pa.key[0], pa.key[1]], [pb.key[0], pb.key[1]],

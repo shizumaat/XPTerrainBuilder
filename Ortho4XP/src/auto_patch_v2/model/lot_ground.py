@@ -45,7 +45,7 @@ def lot_datum_vertices(planar: PlanarMap) -> frozenset[int]:
     THE SINGLE DERIVATION SITE: ``solve/design_assemble`` mints the rows
     and drops these vertices from the body plane it gives the rest,
     ``solve/design`` frees them from stage 1's levels, and
-    ``constraints/lot_neck`` releases the road leaving the lot among them."""
+    ``pipeline/lot_neck`` releases the road leaving the lot among them."""
     record = (getattr(planar, "road_terrace", None) or {}).get("lot_level") or {}
     levelled = {int(f) for f in record.get("lots") or ()}
     preferred = getattr(planar, "preferred_z", None) or {}

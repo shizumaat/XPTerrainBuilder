@@ -5,7 +5,7 @@ lot at a neck climbs with its ground under the road law.
 Synthetic readings of the three derivations: which vertices are the lot's
 own (``model/lot_ground``), where a lot narrows into a road
 (``classify/neck.road_necks``, ``geom/centreline.medial_directions``) and
-how the road's rows are priced (``constraints/lot_neck``).  The airport
+how the road's rows are priced (``pipeline/lot_neck``).  The airport
 read is the EKVG replay in the lane report."""
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from shapely.strtree import STRtree
 
 from auto_patch_v2.classify.neck import road_necks
 from auto_patch_v2.classify.rules import load_rules
-from auto_patch_v2.constraints import lot_neck, roads
+from auto_patch_v2.constraints import roads
+from auto_patch_v2.pipeline import lot_neck
 from auto_patch_v2.geom.centreline import medial_directions
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.constraints import Diff, Source

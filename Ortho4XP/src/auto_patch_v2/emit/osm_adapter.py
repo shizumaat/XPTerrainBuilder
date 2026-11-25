@@ -150,7 +150,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     # RULINGS 2026-11-25e (2) (#2283): the lot pairs the road law prices
-    # and their bound (``constraints/lot_neck``) -- LAW INPUT
+    # and their bound (``pipeline/lot_neck``) -- LAW INPUT
     "lot_neck_pairs",
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",

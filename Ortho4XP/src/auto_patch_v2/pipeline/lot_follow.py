@@ -33,7 +33,7 @@ a follower too: every lot vertex with no level target
 (``model/lot_ground.lot_datum_vertices``) is freed here, carries the weak
 ``z = DEM`` row (``solve/design_assemble`` 9', ``lot_datum``) and its road
 leaving the lot at a neck is priced under the road law
-(``constraints/lot_neck.neck_release``, applied to this pass's rows only).
+(``pipeline/lot_neck.neck_release``, applied to this pass's rows only).
 Stage 2 solved the lot at its body's plane, so the airside, the pads and
 the roads round it are this pass's constants and the lot's ground pulls
 none of them (airside is king; MEASURED EKVG with the datum in stage 2:
@@ -120,7 +120,7 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float],
                        law: _t.Any) -> tuple[ConstraintSet, dict[int, float], dict] | None:
     """``(rows, constants, report)`` of the follower pass, or ``None`` when
     no lot follows (the pass does not run)."""
-    from ..constraints.lot_neck import neck_release
+    from .lot_neck import neck_release
     from .stage_one_map import late_constraints
     levelled = _followers(pm)
     pairs = _record(pm).get("pairs") or {}

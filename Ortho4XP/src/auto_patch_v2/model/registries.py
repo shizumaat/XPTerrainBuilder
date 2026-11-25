@@ -25,7 +25,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Registries", "FIELDS", "GROUP_UP", "LANDSIDE_KERB"]
+__all__ = ["Registries", "FIELDS", "GROUP_UP", "LANDSIDE_KERB", "UNIT_LEVELS"]
 
 #: the ``witness`` word of an UPPER PAD's level record in ``landings``
 #: (``planar/group_up``, #2068) — read by ``airport/road_ramp.road_terrace``
@@ -43,6 +43,12 @@ FLOOR_YARD = "floor_yard"
 #: (a shapely geometry, the engine's frame) and the storey's rise over the block's datum
 #: (``constraints/kerb_frontage``)
 LANDSIDE_KERB = "landside_kerb"
+
+#: the key of a unit block's TWO-FLOOR RECORD on its ``held`` record
+#: (RULINGS 2026-11-25g, ``planar/unit_levels_read``): the unit's
+#: ``airport/unit_storey.UnitLevels``, reconciled to the level minted on
+#: the block -- read by the frontage law (``planar/kerb_frontage``)
+UNIT_LEVELS = "unit_levels"
 
 
 @_dc.dataclass

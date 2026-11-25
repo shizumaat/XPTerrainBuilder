@@ -514,7 +514,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     from shapely.strtree import STRtree
 
     from ..law.tables import chord_cap_m, design as design_law
-    from ..model.planar import PLATEAU_MARK, platform_ref_of
+    from ..model.planar import PLATEAU_MARK, plane_origin_ref
     from .chords import densify
     held_reg, plateaus = reg.held, reg.plateaus
     plateaus.clear()
@@ -534,10 +534,15 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     if not held_reg or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
     # every pad's outline, keyed by its PLATFORM ref (a block's collar joins
-    # its block): the held blocks' and the rider hosts' candidates
+    # its block, and so do its own levels ``<block>/p<k>`` and their risers:
+    # a groundside level cut off the block never re-shapes the plateau on
+    # its airside -- MEASURED LDSP, lane lfront2: the landside hall's lower
+    # level carved 2,700 m2 off ``building1``'s outline and moved the
+    # plateau apron 0.21 m; read on the unit's whole outline, 0 movers): the
+    # held blocks' and the rider hosts' candidates
     outl: dict[str, list] = {}
     for r in pad_regions:
-        outl.setdefault(platform_ref_of(r.ref), []).append(r.polygon)
+        outl.setdefault(plane_origin_ref(r.ref), []).append(r.polygon)
     outline = {k: unary_union(v) for k, v in outl.items()}
     held = [b for b in sorted(held_reg) if b in outline]
     if not held:

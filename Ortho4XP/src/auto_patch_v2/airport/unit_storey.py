@@ -445,6 +445,55 @@ def _unsupported(cand, pg, band: float) -> list:
     return out
 
 
+def _open_sky(p, g, pg, tree, geoms) -> bool:
+    """Whether no other part of ``pg`` stands over half of ``g`` at or above
+    the top of ``p`` (a vehicle on the apron, not a desk under a roof)."""
+    top = float(p.base_y) + float(getattr(p, "height_m", 0.0) or 0.0)
+    for j in tree.query(g):
+        q = pg[int(j)][0]
+        if q is p or float(q.base_y) < top - 0.01:
+            continue
+        if geoms[int(j)].intersection(g).area >= 0.5 * g.area:
+            return False
+    return True
+
+
+def _apron_floor(pg, t: float, near, apt, step: float) -> float:
+    """THE AIRSIDE FLOOR WHERE THE APRON'S OWN OBJECTS STAND (lane lfront2,
+    spec step-1 finding (a)): ``t`` (:func:`unit_floor`, the grounded
+    parts' plane), or the plane the unit's OPEN APRON OBJECTS stand at --
+    parts within ``near`` of the airside no other part carries
+    (:func:`_unsupported`), half their plan or more on the apt.dat airside
+    pavement ``apt`` and under the open sky (:func:`_open_sky`): the fire
+    trucks, stairs, tents and apron slabs the author set on the apron --
+    where that plane stands a storey (``step``) or more off ``t`` and holds
+    more parts than ``t``'s grounded parts and open objects together.  The
+    frame's zero is then another storey of the building, not the apron.
+
+    MEASURED LDSP ``unit:5``: 12 grounded parts at 0 (pipes, a terminal
+    wing) + 10 open objects at 0 against 238 open objects at +3.0 (the
+    apron the pad meets; ``plan_low``'s ``top_level`` reads +3.00 too).
+    PHLI ``unit:23`` (an open-air terminal over apt.dat pavement): 132
+    grounded parts at 0 against 62 open roof trims at +7.3 -- ``t``
+    stands; LPHR ``unit:8``: the open objects stand at 0."""
+    from shapely.strtree import STRtree
+    if apt is None or apt.is_empty or not pg:
+        return t
+    band = _band_m()
+    geoms = [g for _p, g in pg]
+    tree = STRtree(geoms)
+    nr = [(p, g) for p, g in pg if g.intersects(near)]
+    opened = [(p, g) for p, g in _unsupported(nr, pg, band)
+              if g.area > 0.0 and g.intersection(apt).area >= 0.5 * g.area
+              and _open_sky(p, g, pg, tree, geoms)]
+    planes = sorted(_planes(opened, apt, band), key=lambda lv: (-lv.parts, lv.y))
+    if not planes or abs(planes[0].y - t) < step:
+        return t
+    at_t = sum(1 for p, g in nr if getattr(p, "feet", ()) and round(p.base_y) == t) + sum(
+        1 for p, _g in opened if abs(float(p.base_y) - t) <= band)
+    return float(planes[0].y) if planes[0].parts > at_t else t
+
+
 def _storey_parts(pg, t: float, near, air, law) -> list[Level]:
     """RUNG L1 (spec §1.3): the unit's solid parts off the airside-near
     band standing at least a storey off ``t``, either sign, as planes; the
@@ -566,7 +615,8 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     unit's parts at the airside no other part carries (most parts first)
     -- MEASURED LDSP ``unit:5``: :func:`unit_floor` reads 0 (four grounded
     parts), while the apron's own objects (fire vehicles, stairs, the
-    apron slab) stand at +3.0 with no ground feet.  ``ground``: the map's
+    apron slab) stand at +3.0 with no ground feet; ``air_y`` is then
+    :func:`_apron_floor`'s +3.0 (lane lfront2).  ``ground``: the map's
     groundside pavement (the face's second test), ``None`` to skip it."""
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
@@ -582,14 +632,18 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     reach = float(law.tables.emit.road_contact.contact_reach_m)
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
     near, to_xy, dem = air.buffer(near_m), frame.entry(), getattr(airport, "dem", None)
-    plans, credible = None, None
+    from .airside_floor import airside_union
+    plans, credible, apt = None, None, airside_union(airport)
     out: list[UnitLevels] = []
-    for ui, u, _parts, t in _floors(part, near, to_xy):
+    for ui, u, _parts, t0 in _floors(part, near, to_xy):
         plans = _unit_plans(part, to_xy) if plans is None else plans
         plan = unary_union([g for _p, g in plans.solid[ui]])
-        shell = _split_level(u, t, shells, step)
+        shell = _split_level(u, t0, shells, step)
         if plan.is_empty or (plan.area < min_m2 and not shell):
             continue                       # a storey shell is read at any size (LPHR)
+        t = _apron_floor(plans.solid[ui], t0, near, apt, step)
+        if t != t0:
+            shell = _split_level(u, t, shells, step)
         levels, witness = _storey_parts(plans.solid[ui], t, near, air, law), _L1
         face = landside_face(plan, air, ground, near_m, reach)
         if levels:

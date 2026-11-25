@@ -52,9 +52,9 @@ def test_overseas_boxes_and_countries(shipped):
         assert ea_definitions.provider_serves_country(dom, country)
     # Sint Maarten shares the island's box but is not France.
     assert not ea_definitions.provider_serves_country(dom, "SXM")
-    # The same service and request as the inset; seabed kept, blends not.
-    assert (tidal["wcs_getcoverage_template"]
-            == dom["wcs_getcoverage_template"])
+    # The same service as the inset; seabed kept, blends not.
+    assert (tidal["wcs_getcoverage_template"].split("?")[0]
+            == dom["wcs_getcoverage_template"].split("?")[0])
     assert float(tidal["value_floor_m"]) == -150.0
     assert float(dom["value_floor_m"]) == -150.0  # the smeared sentinel
     assert "geoid_shift" not in dom  # local MSL datums, not ellipsoidal
@@ -76,6 +76,26 @@ def test_geographic_request_is_lat_first_one_metre(shipped):
     # Pixels are 1 m on the ground along both axes.
     assert abs((east - west) * lon_m / width - 1.0) < 1e-3
     assert abs((north - south) * GEO.lat_to_m / height - 1.0) < 1e-3
+
+
+def test_native_pyramid_per_territory(shipped):
+    """1 m comes from each territory's NATIVE pyramid: the all-France
+    HIGHRES layer's finest level is ~4.8 m (5x5 px blocks at 1 m)."""
+    dom, metro = shipped["FRANCEDOM1M"], shipped["FRANCE1M"]
+    strategy = WcsKvpStrategy()
+    for (box, layer) in (
+            (_ISLAND_BOX, "RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS"),
+            ((-61.01, 14.58, -60.98, 14.61),
+             "RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS"),
+            ((55.50, -20.90, 55.53, -20.88),
+             "RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS")):
+        (url,) = strategy._request_urls(dom, box, 1.0)
+        assert "LAYERS=%s&" % layer in url
+    # Covered by no wms_layer line: no request, never a literal {layer}.
+    assert strategy._request_urls(dom, (-40.0, 20.0, -39.9, 20.1), 1.0) == []
+    (url,) = strategy._request_urls(metro, (5.87, 45.63, 5.90, 45.65), 1.0)
+    assert "LAYERS=RGEALTI-MNT_PYR-ZIP_FXX_LAMB93_WMS&" in url
+    assert "HIGHRES" not in url
 
 
 def test_geographic_request_tiles_within_max_width(shipped):

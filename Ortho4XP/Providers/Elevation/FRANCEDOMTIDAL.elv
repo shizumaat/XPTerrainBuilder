@@ -1,7 +1,9 @@
 # IGN France RGE ALTI 1 m, overseas France -- BATHYMETRY twin (#2272).
 #
-# The bathymetry-role sibling of FRANCEDOM1M.elv (same service, same
-# request).  In the Antilles and Mayotte the RGE ALTI assembles the
+# The bathymetry-role sibling of FRANCEDOM1M.elv (same service).  It
+# keeps the all-France HIGHRES layer: its ~4.8 m finest level is finer
+# than the 10 m cells the depth masks ask for, so the native per-territory
+# pyramids FRANCEDOM1M needs for 1 m would add nothing here.  In the Antilles and Mayotte the RGE ALTI assembles the
 # Litto3D topo-bathymetric survey: the sea beside the coast reads smooth
 # measured depths (Saint-Barthelemy: 1st / 50th / 90th percentile -42 /
 # -19 / -6 m; Saint-Martin -26 / -6 / -2 m; probed 2026-11-24), and the

@@ -418,8 +418,10 @@ def elevation_providers_directory():
 #: ``resolution_ladder`` repeats the same way, one coarser rung per line
 #: (#130, see :func:`_parse_resolution_ladder`).  ``cog_source`` is one
 #: footprinted raster per line (#1926, ``strategies/direct_cog``).
+#: ``wms_layer`` is one native pyramid and its box per line
+#: (``strategies/wcs_kvp``).
 MULTI_VALUE_KEYS = frozenset(
-    ("coverage_bbox", "resolution_ladder", "cog_source"))
+    ("coverage_bbox", "resolution_ladder", "cog_source", "wms_layer"))
 
 
 #: The third field of a ``resolution_ladder`` line that names ANOTHER

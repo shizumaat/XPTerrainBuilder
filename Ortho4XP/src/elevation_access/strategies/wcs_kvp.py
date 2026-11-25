@@ -15,7 +15,9 @@ import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderUnavailable
 from elevation_access.definitions import (
+    _bounding_boxes_intersect,
     _coverage_bbox_intersects,
+    _parse_bounding_box,
     _parse_float,
     export_image_definition_refusal,
     transform_bounding_box_to_epsg,
@@ -50,6 +52,27 @@ def _metres_per_unit(source_epsg, bounding_box_wgs84):
     return (GEO.lon_to_m((south + north) / 2.0), GEO.lat_to_m)
 
 
+def _wms_layer(definition, bounding_box_wgs84):
+    """The layer a ``{layer}`` template asks for over this box, or ``None``.
+
+    A server may keep one dataset as several native pyramids: IGN serves
+    RGE ALTI 1 m as one Lambert-93 / UTM pyramid per territory, while its
+    single all-France layer is a WGS84G pyramid whose finest level is
+    ~4.4e-5 degree (~4.8 m N-S; a 1 m request comes back as 5x5 px
+    blocks, measured 2026-11-25).  Each ``wms_layer=LAYER W,S,E,N`` line
+    names one pyramid and its box; the first whose box meets the request
+    wins.  A template without ``{layer}`` needs none (empty string).
+    """
+    if "{layer}" not in definition.get("wcs_getcoverage_template", ""):
+        return ""
+    for entry in str(definition.get("wms_layer", "")).split(";"):
+        (name, _, box_text) = entry.strip().partition(" ")
+        box = _parse_bounding_box(box_text.strip())
+        if name and box and _bounding_boxes_intersect(box, bounding_box_wgs84):
+            return name
+    return None
+
+
 # =====================================================================
 # Strategy 10: wcs_kvp (hand-built GetCoverage for non-standard WCS)
 # =====================================================================
@@ -81,7 +104,11 @@ class WcsKvpStrategy:
         declares the server's ``max_request_pixels`` -- as a grid of
         requests each within that size at the requested pixel (#1217:
         a WMS GetMap above MaxWidth is refused, and capping one request
-        would silently coarsen a large airport's inset)."""
+        would silently coarsen a large airport's inset).  No request
+        (``[]``) when a ``{layer}`` template has no layer for the box."""
+        layer = _wms_layer(definition, bounding_box_wgs84)
+        if layer is None:
+            return []
         source_epsg = int(float(definition.get("source_epsg", 25832)))
         (x_min, y_min, x_max, y_max) = transform_bounding_box_to_epsg(
             bounding_box_wgs84, source_epsg
@@ -109,7 +136,8 @@ class WcsKvpStrategy:
         if not declared:
             # Legacy single request: ArcGIS exportImage caps at 8000 px.
             return [self._fill(definition, (x_min, y_min, x_max, y_max),
-                               min(width, 8000), min(height, 8000), digits)]
+                               min(width, 8000), min(height, 8000), digits,
+                               layer)]
         limit = int(declared)
         columns = -(-width // limit)
         rows = -(-height // limit)
@@ -126,11 +154,11 @@ class WcsKvpStrategy:
                     definition,
                     (left, bottom, left + pixels_x * step_x,
                      bottom + pixels_y * step_y),
-                    pixels_x, pixels_y, digits))
+                    pixels_x, pixels_y, digits, layer))
         return urls
 
     @staticmethod
-    def _fill(definition, box, width, height, digits=2):
+    def _fill(definition, box, width, height, digits=2, layer=""):
         (x_min, y_min, x_max, y_max) = box
         return (
             definition["wcs_getcoverage_template"]
@@ -141,6 +169,7 @@ class WcsKvpStrategy:
             # ArcGIS exportImage / WMS GetMap want an explicit pixel size.
             .replace("{width}", str(width))
             .replace("{height}", str(height))
+            .replace("{layer}", layer)
             # #155: an ArcGIS exportImage template sends noData={nodata},
             # filled from the definition's own nodata key -- never empty.
             .replace("{nodata}", str(definition.get("nodata", "")).strip())
@@ -149,8 +178,8 @@ class WcsKvpStrategy:
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
-        return [{"url": url} for url in
-                self._request_urls(definition, bounding_box_wgs84)]
+        urls = self._request_urls(definition, bounding_box_wgs84)
+        return [{"url": url} for url in urls] or None
 
     def fetch(
         self,
@@ -168,6 +197,8 @@ class WcsKvpStrategy:
             raise ProviderUnavailable(refusal)
         urls = self._request_urls(definition, bounding_box_wgs84,
                                   target_resolution_m=target_resolution_m)
+        if not urls:
+            return None
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         scratch_paths = []
         try:

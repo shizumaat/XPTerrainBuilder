@@ -110,13 +110,14 @@ from ..law import Law
 from ..law.tables import (is_rigid_role, is_value_role, role_cap, role_family,
                           role_side, runway_transverse_max)
 from ..model.airport import Airport
+from ..model.map_memo import ContentSlots
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import cap_of, face_cap
 from .stretches import edge_cap, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
-           "route_neighbours", "route_pairs", "reach", "route_path"]
+           "route_neighbours", "route_pairs", "reach", "route_path", "walk_labels"]
 
 #: Edge provenance codes (``RouteGraph.kind``).  CENTRELINE: a taxi
 #: stretch edge or a runway ridge edge (a split ridge's bridge too);
@@ -892,7 +893,8 @@ def _pairs_key(g: RouteGraph, m: csr_matrix, wb: csr_matrix,
 
 
 def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
-                chunk: int = 128) -> dict[tuple[int, int], tuple[float, float]]:
+                chunk: int = 128, labels: _t.Sequence | None = None
+                ) -> dict[tuple[int, int], tuple[float, float]]:
     """THE WITHIN-SHAPE ROUTE PRICING (RULINGS 2026-09-05ab, spec §9):
     for every distinct pair inside each group (a face ring) the ROUTE
     distance — a's hop + the centreline path + b's hop, the shortest by
@@ -908,7 +910,13 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
     walk by pointer jumping cost 24 s and was replaced).
 
     THE TABLE IS MEMOISED BY CONTENT (:func:`_pairs_key`, ``_PAIRS_MEMO``)
-    and the memo's own object is returned: READ it, never write it."""
+    and the memo's own object is returned: READ it, never write it.
+
+    ``labels`` (:func:`walk_labels`: each walk id by position)
+    reads a source's pairs back off an EQUAL graph priced under other
+    vertex ids (#2206, the late derive's; :func:`walk_labels`)
+    -- the same floats in the same order, only the walks no earlier map
+    priced are walked."""
     members: dict[int, list[int]] = {}
     grp = [sorted({v for v in gr if v in g.nodes}) for gr in groups]
     for k, gr in enumerate(grp):
@@ -934,20 +942,44 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
     # same order with the same ``float`` values
     garr = [np.asarray(gr, np.int64) for gr in grp]
     gcol = [g.inbound(a) if a.size else a for a in garr]
-    for c0 in range(0, len(srcs), chunk):
-        idx = srcs[c0:c0 + chunk]
+
+    def above(s: int) -> list[tuple[int, int]]:
+        """``(group, first member above s)`` of each of ``s``'s groups."""
+        got = []
+        for k in members[s]:
+            j0 = int(np.searchsorted(garr[k], s, side="right"))
+            if j0 < garr[k].size:
+                got.append((k, j0))
+        return got
+    # the sources an equal graph priced already (:class:`_Prior`), read back
+    canon = None if labels is None else _graph_content(m, wb, labels)
+    prior = _held_pricing(canon)
+    read: dict[int, list] = {}
+    if prior is not None:
+        for s in srcs:
+            got = [prior.read(labels, s, garr[k][j0:]) for k, j0 in above(s)]
+            if all(r is not None for r in got):
+                read[s] = got
+    walk = [s for s in srcs if s not in read]
+    for c0 in range(0, len(walk), chunk):
+        idx = walk[c0:c0 + chunk]
         D = dijkstra(m, directed=True, indices=idx)
         B = dijkstra(wb, directed=True, indices=idx)
         for i, s in enumerate(idx):
-            for k in members[s]:
-                j0 = int(np.searchsorted(garr[k], s, side="right"))
-                if j0 >= garr[k].size:
-                    continue
-                cols = gcol[k][j0:]
-                d, b = D[i, cols], B[i, cols]
-                ok = np.isfinite(d) & (d > 0.0)
-                out.update(zip(((s, t) for t in garr[k][j0:][ok].tolist()),
-                               zip(d[ok].tolist(), b[ok].tolist())))
+            read[s] = [(D[i, gcol[k][j0:]], B[i, gcol[k][j0:]]) for k, j0 in above(s)]
+    dropped: dict[tuple[int, int], tuple[float, float]] = {}
+    for s in srcs:
+        for (k, j0), (d, b) in zip(above(s), read.pop(s), strict=True):
+            ts = garr[k][j0:]
+            ok = np.isfinite(d) & (d > 0.0)
+            out.update(zip(((s, t) for t in ts[ok].tolist()),
+                           zip(d[ok].tolist(), b[ok].tolist())))
+            if canon is not None and not ok.all():
+                dropped.update(zip(((s, t) for t in ts[~ok].tolist()),
+                                   zip(d[~ok].tolist(), b[~ok].tolist(), strict=True),
+                                   strict=True))
+    if canon is not None:
+        _hold_pricing(canon, _Prior(labels, g.n_planar, (out, dropped)))
     while len(_PAIRS_MEMO) >= _PAIRS_SLOTS:
         del _PAIRS_MEMO[next(iter(_PAIRS_MEMO))]
     _PAIRS_MEMO[key] = out
@@ -1135,3 +1167,116 @@ def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None,
     path = [int(g.vertex(i)) for i in ids]
     bud = sum(wb[(u, v) if u < v else (v, u)] for u, v in zip(path, path[1:]))
     return float(D[0][tgt]), float(bud), path
+
+
+# ── THE ROUTE PRICING OF AN EQUAL GRAPH UNDER OTHER VERTEX IDS ────────────
+# (#2206; owner RULINGS 2026-11-24d: "recomputing anything whose inputs did
+# not change is the defect")
+#
+# RULINGS 2026-11-24d: "recomputing anything whose inputs did not change is
+# the defect").
+#
+# The late derive's map numbers its vertices afresh -- a gap piece, a pad
+# road or a car lot adds faces and the arrangement walks them in -- yet its
+# ROUTE GRAPH is the main pass's: no late cell is airside, so no centreline,
+# hop or foot changes (measured HECA and KATL 2026-11-24: 20,326 and 29,530
+# edges, every one equal by position).  :func:`constraints.routes.route_pairs`
+# then prices the same pairs over the same graph a second time.
+#
+# THE GRAPH BY POSITION.  :func:`walk_labels` names every walk id by what it
+# IS -- a planar vertex by its plan position (the map's own identity: the
+# planar build mints one vertex per position), a virtual foot by its
+# position, a leaf's arriving id as ``("in", ...)`` of its vertex -- and
+# :func:`_graph_content` reads the two weighted walk matrices under them.
+# Two maps whose contents are equal carry the same weighted digraph.
+#
+# WHY A PAIR READ OFF THE EARLIER MAP IS EXACT.  ``scipy.sparse.csgraph.
+# dijkstra`` settles a walk id at the least ``fl(d(u) + w)`` over the ids
+# settled before it; every id at a smaller distance is settled first, in any
+# numbering, and an id at an EQUAL distance can only offer ``fl(d + w) >= d``.
+# So each source's distances are the same floats whatever the numbering and
+# whatever other sources share its call.  A pair is read back only in the
+# DIRECTION the earlier map walked it (its source the smaller id there, as
+# here): the reverse walk sums the same edges in another order.  A source
+# with any pair the earlier map did not price, or priced the other way, is
+# walked here, as before.
+#
+# :class:`_Prior` holds one priced map: its vertex ids by position and every
+# pair it asked for (``route_pairs``' table and the pairs it dropped, an
+# unreachable or zero walk).
+
+
+def walk_labels(planar, g) -> list | None:
+    """Each walk id of ``g``'s matrices (``2 n``) named by position (the
+    section's comment), or ``None`` where two ids would share a name."""
+    n, n_planar = int(g.n), int(g.n_planar)
+    base: list = [tuple(map(float, planar.vertices[v].xy)) for v in range(n_planar)]
+    base += [("foot", float(x), float(y)) for x, y in np.asarray(g.foot_xy, float)]
+    if len(base) != n:
+        return None
+    labels = base + [("in", b) for b in base]
+    return labels if len(set(labels)) == len(labels) else None
+
+
+def _graph_content(m, wb, labels: _t.Sequence) -> frozenset | None:
+    """The two walk matrices (length, budget) as one value under
+    ``labels``; ``None`` when their sparsity differs (no reading back)."""
+    if m.shape != wb.shape or not (np.array_equal(m.indptr, wb.indptr)
+                                   and np.array_equal(m.indices, wb.indices)):
+        return None
+    rows = np.repeat(np.arange(m.shape[0]), np.diff(m.indptr))
+    return frozenset(zip([labels[r] for r in rows.tolist()],
+                         [labels[c] for c in m.indices.tolist()],
+                         m.data.tolist(), wb.data.tolist(), strict=True))
+
+
+class _Prior:
+    """One priced map (the section's comment): ``id_of`` its planar vertex ids
+    by name, ``tables`` every ``(a, b) -> (dist, budget)`` it priced with
+    ``a < b`` (the pairs it kept, the pairs it dropped)."""
+
+    def __init__(self, labels: _t.Sequence, n_planar: int,
+                 tables: _t.Sequence[_t.Mapping[tuple[int, int], tuple[float, float]]]
+                 ) -> None:
+        self.id_of = {labels[v]: v for v in range(n_planar)}
+        self.tables = tuple(tables)
+
+    def _pair(self, key: tuple[int, int]) -> tuple[float, float] | None:
+        for tb in self.tables:
+            got = tb.get(key)
+            if got is not None:
+                return got
+        return None
+
+    def read(self, labels: _t.Sequence, s: int, ts: np.ndarray
+             ) -> tuple[np.ndarray, np.ndarray] | None:
+        """``(dist, budget)`` of source ``s`` (THIS map's ids, ``labels``)
+        to each of ``ts``, read off the prior map; ``None`` when one pair
+        was not priced there, or was priced from the other end."""
+        bs = self.id_of.get(labels[s])
+        if bs is None:
+            return None
+        d = np.empty(len(ts))
+        b = np.empty(len(ts))
+        for j, t in enumerate(ts.tolist()):
+            bt = self.id_of.get(labels[t])
+            got = None if bt is None or bt <= bs else self._pair((bs, bt))
+            if got is None:
+                return None
+            d[j], b[j] = got
+        return d, b
+
+
+#: the last maps' pricing, by the graph's content
+_HELD_PRICING: ContentSlots[_Prior] = ContentSlots(2)
+
+
+def _held_pricing(key: frozenset | None) -> _Prior | None:
+    """The prior pricing of a graph of content ``key``, if one is held."""
+    return None if key is None else _HELD_PRICING.peek(key)
+
+
+def _hold_pricing(key: frozenset | None, prior: _Prior) -> None:
+    """Hold ``prior`` as the pricing of the graph of content ``key``."""
+    if key is not None:
+        _HELD_PRICING.put(key, prior)

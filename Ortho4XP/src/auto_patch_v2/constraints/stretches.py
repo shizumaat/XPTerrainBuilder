@@ -328,6 +328,13 @@ class AxisIndex:
         self.tie_m = tie_m
         self.segs: list[tuple[float, float, float, float, float, float, float]] = []
         self.grid: dict[tuple[int, int], list[int]] = {}
+        #: answers of PURE queries on this index's content, by their
+        #: arguments (#2206: the late derive asks the main pass's index
+        #: the same pairs, ``taxi.axis_index``); ``memo`` holds a reader's
+        #: own namespaces of the same kind (``junction_mesh``)
+        self._boxes: dict[tuple[float, float, float, float],
+                          tuple[float, float, float] | None] = {}
+        self.memo: dict[_t.Hashable, dict] = {}
         for pts, cap_l, cap_t in axes:
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 ln = exact.hypot(bx - ax, by - ay)
@@ -447,7 +454,18 @@ class AxisIndex:
         every frame, the winner of an exact tie is not (measured HECA
         pav129 2026-09-06: the generator's frame and the census's picked
         the two segments of taxi25 meeting at the corner 44.7 m away,
-        and three built pairs read 0.03 m over the reader's box)."""
+        and three built pairs read 0.03 m over the reader's box).
+
+        A function of the index's content and the four coordinates alone:
+        an answer is read back, never measured twice (#2206)."""
+        key = (xa, ya, xb, yb)
+        got = self._boxes.get(key, False)
+        if got is False:
+            got = self._boxes[key] = self._box_bound(xa, ya, xb, yb)
+        return got
+
+    def _box_bound(self, xa: float, ya: float, xb: float, yb: float
+                   ) -> tuple[float, float, float] | None:
         x, y = 0.5 * (xa + xb), 0.5 * (ya + yb)
         hit = self._nearest(x, y)
         if hit is None:

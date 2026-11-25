@@ -212,23 +212,43 @@ def nearest_axis(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
     return best[3], best[1], best[2]
 
 
+def _nearest_held(memo: dict | None, p: XY, axes: _t.Sequence[Axis]):
+    """:func:`nearest_axis` of ``p`` over ``axes``, read from ``memo`` (the
+    answers for THESE axes' content, by point) when it holds one."""
+    if memo is None:
+        return nearest_axis(p, axes)
+    got = memo.get(p, False)
+    if got is False:
+        got = memo[p] = nearest_axis(p, axes)
+    return got
+
+
+def _axes_content(axes: _t.Sequence[Axis]) -> tuple:
+    """``axes`` as a hashable value (a memo's key: equal content, equal
+    :func:`nearest_axis` answers)."""
+    return tuple((tuple(pts), cap_l, cap_t) for pts, cap_l, cap_t in axes)
+
+
 def triangle_boxes(vw: View, axes: _t.Sequence[Axis],
                    tris: _t.Iterable[tuple[int, int, int]],
                    fallback: _t.Sequence[Axis] = (),
-                   face_caps: tuple[float, float] | None = None
+                   face_caps: tuple[float, float] | None = None,
+                   memo: dict | None = None, memo_fallback: dict | None = None
                    ) -> dict[tuple[int, int, int], tuple[tuple[float, float], float, float]]:
     """Each triangle's box: ``(unit axis, cap_along, cap_across)`` from the
     crossing stretch nearest its centroid; with no crossing stretch, the
     nearest of ``fallback`` (the map's stretches) for the DIRECTION at
     the face's own ``face_caps``; a triangle with no serving stretch at
-    all has no box."""
+    all has no box.  ``memo`` / ``memo_fallback``: the answers already
+    read for ``axes`` / ``fallback`` by centroid (#2206, the late derive
+    reads the main pass's; :func:`junction_mesh`)."""
     out: dict[tuple[int, int, int], tuple[tuple[float, float], float, float]] = {}
     for a, b, c in tris:
         (ax, ay), (bx, by), (cx, cy) = vw.xy[a], vw.xy[b], vw.xy[c]
         cen = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0)
-        hit = nearest_axis(cen, axes)
+        hit = _nearest_held(memo, cen, axes)
         if hit is None and fallback and face_caps is not None:
-            fb = nearest_axis(cen, fallback)
+            fb = _nearest_held(memo_fallback, cen, fallback)
             if fb is not None:
                 hit = (fb[0], face_caps[0], face_caps[1])
         if hit is not None:
@@ -249,6 +269,7 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     pads = pad_vertices(vw)
     pad_cap = law.tables.common.roles["building"].longitudinal
     all_axes: list[Axis] | None = None
+    near_all: dict | None = None
     index = axis_index(vw, st)
     # the junction faces' common-stretch pairs, the publication's own
     # (cached) population — never a second O(n²) walk of the rings
@@ -300,10 +321,15 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if not axes and tris:
             if all_axes is None:
                 all_axes = stretch_axes(vw, st)
+                # the map's stretches' answers, held on the index of
+                # their content (#2206: ``taxi.axis_index``)
+                near_all = index.memo.setdefault(("nearest_axis", _axes_content(all_axes)), {})
             fallback = all_axes
         else:
             fallback = ()
-        boxes = triangle_boxes(vw, axes, tris, fallback, (cap[0], cap[1]))
+        boxes = triangle_boxes(vw, axes, tris, fallback, (cap[0], cap[1]),
+                               index.memo.setdefault(("nearest_axis", _axes_content(axes)), {}),
+                               near_all)
         for tri, (axis, cl, ct) in boxes.items():
             rows.extend(box_rows(list(tri), vw.xy, axis, cl, ct, src_t))
     return rows

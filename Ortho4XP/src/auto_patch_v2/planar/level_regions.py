@@ -59,10 +59,11 @@ from shapely.strtree import STRtree
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..law.tables import role_side
+from ..model.map_memo import Same
 from ..model.planar import STRIP_SUFFIX, plane_of, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["level_seeds", "region_depths", "seed_levels"]
+__all__ = ["level_seeds", "region_depths", "seed_levels", "seeds_key"]
 
 #: the ``witness`` word of a passage level's record
 PASSAGE_WITNESS = "passage"
@@ -97,12 +98,29 @@ class LevelSeed(_t.NamedTuple):
     slabs: tuple = ()
 
 
+def seeds_key(airport, classification, law) -> tuple:
+    """What :func:`level_seeds` reads beyond the pack store's own inputs
+    (``planar/pack_reads.held_read``: the DEM, frame, mapped ways, the
+    objects, the law), as one key: the airside cells' rings, the
+    partition, the boundaries and the apt.dat the stands are read from.
+    The late derive's is the main pass's -- no gap piece, pad road or car
+    lot is airside -- so its seeds are read once a build (#2206)."""
+    cells = tuple(getattr(classification, "cells", None) or ())
+    air = tuple((c.ring, c.holes) for c in cells
+                if len(c.ring) >= 3 and role_side(law, c.role) == "airside")
+    pack = getattr(airport, "pack", None)
+    return ("level_seeds", bool(cells), air, Same(getattr(airport, "partition", None)),
+            Same(getattr(airport, "boundaries", None)),
+            str(getattr(pack, "apt_dat_path", "") or ""), str(getattr(airport, "icao", "") or ""))
+
+
 def level_seeds(airport, classification, law, cache=None
                 ) -> "tuple[tuple[LevelSeed, ...], list[str]]":
     """``(seeds, notes)``: the W1 seeds of the airport (module docstring),
     read off the pack partition, the classification's airside cells and the
     mapped roads (``cache``: the object reads' ``ResourceCache``, for the
-    underside) -- before the structures pass."""
+    underside) -- before the structures pass (:func:`seeds_key` names every
+    input)."""
     part = getattr(airport, "partition", None)
     if part is None or classification is None or not classification.cells:
         return (), []

@@ -86,12 +86,21 @@ def _fronted(line, hw: float, pads: list[Polygon], reach: float) -> list[Polygon
     return [p for p in pads if rib.distance(p) <= reach]
 
 
-def _frontage_span(line, pad: Polygon, reach: float) -> tuple[float, float] | None:
+def _frontage_span(line, pad: Polygon, reach: float,
+                   grown: dict | None = None) -> tuple[float, float] | None:
     """The arclength span of ``line`` along ``pad``'s frontage: from the
     first to the last of its stretches within ``reach`` of the footprint —
     ONE stretch per pad, so a facade's jogs (a recess the road passes a
-    few metres too far from) never cut the road along it into pieces."""
-    ivs = _way_intervals(line, pad.buffer(reach, join_style=2))
+    few metres too far from) never cut the road along it into pieces.
+    ``grown`` holds each pad's grown footprint per reach (#2206: every way
+    passing one pad grew it again)."""
+    key = (id(pad), reach)
+    zone = None if grown is None else grown.get(key)
+    if zone is None:
+        zone = pad.buffer(reach, join_style=2)
+        if grown is not None:
+            grown[key] = zone
+    ivs = _way_intervals(line, zone)
     return (ivs[0][0], max(b for _a, b in ivs)) if ivs else None
 
 
@@ -163,12 +172,15 @@ def mint_frontage_roads(airport: Airport, cells: list, law: Law, rules: Rules,
             kept.append(poly)
     serial = _serials(cells)
     lots = lot_cells(cells)
+    grown: dict = {}
     for w, line in ways:
         hw = ribbon_half_width_m(w.tags, law)
         near = [pads[j] for j in
                 tree.query(line, predicate="dwithin", distance=hw + reach).tolist()]
         fronted = [(p, sp) for p in (_fronted(line, hw, near, reach) if near else [])
-                   if (sp := _frontage_span(line, p, hw + reach))]
+                   if (sp := _frontage_span(line, p, hw + reach, grown))]
+        if not fronted:         # no span to mint: the standing read is not needed
+            continue
         # a stretch already patch (a ribbon, a pad road, a lot) is never
         # re-minted: only what the frontage adds, each piece a road's length
         spans = [(a, b) for a, b in _interval_minus(

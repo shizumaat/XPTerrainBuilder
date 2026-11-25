@@ -2,7 +2,6 @@
 serial calls' own bytes, one per distinct distance."""
 import numpy as np
 import shapely
-
 from auto_patch_v2.geom.many_buffers import buffers
 
 

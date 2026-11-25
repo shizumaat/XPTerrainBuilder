@@ -32,6 +32,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    apply_level_belt)
 from .design_edge import cross_section_rows, membrane_rows
 from .design_junction import second_difference, through_junction_rows
+from ..model.lot_ground import lot_datum_vertices
 from .design_ground import (ground_datum_vertices, ground_rim_vertices,
                             riser_rim_vertices)
 from .design_stage import _groundside_minter, _welded_faces
@@ -623,10 +624,23 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             continue
         mean = sum(float(planar.vertices[v].dem_z) for v in vs_f) / len(vs_f)
         rows.add(((f_.group[0], 1.0),), mean, d.detached_mean, ("detached", ("flat", col)))
+    # 9'. THE LOT FOLLOWS ITS GROUND (owner RULINGS 2026-11-25e (1)): a
+    #     parking lot with no level target carries the weak ``z = DEM`` row
+    #     at ``ground_datum`` per vertex instead of its body's plane — its
+    #     grade rows (``law``) outrank it, so it follows the DEM within its
+    #     5 % cap (``design_ground.lot_datum_vertices``).  A vertex a pad
+    #     or a law equality levels keeps that level.
+    lot_v = lot_datum_vertices(planar) - pad_follow - hard_follow - datum_v
+    lot_n = 0
+    for vid in sorted(lot_v):
+        if rows.add(((vid, 1.0),), float(planar.vertices[vid].dem_z),
+                    d.ground_datum, ("lot_datum", vid)):
+            lot_n += 1
+    rep.lot_datum_rows = lot_n
     rep.detached = len(by_comp)
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
-            if vid in datum_v:
+            if vid in datum_v or vid in lot_v:
                 continue
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
 

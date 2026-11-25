@@ -379,6 +379,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lens",
         "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
+        "auto_patch_v2.geom.many_buffers",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
@@ -720,6 +721,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lens",
         "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
+        "auto_patch_v2.geom.many_buffers",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
@@ -1806,6 +1808,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lens",
         "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
+        "auto_patch_v2.geom.many_buffers",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
@@ -2518,7 +2521,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
-    classify.facade_mint classify.frontage_road geom.lens
+    classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
     classify.gap_apron classify.fence_division classify.gap_band
     classify.gap_mint classify.gap_stands
@@ -2788,7 +2791,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
-    classify.facade_mint classify.frontage_road geom.lens
+    classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
     classify.gap_apron classify.fence_division classify.gap_band
     classify.gap_mint classify.gap_stands
@@ -2997,7 +3000,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
-    classify.facade_mint classify.frontage_road geom.lens
+    classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
     classify.gap_apron classify.fence_division classify.gap_band
     classify.gap_mint classify.gap_stands
@@ -3221,7 +3224,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.sunken_ramp airport.wall_class
     airport.wall_sheets classify
-    classify.airside_edge classify.evidence classify.facade_mint classify.frontage_road geom.lens
+    classify.airside_edge classify.evidence classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.gap_apron classify.fence_division
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
@@ -3392,7 +3395,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
-    classify.facade_mint classify.frontage_road geom.lens
+    classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
     classify.gap_apron classify.fence_division classify.gap_band
     classify.gap_mint classify.gap_stands

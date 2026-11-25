@@ -626,6 +626,11 @@ def _build(icao: str, inputs: Inputs, out_dir: str | Path, config: Config | None
     for _n in _span_notes:
         _say(f"[{icao}] {_n}", out)
     wall["classify"] = time.perf_counter() - t
+    # #2206: the classify sections' seconds (``model.clocks``; none when
+    # the stage cache served the stage)
+    _cl_laps = _clocks.take("classify")
+    if _cl_laps is not None:
+        _say(f"[{icao}] classify {wall['classify']:.2f} s by section: {_cl_laps.line()}", out)
     # RULINGS 2026-10-30e (#1686): a taxi centreline over ground no cell
     # holds names a missed pavement source — a reading, never a law
     from ..classify.centreline_gaps import centreline_pavement_gaps

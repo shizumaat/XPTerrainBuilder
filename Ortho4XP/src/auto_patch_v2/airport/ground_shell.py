@@ -71,9 +71,7 @@ never raises the patch, so the rim there would float).
 from __future__ import annotations
 
 import dataclasses as _dc
-import functools
 import math
-import os
 import typing as _t
 
 import numpy as np
@@ -81,6 +79,7 @@ import numpy as np
 from ..geom.terrain_deck import DeckGrid
 from . import terrain_model as _tm
 from . import terrain_shaped as _ts
+from .file_verdict import FileVerdict
 
 __all__ = ["SEATED", "HIDDEN", "shape_of", "verdict", "placement_shells",
            "off_the_shell", "hidden_by_pack", "airside_capped", "log_line"]
@@ -102,11 +101,8 @@ def _static_plan_m(g: _t.Any) -> float:
     return float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
 
 
-@functools.lru_cache(maxsize=256)
-def _shape(path: str, _mtime_ns: int, _size: int) -> "_tm.Shape | None":
-    """The candidate test on one file version (module doc)."""
-    from .obj8 import parse_obj8
-    g = parse_obj8(path)
+def _shape(path: str, g: _t.Any) -> "_tm.Shape | None":
+    """The candidate test on one file version (module doc), on its parse."""
     plan = _static_plan_m(g)
     if plan < _tm.MIN_PLAN_M:
         return None
@@ -149,11 +145,11 @@ def shape_of(path: str, geometry: _t.Any = None) -> "_tm.Shape | None":
     the plan gate then reads it and most files stop there."""
     if geometry is not None and _static_plan_m(geometry) < _tm.MIN_PLAN_M:
         return None
-    try:
-        st = os.stat(path)
-        return _shape(path, st.st_mtime_ns, st.st_size)
-    except (OSError, ValueError):
-        return None
+    return _SHAPES(path, geometry)
+
+
+#: one candidate verdict per file version, off the caller's parse (#2206)
+_SHAPES = FileVerdict(_shape)
 
 
 def verdict(grid: DeckGrid, xy: tuple[float, float], heading: float,

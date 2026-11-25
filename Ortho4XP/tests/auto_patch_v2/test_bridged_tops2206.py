@@ -45,3 +45,17 @@ def test_the_block_tops_are_the_loop_bit_for_bit(monkeypatch):
             z[: m // 2] = np.round(z[: m // 2] / 5.0) * 5.0
         monkeypatch.setattr(BG, "_PAIRS", int(rnd.choice([1, 50, 1 << 21])))
         assert BG._tops(tris, x, z).tobytes() == _loop(tris, x, z).tobytes()
+
+
+def test_far_triangles_and_unfinite_points_change_nothing():
+    # the points' box pre-select (#2206): triangles far from a narrow strip
+    # of points and NaN points beside finite ones read as the loop reads them
+    rnd = np.random.default_rng(22062)
+    for _trial in range(30):
+        tris = rnd.uniform(-200.0, 200.0, (400, 3, 3))
+        x = np.linspace(-10.0, 10.0, 50) + rnd.uniform(-1, 1)
+        z = 0.3 * x + rnd.uniform(-1, 1)
+        x[::7] = np.nan
+        assert BG._tops(tris, x, z).tobytes() == _loop(tris, x, z).tobytes()
+    nan = np.full(4, np.nan)
+    assert np.isnan(BG._tops(rnd.uniform(-5, 5, (9, 3, 3)), nan, nan)).all()

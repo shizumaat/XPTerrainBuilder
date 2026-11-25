@@ -2451,6 +2451,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             print(f"[{icao}] {_n}")
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+        from auto_patch_v2.model import clocks as _clk
+        _cl_laps = _clk.take("classify")
+        if _cl_laps is not None:          # #2206: where the seconds went
+            print(f"[{icao}] classify by section: {_cl_laps.line(12)}")
         # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
         for _k, _v in sorted((getattr(cl, "stats", None) or {}).items()):
             if str(_k).startswith(("fence_yard", "floor_yard")):

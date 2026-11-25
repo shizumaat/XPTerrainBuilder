@@ -154,6 +154,17 @@ def _tops(tris: np.ndarray, x: np.ndarray, z: np.ndarray) -> np.ndarray:
     # each (point, triangle) pair's box test and barycentric arithmetic is
     # the per-point loop's, element for element, and a max is order-free
     xs, zs = np.asarray(x, dtype=float), np.asarray(z, dtype=float)
+    # a triangle whose box misses the (finite) points' box passes no
+    # point's box test, so it leaves before the pairs are formed (#2206)
+    fin = np.isfinite(xs) & np.isfinite(zs)
+    if not fin.any():
+        return out
+    fx, fz = xs[fin], zs[fin]
+    near = np.flatnonzero((hi[:, 0] >= fx.min()) & (lo[:, 0] <= fx.max())
+                          & (hi[:, 2] >= fz.min()) & (lo[:, 2] <= fz.max()))
+    if not len(near):
+        return out
+    p0, e1, e2, den, lo, hi = p0[near], e1[near], e2[near], den[near], lo[near], hi[near]
     step = max(1, _PAIRS // len(den))
     for a in range(0, xs.shape[0], step):
         px, pz = xs[a:a + step, None], zs[a:a + step, None]

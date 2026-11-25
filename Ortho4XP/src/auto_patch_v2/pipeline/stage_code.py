@@ -290,6 +290,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
+        "auto_patch_v2.airport.file_verdict",
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -424,6 +425,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.clocks",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.floor_ground",
@@ -607,6 +609,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.reader_work",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
+        "auto_patch_v2.airport.file_verdict",
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -1025,6 +1028,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.file_verdict",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -1252,6 +1256,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.file_verdict",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
         "auto_patch_v2.airport.footprint_carry",
@@ -1630,6 +1635,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.pool_slots",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
+        "auto_patch_v2.airport.file_verdict",
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
@@ -1858,6 +1864,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.clocks",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_bank",
         "auto_patch_v2.model.deck_ends",
@@ -2484,7 +2491,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -2600,6 +2607,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.connector_warp airport.stacked_deck airport.tilt_float airport.split_bar
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
     constraints.road_bridge_ceiling model.road_clearance
+    model.clocks
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
@@ -2629,7 +2637,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -2745,7 +2753,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
@@ -2954,7 +2962,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
@@ -3184,7 +3192,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin airport.retaining_seat airport.sunk_frame
+    airport.relief_skin airport.file_verdict airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3359,7 +3367,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.terrain_shell
     airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.file_verdict
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3469,6 +3477,7 @@ CODE_MODULES["verify"] = _mods("""
     geom.plate_bands model.floor_ground
     model.road_clearance
     verify.nearest
+    model.clocks
 """)
 
 #: #2188: the held terrace's level reads the pads' own derivations

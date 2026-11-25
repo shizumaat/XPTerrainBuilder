@@ -702,6 +702,36 @@ def walk_transects(shapes: _t.Sequence[TransectShape],
                         width_m=u_hi - u_lo, cap_l=axis.cap_l)
 
 
+def _governed_cells(planar: PlanarMap, vw, structure_roles):
+    """The governed pavement cells of ``vw`` in ``vw.caps`` order, each as
+    ``(ring, ring set, valid Polygon)``, plus an STRtree over them — built
+    ONCE per (map, view, roles) and reused by every vertex asked of it
+    (the per-call rebuild was 171 s at KDFW, #2206).  Invalid rings are
+    dropped here exactly as the per-call reading skipped them."""
+    from shapely import STRtree
+    key = frozenset(structure_roles)
+    hit = _CELL_CACHE.get("last")
+    if hit is not None and hit[0] == key and hit[1] is planar and hit[2] is vw \
+            and hit[3] == len(vw.caps):
+        return hit[4]
+    cells = []
+    for fid, cap in vw.caps.items():
+        f = planar.faces[fid]
+        if cap is None or f.role in structure_roles or f.role == "graded_strip":
+            continue
+        ring = list(vw.rings[fid])
+        poly = Polygon([planar.vertices[u].xy for u in ring])
+        if not poly.is_valid:
+            continue
+        cells.append((ring, frozenset(ring), poly))
+    tree = STRtree([c[2] for c in cells]) if cells else None
+    _CELL_CACHE["last"] = (key, planar, vw, len(vw.caps), (cells, tree))
+    return cells, tree
+
+
+_CELL_CACHE: dict = {}
+
+
 def nearest_vertex_of_containing_cell(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
     """THE GOVERNED CELL A VERTEX STANDS IN, and that cell's nearest OTHER
     vertex — the value the vertex takes.  The governed pavement face (not a
@@ -711,18 +741,16 @@ def nearest_vertex_of_containing_cell(planar: PlanarMap, vw, v: int, structure_r
     ONE reading, two callers asking it of different vertices: a portal rim
     vertex under a DECK cell (spec §34 (5) as amended — ``None`` keeps
     09-03b L1's DEM pin) and a channel CREST vertex at the corridor edge
-    (§45 (5))."""
+    (§45 (5)).  Candidates are visited in ``vw.caps`` order so a distance
+    tie resolves to the same vertex as a full scan."""
+    cells, tree = _governed_cells(planar, vw, structure_roles)
+    if tree is None:
+        return None
     pt = Point(planar.vertices[v].xy)
     best = None
-    for fid, cap in vw.caps.items():
-        f = planar.faces[fid]
-        if cap is None or f.role in structure_roles or f.role == "graded_strip":
-            continue
-        ring = list(vw.rings[fid])
-        if v in ring:
-            continue
-        poly = Polygon([planar.vertices[u].xy for u in ring])
-        if not poly.is_valid or not poly.contains(pt):
+    for i in sorted(int(j) for j in tree.query(pt)):
+        ring, ring_set, poly = cells[i]
+        if v in ring_set or not poly.contains(pt):
             continue
         for u in ring:
             d = pt.distance(Point(planar.vertices[u].xy))

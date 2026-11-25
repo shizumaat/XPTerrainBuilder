@@ -28,11 +28,16 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     public let applied: Bool
     /// A change to it also needs the tile rebuilt (`terrain`).
     public let rebuild: Bool
+    /// `terrain` in the pack row's Adjust… (#2272): every terrain object
+    /// the last build recognised in the pack, each ticked when the row
+    /// hides it — the user's per-object override.
+    public let objects: [O4PackTerrainObject]
     public var id: String { key }
 
     public init(key: String, count: Int, uses: Int, automatic: Bool,
                 checked: Bool = true, hectares: Int = 0,
-                applied: Bool = false, rebuild: Bool = false) {
+                applied: Bool = false, rebuild: Bool = false,
+                objects: [O4PackTerrainObject] = []) {
         self.key = key
         self.count = count
         self.uses = uses
@@ -41,6 +46,7 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
         self.hectares = hectares
         self.applied = applied
         self.rebuild = rebuild
+        self.objects = objects
     }
 
     /// The row's title.
@@ -58,6 +64,29 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     /// The tick that changes nothing: the pack as it is (Adjust…), or not
     /// applied (a build's question).
     public func baseline(editing: Bool) -> Bool { editing ? checked : false }
+}
+
+/// One terrain object of a pack (#2272, the `terrain` row's `objects`):
+/// `hideable` when the tile's detailed elevation matches it (the row hides
+/// it unless the user keeps it), `hidden` when the row hides it now.
+public struct O4PackTerrainObject: Sendable, Equatable, Identifiable {
+    public let path: String
+    public let hideable: Bool
+    public let hidden: Bool
+    public var id: String { path }
+
+    public init(path: String, hideable: Bool, hidden: Bool) {
+        self.path = path
+        self.hideable = hideable
+        self.hidden = hidden
+    }
+
+    /// The file name the row shows.
+    public var name: String { (path as NSString).lastPathComponent }
+    /// The object's one-line explanation.
+    public var detail: String {
+        hideable ? O4PackAdjustCopy.terrainObjectMatched : O4PackAdjustCopy.terrainObjectKept
+    }
 }
 
 /// A tile a pack answer still owes a rebuild (engine
@@ -206,6 +235,12 @@ public enum O4PackAdjustCopy {
     public static let editBody = "Change what the app does to this airport "
         + "package. Only what you change is written again, from the original files."
     public static let optimiseHeading = "Optimise pack:"
+    // The terrain row's per-object choice (#2272, owner 2026-11-24T15:33Z).
+    public static let terrainObjectsHeading = "Terrain objects to hide:"
+    public static let terrainObjectMatched = "The tile’s detailed elevation "
+        + "matches it: hidden unless you keep it."
+    public static let terrainObjectKept = "It models detail the tile’s elevation "
+        + "data lacks: kept unless you hide it."
     public static let rebuildNote = "Changing this also rebuilds the tile: the "
         + "ground under these objects is shaped to them while they are shown."
     public static let applyRebuildButton = "Apply and rebuild tile"

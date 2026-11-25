@@ -179,3 +179,37 @@ def test_a_pack_with_nothing_to_adjust_says_none(pack, monkeypatch):
     monkeypatch.setattr(FS, "check", lambda *a, **k: None)
     monkeypatch.setattr(OS, "check", lambda *a, **k: None)
     assert _report(pack)["state"] == "none"
+
+
+def test_the_terrain_row_lists_every_object_and_takes_per_object_answers(pack):
+    """#2272: the build remembered two recognised terrain objects, one
+    offered (quality elevation models it), one not; the Adjust… row lists
+    both, and a per-object tick that differs from the offer is an answer
+    that moves the set the row hides -- and the tile's cut with it."""
+    from auto_patch_v2.airport import pack_choice as PC
+    root = pack["root"]
+    DS.terrain_models(root, ["objects/hill.obj", "objects/rock.obj"])
+    DS.terrain_paths(root, ["objects/hill.obj"])
+    [row] = [r for r in _report(pack)["items"] if r["key"] == "terrain"]
+    assert row["objects"] == [
+        {"path": "objects/hill.obj", "hideable": True, "hidden": True},
+        {"path": "objects/rock.obj", "hideable": False, "hidden": False}]
+    out = _change(pack, ["ground", "terrain"])
+    assert out["rebuild"] is True
+    assert PC.hidden_terrain(root) == {"objects/hill.obj"}
+    # keep the offered hill, hide the rock the build kept
+    out = AS.adjust_choice(root, "change", 25, 51, items=["ground", "terrain"],
+                           shown=["trees", "drapes", "ground", "terrain"],
+                           objects={"objects/hill.obj": False, "objects/rock.obj": True})
+    assert out["state"] == "applied" and out["rebuild"] is True
+    assert PC.hidden_terrain(root) == {"objects/rock.obj"}
+    assert DS.terrain_answers(root) == {"objects/hill.obj": "keep",
+                                        "objects/rock.obj": "hide"}
+    assert TC._hidden({"resource": "objects/rock.obj"}, root)
+    assert not TC._hidden({"resource": "objects/hill.obj", "hideable": True}, root)
+    # ticks agreeing with the offer forget the answers
+    AS.adjust_choice(root, "change", 25, 51, items=["ground", "terrain"],
+                     shown=["trees", "drapes", "ground", "terrain"],
+                     objects={"objects/hill.obj": True, "objects/rock.obj": False})
+    assert DS.terrain_answers(root) == {}
+    assert PC.hidden_terrain(root) == {"objects/hill.obj"}

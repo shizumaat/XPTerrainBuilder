@@ -27,6 +27,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
+import O4_Step_Overlap as OVERLAP
 import O4_Tile_Build_Log as TILELOG
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
@@ -519,6 +520,41 @@ def _triangle_rows(node_coords, tri_idx, tri_types, nbr_tris, zoomlevel,
                        strict=True)
 
 
+def _land_terrain_indices(terrain_map, node_coords, tri_idx, tri_types,
+                          nbr_tris, chunk=1 << 16):
+    """The default-landclass terrain index under each land triangle's
+    centroid (``tri_types`` 0), ``-1`` for the others: per row, what
+    ``terrain_map.terrain_index_at`` answers for the centroid the DSF loop
+    computes (the same sum of the same floats), one tree query per chunk
+    instead of one per triangle (#1264)."""
+    indices = numpy.full(nbr_tris, -1, dtype=numpy.int64)
+    lons = node_coords[0::5]
+    lats = node_coords[1::5]
+    land = numpy.flatnonzero(numpy.asarray(tri_types[:nbr_tris]) == 0)
+    for start in range(0, len(land), chunk):
+        rows = land[start:start + chunk]
+        corners = tri_idx[:3 * nbr_tris].reshape(-1, 3)[rows]
+        lon = lons[corners]
+        lat = lats[corners]
+        indices[rows] = terrain_map.terrain_indices_at(
+            (lon[:, 0] + lon[:, 1] + lon[:, 2]) / 3,
+            (lat[:, 0] + lat[:, 1] + lat[:, 2]) / 3)
+    return indices
+
+
+def _covered_triangles(airport_geometry, node_coords, tri_idx, nbr_tris):
+    """``airport_geometry.covers`` of each triangle's centroid (the same
+    sum of the same floats the DSF loops compute), one bulk query
+    (:meth:`O4_Airport_Fade_Masks.AirportOrthoGeometry.covers_many`,
+    #1264), as a list of bools."""
+    corners = tri_idx[:3 * nbr_tris].reshape(-1, 3)
+    lon = node_coords[0::5][corners]
+    lat = node_coords[1::5][corners]
+    return airport_geometry.covers_many(
+        (lon[:, 0] + lon[:, 1] + lon[:, 2]) / 3,
+        (lat[:, 0] + lat[:, 1] + lat[:, 2]) / 3).tolist()
+
+
 def extract_elevation_and_bathymetry_data(lat, lon):
     UI.vprint(1, "     Extracting some rasters from X-Plane's Global Scenery")
     global_scenery_dsf = os.path.join(
@@ -915,9 +951,10 @@ def build_dsf(tile, download_queue):
     """Step 4's DSF: the terrain, pools and patches of ``tile``'s mesh.
 
     The mask squares the texture loops crop are decoded once for the step
-    (``O4_Mask_Utils.mask_square_memo``, issue #850); the body is
-    :func:`_build_dsf_body`."""
-    with MASK.mask_square_memo():
+    (``O4_Mask_Utils.mask_square_memo``, issue #850), and the default
+    DSF's landclass map is parsed once (``O4_Default_Terrain_Map.map_memo``,
+    #1264); the body is :func:`_build_dsf_body`."""
+    with MASK.mask_square_memo(), DEFTER.map_memo():
         return _build_dsf_body(tile, download_queue)
 
 
@@ -967,6 +1004,12 @@ def _build_dsf_body(tile, download_queue):
 
     dico_customzl = zone_list_to_ortho_dico(tile)
 
+    # The DEM and bathymetry rasters read the tile alone (GDAL and DSFTool,
+    # the GIL released): fetched beside the mesh read and the water recut
+    # on a free machine slot (#1264), inline when none is free.
+    rasters = OVERLAP.beside(elevation_and_bathymetry_data, tile,
+                             what="DSF rasters")
+
     # 1 Read mesh file
     UI.vprint(1, "-> Reading mesh file")
     mesh_filename = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
@@ -996,7 +1039,8 @@ def _build_dsf_body(tile, download_queue):
     # synthesize / splice them from measured coastal bathymetry
     # (docs/specs/coastal-bathymetry-spec.md section 5); then inland water
     # gets its own shallow bed, never the sea's depth (#1395).
-    (bDEMN, bDEMS) = elevation_and_bathymetry_data(tile)
+    (bDEMN, bDEMS) = (rasters.result() if rasters is not None
+                      else elevation_and_bathymetry_data(tile))
     (bDEMS, node_scale) = inland_bed(
         bDEMS, node_coords, tri_idx, tri_types, tile)
     
@@ -1207,7 +1251,8 @@ def _build_dsf_body(tile, download_queue):
         ) / 3
         return (bary_lon, bary_lat)
 
-    def emit_physical_default_land(n1, n2, n3, force_path=None):
+    def emit_physical_default_land(n1, n2, n3, force_path=None,
+                                   src_index=None):
         """Physical default-landclass patch for one land triangle (decisions
         3, 4, 9).  Shared by default_xplane and airport_ortho; emits into the
         5-plane band-3 pool with the library terrain path referenced by name
@@ -1215,6 +1260,8 @@ def _build_dsf_body(tile, download_queue):
 
         ``force_path`` skips the landclass lookup and uses that terrain — the
         deferred flush of triangles the water filter below had to hold back.
+        ``src_index`` is the landclass under the centroid when the caller
+        has it already (:func:`_land_terrain_indices`).
         """
         nonlocal bTERT, len_textured_nodes, total_cross_pool
         nonlocal default_terrain_substitutions
@@ -1222,9 +1269,10 @@ def _build_dsf_body(tile, download_queue):
         if force_path is not None:
             terrain_path = force_path
         else:
-            (bary_lon, bary_lat) = _tri_centroid(n1, n2, n3)
-            src_index = default_terrain_map.terrain_index_at(
-                bary_lon, bary_lat)
+            if src_index is None:
+                (bary_lon, bary_lat) = _tri_centroid(n1, n2, n3)
+                src_index = default_terrain_map.terrain_index_at(
+                    bary_lon, bary_lat)
             terrain_path = (
                 default_terrain_paths[src_index]
                 if 0 <= src_index < len(default_terrain_paths)
@@ -1445,9 +1493,13 @@ def _build_dsf_body(tile, download_queue):
     done = 0
     
 
+    covered_tris = (
+        _covered_triangles(airport_geometry, node_coords, tri_idx, nbr_tris)
+        if texture_mode == "airport_ortho" else None)
+
     # First potentially masked water tris
-    for (n1, n2, n3, tri_type, square) in _triangle_rows(
-            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl):
+    for (row, (n1, n2, n3, tri_type, square)) in enumerate(_triangle_rows(
+            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl)):
         if (tri_type != 2):
             continue
         if done % step == 0:
@@ -1465,9 +1517,7 @@ def _build_dsf_body(tile, download_queue):
             # which routes into the "X-Plane water" emission block below).
             terrain_idx = 0
             is_overlay = False
-        elif texture_mode == "airport_ortho" and not airport_geometry.covers(
-            *_tri_centroid(n1, n2, n3)
-        ):
+        elif texture_mode == "airport_ortho" and not covered_tris[row]:
             # Decision 8: outside airport ortho coverage sea is plain
             # terrain_Water; covered coastal-airport sea falls through to the
             # full_ortho masked-sea path below.
@@ -1680,8 +1730,12 @@ def _build_dsf_body(tile, download_queue):
                 textured_tris[0]["cross-pool"].extend(tri_p)
 
     # Second land and inland water tris with no mask
-    for (n1, n2, n3, tri_type, square) in _triangle_rows(
-            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl):
+    land_terrain = (
+        _land_terrain_indices(default_terrain_map, node_coords, tri_idx,
+                              tri_types, nbr_tris).tolist()
+        if default_terrain_map is not None else None)
+    for (row, (n1, n2, n3, tri_type, square)) in enumerate(_triangle_rows(
+            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl)):
         if (tri_type == 2):
             continue
         
@@ -1698,18 +1752,20 @@ def _build_dsf_body(tile, download_queue):
             # Land: physical default landclass terrain at the centroid
             # (decisions 3-4); inland water: plain terrain_Water (decision 8).
             if not tri_type:
-                emit_physical_default_land(n1, n2, n3)
+                emit_physical_default_land(n1, n2, n3,
+                                           src_index=land_terrain[row])
             else:
                 emit_plain_water(n1, n2, n3)
             continue
         if texture_mode == "airport_ortho":
             (bary_lon, bary_lat) = _tri_centroid(n1, n2, n3)
-            covered = airport_geometry.covers(bary_lon, bary_lat)
+            covered = covered_tris[row]
             if not tri_type:
                 # Physical default-landclass base under every land triangle
                 # (decision 4); an ortho overlay is added on top only within
                 # the airport boundary + fade band (decisions 5-6).
-                emit_physical_default_land(n1, n2, n3)
+                emit_physical_default_land(n1, n2, n3,
+                                           src_index=land_terrain[row])
                 if covered:
                     emit_airport_overlay_ortho(
                         n1, n2, n3, bary_lon, bary_lat

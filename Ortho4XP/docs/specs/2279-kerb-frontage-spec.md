@@ -111,3 +111,24 @@ One-way: `--drop-generator kerb_frontage_level` vs the arm moves 0 airside
 vertices > 0.01 m. The airside movers of step 2 vs step 1 (57 > 0.1 m:
 `dsf:pol27` −0.10..−0.21, `pav35` −0.16..−0.24, `building11` −0.03) are C1's
 stage-1 population change (the kerb drive left the airside floor).
+
+## 5 Census and re-measure (lphli2 resume, 2026-11-25, on `9211ace7c`)
+
+Classify census (`v2_solve_replay --reclassify --roles-out/--roles-against`)
+over the latest registered capture of every other airport (27: CYYZ EKVG
+ELLX ESSA GCLA KASE KBIL KBNA KBUF KEGE KIAH KJFK KLAX KMCO KMSY KORD KPHX
+KRDU KSDL LFPG LPHR LPMA MMUN NZWN RJTT TFFJ TNCS): **0 storey-landside
+lots** at each, so C1/P1/K1/K2/K3 have no population outside PHLI (PHLI: 6
+landside pieces of `pav63`). The role flips the census reads against main
+at EKVG / ELLX / KBUF / RJTT (§43 neck, 04u startup, one §27 strip) carry no
+landside key: they are this branch's base, not step 2.
+
+PHLI replay `--from classify` on this tree, 315° transect from the terminal
+(face-interpolated z of the solved graded surface; ground = capture DEM):
+pads/floor 47.14 (0-90 m); lot 51.20 at 95 m → 51.09 at 120 m → 50.97 at
+150 m (ground 49.5 → 49.9 → 50.3); upper deck bottom 51.24. The kerb point
+itself lies on the road stub `small_roads:-386#1` into the building (the
+floor's side, no kerb vertex), which reads 48.44 between floor and kerb.
+Airside movers, `--drop-generator kerb_frontage_level` vs the arm
+(`airside_value_delta`): 0 > 0.01 m in every frame (row-side 7,031,
+solve-owned 4,306 nodes).

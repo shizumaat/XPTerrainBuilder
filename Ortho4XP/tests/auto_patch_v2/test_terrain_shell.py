@@ -14,11 +14,10 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 sys.path.insert(0, os.path.dirname(__file__))
 
+import test_terrain_model as TTM  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport import terrain_shell as TSH  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
-
-import test_terrain_model as TTM  # noqa: E402
 
 HALF = 100.0
 

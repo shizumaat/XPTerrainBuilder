@@ -12,12 +12,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 sys.path.insert(0, os.path.dirname(__file__))
 
+import test_terrain_model as TTM  # noqa: E402
 from auto_patch_v2.airport import shell_seat as SS  # noqa: E402
 from auto_patch_v2.airport import terrain_cut as TC  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.model.frame import Frame  # noqa: E402
-
-import test_terrain_model as TTM  # noqa: E402
 
 LAT, LON = 17.9, -62.85
 HALF = 30.0

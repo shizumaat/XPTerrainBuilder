@@ -77,7 +77,7 @@ def test_a_shared_datum_frame_moves_only_what_stands_in_the_portal(tmp_path):
         path = tmp_path / name
         path.write_text(f"A\n800\nOBJ\n\nLIGHT_NAMED airplane_beacon {x} 5.0 {z}\n"
                         f"LIGHT_NAMED airplane_beacon {x + 1.0} 5.0 {z + 1.0}\n",
-                        encoding="utf-8")
+                        encoding="utf-8", newline="")
         return types.SimpleNamespace(id=f"dsf:{name}", path=f"objects/{name}",
                                      resolved=str(path), xy=(0.0, 0.0), heading_deg=0.0)
 

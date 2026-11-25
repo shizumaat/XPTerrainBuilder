@@ -25,14 +25,23 @@ Reported, not judged: SINK -- the OPEN share drawn more than
 RIDERS -- every other pack row anchored on the plan, the mesh at its
 anchor against the object's top (and floor), listed over :data:`RIDER_M`;
 RIM -- the drawn ground :data:`drawn_site.OUTSIDE_M` outside each run of
-the outline against the edge's top.
+the outline against the edge's top, each run's ``where``: ``water`` (the
+drawn ground there at the 0 m datum), ``shell`` (inside another kept
+shell's plan, ``auto_patch_v2.airport.shell_seat``) or ``land``.
 
 Exit 0 only when no OFF-patch OPEN sample stands over ``--bar``.
+``--judge inner`` (a kept terrain shell, #2272, owner RULINGS 2026-11-25a
+(1)): only the samples deeper than :data:`BAND_M` are judged -- its edge
+band may be buried -- and none drawn on a water-valued triangle (every
+corner at the datum; the water is a datum) (``verdict.open_off_over_inner``;
+round 3 REPORTS it: the shell is seated by its skirt and our ground may
+show through its body).
 
 Usage (from Ortho4XP/)::
 
     venv/bin/python tools/drawn_cover.py SBRJ --tag T --object colegioNavalBase \\
         [--out DIR] [--patch P.osm] [--bar 0.05] [--json OUT] [--against BASE.json]
+        [--judge {all,inner}]
 
 ``drawn_site.py --cover ...`` hands over here.  Read-only (temp dumps).
 """
@@ -61,7 +70,7 @@ _o4console.configure_console_streams()
 import drawn_site as DS  # noqa: E402
 
 __all__ = ["ROOF_M", "BAND_M", "SINK_M", "RIDER_M", "EDGE_M", "CELL_M", "cover_raster",
-           "classes", "judge", "corner_label", "sink", "rim", "run", "main"]
+           "classes", "judge", "corner_label", "sink", "rim", "where_label", "run", "main"]
 
 #: a roof this far or more over the floor of a cell makes it ROOFED
 ROOF_M = 3.0
@@ -105,11 +114,18 @@ def classes(r) -> dict:
             "top": top, "low": low}
 
 
-def judge(d: np.ndarray, is_open: np.ndarray, on_patch: np.ndarray, bar: float) -> dict:
+def judge(d: np.ndarray, is_open: np.ndarray, on_patch: np.ndarray, bar: float,
+          inner: np.ndarray | None = None, wet: np.ndarray | None = None) -> dict:
     """The counts of OPEN samples over ``bar`` (off / on the patch) and over
-    the ground bar on the patch."""
+    the ground bar on the patch; with ``inner`` (deeper than the band) also
+    the off-patch ones deeper than the band and not drawn on a water-valued
+    triangle (``wet``)."""
     over = is_open & np.isfinite(d) & (d > bar)
-    return {"open_off_over": int((over & ~on_patch).sum()),
+    extra = {}
+    if inner is not None:
+        dry = ~wet if wet is not None else np.ones(len(d), bool)
+        extra["open_off_over_inner"] = int((over & ~on_patch & inner & dry).sum())
+    return {**extra, "open_off_over": int((over & ~on_patch).sum()),
             "open_on_over": int((over & on_patch).sum()),
             "open_on_over_ground": int((over & on_patch & (d > DS.GROUND_BAR_M)).sum()),
             "worst_m": float(np.nanmax(np.where(is_open, d, np.nan)))
@@ -137,9 +153,20 @@ def sink(d: np.ndarray, is_open: np.ndarray, band: np.ndarray) -> dict:
     return {"open_pct": share(ok), "band_pct": share(ok & band), "inner_pct": share(ok & ~band)}
 
 
-def rim(r, frame, mesh, top_n: int = 0) -> list[dict]:
+def where_label(z: np.ndarray, in_shell: np.ndarray) -> str:
+    """A RIM run's ground (module doc): ``water`` when most of its drawn
+    ground is at the datum, else ``shell`` when most lies in another kept
+    shell's plan, else ``land``."""
+    if np.mean(np.abs(np.nan_to_num(z, nan=1e9)) <= WATER_TOL_M) > 0.5:
+        return "water"
+    return "shell" if np.mean(in_shell) > 0.5 else "land"
+
+
+def rim(r, frame, mesh, top_n: int = 0, shells=None) -> list[dict]:
     """The drawn ground :data:`drawn_site.OUTSIDE_M` outside each run of
-    the outline against the edge's top (``mesh - top``)."""
+    the outline against the edge's top (``mesh - top``); ``shells`` the
+    other kept shells' plans (``covers(lons, lats)``) for each run's
+    ``where``."""
     ij, dirs = DS.boundary_cells(r)
     if not len(ij):
         return []
@@ -154,7 +181,13 @@ def rim(r, frame, mesh, top_n: int = 0) -> list[dict]:
         if not np.isfinite(d).any():
             continue
         lat, lon = frame.leave(float(e[run_].mean()), float(n[run_].mean()))
+        if shells is not None:
+            ola, olo = frame.leave(oe, on)
+            in_shell = shells(np.asarray(olo), np.asarray(ola))
+        else:
+            in_shell = np.zeros(len(run_), bool)
         out.append({"cells": int(len(run_)), "at": [round(float(lat), 7), round(float(lon), 7)],
+                    "where": where_label(z, in_shell),
                     "median_m": round(float(np.nanmedian(d)), 3),
                     "max_m": round(float(np.nanmax(d)), 3), "min_m": round(float(np.nanmin(d)), 3)})
     out.sort(key=lambda x: -abs(x["median_m"]))
@@ -179,7 +212,7 @@ def products(args) -> dict:
     if not mine:
         raise SystemExit(f"NOT MEASURED: no drawn {tile}.dsf in the build")
     patch = args.patch or os.path.join(patch_dir, f"{args.icao}_auto.patch.osm")
-    return {"tile": tile, "tile_dsf": mine[0], "pack_root": pack_root,
+    return {"tile": tile, "tile_dsf": mine[0], "pack_root": pack_root, "patch_dir": patch_dir,
             "patch": patch if os.path.isfile(patch) else None}
 
 
@@ -230,8 +263,10 @@ def _edge_at(r, cls):
     return at
 
 
-def _attribute(lat, lon, corners, frame, edge_at, node_near) -> list[str]:
-    """The highest corner's label of the drawn triangle under each point."""
+def _attribute(lat, lon, corners, frame, edge_at, node_near, wet=None) -> list[str]:
+    """The highest corner's label of the drawn triangle under each point;
+    ``wet`` (a list, when given) collects whether that triangle is
+    water-valued (every corner at the datum)."""
     out = []
     for la, lo in zip(lat, lon, strict=True):
         t = corners
@@ -243,8 +278,12 @@ def _attribute(lat, lon, corners, frame, edge_at, node_near) -> list[str]:
         hit = np.flatnonzero((l0 >= -1e-9) & (l1 >= -1e-9) & (1 - l0 - l1 >= -1e-9))
         if not len(hit):
             out.append("off mesh")
+            if wet is not None:
+                wet.append(False)
             continue
         tri = t[hit[0]]
+        if wet is not None:
+            wet.append(bool(np.all(np.abs(tri[:, 2]) <= WATER_TOL_M)))
         k = int(np.argmax(tri[:, 2]))
         en = np.array(frame.enter(tri[k, 1], tri[k, 0]), float)
         out.append(corner_label(en, float(tri[k, 2]), edge_at, node_near))
@@ -305,12 +344,16 @@ def _run(args, tool: str, work: str) -> dict:
     d, d_floor = z - cls["top"], z - cls["low"]
     band = cls["edge"] <= BAND_M
     on = _on_patch(prod["patch"], frame, lat, lon, q["reach"] + 100.0)
-    verdict = judge(d, cls["open"], on, args.bar)
     over = np.flatnonzero(cls["open"] & np.isfinite(d) & (d > args.bar))
+    wet_over = []
     labels = _attribute(lat[over], lon[over], corners, frame, _edge_at(r, cls),
-                        _node_near(prod["patch"], frame))
+                        _node_near(prod["patch"], frame), wet_over)
+    wet = np.zeros(len(d), bool)
+    wet[over] = np.asarray(wet_over, bool)
+    verdict = judge(d, cls["open"], on, args.bar, ~band, wet)
     listed = [{"at": [round(float(lat[k]), 7), round(float(lon[k]), 7)], "over_m": DS.rnd(d[k]),
-               "band": bool(band[k]), "on_patch": bool(on[k]), "corner": lab}
+               "band": bool(band[k]), "on_patch": bool(on[k]), "wet": bool(wet[k]),
+               "corner": lab}
               for k, lab in zip(over, labels, strict=True)]
     listed.sort(key=lambda x: -x["over_m"])
     roofed = ~cls["open"] & np.isfinite(d_floor)
@@ -329,7 +372,35 @@ def _run(args, tool: str, work: str) -> dict:
             "sink": sink(d, cls["open"], band),
             "riders": [x for x in _riders(rows, q, r, cls, frame, mesh, args.object)
                        if abs(x["vs_top_m"]) > RIDER_M],
-            "rim": rim(r, frame, mesh)}
+            "rim": rim(r, frame, mesh, shells=_other_shells(args, prod))}
+
+
+def _other_shells(args, prod):
+    """``covers(lons, lats)``: inside another kept shell's plan of the build
+    (``shell_seat``: its plan record in the airport's rebake plan), ``None``
+    when it keeps none."""
+    from auto_patch_v2.airport import shell_seat as SS
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
+    try:
+        with open(os.path.join(prod["patch_dir"], PLAN_FILENAME.format(icao=args.icao)),
+                  encoding="utf-8") as fh:
+            records = json.load(fh).get("authored_seats") or ()
+        others = [p for p in (SS.placed(r) for r in records
+                              if isinstance(r, dict) and isinstance(r.get("shell"), dict)
+                              and args.object.lower() not in str(r.get("resource")).lower())
+                  if p is not None]
+    except (OSError, ValueError):
+        return None
+    if not others:
+        return None
+
+    def covers(lons, lats):
+        lons, lats = np.asarray(lons, float), np.asarray(lats, float)
+        out = np.zeros(len(lons), bool)
+        for o in others:
+            out |= o.covers(lons, lats)
+        return out
+    return covers
 
 
 def print_report(rep: dict, top_n: int = 20) -> None:
@@ -338,6 +409,9 @@ def print_report(rep: dict, top_n: int = 20) -> None:
           f"base {rep['base_m']}): {rep['samples']} samples ({rep['open']} OPEN, "
           f"{rep['roofed']} ROOFED; {rep['band']} band; {rep['on_patch']} on-patch; "
           f"{rep['off_mesh']} off mesh)")
+    if "open_off_over_inner" in v:
+        print(f"  B-BODY off-patch OPEN over {rep['bar_m']} m deeper than {BAND_M} m "
+              f"(water-valued triangles excepted): {v['open_off_over_inner']}")
     print(f"  B1 off-patch OPEN over {rep['bar_m']} m: {v['open_off_over']}; "
           f"B2 on-patch OPEN over {rep['bar_m']} m: {v['open_on_over']} "
           f"(over {DS.GROUND_BAR_M} m: {v['open_on_over_ground']}); worst {v['worst_m']}")
@@ -354,7 +428,8 @@ def print_report(rep: dict, top_n: int = 20) -> None:
               f", vs floor {x['vs_floor_m']:+} m")
     print(f"  RIM (drawn {DS.OUTSIDE_M} m outside - edge top), {len(rep['rim'])} run(s):")
     for x in rep["rim"][:top_n]:
-        print(f"    {x['cells']} cells at {x['at']}: median {x['median_m']:+} "
+        print(f"    {x['cells']} cells at {x['at']} ({x.get('where', '?')}): "
+              f"median {x['median_m']:+} "
               f"(min {x['min_m']:+}, max {x['max_m']:+})")
 
 
@@ -376,6 +451,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", default=None, help="write the full report here")
     ap.add_argument("--against", default=None, metavar="BASE.json", help="a control's --json")
     ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--judge", choices=("all", "inner"), default="all",
+                    help="inner: judge only the samples deeper than the edge band (a shell)")
     args = ap.parse_args(argv)
     rep = run(args)
     print_report(rep, args.top)
@@ -384,7 +461,8 @@ def main(argv=None) -> int:
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(rep, fh, indent=1)
-    return 0 if rep["verdict"]["open_off_over"] == 0 else 1
+    key = "open_off_over_inner" if args.judge == "inner" else "open_off_over"
+    return 0 if rep["verdict"][key] == 0 else 1
 
 
 if __name__ == "__main__":

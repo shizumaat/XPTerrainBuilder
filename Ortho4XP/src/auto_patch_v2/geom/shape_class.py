@@ -26,9 +26,16 @@ import math
 import numpy as np
 
 __all__ = ["Raster", "rasterise", "outline_band", "outline_reach", "edge_points", "shape_class",
-           "shape_of", "CONCAVE", "COVERED", "CONVEX", "FLAT", "THIN"]
+           "shape_of", "boundary_cells", "CONCAVE", "COVERED", "CONVEX", "FLAT", "THIN",
+           "NORMAL_M", "OUTSIDE_M"]
 
 CONCAVE, COVERED, CONVEX, FLAT, THIN = "concave", "covered", "convex", "flat", "thin"
+#: an outline cell faces away from the covered plan within this radius
+NORMAL_M = 3.0
+#: the ground beside an open edge is read this far outside its outline
+#: cell's centre (the drawn instrument, ``tools/drawn_site``, and the
+#: terrain shell's skirt seat, ``airport/shell_seat``: one station)
+OUTSIDE_M = 1.5
 
 
 @_dc.dataclass
@@ -81,6 +88,28 @@ def rasterise(p: np.ndarray, max_cells: int = 160000, min_step: float = 0.5) -> 
     low[~np.isfinite(low)] = np.nan
     return Raster(float(lo[0]), float(lo[1]), step,
                   top.reshape(nrow, ncol), low.reshape(nrow, ncol))
+
+
+def boundary_cells(r: Raster, cov: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Covered cells (``cov``, default every cell with a surface) with an
+    uncovered 4-neighbour, and per cell the unit outward direction
+    ``(east, north)``: away from the covered cells within :data:`NORMAL_M`
+    (a staircase outline of a slanted edge still faces one way)."""
+    from scipy.ndimage import correlate
+    cov = ~np.isnan(r.top) if cov is None else cov
+    pad = np.pad(cov, 1, constant_values=False)
+    edge = cov & (~pad[1:-1, 2:] | ~pad[1:-1, :-2] | ~pad[2:, 1:-1] | ~pad[:-2, 1:-1])
+    k = max(2, int(round(NORMAL_M / r.step)))
+    off = np.arange(-k, k + 1, dtype=float)
+    disk = (off[None, :] ** 2 + off[:, None] ** 2) <= k * k
+    f = cov.astype(float)
+    de = -correlate(f, np.where(disk, off[None, :], 0.0), mode="constant")
+    dn = -correlate(f, np.where(disk, off[:, None], 0.0), mode="constant")
+    ij = np.argwhere(edge)
+    d = np.column_stack([de[edge], dn[edge]])
+    norm = np.hypot(d[:, 0], d[:, 1])
+    keep = norm > 1e-9
+    return ij[keep], d[keep] / norm[keep, None]
 
 
 def outline_band(r: Raster, band_m: float) -> tuple[np.ndarray, np.ndarray]:

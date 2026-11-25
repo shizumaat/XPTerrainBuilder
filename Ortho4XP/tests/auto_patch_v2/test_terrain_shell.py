@@ -2,8 +2,8 @@
 -- a soft, photo-textured rock, cliff or islet under 500 m that a pack
 writes ``OBJECT_MSL`` -- is recognised (``terrain_shell``), matched at
 its author's datum and seated there, the wet rim capping it, and then
-travels ``terrain_model``'s one path (never split, the ground cut and
-filled to it).  Synthetic OBJ8s, no corpus."""
+travels ``terrain_model``'s one path (never split; seated by its skirt,
+``test_shell_seat``).  Synthetic OBJ8s, no corpus."""
 import math
 import os
 import sys
@@ -110,7 +110,7 @@ def test_a_wet_rim_caps_the_authors_datum(tmp_path):
     assert m is not None and m["z0"] == pytest.approx(1.0)
 
 
-def test_placement_models_marks_the_small_shell_and_fills_its_rim(tmp_path):
+def test_placement_models_marks_the_small_shell(tmp_path):
     path = _write(tmp_path)
     rows = [("dsf:obj7", "m.obj", (0.0, 0.0), 0.0, 2.0, "OBJECT_MSL"),
             ("dsf:obj8", "m.obj", (500.0, 0.0), 0.0, None, "OBJECT")]

@@ -101,8 +101,6 @@ K_LAT = 111320.0
 #: a vertex this far over an edge's surface, this close in plan, is a wall
 WALL_RISE_M = 0.4
 WALL_REACH_M = 0.75
-#: the drawn surface is read this far outside an open edge
-OUTSIDE_M = 1.5
 #: two surfaces this far apart at one plan point are a roof over a floor
 STACKED_M = 1.5
 #: another object's surface this far over an edge's top stands OVER it (a
@@ -114,8 +112,6 @@ OVERHEAD_M = 4.0
 MIN_PLAN_M2 = 4.0
 #: a hollow: the top surface this far under the component's own rim
 HOLLOW_M = 1.0
-#: an outline cell faces away from the covered plan within this radius
-NORMAL_M = 3.0
 #: a component whose surfaces span less height than this is a flat plate
 FLAT_PLATE_M = 1.0
 #: unresolved rows are listed this far past a site's radius
@@ -381,26 +377,13 @@ def rasterise(p: np.ndarray, max_cells: int = 160000) -> Raster | None:
     return _shape.rasterise(p, max_cells)
 
 
-def boundary_cells(r: Raster, cov: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """Covered cells (``cov``, default every cell with a surface) with an
-    uncovered 4-neighbour, and per cell the unit outward direction
-    ``(east, north)``: away from the covered cells within :data:`NORMAL_M`
-    (a staircase outline of a slanted edge still faces one way)."""
-    from scipy.ndimage import correlate
-    cov = ~np.isnan(r.top) if cov is None else cov
-    pad = np.pad(cov, 1, constant_values=False)
-    edge = cov & (~pad[1:-1, 2:] | ~pad[1:-1, :-2] | ~pad[2:, 1:-1] | ~pad[:-2, 1:-1])
-    k = max(2, int(round(NORMAL_M / r.step)))
-    off = np.arange(-k, k + 1, dtype=float)
-    disk = (off[None, :] ** 2 + off[:, None] ** 2) <= k * k
-    f = cov.astype(float)
-    de = -correlate(f, np.where(disk, off[None, :], 0.0), mode="constant")
-    dn = -correlate(f, np.where(disk, off[:, None], 0.0), mode="constant")
-    ij = np.argwhere(edge)
-    d = np.column_stack([de[edge], dn[edge]])
-    norm = np.hypot(d[:, 0], d[:, 1])
-    keep = norm > 1e-9
-    return ij[keep], d[keep] / norm[keep, None]
+#: one outline station, the engine's (``shape_class``): the skirt seat of a
+#: terrain shell reads the ground where this instrument does -- the drawn
+#: surface is read ``OUTSIDE_M`` outside an open edge, an outline cell
+#: faces away from the covered plan within ``NORMAL_M``
+boundary_cells = _shape.boundary_cells
+OUTSIDE_M = _shape.OUTSIDE_M
+NORMAL_M = _shape.NORMAL_M
 
 
 def sides_of(d: np.ndarray, axis: np.ndarray) -> np.ndarray:

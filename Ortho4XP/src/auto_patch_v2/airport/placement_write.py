@@ -326,6 +326,16 @@ def _deck_ends_seated(dump: _t.Any, records: tuple, surface: _t.Callable,
     return _fde.lifted(records, lifts), lifts
 
 
+def _shells_seated(records: tuple, surface: _t.Callable) -> tuple:
+    """The records with every kept terrain shell's set moved by its skirt
+    seat on ``surface`` (``shell_seat``), each logged."""
+    from . import shell_seat as _ss
+    records, reps = _ss.seat_shells(records, surface)
+    for rep in reps:
+        print("  " + _ss.log_line(rep))
+    return records
+
+
 def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,
               surface: _t.Callable, pack_root: str, *, tol_m: float,
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
@@ -376,6 +386,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # is seated by its own end lines
     _records, _deck_lifts = _deck_ends_seated(dump, _records, surface, pack_root,
                                               floor_deck_ends)
+    # #2272 round 3: a kept terrain shell is seated by its skirt on the mesh
+    _records = _shells_seated(_records, surface)
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)

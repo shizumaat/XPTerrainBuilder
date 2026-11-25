@@ -625,7 +625,11 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
     row, under quality elevation) travels to the pack adjustment.  The
     model's OWN row carries ``cut`` -- its file, anchor and heading, from
     which the tile build cuts the ground under it (owner RULINGS
-    2026-11-13k, ``airport/terrain_cut``) unless the user hides it."""
+    2026-11-13k, ``airport/terrain_cut``) unless the user hides it.  A
+    SMALL TERRAIN SHELL's own row carries the same plan as ``shell`` in
+    place of ``cut`` (no ground is cut) and every row of its set names it
+    as ``model``: the placement write seats the set by its skirt on the
+    drawn mesh (#2272 round 3, ``shell_seat``)."""
     out = []
     to_ll = None
     for oid, dpath, m, lift in sorted(getattr(airport, "terrain_models", ()) or (),
@@ -647,22 +651,27 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                "corr": round(m.corr, 3), "quality_cover": round(m.quality_cover, 3)}
         if getattr(m, "seat_by", ""):
             rec["by"] = m.seat_by
+        if getattr(m, "small", False):
+            # #2272 round 3: one rigid body seated by its skirt on the drawn
+            # mesh (``terrain_shell``, THE SEAT); our ground is never cut
+            rec["model"] = m.id
         if oid == m.id and getattr(m, "file", ""):
             if to_ll is None:
                 to_ll = airport.frame.transformers()[1]
             lat, lon = to_ll(*m.xy)
-            rec["cut"] = {"file": m.file, "lat": round(float(lat), 9),
-                          "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
+            plan = {"file": m.file, "lat": round(float(lat), 9),
+                    "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
+            if getattr(m, "small", False):
+                rec["shell"] = plan
+                out.append(rec)
+                continue
+            rec["cut"] = plan
             if getattr(m, "erode_m", None) is not None:
                 rec["cut"]["erode_m"] = float(m.erode_m)
             if getattr(m, "cut_floor_m", 0.0) > 0.0:
                 rec["cut"]["floor_m"] = float(m.cut_floor_m)
             if getattr(m, "fill", False):
                 rec["cut"]["fill"] = True
-            if getattr(m, "small", False):
-                # #2272: seated at its author's height, the ground that
-                # buries its rim is lowered to it (``terrain_fill.rim_tuck``)
-                rec["cut"]["tuck"] = True
             if getattr(m, "plane", ()):
                 from ..geom.terrain_deck import UNDER_M
                 # ``to_ll`` is the frame's: one point, ``(lat, lon)``
@@ -688,7 +697,8 @@ def model_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
     ``cut``, not a ground object seated on its bridges) and every
     resource offered for hiding (sorted)."""
     own = {str(r.get("resource")) for r in records or ()
-           if hasattr(r, "get") and r.get("seat") == SEAT and "cut" in r and not r.get("by")}
+           if hasattr(r, "get") and r.get("seat") == SEAT and ("cut" in r or "shell" in r)
+           and not r.get("by")}
     return tuple(sorted(own | set(hideable_paths(records))))
 
 
@@ -706,8 +716,9 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
         f"{m.path} ({m.id}) " + ("HIDDEN (the user's answer; its frame read as objects), "
                                  if m.ground else "")
         + f"seated at {m.z0:.2f} m ("
-        + ("its author's datum, a small shell" if getattr(m, "small", False) else "its L1 fit")
-        + ", the rim filled), top follows "
+        + ("its author's datum, a small shell seated by its skirt on the drawn mesh"
+           if getattr(m, "small", False) else "its L1 fit, the rim filled")
+        + "), top follows "
         f"the DEM r={m.corr:.2f}, peak off {m.peak_err:.0%} of {m.relief_m:.0f} m, "
         f"{m.area_m2:,.0f} m2" + (f", hideable ({m.quality_cover:.0%} under quality "
                                   f"elevation)" if m.hideable else "")

@@ -11,7 +11,8 @@ under ``terrain_model``'s :data:`~terrain_model.MIN_PLAN_M` (500 m) and
 re-anchored seven of them like buildings.  This module is the family's
 SMALL member: a shell under ``MIN_PLAN_M`` is recognised here and then
 travels ``terrain_model``'s one path (never split, one rigid frame, the
-ground cut under it and filled up to its rim, the hide offer).
+hide offer) -- but no ground is cut or filled for it: it is seated by its
+skirt on our ground (#2272 round 3, ``shell_seat``).
 
 THE CANDIDATE (no DEM, :func:`small_shape`):
 
@@ -53,8 +54,12 @@ across the shell's plan covers it (a 90 m cliff on a 30 m inset).
 
 THE SEAT (owner decision 3): the frame zero is the author's datum -- "not
 refitted to our coarser terrain" -- capped over a wet rim exactly as
-``terrain_model`` caps its fit (the skirt stays under the water), and the
-tile build tucks our ground under it (``terrain_cut``, ``terrain_fill``).
+``terrain_model`` caps its fit (the skirt stays under the water).  Owner
+2026-11-25T04:29Z (round 3): "The shells were designed to work with
+default terrain ..., so they should be able to be seated with their
+"skirts" below grade to hide any gaps": the placement write then moves the
+whole shell by the offset closest to 0 that leaves no gap under its land
+rim on the drawn mesh (``shell_seat``); our ground is left as it is.
 The hide offer is ``terrain_model.quality``'s, unchanged.
 """
 from __future__ import annotations

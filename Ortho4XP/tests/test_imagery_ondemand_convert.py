@@ -451,3 +451,60 @@ def test_the_lander_tile_carries_its_frozen_colour_field(monkeypatch):
     off = SimpleNamespace(color_harmonization=False)
     LAND._frozen_colour_field(off)
     assert not hasattr(off, "color_harmonization_fields")
+
+
+def _adopted_row(tmp_path, name):
+    """#2193: an adopted tile's row: its build folder there but with no
+    ``textures`` of its own, its textures in the World pack, its source
+    drive away."""
+    build = tmp_path / "tiles" / "zOrtho4XP_+60-136"
+    build.mkdir(parents=True)
+    pack = tmp_path / "pack" / "textures" / "+60-136"
+    _write(str(pack / name), _dds(512, "bc1", 3))
+    return {"tile": "+60-136", "name": name, "zl": 16, "provider": "Arc",
+            "build_dir": str(build), "textures_dir": str(pack),
+            "dds_cache_key": None,
+            "source_path": str(tmp_path / "unmounted" / name)}
+
+
+@pytest.mark.parametrize("ours", [False, True])
+def test_a_tier_lands_through_a_build_folder_with_no_textures(
+        monkeypatch, tmp_path, ours):
+    """#2193: the converter writes into the build folder first; a folder
+    with none (an adopted tile) gets one, the tier lands in the pack, and
+    the converter's copy goes unless the tile is this app's own."""
+    import O4_Imagery_Utils as IMG
+    name = "1000_2016_Arc16.dds"
+    row = _adopted_row(tmp_path, name)
+    tile = SimpleNamespace(lat=60, lon=-136, build_dir=row["build_dir"],
+                           _o4_ours=ours)
+    monkeypatch.setattr(LAND.TierLander, "_tile", lambda self, r: tile)
+    monkeypatch.setattr(IMG, "build_jpeg_ortho", lambda *a, **k: True)
+
+    def convert(tile, x, y, zl, provider, drop=None):
+        # a real converter: it opens its file in the build folder
+        with open(os.path.join(tile.build_dir, "textures", name), "wb") as f:
+            f.write(_dds(FULL, "bc1", 5))
+
+    monkeypatch.setattr(IMG, "convert_texture", convert)
+    facts = LAND.TierLander()(row, 1)
+    final = os.path.join(row["textures_dir"], name)
+    assert facts["tier_px"] == FULL
+    assert TIERS.texture_header(final)[0] == FULL
+    copy = os.path.join(row["build_dir"], "textures", name)
+    assert os.path.isfile(copy) is ours
+
+
+def test_a_conversion_into_a_missing_folder_fails_once(monkeypatch,
+                                                       tmp_path):
+    """#2193: no 10-try loop: a texture whose folder is missing is
+    refused once, with the reason, before any image is read."""
+    import O4_Imagery_Utils as IMG
+    said = []
+    monkeypatch.setattr(IMG.UI, "lvprint", lambda *a: said.append(a))
+    monkeypatch.setattr(IMG, "_run_converter", lambda *a: pytest.fail(
+        "converted into a missing folder"))
+    tile = SimpleNamespace(build_dir=str(tmp_path / "gone"),
+                           imprint_masks_to_dds=False)
+    assert IMG.convert_texture(tile, 1000, 2016, 16, "Arc", drop=2) is None
+    assert len(said) == 1 and "folder is missing" in said[0][-1]

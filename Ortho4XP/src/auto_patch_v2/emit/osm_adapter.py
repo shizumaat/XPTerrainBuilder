@@ -132,6 +132,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # #2068: the upper pads' levels and rim steps -- a REPORT key
     # (``pipeline/upper_pad_publication``)
     "upper_pads",
+    # RULINGS 2026-11-25g/h: each terminal-sized unit's airside and
+    # groundside floors -- a REPORT key (``pipeline/frontage_publication``)
+    "terminal_frontages",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest
     # law, which the two §45 C14 families judge the emitted surface

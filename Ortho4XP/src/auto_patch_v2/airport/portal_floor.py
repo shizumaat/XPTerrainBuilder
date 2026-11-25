@@ -18,7 +18,11 @@ object, per triangle, at that zero — its road and the ramp up to its open
 end — one ``object_floor.ObjectFloor`` that every consumer of an object
 floor reads unchanged (cells, pins, the bore mouth seated on it, seats).
 The rows co-placed with it (its walls, its lights:
-``hanging_objects._co_placed``) are its frame and move with it.
+``hanging_objects._co_placed``) AND standing in the structure it belongs to
+are its frame and move with it (:func:`_frame`).  Co-placement alone is no frame: a
+shared-datum pack hangs a whole airport off one origin (#2266 MMUN: a road
+bridge's portal led all 115 rows of the pack, terminals and hangars, 4.59 m
+under the plateau they stood on).
 
 Every number is a law-table value; nothing here names a pack or an airport.
 """
@@ -35,7 +39,7 @@ from ..geom.lowest_face import floor_z_at
 from .below_grade_witness import placed_all
 from .hanging_objects import _co_placed
 from .object_cut import _base, _face_normals_y, valid_polygon
-from .walled_pit import hard_deck_share
+from .walled_pit import _in_pit, hard_deck_share
 
 __all__ = ["read_portal_floors"]
 
@@ -54,6 +58,56 @@ def _road_zero(p, ground) -> float:
     less its roof top."""
     end = np.asarray(ground([p.end_xy[0]], [p.end_xy[1]]), float).ravel()
     return float(end[0]) - float(p.depth_m)
+
+
+def _plan(q, cache, scale) -> np.ndarray:
+    """``q``'s solid triangles in plan (frame metres; empty with none)."""
+    g = cache.geometry(q.resolved) if q.resolved else None
+    if g is None or not len(g.solid):
+        return np.zeros(0, object)
+    t = shapely.polygons(placed_all(q, g, 0.0, scale)[:, :, :2])
+    return t[shapely.area(t) > 1e-6]
+
+
+def _frame(o, foot, objects: _t.Sequence, seen: _t.AbstractSet[str], cache, law,
+           scale) -> list:
+    """The placements portal ``o``'s seat leads (#2266): co-placed with it
+    (``hanging_objects._co_placed``, ``cover_placement_tol_m``) AND standing
+    in the structure it belongs to -- half a placement's solid plan within
+    the plan already led (the portal's solids and its floor ``foot``, then
+    every placement led, each grown by ``bore_end_tolerance_m``), the half
+    of ``walled_pit._in_pit``, read on the solids rather than the authored
+    plan box (a bridge laid diagonally across its own box fills a sixth of
+    it); a row with no solid (its lights) where half its lights' box
+    stands in that plan.  The lead grows piece by piece, so the deck, walls and parapets
+    of one bridge move as one; the frame's placements elsewhere (a shared
+    datum hangs a whole airport off one origin) keep their own seats."""
+    ob = law.tables.structures.tunnel.object
+    tol, reach = float(ob.cover_placement_tol_m), float(ob.bore_end_tolerance_m)
+    mates = {q.id: (q, _plan(q, cache, scale)) for q in objects
+             if q.id not in seen and q.resolved and _co_placed(o, q, tol)}
+    own = _plan(o, cache, scale)
+    plan = unary_union([foot, *own]).buffer(reach)
+    led: list = []
+    grew = True
+    while grew:
+        grew = False
+        shapely.prepare(plan)
+        for k, (q, t) in list(mates.items()):
+            if not len(t):
+                # no solid (a lights-only row): where its lights stand
+                if _in_pit(q, plan, cache, 0.0):
+                    led.append(q)
+                    del mates[k]
+                continue
+            if not shapely.intersects(t, plan).any():
+                continue
+            if shapely.area(shapely.intersection(t, plan)).sum() >= 0.5 * shapely.area(t).sum():
+                led.append(q)
+                del mates[k]
+                plan = unary_union([plan, shapely.union_all(t).buffer(reach)])
+                grew = True
+    return led
 
 
 def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, ground,
@@ -101,8 +155,7 @@ def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, g
                          f"({float(p.zero_z):.2f} vs {zero:.2f}), but no floor of a plate's "
                          f"worth under its roof: its bore's mouth ramp stays the cut")
             continue
-        frame = [q for q in objects if q.id not in seen
-                 and _co_placed(o, q, float(ob.cover_placement_tol_m))]
+        frame = _frame(o, foot, objects, seen, cache, law, scale)
         decked = hard_deck_share(foot, (o, *frame), cache, law, lambda _q, _z=zero: _z,
                                  float(faces[:, :, 2].min()), scale)
         if decked >= law.tables.structures.deck.on_fraction:

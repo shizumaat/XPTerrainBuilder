@@ -46,10 +46,9 @@ _AGREE_M = 0.5
 def _today(pm, airport, law, air, plans: dict) -> dict:
     """``{unit index: {"r1": bool, "minted": [y, ...]}}`` -- today's
     readers (module docstring) for the units in ``plans``."""
+    from auto_patch_v2.airport.unit_storey import upper_storeys
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
-
-    from auto_patch_v2.airport.unit_storey import upper_storeys
     r1 = {s.unit for s in upper_storeys(airport, law, air)}
     pads: dict = {}
     for f in pm.faces.values():
@@ -139,7 +138,10 @@ def census(path: str) -> dict:
     """One capture's rows (module docstring)."""
     from auto_patch_v2.law import Law
     from auto_patch_v2.pipeline.frontage_publication import (
-        frontage_levels, map_sides, terminal_frontage_records)
+        frontage_levels,
+        map_sides,
+        terminal_frontage_records,
+    )
     with open(path, "rb") as fh:
         cap = pickle.load(fh)
     icao, airport, pm = cap["icao"], cap["airport"], cap["pm"]
@@ -183,7 +185,8 @@ def _clues(c: dict) -> str:
 
 
 def _fmt(icao: str, r: dict) -> str:
-    return (f"  {icao} {r['unit']:12s} {str(r['block']):11s} {r['plan_m2']:9.0f} m2  air {r['air_y']:+6.2f} "
+    return (f"  {icao} {r['unit']:12s} {str(r['block']):11s} {r['plan_m2']:9.0f} m2  "
+            f"air {r['air_y']:+6.2f} "
             f"land {'   -  ' if r['land_y'] is None else format(r['land_y'], '+6.2f')} "
             f"rise {r['rise']:+6.2f} {str(r['witness'] or '-'):12s} "
             f"g {r['g_air']}/{r['g_land']} {r['verdict']:11s} face {r['face_m']:6.0f} m "

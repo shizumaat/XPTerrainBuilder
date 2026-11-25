@@ -453,7 +453,8 @@ def _storey_parts(pg, t: float, near, air, law) -> list[Level]:
     ``Part.feet`` nor ``[placement] chain_min_height_m`` can gate them."""
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
     off = [(p, g) for p, g in pg if abs(p.base_y - t) >= step and not g.intersects(near)]
-    return sorted(_planes(_unsupported(off, pg, _band_m()), air, _band_m()), key=lambda lv: (-lv.parts, -lv.area_m2))
+    return sorted(_planes(_unsupported(off, pg, _band_m()), air, _band_m()),
+                  key=lambda lv: (-lv.parts, -lv.area_m2))
 
 
 def _split_level(u, t: float, shells, step: float) -> list[Level]:

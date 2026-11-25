@@ -100,13 +100,17 @@ from ..law import Law
 from ..airport.runway_strip import strip_band
 from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
+from ..model.end_area import end_area_lengths
 from ..model.frame import XY
 from ..model import clocks as _clocks
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
+from .end_pad import end_pad_split, taxi_reaches_end
+from .wrap_page import wide_on_wrapping_page
 from .gap_stands import holds_stand as _holds_startup   # the one 1300-containment read
+from .island_spurs import island_spurs
 from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
@@ -310,8 +314,12 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
     # then again at the arrangement, where the rim snap moved 1,700 pad
     # vertices — and the shipped arm's census rose 4.2 % at HECA and 23 %
     # at LEMD.  One cutter, and it is the arrangement's.
-    taxi_parts, truck_parts, prox, spurs, src_cuts = _cut_lines(
+    taxi_parts, truck_parts, prox, spurs, src_cuts, isl = _cut_lines(
         ev, region, rules, cut_polys)
+    # the region parts an island spur cut off a RUNWAY: a ring round it (#2281)
+    rw_ring = ev.runway_union.boundary
+    isl_rw = [q for q in isl if rw_ring.distance(Point(q.coords[0])) <= rules.cells.on_tol_m]
+    rings = [g for g in polygon_parts(region) if any(g.buffer(0.01).intersects(q) for q in isl_rw)]
     # §42 (2) as amended (RULINGS 2026-09-13dc): a §42 object-pavement body
     # that is not §41 (1)-inside a mapped page CUTS AT ITS OWN BOUNDARY, so
     # it is its own face and is kinded by evidence — never dissolved into
@@ -360,6 +368,14 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
 
     laps.section("ladder")
     queue: list[tuple[Polygon, dict]] = [(f, {}) for f in faces]
+    _ends: dict = {}
+
+    def _end_len(bp) -> float:
+        """The end area's length past blast pad ``bp``'s end (#2286)."""
+        if not _ends:
+            _ends.update(end_area_lengths(airport, law))
+        rw = next(r for r in airport.runways if r.id == bp[0])
+        return _ends.get(rw.id, (0.0, 0.0))[0 if rw.ends[0].name == bp[1] else 1]
     stats["apron_necks"] = 0
     qi = 0
     while qi < len(queue):
@@ -371,9 +387,18 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
                 and not _touching(face, truck_tree, truck_parts, rules):
             bp = blast_pad_end(face, airport.runways, law, rules.cells.on_tol_m)
             if bp is not None:
-                stats["blast_pads"] = stats.get("blast_pads", 0) + 1
-                notes.append(f"blast pad past {bp[0]} end {bp[1]}: "
-                             f"{face.area:.0f} m2 follows the DEM (#1332)")
+                # #2286: at an end no taxiway reaches, within its end area
+                # it is a turn pad, the runway's
+                rw = next(r for r in airport.runways if r.id == bp[0])
+                turn = not taxi_reaches_end(rw, bp[1], [c.line for c in ev.taxi_chains])
+                pads, rest = end_pad_split(face, rw, bp[1], _end_len(bp) if turn else 0.0,
+                                           rules.cells.min_area_m2)
+                shoulders += [(p, rw, 0.0, _ref_for(p, pav_tree, ev)) for p in pads]
+                stats["end_pads"] = stats.get("end_pads", 0) + len(pads)
+                if rest:
+                    stats["blast_pads"] = stats.get("blast_pads", 0) + 1
+                    notes.append(f"blast pad past {bp[0]} end {bp[1]}: "
+                                 f"{sum(q.area for q in rest):.0f} m2 follows the DEM (#1332)")
                 continue
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
@@ -383,6 +408,11 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
         # the role its geometry earns (and its `neck_ev` says so).
         sh = (None if neck_ev.get("shoulder_beyond_band")
               else _runway_shoulder(face, rw_edges, rules))
+        if sh is not None and rings and wide_on_wrapping_page(
+                face, next((g for g in rings if g.intersects(face.representative_point())),
+                           None), sh[0], sh[1],
+                rw_edges, rules.corridor.runway_shoulder_max_wrap, rules.cells.on_tol_m):
+            sh = None   # 14ba on the RING, #2281 (``classify/wrap_page``)
         if sh is None and not neck_ev.get("shoulder_beyond_band") \
                 and not neck_ev.get("shoulder_page_split"):
             # §40 (1) PAGE BY PAGE (RULINGS 2026-11-02a (2), #1686): a narrow
@@ -1396,7 +1426,8 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
 def _cut_lines(ev: Evidence, region, rules: Rules,
                cut_polys: _t.Mapping[str, Polygon]):
     """Centreline parts inside the region, the proximity contour, the
-    keyhole spurs for interior dead-ends, and the strip/lot source
+    keyhole spurs for interior dead-ends and for a hole's only tie
+    (``classify/island_spurs``), and the strip/lot source
     boundaries (owner 2026-09-04j: the mouth cut).  A free route part
     inside a strip does not cut again (the strip is one face)."""
     taxi_parts = [(ln, c) for c in ev.taxi_chains
@@ -1419,8 +1450,11 @@ def _cut_lines(ev: Evidence, region, rules: Rules,
         src.append(ev.runway_union.buffer(rules.apron.route_proximity_m,
                                           join_style="mitre", mitre_limit=2.0))
     prox = unary_union(src) if src else None
-    spurs = _keyholes([ln for ln, _c in taxi_parts + truck_parts], region, rules)
-    return taxi_parts, truck_parts, prox, spurs, src_cuts
+    cuts = [ln for ln, _c in taxi_parts + truck_parts]
+    # a cut that is a hole's only tie is a bridge polygonize drops too
+    isl = island_spurs(cuts, region, rules)
+    spurs = _keyholes(cuts, region, rules) + isl
+    return taxi_parts, truck_parts, prox, spurs, src_cuts, isl
 
 
 def _road_wide(neck_ev, rules: Rules) -> bool:

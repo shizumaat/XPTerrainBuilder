@@ -338,6 +338,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
         "auto_patch_v2.classify.edge_line_mint",
+        "auto_patch_v2.classify.end_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
@@ -348,6 +349,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
+        "auto_patch_v2.classify.island_spurs",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -366,6 +368,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
+        "auto_patch_v2.classify.wrap_page",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.author_ground",
@@ -429,6 +432,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.clocks",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
+        "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
@@ -676,6 +680,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
         "auto_patch_v2.classify.edge_line_mint",
+        "auto_patch_v2.classify.end_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
@@ -686,6 +691,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
+        "auto_patch_v2.classify.island_spurs",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -705,6 +711,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
+        "auto_patch_v2.classify.wrap_page",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.author_ground",
@@ -1687,6 +1694,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
         "auto_patch_v2.classify.edge_line_mint",
+        "auto_patch_v2.classify.end_pad",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
@@ -1697,6 +1705,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
         "auto_patch_v2.classify.gap_stands",
+        "auto_patch_v2.classify.island_spurs",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -1715,6 +1724,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.taxi_shoulder",
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
+        "auto_patch_v2.classify.wrap_page",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.agp_level",
         "auto_patch_v2.constraints.agp_plate",
@@ -2542,6 +2552,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
+    classify.end_pad classify.island_spurs classify.wrap_page
     classify.taxi_letter classify.taxi_shoulder
      classify.wall_clip constraints constraints.apron constraints.apron_shelf constraints.cut_kerb
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
@@ -2814,6 +2825,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules
+    classify.end_pad classify.island_spurs classify.wrap_page
     classify.sources classify.taxi_letter classify.taxi_shoulder
      classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.cut_kerb
@@ -3023,6 +3035,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.ramp_runout classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
+    classify.end_pad classify.island_spurs classify.wrap_page
      classify.wall_clip
     constraints
     constraints.apron constraints.apron_shelf constraints.cut_kerb
@@ -3249,6 +3262,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.pad_cut_corridor classify.pad_sunk classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
+    classify.end_pad classify.island_spurs classify.wrap_page
     classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
      classify.wall_clip constraints.apron
     constraints.apron_shelf constraints.cut_kerb constraints.apron_trend constraints.ceiling
@@ -3418,6 +3432,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.pad_cut_corridor classify.pad_sunk classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
     classify.ribbon_mint classify.roles classify.rules classify.sources
+    classify.end_pad classify.island_spurs classify.wrap_page
     classify.taxi_letter classify.taxi_shoulder
      classify.wall_clip constraints.apron constraints.ceiling
     constraints.channel

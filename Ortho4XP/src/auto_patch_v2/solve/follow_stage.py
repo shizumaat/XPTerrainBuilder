@@ -36,6 +36,7 @@ def solve_follow(cs, sol2: Solution, rewrite: _t.Callable, solve: _t.Callable
     rep = dict(rep)
     sol_f, rep_f = solve(cs_f, fixed)
     rep.update(rows=rep_f.rows, unknowns=rep_f.unknowns,
+               lot_datum_rows=int(rep_f.lot_datum_rows),
                hard_settled=bool(rep_f.hard_settled),
                hard_max_violation_m=round(float(rep_f.hard_max_violation_m), 6))
     if sol_f.status is Status.ERROR or not sol_f.z or not rep_f.hard_settled:

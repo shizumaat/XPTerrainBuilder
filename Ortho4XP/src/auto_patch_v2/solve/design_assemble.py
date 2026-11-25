@@ -32,6 +32,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    apply_level_belt)
 from .design_edge import cross_section_rows, membrane_rows
 from .design_junction import second_difference, through_junction_rows
+from ..model.lot_ground import lot_datum_vertices
 from .design_ground import (ground_datum_vertices, ground_rim_vertices,
                             riser_rim_vertices)
 from .design_stage import _groundside_minter, _welded_faces
@@ -104,7 +105,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
              fixed: _t.Mapping[int, float] | None = None,
-             stage_roles: _t.AbstractSet[str] | None = None) -> Base:
+             stage_roles: _t.AbstractSet[str] | None = None,
+             lot_datum: bool = False) -> Base:
     """Sections 1-9 of the module docstring: the sheets and their
     triangulation, the zone ramp, the reduction, and every always-on row
     (bending, road chains, the chord, the zone DEM fit, the law's equalities,
@@ -403,6 +405,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # live in ``cs`` for the whole loop, so their ids are stable keys.
     by_source: dict[int, tuple[str, bool, bool]] = {}
     dem_fixed = red.dem_fixed
+    # THE LOT'S CAP OUTRANKS ITS DATUM (owner RULINGS 2026-11-25e (1)): in
+    # the follower pass the weak ``z = DEM`` row (9') is the lot's only
+    # pull, so every grade cap on a lot vertex is HARD there -- priced
+    # soft, the datum bought 0.03-0.06 m over the 5 % cap (MEASURED ESSA
+    # ``faclot:1``, chords to the stage-2 constants beside it)
+    lot_cap_v = lot_datum_vertices(planar) if lot_datum else frozenset()
     for side in one_t:
         terms, hi, row = side
         src_reading = by_source.get(id(row.source))
@@ -450,7 +458,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # nothing, which is the same constant by another route.
         promoted = bool(front_heads) and head in front_heads \
             and vs <= front and _held_at_ref(terms, hi, front_ref, tol_ref)
-        hard_head = head in heads           # ``is_hard(heads, row)``
+        hard_head = head in heads or (      # ``is_hard(heads, row)``
+            bool(lot_cap_v) and isinstance(row, Diff) and not vs.isdisjoint(lot_cap_v))
         if (hard_head or promoted or ap_row) and _carries_a_column(red, terms):
             if promoted and not hard_head:
                 rep.fronting_promoted += 1
@@ -623,10 +632,29 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             continue
         mean = sum(float(planar.vertices[v].dem_z) for v in vs_f) / len(vs_f)
         rows.add(((f_.group[0], 1.0),), mean, d.detached_mean, ("detached", ("flat", col)))
+    # 9'. THE LOT FOLLOWS ITS GROUND (owner RULINGS 2026-11-25e (1)): a
+    #     parking lot with no level target carries the weak ``z = DEM`` row
+    #     at ``ground_datum`` per vertex instead of its body's plane — its
+    #     grade rows (``law``) outrank it, so it follows the DEM within its
+    #     5 % cap (``model/lot_ground.lot_datum_vertices``).  A vertex a pad
+    #     or a law equality levels keeps that level.  ``lot_datum``: the
+    #     FOLLOWER PASS's assembly alone (``pipeline/lot_follow``), where
+    #     every other vertex is a constant at its stage-2 level — airside is
+    #     king: in stage 2 the lot keeps its body's plane, so the datum can
+    #     pull no landing, apron or road (MEASURED EKVG, the datum in stage
+    #     2: ``building4`` landing collars 0.41 m, ``pav0`` 0.02 m).
+    lot_v = (lot_datum_vertices(planar) - pad_follow - hard_follow - datum_v
+             if lot_datum else set())
+    lot_n = 0
+    for vid in sorted(lot_v):
+        if rows.add(((vid, 1.0),), float(planar.vertices[vid].dem_z),
+                    d.ground_datum, ("lot_datum", vid)):
+            lot_n += 1
+    rep.lot_datum_rows = lot_n
     rep.detached = len(by_comp)
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
-            if vid in datum_v:
+            if vid in datum_v or vid in lot_v:
                 continue
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
 

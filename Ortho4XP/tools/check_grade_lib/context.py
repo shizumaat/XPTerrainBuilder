@@ -232,6 +232,10 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # the ROUTE, so a census without it judges the chord law the ruling
     # withdrew.  A patch with no key reads exactly as before.
     "road_route_frame": "road_route_frame_ll",
+    # THE ROAD LEAVING A LOT (owner RULINGS 2026-11-25e (2), #2283): LAW
+    # INPUT -- the lot pairs the road law prices, with the bound the build's
+    # release gave them (``pipeline/lot_neck.neck_pair_bounds``)
+    "lot_neck_pairs": "lot_neck_pairs_ll",
     # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each
     # coverage exit — LAW INPUT, the value the solve PINNED.
     "road_coverage_join": "road_coverage_join_ll",
@@ -730,6 +734,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["pad_relief_ll"] = data.get("pad_relief") or None
     # §37 (7): absent on any patch built before it (the chord law)
     ctx["road_route_frame_ll"] = data.get("road_route_frame") or None
+    ctx["lot_neck_pairs_ll"] = data.get("lot_neck_pairs") or None
     ctx["road_coverage_join_ll"] = data.get("road_coverage_join") or None
     ctx["deck_anchors"] = data.get("deck_anchors") or None
     # ... and every hidden row the WRITTEN pack still draws (the family's

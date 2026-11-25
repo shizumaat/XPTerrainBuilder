@@ -35,7 +35,7 @@ def arms(law):
         inner = dz.solve_design
 
         def with_follow(pm, cs, law_, *a, **kw):
-            kw["follow_rewrite"] = lambda cs_x, z: lf.lot_follow_rewrite(pm, cs_x, z)
+            kw["follow_rewrite"] = lambda cs_x, z: lf.lot_follow_rewrite(pm, cs_x, z, law_)
             return inner(pm, cs, law_, *a, **kw)
         import auto_patch_v2.solve as sv
         mp.setattr(sv, "solve_design", with_follow)
@@ -80,7 +80,7 @@ def test_no_lot_no_pass(law):
     class _Pm:
         road_terrace: dict = {}
         faces: dict = {}
-    assert lot_follow_rewrite(_Pm(), ConstraintSet.from_rows([]), (0.0,)) is None
+    assert lot_follow_rewrite(_Pm(), ConstraintSet.from_rows([]), (0.0,), law) is None
 
 
 

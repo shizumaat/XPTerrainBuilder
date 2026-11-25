@@ -134,7 +134,9 @@ class TierLander:
                 tile = CFG.Tile(lat, lon, "")
                 tile.build_dir = key
                 tile.read_from_config()
-                _own_settings(tile)
+                tile._o4_ours = _ours(tile)
+                if not tile._o4_ours:
+                    _own_settings(tile)
                 if DRAPE.is_drape_dir(key):
                     DRAPE.prepare(tile)
                 elif _masks_named(row):
@@ -218,11 +220,12 @@ class TierLander:
         drape = DRAPE.is_drape_dir(row["build_dir"])
         if drape:
             DRAPE.water_mask(tile, row, til_x, til_y)
+        built = os.path.join(_converter_folder(row["build_dir"]), row["name"])
         IMG.convert_texture(tile, *attrs, drop=drop)
-        built = os.path.join(row["build_dir"], "textures", row["name"])
         _mirror(built, final)
-        if drape:
-            DRAPE.landed(built)
+        ours = getattr(tile, "_o4_ours", True)
+        if (drape or not ours) and not _same(built, final):
+            DRAPE.landed(built)     # the converter's copy, not the tile's
         return _facts(final, width, jpeg, None, not cached)
 
 
@@ -240,6 +243,29 @@ def _built_stamp(build_dir: str, tile: str) -> "float | None":
         return None
 
 
+def _converter_folder(build_dir: str) -> str:
+    """The build folder's ``textures``, where the converter writes first:
+    made when the folder has none (a tile adopted from another tool, its
+    textures in the World pack and its source drive away, #2193)."""
+    folder = os.path.join(build_dir, "textures")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _ours(tile) -> bool:
+    """Did this app build the tile?  A tile another tool built keeps no
+    texture in its build folder: the converter's copy goes once landed."""
+    import O4_Tile_Info as TINFO
+    try:
+        return TINFO.built_here(tile.build_dir, tile.lat, tile.lon)
+    except Exception:                   # unreadable: keep the copy
+        return True
+
+
+def _same(built: str, final: str) -> bool:
+    return os.path.abspath(built) == os.path.abspath(final)
+
+
 def _own_settings(tile) -> None:
     """A tile this app did not build: the :data:`OWN_KEYS` its own tool's
     cfg carries, over the global settings (each read as the type the tile
@@ -247,9 +273,6 @@ def _own_settings(tile) -> None:
     import ast
 
     import O4_Config_Names as CN
-    import O4_Tile_Info as TINFO
-    if TINFO.built_here(tile.build_dir, tile.lat, tile.lon):
-        return
     path = os.path.join(tile.build_dir,
                         CN.ortho4xp_tile_cfg_name(tile.lat, tile.lon))
     try:
@@ -323,6 +346,8 @@ def _land_combined(tile, attrs, final: str, width: int) -> None:
     ``final``."""
     import O4_Imagery_Utils as IMG
     provider = attrs[3]
+    built = os.path.join(_converter_folder(tile.build_dir),
+                         os.path.basename(final))
     with _COMBINED:
         layers = _combined_layers(tile, provider)
         if not layers:
@@ -338,8 +363,6 @@ def _land_combined(tile, attrs, final: str, width: int) -> None:
         finally:
             if added and table.get(provider) is layers[provider]:
                 table.pop(provider, None)
-    built = os.path.join(tile.build_dir, "textures",
-                         os.path.basename(final))
     if width == TIERS.FULL_WIDTH:
         _mirror(built, final)
     elif not _land_from_source(built, final, width):
@@ -365,7 +388,7 @@ def _mirror(built: str, final: str) -> None:
     ``final`` when the row's textures live elsewhere (a World-pack tile,
     spec §7.3): hard-linked (copied across volumes) beside it and renamed
     over it in one step."""
-    if os.path.abspath(built) == os.path.abspath(final):
+    if _same(built, final):
         return
     partial = final + ".landing"
     with contextlib.suppress(OSError):

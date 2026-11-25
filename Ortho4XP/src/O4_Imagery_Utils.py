@@ -3201,6 +3201,13 @@ def convert_texture(
     UI.vprint(
         1, "   Converting orthophoto(s) to build texture " + out_file_name + "."
     )
+    textures = os.path.join(tile.build_dir, "textures")
+    if type == "dds" and not os.path.isdir(textures):
+        # #2193: no retry writes into a folder that is not there
+        UI.lvprint(1, "ERROR: Could not convert texture",
+                   os.path.join(textures, out_file_name),
+                   "(its textures folder is missing)")
+        return
     erase_tmp_png = False
     erase_tmp_tif = False
     inproc_done = False

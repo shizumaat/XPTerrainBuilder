@@ -269,6 +269,19 @@ depths, shallow lake margins keep imagery and deep centres stay at
 untouched. Sim-side depth lighting for inland water comes from the DSF
 raster (section 5), not the mask.
 
+Amended 2026-11-24 (owner 13:52Z, the Ria Formosa at LPFR; lane
+linland): the coarse source's alpha had been zeroed off SEA pixels and
+squares with inland water but no sea skipped every depth alpha — scope of
+#2265 and #1981, never a ruling. Now inland water takes the same ramp and
+top wherever a source measures it: the fine band where it reads water
+(as above, now also in inland-only squares), the coarse raster over each
+inland water body (connected on its 8x-decimated grid within the padded
+square) that the source reads at or below 0 m somewhere — a tidal lagoon
+or estuary. A lake or river above sea level reads as land and keeps its
+mask. Every depth ramp (fine, coarse, mapped fallback; sea and inland)
+tops out at the tile setting `shallow_water_opacity` (default 0.85, owner
+14:08Z); the coarse source's former fixed 0.85 ceiling is that setting.
+
 ### 4.4 Mapped shallow-water fallback (`osm_shallow_water_fallback`, default True)
 
 Where `ensure_bathymetry_band` returns nothing for the masks (no fine
@@ -320,25 +333,15 @@ national-server fetches for a result OSM provides — and only explicit
 unmapped). An intertidal twin ahead of a real bathymetry source in the
 priority walk never starves it on the automatic paths.
 
-### 4.6 The photo under the water (`water_imagery`, RULINGS 2026-11-24f)
+### 4.6 The photo under the water — TRIED AND REJECTED (2026-11-24)
 
-Tile settings `water_imagery` (`mask` default, `under`) and
-`water_imagery_alpha` (`opaque` default, `depth`; read only with
-`under`), resolved in `src/O4_Water_Imagery.py`. `mask` is everything
-above, byte for byte. `under` (X-Plane 12 water only) draws the photo as
-the floor beneath the water: each water triangle that shows it is ONE
-physical `WATER_COLOR_MASK` + `WET` triangle (band 1, nine planes: lon,
-lat, elev, nx, ny, fetch ratio 1, the `set_depth_ratio` depth ratio, s,
-t) with no mask PNG, no `BORDER_TEX` and no second `terrain_Water`
-triangle. Sea: a triangle gets it when the depth-graded mask of its
-texture (`needs_mask`, max-pooled to 256 cells a side) rises above
-`ALL_WATER_MAX` inside the triangle's pixel box; the others stay plain
-`terrain_Water`. Inland: every inland triangle, its depth ratio from the
-inland bed (`node_scale`) or the shore-distance ramp. `opaque` writes the
-textures DXT1; `depth` writes the masked ones DXT5 with the mask as
-alpha, read from `needs_mask` at conversion (never from a PNG). How
-X-Plane reads that alpha under its water is undocumented; the owner
-compares the arms in the sim.
+Lane lunder (`b1ad643fb`, RULINGS 2026-11-24f) added tile settings
+`water_imagery` (`mask`|`under`) and `water_imagery_alpha`
+(`opaque`|`depth`) drawing the photo as a physical water triangle's floor.
+Owner, 2026-11-24T13:36Z, after the sim test: "trying to put it under
+water results in harsh shorelines and texture cut offs further out" —
+the original mask method is better. Removed (lane lundel); both keys are
+retired-silent in `O4_Cfg_Vars`. The mask above is the one method.
 
 ## 5. DSF `sea_level` raster (Step 3)
 

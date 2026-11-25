@@ -751,12 +751,29 @@ def _download_statements(queries, osm_layer, lat, lon, input_tags,
     return 1
 
 
+def _extract_answer(query, bbox, request_description):
+    """The query's OSM XML from the regional extracts for one
+    ``(lat_min, lon_min, lat_max, lon_max)`` box, or ``None`` (no box,
+    or the extracts cannot serve it): Overpass is the last resort."""
+    if not isinstance(bbox, (tuple, list)) or len(bbox) != 4:
+        return None
+    try:
+        import O4_OSM_Extracts as EXTRACTS
+
+        return EXTRACTS.osm_xml_from_local_extracts(
+            [query] if isinstance(query, str) else list(query), tuple(bbox),
+            request_description=request_description)
+    except Exception:
+        return None
+
+
 def OSM_query_to_OSM_layer(
     query,
     bbox,
     osm_layer,
     tags_of_interest=[],
     cached_file_name="",
+    request_description="",
 ):
     # this one is simpler and does not depend on the notion of tile
     target_tags = {"n": [], "w": [], "r": []}
@@ -779,7 +796,12 @@ def OSM_query_to_OSM_layer(
         UI.vprint(1, "    * Recycling OSM data from", cached_file_name)
         osm_layer.update_dicosm(cached_file_name, input_tags, target_tags)
     else:
-        response = get_overpass_data(query, bbox)
+        response = _extract_answer(query, bbox, request_description)
+        if response is None and UI.red_flag:
+            return 0
+        if response is None:
+            response = get_overpass_data(
+                query, bbox, request_description=request_description)
         if UI.red_flag:
             return 0
         if not response:
@@ -1199,6 +1221,12 @@ def get_overpass_data(query, bbox, request_description="",
         )
     overpass_query = build_overpass_query(query, bbox)
     request_label = f" ({request_description})" if request_description else ""
+    # RULINGS 2026-11-24h: every OSM read comes from the regional
+    # extracts; public Overpass is the last resort, and each use says so.
+    UI.lvprint(1, "    OVERPASS (last resort): layer",
+               request_description or "unnamed", "box",
+               bbox if isinstance(bbox, str) or not bbox
+               else tuple(round(float(v), 4) for v in bbox))
     # Seed the throttle with the current time so the first poll only fires
     # after one interval: the caller already tried the alternative source
     # immediately before falling through to here, so re-polling it at t=0

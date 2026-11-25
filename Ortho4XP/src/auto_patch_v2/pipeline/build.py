@@ -493,7 +493,22 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
           config: Config | None = None, law: Law | None = None,
           out: _t.Callable[[str], None] = print) -> BuildResult:
-    """Run every stage and write the patch + report into ``out_dir``."""
+    """Run every stage and write the patch + report into ``out_dir``.
+
+    #2206 step 3: stage 1's run-ahead worker starts HERE and imports the
+    prefix beside the load, partition and classify; classify's end hands it
+    its payload (``stage_one_ahead.start_early``).  Closed on every exit."""
+    from . import stage_one_ahead as _s1_ahead
+    warm = _s1_ahead.warm(out=lambda m: _say(f"[{icao}] {m}", out))
+    try:
+        return _build(icao, inputs, out_dir, config, law, out, warm)
+    finally:
+        if warm is not None:
+            warm.close()
+
+
+def _build(icao: str, inputs: Inputs, out_dir: str | Path, config: Config | None,
+           law: Law | None, out: _t.Callable[[str], None], warm) -> BuildResult:
     cfg = config or Config()
     wall: dict[str, float] = {}
     t = time.perf_counter()
@@ -672,7 +687,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # HERE, handed the full map's decks at its structures step and its
     # anchors after its channels (``stage_one_ahead.start_early``)
     _s1_d0 = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in, heartbeat=_s1_hb)
-    _s1_early = _s1_ahead.start_early(cl, _s1_d0, out=lambda m: _say(f"[{icao}] {m}", out))
+    _s1_early = _s1_ahead.start_early(cl, _s1_d0, out=lambda m: _say(f"[{icao}] {m}", out),
+                                      pool=warm)
     _s1_box: dict = {} if _s1_early is None else {"derive": _s1_d0, "ahead": _s1_early}
 
     def _stage_one_ahead(ap, pm_ch) -> None:

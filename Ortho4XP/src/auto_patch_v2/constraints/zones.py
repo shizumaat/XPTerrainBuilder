@@ -183,8 +183,6 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
     for dx in range(-span, span + 1):
         for dy in range(-span, span + 1):
             for k in grid.get((cx + dx, cy + dy), ()):
-                if admit is not None and not admit(k):
-                    continue
                 a, b = edges[k][0], edges[k][1]
                 (ax, ay), (bx, by) = xy[a], xy[b]
                 vx, vy = bx - ax, by - ay
@@ -193,7 +191,9 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
                     1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
                 px, py = x - (ax + t * vx), y - (ay + t * vy)
                 s2 = px * px + py * py
-                if s2 >= best_s:
+                # ``admit`` is a pure filter: asked only of an edge that
+                # could replace the best (both skips are a ``continue``)
+                if s2 >= best_s or (admit is not None and not admit(k)):
                     continue
                 d = exact.hypot(px, py)
                 half = half_of(edges[k])
@@ -345,7 +345,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
 
     lip_m = float(law.tables.zones.adjacent_ground.lip_width_m)
 
-    def half_of(e: tuple) -> float | None:
+    def _half_of(e: tuple) -> float | None:
         if e[2] == _APRON:
             return lip_m                 # an apron edge: the lip only
         ref = _edge_runways(e)[0] if e[2] == "runway" else None
@@ -357,6 +357,13 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         # does not list, its centreline figure
         return zone_edge_offset_m(law, "runway" if e[2] == "runway" else "junction",
                                   e[3], e[4])
+
+    # #2206 step 4: a pure function of the edge record, read once per record
+    # (the nearest-edge scans asked it ~2 M times at KBUF)
+    halves = {e: _half_of(e) for e in edges}
+
+    def half_of(e: tuple) -> float | None:
+        return halves[e] if e in halves else _half_of(e)
 
     reach = max((half_of(e) or 0.0) for e in edges)
     rows: list[Row] = []

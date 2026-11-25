@@ -1,7 +1,10 @@
 """Offline land witness: does a lon/lat geometry hold land? (#1731)
 
-Reads only base elevation files already on disk (``<tile>.tif`` or the
-Viewfinder ``<tile>.hgt``) — never a download.  A cell the world mask
+Reads only base elevation files already on disk (``<tile>.tif``, the
+Viewfinder ``<tile>.hgt``, or the configured base source's 90 m cache
+file) — never a download, except through :func:`fetch_elevation`, which
+the extract chooser calls when a verdict is unknown: it fetches the base
+file the tile build downloads anyway, only earlier (#2234).  A cell the world mask
 calls ocean-only is sea without a read.  Answers ``True`` (a post above
 sea level lies inside), ``False`` (every post inside is at or below sea
 level), or ``None`` (a cell's elevation is not on disk or unreadable):
@@ -28,9 +31,8 @@ def _land_posts(lat: int, lon: int):
     for an ocean-only cell; ``None`` when no elevation is on disk."""
     if not DEM.tile_is_land(lat, lon):
         return (numpy.empty(0), numpy.empty(0))
-    for path in (FNAMES.generic_tif(lat, lon),
-                 FNAMES.viewfinderpanorama(lat, lon)):
-        if not os.path.isfile(path):
+    for path in _elevation_paths(lat, lon):
+        if not path or not os.path.isfile(path):
             continue
         try:
             (epsg, x0, y0, x1, y1, nodata, nx, ny, alt) = \
@@ -47,6 +49,58 @@ def _land_posts(lat: int, lon: int):
         lats = y1 - rows * _STRIDE * (y1 - y0) / (ny - 1)
         return (lons, lats)
     return None
+
+
+def _base_cache_path(lat: int, lon: int) -> Optional[str]:
+    """The configured base source's whole-cell cache file (90 m tier,
+    what ``elevation_level`` auto builds read), or ``None``."""
+    try:
+        import O4_Airport_Elevation_Insets as PROVIDERS
+
+        definition = PROVIDERS.resolve_base_definition(
+            lat, lon, DEM.base_elevation_source, prefer_coarse=True)
+        strategy = PROVIDERS.ACCESS_STRATEGIES.get(
+            (definition or {}).get("access_strategy"))
+        cache_path_of = getattr(strategy(), "tile_cache_path", None) \
+            if strategy else None
+        return cache_path_of(definition, lat, lon) if cache_path_of else None
+    except Exception:
+        return None
+
+
+def _elevation_paths(lat: int, lon: int) -> tuple:
+    return (FNAMES.generic_tif(lat, lon), FNAMES.viewfinderpanorama(lat, lon),
+            _base_cache_path(lat, lon))
+
+
+def _cells(bounding_box):
+    """Integer (lat, lon) cells a ``(lat_min, lon_min, lat_max, lon_max)``
+    box touches."""
+    (lat_min, lon_min, lat_max, lon_max) = bounding_box
+    return [(lat, lon)
+            for lat in range(math.floor(lat_min), math.ceil(lat_max))
+            for lon in range(math.floor(lon_min), math.ceil(lon_max))]
+
+
+def fetch_elevation(bounding_box) -> bool:
+    """Download the configured base elevation of every LAND cell the box
+    touches whose witness verdict is unknown (#2234: on a first build the
+    elevation arrives after the OSM step).  The same file the tile build
+    fetches for its own cell and 3x3 neighbourhood, fetched earlier.
+    True when a fetch made a cell readable."""
+    fetched = False
+    for (lat, lon) in _cells(bounding_box):
+        if not DEM.tile_is_land(lat, lon) or \
+                _land_posts(lat, lon) is not None:
+            continue
+        try:
+            DEM.ensure_elevation(DEM.base_elevation_source, lat, lon,
+                                 verbose=False, prefer_coarse=True)
+        except Exception:
+            continue
+        _land_posts.cache_clear()
+        fetched = fetched or _land_posts(lat, lon) is not None
+    return fetched
 
 
 def land_points(geometry):

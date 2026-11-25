@@ -41,7 +41,7 @@ import os
 import statistics
 import time
 
-__all__ = ["STORE_DIRECTORY", "record", "note_phases", "predict_each",
+__all__ = ["STORE_DIRECTORY", "record", "note_phases", "predict_each", "longest_first",
            "wall_seconds", "size_km"]
 
 STORE_DIRECTORY = os.path.join(
@@ -232,3 +232,18 @@ def predict_each(airports, tile_records=(), store=None):
         else None
     return {icao: _predict(icao, size, tile_records, store, None, rate)
             for icao, size in sizes.items()}
+
+
+def longest_first(tasks: list) -> list:
+    """``tasks`` (each a dict with ``"icao"``) in the order their builds
+    should START: longest predicted first, task order among equals, and
+    ``tasks``' own order when no prediction can be read.  A tile's vector
+    step ends when its last airport ends, so the long pole starts first;
+    only the start order moves, never an output."""
+    try:
+        seconds = predict_each([t["icao"] for t in tasks])
+    except Exception:
+        return list(tasks)
+    order = sorted(range(len(tasks)),
+                   key=lambda i: (-float(seconds.get(tasks[i]["icao"]) or 0.0), i))
+    return [tasks[i] for i in order]

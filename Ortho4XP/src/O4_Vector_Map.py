@@ -914,7 +914,8 @@ def _airport_auto_roads_layer_at(lat, lon):
         # Overpass round per airport bbox even with the covering extract
         # already on disk.  Same accelerator-never-dependency discipline
         # as the tile-wide layers: any failure falls through to the
-        # historic Overpass loop.
+        # per-box loop (each box tries its own extract cover first;
+        # Overpass is the last resort, RULINGS 2026-11-24h).
         try:
             import O4_OSM_Extracts as EXTRACTS
 
@@ -929,7 +930,8 @@ def _airport_auto_roads_layer_at(lat, lon):
         for bbox in boxes:
             if OSM.OSM_query_to_OSM_layer(
                     queries, bbox, layer,
-                    tags_of_interest=ROADS_TAGS_OF_INTEREST):
+                    tags_of_interest=ROADS_TAGS_OF_INTEREST,
+                    request_description="airport_small_roads"):
                 got_any = True
             if UI.red_flag:
                 return False
@@ -1690,9 +1692,12 @@ def load_airports_and_prepare_dem(tile):
     # inset-holding aerodrome of this tile (and of a cached neighbour).
     # No-op -- and a byte-identical build -- when approach_rings is off,
     # no aerodrome on the tile holds an inset, or custom_dem is set.
-    ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
-    _record_coarsened_rings(tile)
-    compose_tile_dem_from_disk(tile, dico_airports)
+    # The ring plan is resolved three times here (the fetch twice, the
+    # bake once); its neighbour aerodromes are read once.
+    with ELEVATION_LEVEL.neighbour_boundaries_read_once():
+        ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
+        _record_coarsened_rings(tile)
+        compose_tile_dem_from_disk(tile, dico_airports)
     return (airport_layer, dico_airports)
 
 
@@ -2520,7 +2525,9 @@ def write_levelled_roads_sidecar(tile, levelled_roads):
         os.makedirs(build_dir, exist_ok=True)
         path = FNAMES.levelled_roads_file(build_dir, tile.lat, tile.lon)
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(levelled_roads.sidecar(tile.lat, tile.lon), handle)
+            # dumps, not dump: the same bytes through the C encoder
+            # (json.dump streams through the pure-Python one)
+            handle.write(json.dumps(levelled_roads.sidecar(tile.lat, tile.lon)))
     except (OSError, TypeError, ValueError) as e:
         UI.vprint(1, "      Could not write", path, ":", e)
         return None

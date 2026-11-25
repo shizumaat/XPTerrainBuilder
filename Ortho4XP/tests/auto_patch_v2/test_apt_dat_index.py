@@ -182,3 +182,42 @@ def test_an_index_that_points_at_the_wrong_bytes_falls_back_to_the_scan(
     for icao in ("CYXY", "KHZL"):
         assert (A.read_airport_block(apt, icao)
                 == A._scan_airport_block(apt, icao))
+
+
+# ---------------------------------------------------------------------
+# 5. The candidate prefilter (2026-11-24, lane lvector) indexes exactly
+#    what the per-line loop it replaced indexed
+# ---------------------------------------------------------------------
+def _line_loop_index(path):
+    """The pre-2026-11-24 pass, verbatim: every line read in Python."""
+    index, open_icao, open_start, offset = {}, None, 0, 0
+    with open(path, "rb") as fh:
+        for raw in fh:
+            if raw[:1] in (b"1", b"9"):
+                toks = raw.decode("utf-8", "replace").split()
+                if toks and toks[0] in A._BOUNDARY_ROWS:
+                    if open_icao is not None:
+                        index.setdefault(open_icao, (open_start, offset))
+                        open_icao = None
+                    if toks[0] != "99" and len(toks) >= 5:
+                        open_icao = toks[4].upper()
+                        open_start = offset
+            offset += len(raw)
+    if open_icao is not None:
+        index.setdefault(open_icao, (open_start, offset))
+    return index
+
+
+@pytest.mark.parametrize("body", [
+    b"1 1 0 0 KAAA first\n110 x\n16 2 0 0 KBBB sea\n17 3 0 0 KCCC heli\n99\n",
+    b"\n\n1 1 0 0 KAAA a\n1000 x\n160 y\n170 z\n990 w\n1\t2 0 0 KBBB tab\n",
+    b"1 1 0 0 KAAA a\r\n100 r\r\n16 1 0 0 kbbb lower\r\n99",
+    b"1 1 0 0 KAAA a\r100 r\r1 1 0 0 KBBB cr-only\r99\r",
+    b" 1 1 0 0 KAAA indented\n1\xc2\xa01 0 0 KBBB nbsp\n17a 0 0 0 KCCC\n1",
+    b"1 1 0 0 KAAA a\n1 1 0 0 KAAA repeat\n16 short\n1 1 0 0 KDDD\xff\xfe x\n",
+    b"",
+])
+def test_the_prefilter_indexes_what_the_line_loop_indexed(tmp_path, body):
+    path = tmp_path / "apt.dat"
+    path.write_bytes(body)
+    assert A._build_block_index(str(path)) == _line_loop_index(str(path))

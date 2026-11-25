@@ -180,6 +180,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.terrain_feature",
     "auto_patch_v2.airport.terrain_model",
     "auto_patch_v2.airport.terrain_shaped",
+    "auto_patch_v2.airport.terrain_shell",
     "auto_patch_v2.airport.tilt_float",
     "auto_patch_v2.airport.touch_graph",
     "auto_patch_v2.airport.touch_seat",

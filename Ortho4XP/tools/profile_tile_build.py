@@ -254,6 +254,12 @@ def main():
                              "each step that ran (O4_Step_Reuse) — the frame "
                              "of an app 'Rebuild tile'.  Default: every "
                              "step runs and nothing is recorded")
+    parser.add_argument("--texture-mode", default=None,
+                        choices=("full_ortho", "airport_ortho",
+                                 "default_xplane"),
+                        help="override the tile's texture_mode (the "
+                             "harness's geometry frame is default_xplane: "
+                             "no orthophoto, no airport imagery read)")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -323,6 +329,8 @@ def main():
         tile.default_website = args.provider
     if args.zl:
         tile.default_zl = args.zl
+    if args.texture_mode:
+        tile.texture_mode = args.texture_mode
     print("build directory:", tile.build_dir)
     print("default_website:", tile.default_website,
           "default_zl:", tile.default_zl)

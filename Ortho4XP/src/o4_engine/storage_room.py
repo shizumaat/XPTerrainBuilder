@@ -110,6 +110,11 @@ def _make_room(need: int, run_tiles, raw: "dict | None" = None,
            "short": 0}
     if to_free <= 0:
         return out
+    # #2207: why the pass runs, before its first deletion
+    STORAGE.write_log("making room for a build: needs %d bytes; free space "
+                      "%d bytes, floor %d; budget %s, used %d; clearing %d "
+                      "bytes" % (need, free, floor, budget or "not set", used,
+                                 to_free))
     skip = {(int(t[0]), int(t[1])) for t in run_tiles}
     now = time.time() if now is None else now
     out["freed"] = _passes(to_free, skip, abort, now)

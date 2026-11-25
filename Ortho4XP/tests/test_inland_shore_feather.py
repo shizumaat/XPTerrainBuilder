@@ -352,3 +352,25 @@ class TestFeatherWidthCap:
         depth = ndimage.distance_transform_edt(water)
         half = SHORE._local_half_width(depth, limit=40)
         assert (half[water] == 5).all()
+
+
+def test_inland_only_square_takes_a_measured_depth_alpha(monkeypatch):
+    """A square with inland water and no sea: the depth alpha raises the
+    measured water above the constant grey and never touches land; with
+    no depth source the square keeps today's mask."""
+    import numpy as np
+    import O4_Bathymetry_Coarse as COARSE
+    import O4_Mask_Utils as MASK
+
+    grey = 99
+    pre_mask = np.full((6144, 6144), 255, dtype=np.uint8)
+    pre_mask[2000:4000, 2000:4000] = grey
+    today = MASK._inland_depth_mask(0, 0, None, pre_mask, grey, 0, None, None)
+    assert today is None
+    depth = np.zeros((4096, 4096), dtype=np.uint8)
+    depth[:, :] = 217
+    monkeypatch.setattr(COARSE, "square_alpha", lambda *a: depth)
+    mask = MASK._inland_depth_mask(0, 0, None, pre_mask, grey, 0, None,
+                                   object())
+    assert mask[2000, 2000] == 217
+    assert mask[100, 100] == 255

@@ -31,7 +31,9 @@ import dataclasses as _dc
 import hashlib
 import io
 import math
+import mmap
 import os
+import re
 import typing as _t
 
 # TOP-LEVEL on purpose (not a lazy function-level import): PyInstaller
@@ -315,6 +317,25 @@ def _file_identity(path: str) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
+#: A line that MAY be a block boundary: it starts with ``1``, ``16``,
+#: ``17`` or ``99`` and no ASCII digit follows (``100``/``110``/``1300`` are
+#: not).  A SUPERSET of the boundary rows — every candidate is still judged
+#: by the row's own tokens — found by the C regex engine instead of a
+#: Python loop over every line (the 383 MB Global Airports apt.dat: 12.4 M
+#: lines, 2.2 s per process, measured 2026-11-24; now 0.4 s).
+_BOUNDARY_HEAD = re.compile(rb"(?:1[67]?|99)(?![0-9])")
+_BOUNDARY_NEXT = re.compile(rb"\n(?:1[67]?|99)(?![0-9])")
+
+
+def _boundary_candidates(buf) -> _t.Iterator[int]:
+    """The byte offset of every line of ``buf`` that may be a boundary
+    row, in file order."""
+    if _BOUNDARY_HEAD.match(buf):
+        yield 0
+    for match in _BOUNDARY_NEXT.finditer(buf):
+        yield match.start() + 1
+
+
 def _build_block_index(path: str) -> dict[str, tuple[int, int]]:
     """``{ICAO: (start_byte, end_byte)}`` for every airport block in
     ``path``, in ONE binary pass.
@@ -323,29 +344,34 @@ def _build_block_index(path: str) -> dict[str, tuple[int, int]]:
     from its ``1``/``16``/``17`` header to the start of the next such row
     or the ``99`` terminator, EOF otherwise.  A repeated ICAO keeps the
     FIRST block — the scan breaks out at the next boundary and never
-    reaches the second either.
+    reaches the second either.  Lines split on ``\\n`` alone, as a binary
+    file's line iteration does; only the candidate lines
+    (:func:`_boundary_candidates`) are decoded and tokenised.
     """
     index: dict[str, tuple[int, int]] = {}
     open_icao: str | None = None
     open_start = 0
-    offset = 0
     with open(path, "rb") as fh:
-        for raw in fh:
-            # A boundary row starts with '1' (1/16/17) or '9' (99).  One
-            # byte compared per line; only the handful that pass are
-            # decoded and tokenised.
-            if raw[:1] in (b"1", b"9"):
+        size = os.fstat(fh.fileno()).st_size
+        buf = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) if size else b""
+        try:
+            end_of_file = len(buf)
+            for start in _boundary_candidates(buf):
+                end = buf.find(b"\n", start)
+                raw = buf[start:end_of_file if end < 0 else end + 1]
                 toks = raw.decode("utf-8", "replace").split()
                 if toks and toks[0] in _BOUNDARY_ROWS:
                     if open_icao is not None:
-                        index.setdefault(open_icao, (open_start, offset))
+                        index.setdefault(open_icao, (open_start, start))
                         open_icao = None
                     if toks[0] != "99" and len(toks) >= 5:
                         open_icao = toks[4].upper()
-                        open_start = offset
-            offset += len(raw)
+                        open_start = start
+        finally:
+            if isinstance(buf, mmap.mmap):
+                buf.close()
     if open_icao is not None:
-        index.setdefault(open_icao, (open_start, offset))
+        index.setdefault(open_icao, (open_start, end_of_file))
     return index
 
 

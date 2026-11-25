@@ -7742,6 +7742,7 @@ from check_grade_lib.families.jetway_strip import (  # noqa: E402,F401,I001
     _JETWAY_STRIP_TOL_M,
 )
 from check_grade_lib.families import jetway_strip as _fam_jetway_strip  # noqa: E402,I001
+from check_grade_lib.families import frontage_level as _fam_frontage_level  # noqa: E402,I001
 
 
 def _is_platform_collar(w) -> bool:
@@ -11074,6 +11075,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     *_fam_pad_airside_renode.LAW_FAMILY_ROWS,
     *_fam_jetway_strip.LAW_FAMILY_ROWS,
+    *_fam_frontage_level.LAW_FAMILY_ROWS,
     *_fam_unit_platform.LAW_FAMILY_ROWS,
     *_fam_pad_frontage.LAW_FAMILY_ROWS,
     *_fam_hard_conflict.LAW_FAMILY_ROWS,
@@ -12724,6 +12726,8 @@ def run_checks(
     seam_pins_ll: Optional[list] = None,
     pad_airside_renode_ll: Optional[list] = None,
     jetway_strips_ll: Optional[list] = None,
+    # RULINGS 2026-11-25g: the terminal frontages and their bands
+    terminal_frontages_ll: Optional[list] = None,
     platforms_ll: Optional[list] = None,
     hard_conflict_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
@@ -13305,6 +13309,14 @@ def run_checks(
         "spec §2 (6) (a)/(c) — the transition's pairs are within_shape's)",
         jstrip, top_n)
     within = within + jstrip
+
+    flevel = _fam("frontage_level", _fam_frontage_level.check_frontage_level(
+        terminal_frontages_ll, nodes, ways))
+    _pv("FRONTAGE vertex off its unit's GROUNDSIDE FLOOR (RULINGS 2026-11-25g "
+        "(2): the frontage is flat along the building at the groundside floor, "
+        "the block datum + the unit's rise; sidecar terminal_frontages band_ll)",
+        flevel, top_n)
+    within = within + flevel
 
     prelief = _fam("platform_rim_relief", _check_platform_rim_relief(platforms_ll))
     _pv("PLATFORM rim relief the collar carries (unit-platform spec §4 (5); "

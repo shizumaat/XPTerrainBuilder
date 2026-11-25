@@ -173,6 +173,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "pad_airside_renode": "pad_airside_renode_ll",
     # jetway-strip spec §2 (6): the strips, their levels, vertices, clamps
     "jetway_strips": "jetway_strips_ll",
+    # RULINGS 2026-11-25g: the terminal frontages' bands (``frontage_level``)
+    "terminal_frontages": "terminal_frontages_ll",
     # unit-platform spec §4 (5): the platforms, their planes and relief
     "platforms": "platforms_ll",
     # flat-pad spec v2 §5a: the hard rows the feasibility LP relaxed
@@ -702,6 +704,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["pad_airside_renode_ll"] = data.get("pad_airside_renode")
     # jetway-strip spec §2 (6) (absent before the strip law: nothing)
     ctx["jetway_strips_ll"] = data.get("jetway_strips") or None
+    # RULINGS 2026-11-25g (absent before the frontage law: nothing)
+    ctx["terminal_frontages_ll"] = data.get("terminal_frontages") or None
     # unit-platform spec §4 (5) (absent before the platform: nothing)
     ctx["platforms_ll"] = data.get("platforms") or None
     # flat-pad spec v2 §5a (absent before the feasibility check: nothing)

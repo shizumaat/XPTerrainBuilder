@@ -2041,7 +2041,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
-        model.airport model.end_area model.islands model.map_memo model.platform
+        model.airport model.end_area law.inset_class model.islands model.map_memo model.platform
         model.threshold_datum
     geom.plate_bands geom.union_find
     """),
@@ -2055,7 +2055,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
-        model.airport model.end_area model.islands model.map_memo model.platform
+        model.airport model.end_area law.inset_class model.islands model.map_memo model.platform
         model.threshold_datum
     geom.plate_bands geom.union_find
     """),
@@ -2089,7 +2089,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.contiguity constraints.end_lip constraints.gap_follow
         constraints.geometry constraints.precedence constraints.roads constraints.strips
         geom.containment geom.end_line geom.exact geom.lowest_face geom.plate_heights
-        model.deck_ends model.end_area model.islands model.map_memo model.platform
+        model.deck_ends model.end_area law.inset_class model.islands model.map_memo model.platform
         model.threshold_datum
     model.floor_ground
 """),
@@ -2170,7 +2170,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.threshold_seam
         constraints.strips constraints.transverse geom.trend
         constraints.weld_floor geom.base_slab geom.cluster_outline geom.containment
-        geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area
+        geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area law.inset_class
         model.islands model.map_memo model.platform model.threshold_datum
         geom.slope_pad
         constraints.group_level constraints.face_index
@@ -2225,7 +2225,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.proximity constraints.roads
-        constraints.strips geom.containment model.airport model.end_area model.islands
+        constraints.strips geom.containment model.airport model.end_area law.inset_class model.islands
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
@@ -2244,7 +2244,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
-    constraints.strips model.end_area model.threshold_datum
+    constraints.strips model.end_area law.inset_class model.threshold_datum
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
     constraints.deck_runout geom.deck_ground constraints.agp_level model.agp_group
@@ -2260,7 +2260,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
-    constraints.strips model.end_area model.threshold_datum
+    constraints.strips model.end_area law.inset_class model.threshold_datum
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2269,7 +2269,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_lines
         constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
-        model.airport model.end_area model.islands model.map_memo model.platform
+        model.airport model.end_area law.inset_class model.islands model.map_memo model.platform
         model.threshold_datum
     geom.plate_bands geom.union_find
     """),
@@ -2277,7 +2277,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips geom.containment
-        model.airport model.end_area model.islands model.map_memo model.platform
+        model.airport model.end_area law.inset_class model.islands model.map_memo model.platform
         model.threshold_datum
     """),
     "deck_anchor": _mods(_GENERATOR_CORE + """
@@ -2369,7 +2369,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     "strips": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.end_lip constraints.geometry constraints.precedence
-        constraints.strips model.airport model.end_area model.threshold_datum
+        constraints.strips model.airport model.end_area law.inset_class model.threshold_datum
     """),
     "structures": _mods(_GENERATOR_CORE + """
     constraints.airside_top
@@ -2422,7 +2422,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.stretches
         constraints.strips constraints.transverse geom.containment model.airport
-        model.end_area model.islands model.map_memo model.platform model.threshold_datum
+        model.end_area law.inset_class model.islands model.map_memo model.platform model.threshold_datum
         constraints.apron constraints.cluster_pad constraints.face_index constraints.group_level
         constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
         constraints.routes constraints.taxi constraints.taxi_route_yield geom.base_slab
@@ -2453,7 +2453,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips constraints.zones
-        geom.containment model.airport model.end_area model.islands model.map_memo
+        geom.containment model.airport model.end_area law.inset_class model.islands model.map_memo
         model.platform model.threshold_datum
     """),
 }
@@ -2580,7 +2580,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
-    model.constraints model.end_area model.frame model.ground_fit model.hard_plane
+    model.constraints model.end_area law.inset_class model.frame model.ground_fit model.hard_plane
     model.islands model.map_memo model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum pipeline.shapes
     planar.shape_airside planar.shape_mouths
@@ -2688,7 +2688,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     law.flat_site_schema law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
-    model.constraints model.end_area model.frame model.islands model.jetway
+    model.constraints model.end_area law.inset_class model.frame model.islands model.jetway
     model.map_memo model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum
     geom.slope_pad
@@ -2836,7 +2836,7 @@ CODE_MODULES["solve"] = _mods("""
     law.flat_site_schema law.inset_class law.model law.model_types
     law.rebake_schema law.reference_code airport.runway_strip law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
-    model.constraints model.end_area model.frame model.hard_plane model.islands
+    model.constraints model.end_area law.inset_class model.frame model.hard_plane model.islands
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
@@ -3062,7 +3062,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.constraint_codec model.constraints model.end_area model.frame
+    model.airport model.constraint_codec model.constraints model.end_area law.inset_class model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
     model.pad_terrace model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum
@@ -3275,7 +3275,7 @@ CODE_MODULES["emit"] = _mods("""
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.constraints model.end_area model.frame model.hard_plane
+    model.airport model.constraints model.end_area law.inset_class model.frame model.hard_plane
     model.islands model.jetway model.map_memo model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
@@ -3442,7 +3442,7 @@ CODE_MODULES["verify"] = _mods("""
     law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
-    model.constraints model.end_area model.frame model.islands model.map_memo
+    model.constraints model.end_area law.inset_class model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum pipeline.publication
     pipeline.ribbon_steps pipeline.verify_stage planar.cluster planar.shape_airside

@@ -55,6 +55,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom.many_buffers import buffers
 from ..geom.parts import line_parts
 from ..geom.valid_area import valid_area
 from .evidence import polygon_parts
@@ -80,26 +81,45 @@ def _mapped_road(ref: str, evid: _t.Mapping) -> bool:
     return ref.startswith("route")
 
 
-def _beside_road(evid: _t.Mapping, roads, narrow: float, memo: dict):
-    """The ground a 10l arm road or a road strip source is a road on:
-    within one road width (``apron.arm_road_max_width_m``) of a road
-    centreline beyond its own width — ``neck.road_arms``' own "beside"
-    reach.  ``None`` for any other strip.  A strip source with no road
-    mapped beside it carries no road route (21e): all of it may be
-    shoulder.  ``memo`` holds one buffer per reach: it is of the airport's
-    whole road network, the classify stage's dearest operation (#2206)."""
+def _road_reach(evid: _t.Mapping, narrow: float) -> float | None:
+    """The reach a 10l arm road or a road strip source is a road within:
+    one road width (``apron.arm_road_max_width_m``) of a road centreline
+    beyond its own width — ``neck.road_arms``' own "beside" reach.
+    ``None`` for any other strip.  A strip source with no road mapped
+    beside it carries no road route (21e): all of it may be shoulder."""
     if evid.get("arm_road"):
         own = float(evid.get("neck_width_m", narrow))
     elif evid.get("kind") == "strip":
         own = float(evid.get("source_width_m", narrow))
     else:
         return None
-    if roads is None:
+    return narrow + own
+
+
+def _beside_road(evid: _t.Mapping, roads, narrow: float, memo: dict):
+    """The ground a 10l arm road or a road strip source is a road on: the
+    road network buffered at its :func:`_road_reach`; ``None`` for any
+    other strip.  ``memo`` holds one buffer per reach: it is of the
+    airport's whole road network, the classify stage's dearest operation
+    (#2206), so a round takes the reaches it reads at once
+    (:func:`_prefetch_reaches`)."""
+    reach = _road_reach(evid, narrow)
+    if reach is None or roads is None:
         return None
-    reach = narrow + own
     if reach not in memo:
         memo[reach] = _valid(roads.buffer(reach))
     return memo[reach]
+
+
+def _prefetch_reaches(roads, memo: dict, evids, narrow: float) -> None:
+    """The road network's buffers at the reaches of ``evids`` no buffer in
+    ``memo`` holds yet, taken side by side (``geom.many_buffers``: each the
+    serial call's own bytes)."""
+    if roads is None:
+        return
+    todo = {r for r in (_road_reach(e, narrow) for e in evids)
+            if r is not None and r not in memo}
+    memo.update(buffers(roads, todo, _valid))
 
 
 def _own_ground(face, evid: _t.Mapping, roads, narrow: float, memo: dict):
@@ -187,9 +207,46 @@ def _valid(geom):
     return geom if geom.is_valid else valid_area(geom)
 
 
+def _qualifying(face, evid: _t.Mapping, taxi: list, taxi_tree, axes, axis_tree,
+                need: float, reach: float, tol: float, cos_tol: float) -> list[tuple]:
+    """``[(host, par, run)]``: the taxi cells ``face`` shares a qualifying
+    edge with, in the tree's order — the PARALLEL part ``par`` of the
+    shared edge and its run along the cell's centreline at least ``need``."""
+    out = []
+    for j in taxi_tree.query(face.buffer(tol)):
+        host = taxi[int(j)]
+        hp: Polygon = host[2]
+        edge = face.boundary.intersection(_valid(hp.boundary.buffer(tol)))
+        if edge.is_empty or edge.length < need:
+            continue
+        if evid.get("kind") == "strip":
+            # RULINGS 2026-11-21e: a pack road STRIP bordering airside
+            # pavement is its shoulder wherever it carries no mapped
+            # road, along its whole shared edge, centreline parallel
+            # or not (#2223 KBIL: 5,301 m2 of dsf:pol81 along junction
+            # pav8, its long chords parallel to no centreline)
+            par, run = edge, edge.length
+        else:
+            # the cell's own centreline: the taxi axis nearest the
+            # shared edge among those within the route territory
+            near = [axes[int(k)] for k in axis_tree.query(hp.buffer(reach))]
+            if not near:
+                continue
+            mid = edge.centroid
+            axis = min(near, key=lambda a: a.distance(mid))
+            par = _parallel_edge(edge, axis, cos_tol)
+            run = 0.0 if par is None else _run_along(par, axis)
+        if par is None or run < need:
+            continue
+        out.append((host, par, run))
+    return out
+
+
 def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
                 roads, road_memo, stats) -> int:
-    """One pass of the join over ``final``; returns the strips joined."""
+    """One pass of the join over ``final``; returns the strips joined.
+    Every row reads the round's opening ``final``, so the qualifying edges
+    are read first and the road buffers they need taken at once."""
     import math
     need = rules.corridor.runway_shoulder_shared_m
     band_m = rules.corridor.runway_shoulder_max_depth_m
@@ -203,41 +260,26 @@ def _join_round(final, taxi_family, axes, axis_tree, rules, holds_startup,
     taxi_tree = STRtree([r[2] for r in taxi])
     # the parallel test's angle: the corridor sub-role's own "parallel"
     cos_tol = 1.0 - math.cos(math.radians(rules.taxi_subrole.parallel_max_angle_deg))
-    joins = 0
-    out: list[list] = []
+    plans: list[tuple] = []
     for row in final:
-        role, ref, face, letter, evid, kind = row
+        role, ref, face, _letter, evid, _kind = row
         if role not in SHOULDER_HOSTS or _mapped_road(ref, evid) or holds_startup(face):
-            out.append(row)
+            plans.append((row, None, ()))
             continue
         face = _valid(face)
+        plans.append((row, face, _qualifying(face, evid, taxi, taxi_tree, axes, axis_tree,
+                                             need, reach, tol, cos_tol)))
+    _prefetch_reaches(roads, road_memo, [p[0][4] for p in plans if p[2]], narrow)
+    joins = 0
+    out: list[list] = []
+    for row, face, quals in plans:
+        if face is None:
+            out.append(row)
+            continue
+        role, ref, _face, letter, evid, kind = row
         own = None      # read only for a strip with a qualifying edge
         best = None
-        for j in taxi_tree.query(face.buffer(tol)):
-            host = taxi[int(j)]
-            hp: Polygon = host[2]
-            edge = face.boundary.intersection(_valid(hp.boundary.buffer(tol)))
-            if edge.is_empty or edge.length < need:
-                continue
-            if evid.get("kind") == "strip":
-                # RULINGS 2026-11-21e: a pack road STRIP bordering airside
-                # pavement is its shoulder wherever it carries no mapped
-                # road, along its whole shared edge, centreline parallel
-                # or not (#2223 KBIL: 5,301 m2 of dsf:pol81 along junction
-                # pav8, its long chords parallel to no centreline)
-                par, run = edge, edge.length
-            else:
-                # the cell's own centreline: the taxi axis nearest the
-                # shared edge among those within the route territory
-                near = [axes[int(k)] for k in axis_tree.query(hp.buffer(reach))]
-                if not near:
-                    continue
-                mid = edge.centroid
-                axis = min(near, key=lambda a: a.distance(mid))
-                par = _parallel_edge(edge, axis, cos_tol)
-                run = 0.0 if par is None else _run_along(par, axis)
-            if par is None or run < need:
-                continue
+        for host, par, run in quals:
             # NARROW: the strip's mean depth off the edge, a 10l road's own
             # ground left out; the shoulder is the strip in the
             # edge's flat-capped band, so it stops where the taxi cell stops

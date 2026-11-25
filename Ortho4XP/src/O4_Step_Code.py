@@ -548,7 +548,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.scatter",
     "auto_patch_v2.airport.sheet_chain",
     "auto_patch_v2.airport.shell_ground",
-    "auto_patch_v2.airport.shell_seat",
     "auto_patch_v2.airport.skirt",
     "auto_patch_v2.airport.slab_faces",
     "auto_patch_v2.airport.slab_plates",

@@ -531,6 +531,9 @@ def build_arrangement(airport: Airport, classification: Classification,
                                             upper=upper_pad_reads(cells))
         _pad_clip.update(_plat)
         _store_floor_yards(cells, reg)
+        # #2279 step 2: a unit's landside kerb line on its block
+        from .kerb_frontage import publish_kerbs
+        publish_kerbs(cells, pad_regions, reg, airport, _pad_clip)
     # #1333: a covered cutting no lower level took leaves every pad
     # (``planar/covered_cut``; #1179: a pad never fills a cut)
     from .covered_cut import trim_uncut

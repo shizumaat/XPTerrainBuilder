@@ -1168,6 +1168,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     from .ribbon_steps import ribbon_contact_steps
     out.extend(ribbon_contact_steps(planar, law, z))
     out.extend(wall_terrace_joints(planar, law, z))
+    # #2279 step 2: the building's wall under a unit's landside kerb
+    from .kerb_publication import kerb_wall_joints
+    out.extend(kerb_wall_joints(planar, law, z))
     # #2099 G4 W: a ramp wing's walls are its step
     from .wing_wall_joints import wing_wall_joints
     out.extend(wing_wall_joints(planar, law, z))

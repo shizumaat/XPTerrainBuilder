@@ -95,3 +95,50 @@ def test_a_level_of_a_whole_unit_pad_is_its_own_plane():
     out = _split_blocks(planar, [(1, "cluster:u", [10, 11, 20, 21], (1, 2, 3))], groups)
     assert sorted(e[3] for e in out) == [(1,), (2, 3)]
 
+
+
+class _Dem:
+    def __init__(self, f):
+        self.z = f
+
+
+def _landside(dem):
+    """#2279 PHLI, synthetic: a terminal whose landside floor stands a storey
+    (+4.1) over its apron floor; the pack's landside lot reaches the apron
+    along the terminal's whole airside face, in front of the upper parts
+    (inside the storey's plan, under no single part), and past both of the
+    unit's ends for 20 m each."""
+    floor = _part(100.0, -20.0, 140.0, -2.0, 0.0, feet=True)
+    upper = [_part(20.0, 0.0, 60.0, 60.0, 4.1), _part(200.0, 0.0, 250.0, 60.0, 4.1),
+             _part(60.0, 20.0, 200.0, 60.0, 4.1)]
+    ap = _airport([floor, *upper])
+    ap.dem = dem
+    final = [["apron", "apron0", box(-50.0, -100.0, 320.0, 0.0), None, {}, "apron"],
+             ["parking_lot", "lot0", box(0.0, 0.0, 270.0, 100.0), None, {}, "parking_lot"]]
+    return ap, final
+
+
+def test_a_lot_meeting_the_apron_mostly_across_a_storey_is_its_landside():
+    ap, final = _landside(_Dem(lambda x, y: 46.0 + 4.6 * (y > 0)))
+    band = storey_band(ap, LAW, [], final)
+    cuts: dict = {}
+    airside_edge_flip(final, [], LAW, load_rules(), storey=band, storey_cuts=cuts, to_xy=XY)
+    assert final[1][0] == "parking_lot"
+    assert final[1][4][STOREY_Y_KEY] == 4.1 and final[1][4][STOREY_M_KEY] >= 200.0
+    assert knife_storeys(final, cuts, LAW, 1.0, band) == 1
+    back = float(LAW.tables.structures.building_pad.groundside_cutback_m)
+    # the runs past the unit's ends are cut back with the rest; what the lot
+    # drew under the storey's plan stays apron, the lot cut back from it
+    lots = [f for f in final if f[0] == "parking_lot"]
+    under = [f for f in final[2:] if f[0] == "apron"]
+    plan = box(20.0, 0.0, 250.0, 60.0)
+    assert all(f[2].distance(final[0][2]) >= back for f in lots)
+    assert all(f[2].distance(plan) >= back for f in lots)
+    assert sum(f[2].area for f in under) == pytest.approx(plan.area, rel=1e-6)
+
+
+def test_a_landside_the_ground_does_not_confirm_is_still_an_apron():
+    ap, final = _landside(_Dem(lambda x, y: 46.0))
+    airside_edge_flip(final, [], LAW, load_rules(), storey=storey_band(ap, LAW, [], final),
+                      storey_cuts={}, to_xy=XY)
+    assert final[1][0] == "apron"

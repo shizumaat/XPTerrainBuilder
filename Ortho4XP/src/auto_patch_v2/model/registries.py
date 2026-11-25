@@ -25,7 +25,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Registries", "FIELDS", "GROUP_UP"]
+__all__ = ["Registries", "FIELDS", "GROUP_UP", "LANDSIDE_KERB"]
 
 #: the ``witness`` word of an UPPER PAD's level record in ``landings``
 #: (``planar/group_up``, #2068) — read by ``airport/road_ramp.road_terrace``
@@ -36,6 +36,13 @@ GROUP_UP = "group_up"
 #: (``classify/floor_yard``, #2068): ``yard_plane``, ``yard_hull``, ``y_p``
 #: (the unit floor) -- read through ``model/yard_run.yard_records``
 FLOOR_YARD = "floor_yard"
+
+#: the key of a unit block's LANDSIDE KERB records on its ``held`` record
+#: (#2279 step 2, ``planar/kerb_frontage``): ``({"lot", "plan", "y"}, ...)``
+#: -- the lots that meet the unit's storey at its plan edge, the plan
+#: (a shapely geometry, the engine's frame) and the storey's rise over the block's datum
+#: (``constraints/kerb_frontage``)
+LANDSIDE_KERB = "landside_kerb"
 
 
 @_dc.dataclass

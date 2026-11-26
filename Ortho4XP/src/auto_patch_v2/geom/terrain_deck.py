@@ -99,9 +99,14 @@ def target_at(f: TerrainFit, x: np.ndarray, y: np.ndarray, dem: np.ndarray
     ``dem``: the deck surface nearest the ground there (``UNDER_M`` under
     it), or the ground itself where it lies inside the deck's span -- for
     the pack's own ground (``f.ground``) always the top less ``UNDER_M``;
-    without ``f.fill`` the ground is only ever CUT to the top, never raised."""
+    without ``f.fill`` the ground is only ever CUT to the top, never raised.
+    A point on a cell the deck does not cover -- off its box, or inside
+    its box (a notch, a hole) -- keeps its ground and is not under the
+    deck, nor is a covered cell whose surface reads ``nan`` (RULINGS
+    2026-11-26b (2)): no ``nan`` ever reaches the target."""
     lx, lz = f.local(x, y)
     i, j, ok = f.grid.cell_of(lx, lz)
+    ok[ok] = np.isfinite(f.grid.top[i[ok], j[ok]])
     out = np.asarray(dem, dtype=float).copy()
     if ok.any():
         hi = f.z0 + f.grid.top[i[ok], j[ok]] - UNDER_M

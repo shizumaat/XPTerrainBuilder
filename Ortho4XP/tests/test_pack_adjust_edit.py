@@ -226,3 +226,82 @@ def test_the_terrain_row_lists_every_object_and_takes_per_object_answers(pack):
                      objects={"objects/hill.obj": True, "objects/rock.obj": False})
     assert DS.terrain_answers(root) == {}
     assert PC.hidden_terrain(root) == {"objects/hill.obj"}
+
+
+def _all_row(pack):
+    return [r for r in _report(pack)["items"] if r["key"] == "terrain_all"]
+
+
+def test_hide_them_all_hides_every_recognised_object(pack):
+    """RULINGS 2026-11-25l: the row "terrain_all" (listed beside a terrain
+    row with objects, unticked) hides every recognised terrain object,
+    offered or not and whatever the per-object answers; it answers the
+    terrain row too (here "never"), and it reaches the tile's mesh."""
+    from auto_patch_v2.airport import pack_choice as PC
+    root = pack["root"]
+    assert _all_row(pack) == [], "no recognised objects: no row"
+    DS.terrain_models(root, ["objects/hill.obj", "objects/rock.obj"])
+    DS.terrain_paths(root, ["objects/hill.obj"])
+    DS.terrain_answers(root, {"objects/hill.obj": False})       # the user keeps the hill
+    keys = [r["key"] for r in _report(pack)["items"]]
+    assert keys[keys.index("terrain") + 1] == "terrain_all"
+    [row] = _all_row(pack)
+    assert (row["checked"], row["applied"], row["rebuild"], row["count"]) == \
+        (False, False, True, 2)
+    out = AS.adjust_choice(root, "change", 25, 51, items=["ground", "terrain_all"],
+                           shown=["trees", "drapes", "ground", "terrain", "terrain_all"])
+    assert out["state"] == "applied" and out["rebuild"] is True
+    assert DS.TERRAIN.store.choice(root) == "update" and PC.hides_all(root)
+    assert PC.hidden_terrain(root) == {"objects/hill.obj", "objects/rock.obj"}
+    assert DS.terrain_paths(root) == ("objects/hill.obj", "objects/rock.obj")
+    assert all(o["hidden"] for o in DS.terrain_object_rows(root))
+    assert TC._hidden({"resource": "objects/rock.obj"}, root)
+    assert TC._hidden({"resource": "objects/hill.obj", "hideable": True}, root)
+    assert not TC._hidden({"resource": "objects/deck.obj", "hideable": False,
+                           "by": "bridge ends"}, root), "a ground object on bridges is no terrain"
+    [row] = _all_row(pack)
+    assert row["checked"] is True
+    hiding = PC.terrain_hiding(root)
+    assert hiding.every and PC.hides(hiding, "objects/new.obj", False), \
+        "a first build hides what it recognises, offered or not"
+
+
+def test_unticking_the_terrain_row_shows_them_all_again(pack):
+    """The terrain row unticked (the app unticks "hide them all" with it)
+    keeps every object; "hide them all" is forgotten."""
+    from auto_patch_v2.airport import pack_choice as PC
+    root = pack["root"]
+    DS.terrain_models(root, ["objects/hill.obj", "objects/rock.obj"])
+    DS.terrain_paths(root, ["objects/hill.obj"])
+    shown = ["trees", "drapes", "ground", "terrain", "terrain_all"]
+    AS.adjust_choice(root, "change", 25, 51, items=["ground", "terrain", "terrain_all"],
+                     shown=shown)
+    out = AS.adjust_choice(root, "change", 25, 51, items=["ground"], shown=shown)
+    assert out["rebuild"] is True
+    assert not PC.hides_all(root) and PC.TERRAIN_ALL_STORE.choice(root) == ""
+    assert DS.TERRAIN.store.choice(root) == "never"
+    assert PC.hidden_terrain(root) == frozenset()
+    assert not TC._hidden({"resource": "objects/rock.obj"}, root)
+
+
+def test_hide_them_all_off_leaves_the_hiding_as_it_was(pack):
+    """IDENTITY: with no "hide them all" answer the build's hiding, its
+    partition-key digest and the cut read exactly as before (TFFJ / TNCS
+    keep their shells)."""
+    import hashlib
+
+    from auto_patch_v2.airport import pack_choice as PC
+    from auto_patch_v2.airport import partition_cache as PCa
+    root = pack["root"]
+    DS.TERRAIN.store.remember(root, "")
+    DS.terrain_models(root, ["objects/hill.obj", "objects/rock.obj"])
+    DS.terrain_paths(root, ["objects/hill.obj"])
+    hiding = PC.terrain_hiding(root)
+    assert not hiding.every and hiding == {"objects/hill.obj"} and hiding.kept == frozenset()
+    assert not PC.hides(hiding, "objects/rock.obj", False)
+    assert PC.hides(hiding, "objects/rock.obj", True)
+    airport = type("A", (), {"pack": type("P", (), {"pack_root": root})()})()
+    old = hashlib.sha256(repr((["objects/hill.obj"], [])).encode()).hexdigest()
+    assert PCa._hiding_digest(airport) == old
+    PC.TERRAIN_ALL_STORE.remember(root, "update")
+    assert PCa._hiding_digest(airport) != old, "hide them all is part of the reading"

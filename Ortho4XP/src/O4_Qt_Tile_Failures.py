@@ -28,7 +28,7 @@ __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
            "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "BUILD_AGAIN_BUTTON",
            "removable_links", "issues_box", "severity_label",
-           "BUILT_WITH_WARNINGS", "REOPEN_TOOLTIP"]
+           "BUILT_WITH_WARNINGS", "REOPEN_TOOLTIP", "publish_failure_events"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -152,6 +152,29 @@ def removable_links(events, requeued=()) -> list:
                     and entry.get("link")):
                 out.append((event, entry["link"]))
                 break
+    return out
+
+
+def publish_failure_events(failed, seen: set) -> list:
+    """#2226: the ``WorldTilesWaiting.failed`` entries not raised yet
+    (``seen`` holds their ``tile|utc`` keys and is updated), each as a
+    built tile's ``BuildDone`` with that one warning -- what the run's box
+    and console take (Mac: ``BuildModel.raisePublishFailures``)."""
+    import O4_World_Pack as WP
+    from o4_engine.events import BuildDone
+    out = []
+    for entry in tuple(failed or ()):
+        if not isinstance(entry, dict) or not entry.get("tile"):
+            continue
+        key = "%s|%s" % (entry["tile"], entry.get("utc", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            lat, lon = WP.parse_tile(entry["tile"])
+        except ValueError:
+            continue
+        out.append(BuildDone(lat=lat, lon=lon, ok=True, warnings=[entry]))
     return out
 
 

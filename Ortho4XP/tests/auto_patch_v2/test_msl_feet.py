@@ -417,3 +417,26 @@ def test_a_member_with_no_static_solid_rides_its_set(tmp_path):
     conv, msl, _r, _n = _rows(dump, tmp_path)
     assert not conv and {m.index for m in msl} == {0, 1}
     assert abs(msl[0].elevation - msl[1].elevation) < 1e-9
+
+
+def test_a_lone_set_at_terrain_scale_keeps_its_authored_row(tmp_path):
+    """#2250 (FlyTampa LGKR): a town authored in absolute heights over
+    2 km, one ``OBJECT_MSL 0`` row on a grid corner, part of it reaching
+    under its datum (a harbour wall).  Converted it rode the drape at the
+    anchor; voted, one elevation for feet spread over kilometres.  Its
+    authored row stands, and a set under ``terrain_model.MIN_PLAN_M`` is
+    still seated by its feet."""
+    town = _obj(tmp_path, "town.obj", -2.0, 60.0, dx=-600.0)   # 600 m from its anchor
+    big = _obj(tmp_path, "far.obj", 3.0, 40.0, dx=+10.0)
+    dump = types.SimpleNamespace(placements=[_row(town, elevation=0.0),
+                                             _row(big, elevation=0.0)])
+    conv, msl, _r, n = _rows(dump, tmp_path)
+    assert not conv and sorted(m.index for m in msl) == [0, 1]
+    assert all(m.elevation == 0.0 and m.why == MF.AUTHORED_DATUM for m in msl)
+    assert n["msl_datum_sets_kept"] == 1 and n["msl_datum_rows_kept"] == 2
+    # the same pair 6 m across: the feet seat, as before
+    near = _obj(tmp_path, "near.obj", 3.0, 40.0, dx=-6.0)
+    dump = types.SimpleNamespace(placements=[_row(near, elevation=0.0),
+                                             _row(big, elevation=0.0)])
+    _c, msl, _r, n = _rows(dump, tmp_path)
+    assert {m.why for m in msl} == {"geometry_feet"} and "msl_datum_sets_kept" not in n

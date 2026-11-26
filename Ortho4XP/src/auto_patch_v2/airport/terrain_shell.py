@@ -127,7 +127,8 @@ def small_match(shape: _t.Any, xy: tuple[float, float], heading: float,
                 water: "_t.Callable | None" = None) -> "dict[str, float] | None":
     """THE MATCH and THE SEAT of one placement of a small shell (module
     doc): ``terrain_model.match``'s record, or ``None``.  ``datum``: the
-    row's ``OBJECT_MSL`` elevation (``None``: not an ``OBJECT_MSL`` row)."""
+    row's ``OBJECT_MSL`` elevation (``None``: not an ``OBJECT_MSL`` row;
+    a rock's other rows, ``terrain_rock``, go to ``terrain_rock.rock_match``)."""
     from . import terrain_model as _tm
     if datum is None:
         return None

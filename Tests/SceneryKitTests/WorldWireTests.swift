@@ -88,7 +88,14 @@ import Foundation
             Issue.record("WorldTilesWaiting did not decode as .worldTilesWaiting")
             return
         }
-        #expect(waiting == O4WorldTilesWaiting(waiting: ["+41-088"], reload: ["+45+007"]))
+        #expect(waiting.waiting == ["+41-088"] && waiting.reload == ["+45+007"])
+        // #2226: a built tile the World pack refused, in the engine's words.
+        let failed = try #require(waiting.failed.first)
+        #expect(failed.tile == "+46-115" && failed.key == "+46-115|2026-11-26T05:00:00Z")
+        #expect(failed.failure.code == "world_publish_failed" && failed.failure.severity == "degraded")
+        #expect(waiting.failure(tile: "+46-115")?.what.hasPrefix("Tile +46-115 was built, but it did not go into X-Plane") == true)
+        #expect(O4WorldStateText.waitingNote(tile: "+46-115", waiting)
+                .hasSuffix("Build the tile again. If it fails again, press Report this problem."))
         #expect(O4WorldStateText.waitingNote(tile: "+41-088", waiting)
                 == "+41-088 is waiting for X-Plane to finish loading it")
         #expect(O4WorldStateText.waitingNote(tile: "+45+007", waiting)

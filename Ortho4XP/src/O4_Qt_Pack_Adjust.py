@@ -23,7 +23,10 @@ rows, ticked as the pack is now, and the "Optimise pack" steps
 **Apply** sends ``action="change"`` with ``items``, ``shown`` and
 ``steps`` (and ``objects``: the terrain row lists every terrain object
 the last build recognised, each ticked when the row hides it -- the
-per-object override of #2272, path -> hidden); **Cancel** sends nothing.
+per-object override of #2272, path -> hidden; RULINGS 2026-11-25l: the
+row ``terrain_all`` hides them all -- its tick ticks ``terrain``, an
+untick of ``terrain`` unticks it, and while it is ticked the per-object
+boxes are not the user's to move); **Cancel** sends nothing.
 A row the tile's mesh reads (``rebuild``: the terrain objects) says so (:data:`REBUILD_NOTE`), and
 while its tick differs from how the pack is, Apply reads
 :data:`APPLY_REBUILD_BUTTON` — the window rebuilds the tile when the
@@ -59,6 +62,7 @@ ITEM_TITLES = {
     "drapes": "Hide draped orthophotos included with the package",
     "ground": "Hide large ground textures included with the package",
     "terrain": "Hide terrain objects included with the package",
+    "terrain_all": "Hide all of the package’s terrain and rock objects",
     "generic": "Hide generic X-Plane ground textures the package drapes",
     "flatten": "Remove the airport’s flatten flag (always)",
 }
@@ -74,6 +78,9 @@ ITEM_DETAILS = {
                 "that the tile’s detailed elevation data already describes. "
                 "The package’s other objects are then placed on that "
                 "terrain."),
+    "terrain_all": ("All {n} objects that model hills, cliffs or rocks are "
+                    "hidden, even where the tile’s elevation data does not "
+                    "match them, and the ground follows the elevation data."),
     "generic": ("{n} stock X-Plane grass, sand or scrub textures ({uses} "
                 "polygons, about {ha} ha) cover the tile’s imagery."),
     "flatten": ("The apt.dat asks X-Plane to flatten the airport, which "
@@ -104,6 +111,9 @@ REBUILD_LATER = ("Rebuild tile {tile} to finish the change to "
 REBUILD_QUEUED = ("Tile {tile} will be rebuilt when this run finishes, to "
                   "match the change to {pack}’s terrain objects.")
 REBUILDING = "Rebuilding tile {tile} to match: terrain objects {change} in “{pack}”."
+# the terrain row's "hide them all" (RULINGS 2026-11-25l, capability
+# ``pack_terrain_all``; ``auto_patch.adjust_edit.ALL_KEY``)
+TERRAIN_ALL = "terrain_all"
 # the terrain row's per-object choice (#2272, owner 2026-11-24T15:33Z)
 TERRAIN_OBJECTS_HEADING = "Terrain objects to hide:"
 TERRAIN_OBJECT_MATCHED = ("The tile’s detailed elevation matches it: hidden "
@@ -217,6 +227,7 @@ class _PackAdjustBox(ChoiceDialog):
         self.apply.setDefault(True)
         self._buttons.clicked.connect(self._on_clicked)
         lay.addWidget(self._buttons)
+        self._couple_terrain()
         self._relabel()
 
     @staticmethod
@@ -246,9 +257,27 @@ class _PackAdjustBox(ChoiceDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(inner)
         scroll.setMaximumHeight(220)
+        self._object_panel = inner
         inner.setEnabled(row_box.isChecked())
         row_box.toggled.connect(inner.setEnabled)
         lay.addWidget(scroll)
+
+    def _couple_terrain(self) -> None:
+        """"Hide them all" and the terrain row move together (RULINGS
+        2026-11-25l: the first refines the second); the objects' boxes are
+        usable while the terrain row is ticked and "hide them all" is not."""
+        every, row = self.item_boxes.get(TERRAIN_ALL), self.item_boxes.get("terrain")
+        if every is None or row is None:
+            return
+        every.toggled.connect(lambda on: on and row.setChecked(True))
+        row.toggled.connect(lambda on: on or every.setChecked(False))
+        panel = getattr(self, "_object_panel", None)
+        if panel is not None:
+            def usable(*_a):
+                panel.setEnabled(row.isChecked() and not every.isChecked())
+            row.toggled.connect(usable)
+            every.toggled.connect(usable)
+            usable()
 
     def rebuilds(self) -> bool:
         """A row the tile's mesh reads is ticked otherwise than the pack,

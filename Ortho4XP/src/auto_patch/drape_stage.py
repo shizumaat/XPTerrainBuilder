@@ -237,13 +237,17 @@ def terrain_paths(pack_root: str, paths: _t.Iterable[str] | None = None
     """The terrain objects the row hides for the pack: the offer --
     ``paths`` (a build's, remembered now) or, with ``None``, the last
     build's -- as the user's per-object answers move it (#2272,
-    ``pack_terrain.offered``)."""
+    ``pack_terrain.offered``); with every object the build recognised
+    where the pack hides them all (RULINGS 2026-11-25l,
+    ``pack_choice.hides_all``)."""
     from auto_patch_v2.airport import pack_terrain as _pt
     if paths is None:
         found = _pt.decode(_FOUND.choice(pack_root))
     else:
         found = tuple(sorted(set(paths)))
         _FOUND.remember(pack_root, _pt.encode(found))
+    if _PC.hides_all(pack_root):
+        return tuple(sorted(set(found) | set(terrain_models(pack_root))))
     return _pt.offered(found, terrain_answers(pack_root))
 
 
@@ -274,10 +278,14 @@ def terrain_answers(pack_root: str, ticks: _t.Mapping[str, bool] | None = None
 
 
 def terrain_object_rows(pack_root: str) -> list[dict]:
-    """The terrain row's ``objects`` (#2272, ``pack_terrain.object_rows``)."""
+    """The terrain row's ``objects`` (#2272, ``pack_terrain.object_rows``):
+    each ``hidden`` where the pack hides them all (``pack_choice.hides_all``)."""
     from auto_patch_v2.airport import pack_terrain as _pt
-    return _pt.object_rows(terrain_models(pack_root), _pt.decode(_FOUND.choice(pack_root)),
+    rows = _pt.object_rows(terrain_models(pack_root), _pt.decode(_FOUND.choice(pack_root)),
                            terrain_answers(pack_root))
+    if _PC.hides_all(pack_root):
+        rows = [dict(r, hidden=True) for r in rows]
+    return rows
 
 
 def _edge_photos(pack_root: str, lat: int, lon: int, read_only: bool

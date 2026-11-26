@@ -10,7 +10,8 @@ holds only those), Export Package… and Remove from World Pack… (its
 package first, then the placeholder: ``o4_engine.world_tile_remove``;
 confirmed first).  A built tile waiting for X-Plane to finish loading it,
 or in over the version X-Plane loaded, says so, the latter with "Reload
-scenery" (#2175, ``WorldTilesWaiting``, ``TEXT.waiting_note``).  Hidden
+scenery" (#2175, ``WorldTilesWaiting``, ``TEXT.waiting_note``); one that
+did not go in at all says why and what to do (#2226).  Hidden
 when the World pack holds nothing of the tile and nothing waits.
 """
 from __future__ import annotations
@@ -90,7 +91,7 @@ class TileWorldRow(QWidget):
         self._note_ready.connect(self._show_note)
         self._tile = None
         self._shown = None
-        self._waiting = ((), ())
+        self._waiting = ((), (), ())
         self.scenery_dir = ""
         self.setVisible(False)
 
@@ -122,7 +123,8 @@ class TileWorldRow(QWidget):
     def show_waiting(self, event) -> None:
         """A ``WorldTilesWaiting``: its names, and the row again."""
         self._waiting = (tuple(getattr(event, "waiting", ()) or ()),
-                         tuple(getattr(event, "reload", ()) or ()))
+                         tuple(getattr(event, "reload", ()) or ()),
+                         tuple(getattr(event, "failed", ()) or ()))
         if self._shown is not None:
             self.show_world(*self._shown)
 

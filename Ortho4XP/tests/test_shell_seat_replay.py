@@ -49,3 +49,29 @@ def test_records_and_the_two_seats(tmp_path):
     assert rep["author"]["rim_gap_m"] == pytest.approx(2.5, abs=0.05)
     assert rep["skirt"]["rim_gap_m"] == 0.0
     assert rep["skirt"]["through_m2"] > rep["author"]["through_m2"] > 0.0
+
+
+def test_the_run_out_fill_is_replayed_and_what_floats_is_placed(tmp_path):
+    # RULINGS 2026-11-25l (3): a rock whose skirt runs out (``fill_z0``) has
+    # our ground raised to its rim before the seat; inside the patch it is
+    # never raised, and what still floats is counted there
+    import shapely
+    TTM._write(tmp_path, "rock.obj", TSS._mesa, half=TSS.HALF, step=1.0, hard=False)
+    rows = [{"verdict": "rock", "resource": "rock.obj", "z0": TSS.Z0, "lat": TSS.LAT,
+             "lon": TSS.LON, "heading": 0.0, "fill_z0": TSS.Z0 - 4.5}]
+    recs = SSR.shell_records(rows, str(tmp_path))
+    assert recs[0]["fill_z0"] == TSS.Z0 - 4.5
+    surf = SSR.surface_of(_Mesh(lambda x, y: TSS.Z0 - 10.0))      # 10 m under its rim
+    filled, reps = SSR.filled_surface(recs, surf, None, 5.0)
+    assert reps["shell0"]["raised"] > 0 and reps["shell0"]["in_patch"] == 0
+    (rep,) = SSR.measure(recs, filled)
+    assert rep["fixed"] and rep["skirt"]["rim_gap_m"] <= 0.5
+    left = SSR.floating(recs[0], rep["dz"], filled, None, 5.0)
+    assert left["floating_free"] == 0
+    patch = shapely.box(TSS.LON - 0.01, TSS.LAT - 0.01, TSS.LON + 0.01, TSS.LAT + 0.01)
+    held, reps = SSR.filled_surface(recs, surf, patch, 5.0)
+    rep0 = reps["shell0"]
+    assert rep0["raised"] == 0 and rep0["in_patch"] == rep0["stations"]
+    (rep,) = SSR.measure(recs, held)
+    left = SSR.floating(recs[0], rep["dz"], held, patch, 5.0)
+    assert left["floating_in_patch"] > 0 and left["floating_free"] == 0

@@ -5,5 +5,21 @@
  ],
  "reload": [
   "+45+007"
+ ],
+ "failed": [
+  {
+   "code": "world_publish_failed",
+   "severity": "degraded",
+   "what": "Tile +46-115 was built, but it did not go into X-Plane: the World pack kept its previous version of the tile.",
+   "why": "Files its scenery names were missing or unreadable when it was copied into the World pack.",
+   "cells": [],
+   "remedy": "Build the tile again. If it fails again, press Report this problem.",
+   "airports": [],
+   "link": "",
+   "detail": "+46-115.ter: missing ../a.dds",
+   "log_path": "",
+   "tile": "+46-115",
+   "utc": "2026-11-26T05:00:00Z"
+  }
  ]
 }

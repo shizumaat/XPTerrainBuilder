@@ -374,6 +374,18 @@ CATALOGUE = {
         "its new scenery file could not be put in place.",
         "The finished file could not be moved into the tile's folder.",
         "retry"),
+    # a BUILT tile the World pack refused or could not take (#2226,
+    # ``o4_engine.world_publish_failed``): the pack keeps its previous
+    # version, so X-Plane does not show the new build
+    "world_publish_failed": Entry(
+        "it did not go into X-Plane: the World pack kept its previous "
+        "version of the tile.",
+        "{reason}", "retry", severity="degraded", domain="scenery"),
+    "world_publish_no_space": Entry(
+        "it did not go into X-Plane: the World pack kept its previous "
+        "version of the tile.",
+        "There was no room left on the disk to copy it into the World "
+        "pack.", "disk", severity="degraded", domain="scenery"),
     # the tile's folder in Custom Scenery is a link whose target is
     # missing — a drive not mounted (#668, ``O4_Unmounted_Links``)
     "output_link_unmounted": Entry(

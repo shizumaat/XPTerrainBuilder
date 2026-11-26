@@ -13,7 +13,10 @@ raster under the plan is cut to the object's surface
 (``auto_patch_v2.airport.terrain_cut``, which carries the consumer
 census) and the plan's edge goes into the vector map as a constrained
 line.  The mesh step's refinement re-bake (``tile.iterate``) calls
-:func:`bake` again on the raster it rewrites.
+:func:`bake` again on the raster it rewrites.  A terrain model's SKIRT
+(``terrain_cut`` THE SKIRT, owner RULINGS 2026-11-26b (4)) is read on the
+raster before any cut (:func:`_skirt`) and never cut: our ground covers
+it, no moat.
 
 THE HOLD (#2053 round 3, ``auto_patch_v2.airport.terrain_cut`` THE
 HOLD): a record whose ``cut`` names ``erode_m`` (an object carrying
@@ -27,7 +30,9 @@ model's record (no ``erode_m``) is not held.
 THE FILL (#2077 rule B, ``auto_patch_v2.airport.terrain_fill``): after
 every cut, a relief skin's ZERO PLANE (``cut["plane"]``) conforms the
 ground under its town to its frame zero, then every record whose ``cut``
-carries ``"fill": true`` has the ground raised to its outer rim.  Neither
+carries ``"fill": true`` has the ground raised to its outer rim -- a
+rock whose skirt runs out too (its shell record's ``fill_z0``,
+:func:`_run_out`; its ``cut`` is ``rim_only``: never cut).  Neither
 touches the tile's edge postings nor an airport patch's boundary
 (``patch_area``: the vector step's ``patches_area``, the mesh step's
 ``O4_Mesh_Utils.patch_coverage_polygon``), and a rim fill stays clear of
@@ -67,7 +72,7 @@ import numpy as np
 from auto_patch_v2.airport import pack_choice as _PC
 
 __all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
-           "write_alt", "unfill_water", "refill_land"]
+           "write_alt", "unfill_water", "refill_land", "run_out_fill"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
@@ -77,11 +82,15 @@ _EDGE_POSTS = 2
 def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
     """The user hides this model: the pack's "Hide terrain objects" answer
     is ``update`` and it is offered (``hideable``) -- as the user's
-    per-object answers move it (#2272, ``pack_terrain.offered``)."""
+    per-object answers move it (#2272, ``pack_terrain.offered``); every
+    model where the pack hides them all (``pack_choice.hides_all``)."""
     if _PC.TERRAIN_STORE.choice(pack_root) != "update":
         return False
-    from auto_patch_v2.airport import pack_terrain as _pt
     res = str(rec.get("resource", ""))
+    if _PC.hides_all(pack_root):        # a ground object on its bridges is no terrain
+        return not rec.get("by") and (bool(rec.get("hideable"))
+                                      or res in _PC.hidden_terrain(pack_root))
+    from auto_patch_v2.airport import pack_terrain as _pt
     return res in _pt.offered([res] if rec.get("hideable") else [],
                               _PC.terrain_answers(pack_root))
 
@@ -105,10 +114,23 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
             continue
         root = str(plan.get("pack_root") or "")
         for rec in plan.get("authored_seats") or ():
-            if (isinstance(rec, dict) and rec.get("seat") == _tm.SEAT
-                    and isinstance(rec.get("cut"), dict) and not _hidden(rec, root)):
+            if (not isinstance(rec, dict) or rec.get("seat") != _tm.SEAT
+                    or _hidden(rec, root)):
+                continue
+            if isinstance(rec.get("cut"), dict):
                 out.append(dict(rec, icao=plan.get("icao", "")))
+            elif isinstance(rec.get("shell"), dict) and rec.get("fill_z0") is not None:
+                out.append(_run_out(rec, plan.get("icao", "")))
     return out
+
+
+def _run_out(rec: _t.Mapping[str, _t.Any], icao: str) -> dict[str, _t.Any]:
+    """THE RUN-OUT FILL of a rock (``terrain_rock.fill_seat``, RULINGS
+    2026-11-25l (3)): its shell record as a rim-fill record -- ``cut`` its
+    plan with ``fill`` and ``rim_only`` (the ground under it is never cut:
+    raise only), ``elevation`` the seat it will take (``fill_z0``)."""
+    return dict(rec, icao=icao, elevation=float(rec["fill_z0"]),
+                cut=dict(rec["shell"], fill=True, rim_only=True))
 
 
 def _fill_band(raster) -> tuple[float, float]:
@@ -135,7 +157,33 @@ def _fit(rec, band: tuple[float, float] | None = None):
     reach = band if band is not None and c.get("fill") else (_tc.BAND_M, None)
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
                        float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)),
-                       float(reach[0]), reach[1])
+                       float(reach[0]), reach[1], rec.get("skirt"))
+
+
+def _skirted(rec: _t.Mapping[str, _t.Any]) -> bool:
+    """A record whose skirt is never cut (``terrain_cut`` THE SKIRT): a
+    terrain model's -- not a ground object's (``erode_m`` / ``floor_m``)
+    nor a rock's run-out fill (``rim_only``)."""
+    c = rec["cut"]
+    return not (c.get("rim_only") or "erode_m" in c or "floor_m" in c)
+
+
+def _skirt(dem, tile, rec) -> "np.ndarray | None":
+    """THE SKIRT of one record (``terrain_cut.buried_skirt``) on the uncut
+    raster: its plan cells' ground, bilinear, over the record's zero;
+    ``None`` where its file cannot be read."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
+    c = rec["cut"]
+    grid = _tm.plan_grid(str(c["file"]))
+    if grid is None:
+        return None
+    _xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
+    ii, jj = np.nonzero(grid.covered)
+    lons, lats = to_ll(*_tm._world(grid, ii, jj, (0.0, 0.0), float(c["heading"])))
+    ground = np.full(grid.bot.shape, np.nan)
+    ground[ii, jj] = _raster(dem, tile, None).sample(lons, lats) - float(rec["elevation"])
+    return _tc.buried_skirt(grid, ground)
 
 
 def _cut_one(dem, tile, rec) -> int:
@@ -184,16 +232,29 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
     if records is None:
         records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
     total = 0
-    for rec in records:
+    # THE SKIRT is read on the raster before any cut (``terrain_cut``)
+    skirts = {}
+    for k, rec in enumerate(records):
+        if not rec["cut"].get("rim_only") and _skirted(rec):
+            try:
+                skirts[k] = _skirt(dem, tile, rec)
+            except Exception as exc:
+                UI.vprint(1, f"   terrain model {rec.get('resource')}: no skirt read ({exc})")
+    for k, rec in enumerate(records):
+        if rec["cut"].get("rim_only"):
+            continue
+        skirt = skirts.get(k)
         try:
-            k = _cut_one(dem, tile, rec)
+            n = _cut_one(dem, tile, rec if skirt is None else dict(rec, skirt=skirt))
         except Exception as exc:
             UI.vprint(1, f"   terrain model {rec.get('resource')} not cut ({exc})")
             UI.vprint(2, traceback.format_exc())
             continue
-        total += k
+        total += n
+        kept = "" if skirt is None else (f", its skirt ({int(skirt.sum())} plan cell(s)) "
+                                         f"left buried")
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
-                     f"({rec.get('id')}): the ground under it cut at {k} posting(s)")
+                     f"({rec.get('id')}): the ground under it cut at {n} posting(s){kept}")
     dem.terrain_fill_delta = None
     if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:
@@ -229,13 +290,34 @@ def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | No
         return None
     c = rec["cut"]
     to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
-    ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
-    sx, sy = _tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))
+    if c.get("rim_only"):
+        sxy, sz = _run_out_supports(rec, to_xy)
+    else:
+        ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
+        sxy = np.c_[_tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))]
+        sz = float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M
     plane = (c.get("plane") or {}).get("rings") or ()
     rings = tuple(np.asarray(r, float) for r in [*_tc.outline_rings(fit, to_ll), *plane])
-    return _Composite(rec, fit, to_xy, to_ll, np.c_[sx, sy],
-                      float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M,
-                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)))
+    return _Composite(rec, fit, to_xy, to_ll, sxy, sz, _tf.Owned(rings),
+                      _tf.Owned(tuple(np.asarray(r, float) for r in plane)))
+
+
+def _run_out_supports(rec, to_xy) -> tuple[np.ndarray, np.ndarray]:
+    """A run-out fill's supports (:func:`_run_out`): the skirt seat's own
+    stations (``shell_seat.stations``: where the seat reads our ground,
+    ``shape_class.OUTSIDE_M`` outside the outline), each at the skirt's
+    lowest surface there at the seat it will take (``elevation``) plus
+    ``UNDER_M`` -- raised to it, our ground buries the skirt's bottom and
+    the seat closes there (``shell_seat`` THE SEAT: ``need >= dz``)."""
+    from auto_patch_v2.airport import shell_seat as _ss
+    from auto_patch_v2.geom.terrain_deck import UNDER_M
+    pl = _ss.placed(dict(rec, shell=rec["cut"]))
+    if pl is None:
+        return np.zeros((0, 2)), np.zeros(0)
+    _ij, lons, lats, low = _ss.stations(pl)
+    ok = np.isfinite(low)
+    x, y = to_xy(lons[ok], lats[ok])
+    return np.c_[x, y], float(rec["elevation"]) + low[ok] + UNDER_M
 
 
 def _raster(dem, tile, patch_area):
@@ -285,12 +367,59 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
     return None if c1 < c0 or r1 < r0 else (r0, r1, c0, c1)
 
 
+def _bound(members) -> _t.Callable:
+    """``cap(lons, lats)``: the cut bound of the composites ``members`` at
+    postings (``inf`` off their plans).  A run-out fill's (``rim_only``,
+    :func:`_run_out_cap`) is its rock's own top at its seat.  THE BOX'S
+    GAPS (RULINGS 2026-11-26b (2), every terrain shell): a posting inside
+    a plan's box that its plan does not cover is bounded by no member --
+    ``inf``, never ``nan`` (which ``np.minimum`` would carry into the rim
+    fill, and no posting is raised past ``nan``)."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+
+    def cap(lons, lats):
+        out = np.full(len(lons), np.inf)
+        for c in members:
+            if c.rec["cut"].get("rim_only"):
+                z = _run_out_cap(c.rec, lons, lats)
+            else:
+                z = _tc.cut_heights(c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
+            out = np.minimum(out, np.where(np.isnan(z), np.inf, z))
+        return out
+    return cap
+
+
+def _run_out_cap(rec, lons, lats) -> np.ndarray:
+    """A run-out fill's bound (RULINGS 2026-11-25a (1): the edge band may be
+    buried): our ground is raised to its rock's TOP at the seat it will
+    take (``elevation``) and never over it -- not its cut bound, which
+    holds a model's ground under its rim's bottom; ``inf`` off its plan."""
+    from auto_patch_v2.airport import shell_seat as _ss
+    pl = _ss.placed(dict(rec, shell=rec["cut"]))
+    if pl is None:
+        return np.full(len(lons), np.inf)
+    top = pl.top_at(np.asarray(lons, float), np.asarray(lats, float))
+    return np.where(np.isfinite(top), float(rec["elevation"]) + top, np.inf)
+
+
+def run_out_fill(raster, rec: _t.Mapping[str, _t.Any]) -> dict[str, int]:
+    """THE RUN-OUT FILL (:func:`_run_out`) of one rock's shell record
+    alone on a ``terrain_fill.Raster`` -- the arm ``tools/shell_seat_replay
+    --dem`` replays (the build fills every record together, :func:`bake`):
+    ``terrain_fill.rim_fill``'s report, ``{}`` where its file is unread."""
+    from auto_patch_v2.airport import terrain_fill as _tf
+    c = _composite(_run_out(rec, str(rec.get("icao", ""))), _fill_band(raster))
+    if c is None:
+        return {}
+    return _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, _bound([c]),
+                        [c.floor])
+
+
 def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
     """THE FILL (module doc): every plane, then every rim fill; the
     postings changed and the change (:func:`write_unfill`'s record, the
     planes' and fills' ``alt - before`` at the postings they moved)."""
     import O4_UI_Utils as UI
-    from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
     raster = _raster(dem, tile, patch_area)
     band = _fill_band(raster)
@@ -300,15 +429,6 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
         return 0, None
     r0, r1, c0, c1 = win
     before = dem.alt_dem[r0:r1 + 1, c0:c1 + 1].astype(np.float32, copy=True)
-
-    def bound(members):
-        def cap(lons, lats):
-            out = np.full(len(lons), np.inf)
-            for c in members:
-                out = np.minimum(out, _tc.cut_heights(c.fit, c.to_xy, lons, lats,
-                                                      np.full(len(lons), np.inf))[0])
-            return out
-        return cap
     total = 0
     for c in comps:
         plane = c.rec["cut"].get("plane")
@@ -319,10 +439,10 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
         padx = pad / max(np.cos(np.radians(float(ll[:, 1].mean()))), 1e-6)
         # floors win in the owned zone (R4): its own members' bound holds
         # everywhere, another composite's only beyond W of the footprint
-        k = _tf.conform_plane(raster, c.to_xy, plane["rings"], float(plane["z"]), bound([c]),
+        k = _tf.conform_plane(raster, c.to_xy, plane["rings"], float(plane["z"]), _bound([c]),
                               (ll[:, 0].min() - padx, ll[:, 1].min() - pad,
                                ll[:, 0].max() + padx, ll[:, 1].max() + pad),
-                              bound([o for o in comps if o is not c]))
+                              _bound([o for o in comps if o is not c]))
         total += k
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain composite {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground of its zero footprint conformed to "
@@ -332,7 +452,7 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
             continue
         # floors win -- its own town's floor too: a cliff's crest never
         # raises the zero footprint at its foot through the cliff
-        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, bound([c]),
+        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, _bound([c]),
                            [o.owned for o in comps if o is not c] + [c.floor])
         total += rep["raised"]
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain model {c.rec.get('resource')} "

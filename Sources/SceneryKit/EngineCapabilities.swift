@@ -94,6 +94,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// The terrain row's per-object override in Adjust… (#2272): its
     /// `objects` and `pack_adjust` `objects`.
     public static let packTerrainObjects = "pack_terrain_objects"
+    /// The terrain row's "hide them all" in Adjust… (RULINGS 2026-11-25l):
+    /// the row `terrain_all` (`O4PackAdjustItem.terrainAllKey`).
+    public static let packTerrainAll = "pack_terrain_all"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

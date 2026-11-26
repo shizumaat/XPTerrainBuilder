@@ -34,14 +34,28 @@ rim) -- with ``water_rim`` (the share of its outer rim over the tile's
 cached water layers, ``O4_Vector_Map.cached_tile_water``; ``None`` where
 none is cached) and the hide offer of the new quality test.  An
 ``OBJECT_MSL`` row is read like any other (llows), its datum beside it.
+
+ROCKS (RULINGS 2026-11-25j/l, ``auto_patch_v2/airport/terrain_rock``):
+gate count ``rock`` (its witness passes) and ``refused`` (a candidate in a
+rock's plan and relief range the candidate gates or the witness refuse);
+per plain / ``OBJECT_AGL`` row of a rock, verdict ``rock`` with its
+``witness`` values (``rock_witness.features``: sheet, base, top, wall,
+right, axis) and ``fill_z0`` (``terrain_rock.fill_seat``: the run-out fill
+the build would make, ``None`` for none).  Listed beside the rows, not in
+them: ``refused`` (per file: the gates failed, the values, its rows),
+``rock_unmatched`` (a rock row off its ground or whose rim floats) and
+``msl_rock_rows`` (a rock with no small shell on an ``OBJECT_MSL`` row:
+never read).
 """
 from __future__ import annotations
 
 import argparse
+import functools
 import glob
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +72,7 @@ _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import relief_skin as RS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
+from auto_patch_v2.airport import terrain_rock as TR  # noqa: E402
 from auto_patch_v2.airport import terrain_shell as TS  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
@@ -123,16 +138,42 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
     return read
 
 
+_TILE = re.compile(r"^([+-]\d{2})([+-]\d{3})\.dsf$", re.I)
+_VT = re.compile(rb"^VT[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)", re.M)
+
+
+def _vt_prefilter(path: str) -> bool:
+    """May the OBJ8 be any family's candidate, read off its ``VT`` rows
+    without a parse?  None spans under ``TS.SHELL_MIN_PLAN_M``; under
+    ``TM.MIN_PLAN_M`` only a shell or a rock, whose height spans at least
+    ``TR.ROCK_MIN_RELIEF_M``."""
+    try:
+        with open(path, "rb") as fh:
+            rows = _VT.findall(fh.read())
+        if not rows:
+            return False
+        span = np.ptp(np.array(rows, dtype=float), axis=0)
+    except (OSError, ValueError):
+        return True
+    plan = float(max(span[0], span[2]))
+    return plan >= TM.MIN_PLAN_M or (plan >= TS.SHELL_MIN_PLAN_M
+                                     and float(span[1]) >= TR.ROCK_MIN_RELIEF_M)
+
+
 def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
-    ground shell's Shape is keyed ``("ground", path)``."""
+    ground shell's Shape is keyed ``("ground", path)``, a rock candidate
+    the witness refuses ``("refused", path)`` (``terrain_rock.rock_verdict``'s
+    ``(values, failed gates)``)."""
     gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0,
-             "shell": 0}
+             "shell": 0, "rock": 0, "refused": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
             continue
         gates["objects"] += 1
+        if not _vt_prefilter(path):
+            continue
         try:
             g = parse_obj8(path)
         except (OSError, ValueError):
@@ -147,9 +188,14 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
             gates["skin"] += 1
             shapes[("skin", rel)] = skin
         if TM._plan_m(g) < TM.MIN_PLAN_M:
-            small = TS.small_shape(path, g)
+            small = TM.shape_of(path, g)          # a small shell, a rock, or both
+            got = None if small is not None and small.rock else TR.rock_verdict(path, g)
+            if got is not None and got[1]:
+                gates["refused"] += 1
+                shapes[("refused", rel)] = got
             if small is not None:
-                gates["shell"] += 1
+                gates["shell"] += int(not small.rock_only)
+                gates["rock"] += int(small.rock)
                 shapes[rel] = small
             continue
         gates["plan"] += 1
@@ -188,20 +234,27 @@ def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
     return defs, rows
 
 
-def water_reader(lat: int, lon: int, lon0: float, lat0: float):
-    """``water(xs, ys) -> (wet, level)`` over the tile's CACHED water layers
-    in metres east / north of ``(lon0, lat0)`` (the engine's own
-    ``TileWater``), or ``None`` where none can be read."""
+@functools.lru_cache(maxsize=8)
+def _tile_water(lat: int, lon: int):
+    """The engine's ``TileWater`` of the tile's CACHED water layers, read
+    once per tile, or ``None``."""
     try:
         import O4_Config_Utils as CFG
         import O4_Vector_Map as VMAP
         from auto_patch_v2.airport.dem_production import TileWater
         t = CFG.Tile(lat, lon, "")
         t.read_from_config()
-        w = TileWater(lat, lon, *VMAP.cached_tile_water(t))
+        return TileWater(lat, lon, *VMAP.cached_tile_water(t))
     except Exception:
         return None
-    if not w.has_data:
+
+
+def water_reader(lat: int, lon: int, lon0: float, lat0: float):
+    """``water(xs, ys) -> (wet, level)`` over the tile's CACHED water layers
+    in metres east / north of ``(lon0, lat0)`` (the engine's own
+    ``TileWater``), or ``None`` where none can be read."""
+    w = _tile_water(lat, lon)
+    if w is None or not w.has_data:
         return None
     mlat = 111_320.0
     mlon = mlat * math.cos(math.radians(lat0))
@@ -214,14 +267,16 @@ def water_reader(lat: int, lon: int, lon0: float, lat0: float):
     return read
 
 
-def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
+def _model_row(shape, hdg: float, dem, fine, water, datum=None, rock: bool = False) -> dict:
     """A terrain model row's both seats, its wet-rim share and its offer
-    (a small shell, ``terrain_shell``, is matched at its ``datum``)."""
-    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water, datum)
+    (a small shell, ``terrain_shell``, is matched at its ``datum``; a rock
+    row, ``rock``, at its ``terrain_rock.row_datum``)."""
+    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water, datum, rock)
     if m is None:
         return {"verdict": "no DEM match" if datum is not None or not shape.small
                 else "not msl"}
-    rec = {"verdict": "terrain shell" if shape.small else "terrain model",
+    rec = {"verdict": "rock" if rock else "terrain shell" if shape.small
+           else "terrain model",
            **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items()}}
     rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
     if water is not None:
@@ -233,16 +288,55 @@ def _model_row(shape, hdg: float, dem, fine, water, datum=None) -> dict:
     return rec
 
 
+@functools.lru_cache(maxsize=512)
+def _geometry(pack_root: str, resource: str):
+    """A pack resource's parsed OBJ8 (``None``: a library path or unread)."""
+    try:
+        return parse_obj8(os.path.join(pack_root, resource.replace("\\", "/")))
+    except (OSError, ValueError):
+        return None
+
+
+def _rounded(values: dict) -> dict:
+    return {k: round(float(v), 3) for k, v in values.items()}
+
+
+def _witness_text(w: dict) -> str:
+    """One line of a rock's witness values (``rock_witness.features``; a
+    refused candidate's ``steep`` / ``big`` alone when the witness was not
+    read)."""
+    if "sheet" not in w:
+        return f"steep {w['steep']:.3f} big {w['big']:.3f}"
+    return (f"sheet {w['sheet']:.3f} base {w['base_m']:+.2f} top {w['top_m']:.2f} "
+            f"wall {w['wall']:.3f} right {w['right']:.3f} axis {w['axis']:.3f}")
+
+
 def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
     gates, shapes = candidates(pack_root)
-    out = {"pack": os.path.basename(os.path.normpath(pack_root)), "gates": gates, "rows": []}
+    out = {"pack": os.path.basename(os.path.normpath(pack_root)), "gates": gates, "rows": [],
+           "refused": [{"resource": k[1], "failed": v[1], "witness": _rounded(v[0]), "rows": 0}
+                       for k, v in sorted(shapes.items(), key=lambda kv: str(kv[0]))
+                       if isinstance(k, tuple) and k[0] == "refused"]}
+    out["msl_rock_rows"], out["rock_unmatched"] = [], []
+    refused = {r["resource"]: r for r in out["refused"]}
     for dsf in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))):
         src = dsf + ".anchor_bak" if os.path.isfile(dsf + ".anchor_bak") else dsf
-        lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
+        tile = _TILE.match(os.path.basename(dsf))
+        if tile is None:                     # not a tile DSF (an author's stray name)
+            continue
+        lat, lon = int(tile.group(1)), int(tile.group(2))
+        if not shapes:                       # nothing to place: no dump
+            continue
         defs, rows = placements(src, dsftool)
-        dems = rasters(elevation_root, lat, lon) if shapes else []
-        for i, lo, la, hdg, kind, elev in rows:
+        dems = rasters(elevation_root, lat, lon)
+        frames: dict = {}
+        for k, (i, lo, la, hdg, kind, elev) in enumerate(rows):
+            frames.setdefault((lo, la, hdg, kind, elev if kind != "OBJECT_MSL" else None),
+                              []).append((k, i))
+        for k_row, (i, lo, la, hdg, kind, elev) in enumerate(rows):
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
+            if key in refused:
+                refused[key]["rows"] += 1
             skin = shapes.get(("skin", key))
             if skin is not None and kind != "OBJECT_MSL":
                 z = sampler(dems, lo, la)(np.array([0.0]), np.array([0.0]))[0]
@@ -271,12 +365,36 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                    "heading": hdg, "kind": kind, "plan_m": round(shape.plan_m),
                    "relief_m": round(shape.relief_m, 1),
                    "photo_spread": round(shape.photo_spread, 3)}
-            if kind == "OBJECT_MSL":
-                rec["datum"] = elev
-            rec.update(_model_row(shape, hdg, sampler(dems, lo, la),
-                                  sampler(dems, lo, la, fine=True),
-                                  water_reader(lat, lon, lo, la),
-                                  elev if kind == "OBJECT_MSL" else None))
+            dem = sampler(dems, lo, la)
+            datum = elev if kind == "OBJECT_MSL" else None
+            rock = shape.rock and kind != "OBJECT_MSL"
+            if shape.rock_only and not rock:
+                out["msl_rock_rows"].append(rec)     # never read (RULINGS 25l)
+                continue
+            if rock:
+                rec["witness"] = _rounded(dict(shape.witness))
+                sibs = [_geometry(pack_root, defs[j]) for kk, j in
+                        frames[(lo, la, hdg, kind, elev if kind != "OBJECT_MSL" else None)]
+                        if kk != k_row]
+                if not TR.own_frame(shape, sibs):
+                    rec["verdict"] = "rock in a shared frame"
+                    rec["frame_rows"] = len(sibs)
+                    out["rock_unmatched"].append(rec)
+                    continue
+                datum = TR.row_datum(kind, elev, (0.0, 0.0), dem, shape)
+            if datum is not None:
+                rec["datum"] = datum
+            rec.update(_model_row(shape, hdg, dem, sampler(dems, lo, la, fine=True),
+                                  water_reader(lat, lon, lo, la), datum, rock))
+            if rock and "z0" not in rec:
+                # a rock row not read as one (off its ground, or its rim
+                # floats): no row of the census, listed beside it
+                rec["verdict"] = "rock row off its ground" if datum is None else "rock rim floats"
+                out["rock_unmatched"].append(rec)
+                continue
+            if rock:
+                path = os.path.join(pack_root, defs[i].replace("\\", "/"))
+                rec["fill_z0"] = TR.fill_seat(path, (0.0, 0.0), hdg, rec["z0"], dem)
             out["rows"].append(rec)
     return out
 
@@ -287,13 +405,26 @@ def main(argv=None) -> int:
     ap.add_argument("--elevation-root", default=DEFAULT_ELEVATION)
     ap.add_argument("--dsftool", default=os.path.join(HERE, "..", "Utils", "mac", "DSFTool"))
     ap.add_argument("--json")
+    ap.add_argument("--jsonl", help="append one line per pack here; packs already in it "
+                                    "are skipped (a long census resumes)")
     a = ap.parse_args(argv)
     # owner 2026-11-25: the census takes its memory on the machine ledger
     # before it loads anything (O4_Machine_Jobs; released at exit)
     import O4_Machine_Jobs as _jobs
     _jobs.admit_process("terrain_model_census")
-    report = [census(p, a.elevation_root, a.dsftool) for p in a.packs]
-    for r in report:
+    report = []
+    done = set()
+    if a.jsonl and os.path.isfile(a.jsonl):
+        with open(a.jsonl, encoding="utf-8") as fh:
+            done = {json.loads(line)["pack"] for line in fh if line.strip()}
+    for p in a.packs:
+        if os.path.basename(os.path.normpath(p)) in done:
+            continue
+        r = census(p, a.elevation_root, a.dsftool)
+        report.append(r)
+        if a.jsonl:
+            with open(a.jsonl, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(r) + "\n")
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
             wet = row.get("water_rim")
@@ -308,6 +439,20 @@ def main(argv=None) -> int:
                      if "z0" in row else "")
             print(f"   {row['verdict']:<14} {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f" plan {row['plan_m']} relief {row['relief_m']}{extra}")
+            if "witness" in row:
+                fz = row.get("fill_z0")
+                print(f"      witness {_witness_text(row['witness'])}"
+                      + ("" if fz is None else f"; run-out fill at {fz:.2f} m"))
+        for row in r["rock_unmatched"]:
+            print(f"   {row['verdict']}: {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
+                  f"; witness {_witness_text(row['witness'])}")
+        for row in r["msl_rock_rows"]:
+            print(f"   rock on an OBJECT_MSL row, not read: {row['resource']} "
+                  f"@({row['lat']:.5f},{row['lon']:.5f})")
+        for ref in r["refused"]:
+            print(f"   refused rock {ref['resource']} ({ref['rows']} row(s)): "
+                  f"fails {', '.join(ref['failed'])}; {_witness_text(ref['witness'])}")
+        sys.stdout.flush()
     if a.json:
         with open(a.json, "w") as fh:
             json.dump(report, fh, indent=1)

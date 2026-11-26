@@ -129,6 +129,14 @@ class Shape:
     #: a SMALL TERRAIN SHELL (``terrain_shell``, #2272): under
     #: :data:`MIN_PLAN_M`, matched and seated by that module's law
     small: bool = False
+    #: a ROCK (``terrain_rock``, RULINGS 2026-11-25j): natural relief the
+    #: author laid on the ground; matched at its row's datum, no correlation
+    rock: bool = False
+    #: a rock's witness values (``rock_witness.features``), sorted items
+    witness: tuple = ()
+    #: a rock and no small shell (``terrain_shell.small_shape`` refused
+    #: it): its ``OBJECT_MSL`` rows are not read (RULINGS 2026-11-25l)
+    rock_only: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -185,6 +193,9 @@ class TerrainModel:
     #: #2272: a SMALL TERRAIN SHELL (``airport/terrain_shell``), seated at
     #: its author's ``OBJECT_MSL`` datum
     small: bool = False
+    #: a ROCK whose skirt runs out (``terrain_rock.fill_seat``): the frame
+    #: zero its seat takes, our ground raised to its rim at it; ``None``
+    fill_z0: "float | None" = None
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -271,11 +282,13 @@ def _plan_m(g: _t.Any, min_relief_m: float = MIN_RELIEF_M) -> float:
 
 
 def _may_be_candidate(g: _t.Any) -> bool:
-    """The cheap plan and height gates of either class (a terrain model or
-    a small terrain shell, ``terrain_shell``) on a parsed geometry."""
-    from .terrain_shell import SHELL_MIN_PLAN_M, SHELL_MIN_RELIEF_M
+    """The cheap plan and height gates of any class (a terrain model, a
+    small terrain shell, ``terrain_shell``, or a rock, ``terrain_rock``,
+    whose lower relief gate covers the shell's) on a parsed geometry."""
+    from .terrain_rock import ROCK_MIN_RELIEF_M
+    from .terrain_shell import SHELL_MIN_PLAN_M
     return (_plan_m(g) >= MIN_PLAN_M
-            or _plan_m(g, SHELL_MIN_RELIEF_M) >= SHELL_MIN_PLAN_M)
+            or _plan_m(g, ROCK_MIN_RELIEF_M) >= SHELL_MIN_PLAN_M)
 
 
 def _shape(path: str) -> "Shape | None":
@@ -284,8 +297,13 @@ def _shape(path: str) -> "Shape | None":
     plan = _plan_m(g)
     if plan >= MIN_PLAN_M:
         return _gated(path, g, plan, MAX_PHOTO_SPREAD, MIN_RELIEF_M)
+    from .terrain_rock import rock_shape
     from .terrain_shell import small_shape
-    return small_shape(path, g)
+    shell, rock = small_shape(path, g), rock_shape(path, g)
+    if shell is not None and rock is not None:
+        # a small shell on its OBJECT_MSL rows, a rock on its other rows
+        return _dc.replace(shell, rock=True, witness=rock.witness)
+    return shell or rock
 
 
 def _gated(path: str, g: _t.Any, plan: float, max_spread: float, min_relief: float,
@@ -372,7 +390,7 @@ def _world(grid: DeckGrid, ii: np.ndarray, jj: np.ndarray, xy: tuple[float, floa
 def match(shape: Shape, xy: tuple[float, float], heading: float,
           dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
           fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None,
-          datum: "float | None" = None) -> "dict[str, float] | None":
+          datum: "float | None" = None, rock: bool = False) -> "dict[str, float] | None":
     """THE MATCH and THE SEAT of one placement of ``shape`` (module doc):
     ``{"z0", "corr", "peak_err", "fit_m", "quality_cover", "hideable"}``
     when the top follows the DEM, else ``None``.  ``fine(xs, ys[,
@@ -380,7 +398,14 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     covers a point (``None``: nowhere); ``water(xs, ys)`` is
     ``ProductionDem.water_many`` (``None``: no water).  ``datum``: the
     row's ``OBJECT_MSL`` elevation -- a small shell (``Shape.small``) is
-    matched and seated at it by ``terrain_shell.small_match``."""
+    matched and seated at it by ``terrain_shell.small_match``; ``rock``: a
+    plain or ``OBJECT_AGL`` row of a rock (``Shape.rock``), matched at
+    ``datum`` = ``terrain_rock.row_datum`` by ``terrain_rock.rock_match``
+    (a rock with no small shell, ``Shape.rock_only``, has no other row)."""
+    if rock or shape.rock_only:
+        from .terrain_rock import rock_match
+        return (None if not rock or datum is None
+                else rock_match(shape, xy, heading, dem_many, float(datum), fine, water))
     if shape.small:
         from .terrain_shell import small_match
         return small_match(shape, xy, heading, dem_many, datum, fine, water)
@@ -529,6 +554,9 @@ def placement_models(placements: _t.Sequence[tuple],
     from .pack_choice import hides
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
+    frames: dict[tuple, list] = {}
+    for oid, dpath, xy, heading, elev, kind in placements:
+        frames.setdefault(_origin(xy, heading, elev, kind), []).append((str(oid), dpath))
     for oid, dpath, xy, heading, elev, kind in placements:
         if is_stock_library_resource(dpath):
             continue
@@ -541,7 +569,19 @@ def placement_models(placements: _t.Sequence[tuple],
             continue
         xy2 = (float(xy[0]), float(xy[1]))
         datum = float(elev) if kind == "OBJECT_MSL" and elev is not None else None
-        m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
+        fill_z0 = None
+        if shape.rock and kind != "OBJECT_MSL":
+            from .terrain_rock import fill_seat, own_frame, row_datum
+            sibs = [None if is_stock_library_resource(d) else geometry(d)
+                    for o, d in frames[_origin(xy, heading, elev, kind)] if o != str(oid)]
+            m = (match(shape, xy2, float(heading), dem_many, fine, water,
+                       row_datum(str(kind), elev, xy2, dem_many, shape), rock=True)
+                 if own_frame(shape, sibs) else None)
+            if m is not None:
+                fill_z0 = fill_seat(str(path_of(dpath)), xy2, float(heading), m["z0"],
+                                    dem_many)
+        else:
+            m = match(shape, xy2, float(heading), dem_many, fine, water, datum)
         if m is None:
             continue
         gone = hides(hidden, str(dpath), m["hideable"])
@@ -554,7 +594,7 @@ def placement_models(placements: _t.Sequence[tuple],
                                      datum=datum,
                                      fill=True,
                                      ground="hidden" if gone else "",
-                                     small=shape.small)
+                                     small=shape.small, fill_z0=fill_z0)
     return out
 
 
@@ -666,6 +706,9 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                     "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
             if getattr(m, "small", False):
                 rec["shell"] = plan
+                if getattr(m, "fill_z0", None) is not None:
+                    # a rock whose skirt runs out (``terrain_rock.fill_seat``)
+                    rec["fill_z0"] = round(float(m.fill_z0), 3)
                 out.append(rec)
                 continue
             rec["cut"] = plan

@@ -55,9 +55,14 @@ def test_a_soft_photo_textured_rock_is_a_small_shell(tmp_path):
 
 
 def test_a_hard_an_atlas_or_a_flat_object_is_not(tmp_path):
-    assert TM.shape_of(_write(tmp_path, "hard.obj", hard=True)) is None
-    assert TM.shape_of(_write(tmp_path, "atlas.obj", uv="atlas")) is None
+    assert TSH.small_shape(_write(tmp_path, "hard.obj", hard=True),
+                           parse_obj8(str(tmp_path / "hard.obj"))) is None
+    assert TSH.small_shape(_write(tmp_path, "atlas.obj", uv="atlas"),
+                           parse_obj8(str(tmp_path / "atlas.obj"))) is None
     assert TM.shape_of(_write(tmp_path, "kerb.obj", lambda x, z: 0.5)) is None
+    # RULINGS 2026-11-25j: the hard or atlas-textured hill is no shell but
+    # a ROCK (``terrain_rock``, test_terrain_rock)
+    assert TM.shape_of(str(tmp_path / "hard.obj")).rock
 
 
 def test_a_terrace_is_not_one_steep_piece(tmp_path):
@@ -115,7 +120,10 @@ def test_placement_models_marks_the_small_shell(tmp_path):
             ("dsf:obj8", "m.obj", (500.0, 0.0), 0.0, None, "OBJECT")]
     found = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path),
                                 TTM._dem(_rock, 2.0), _seeing)
-    assert set(found) == {"dsf:obj7"}
+    # RULINGS 2026-11-25l: the shell's plain row is read as a ROCK (the
+    # witness passes; ``terrain_rock``), at its anchor's ground
+    assert set(found) == {"dsf:obj7", "dsf:obj8"}
+    assert found["dsf:obj8"].small and found["dsf:obj8"].datum is None
     m = found["dsf:obj7"]
     assert m.small and m.fill and m.datum == 2.0 and m.z0 == pytest.approx(2.0)
     assert "its author's datum, a small shell" in TM.log_line("TEST", found.values())

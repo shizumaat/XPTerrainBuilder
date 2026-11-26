@@ -139,8 +139,55 @@ def pieces_touch(ta: "_t.Any", tb: "_t.Any", eps: float) -> bool:
     b0, b1 = tb.reshape(-1, 3).min(axis=0), tb.reshape(-1, 3).max(axis=0)
     if (a0 > b1 + eps).any() or (b0 > a1 + eps).any():
         return False
-    return (_near(np.unique(ta.reshape(-1, 3), axis=0), tb, eps)
-            or _near(np.unique(tb.reshape(-1, 3), axis=0), ta, eps))
+    return _faces_near(np.unique(ta.reshape(-1, 3), axis=0), ta,
+                       np.unique(tb.reshape(-1, 3), axis=0), tb, eps)
+
+
+def _faces_near(ua: "_t.Any", ta: "_t.Any", ub: "_t.Any", tb: "_t.Any",
+                eps: float) -> bool:
+    """:func:`pieces_touch` past its box test, each piece's distinct
+    vertices ``u*`` given (computed once a piece, not once a pair)."""
+    return _near(ua, tb, eps) or _near(ub, ta, eps)
+
+
+class _Boxes:
+    """The pieces of one placement for :func:`weld_own_ground`'s pair
+    test: each piece's box and distinct vertices read ONCE, and the pieces
+    whose boxes come within ``eps`` of one piece's found in one array
+    test (MMUN's Cancun pack: thousands of own-ground pieces, and the
+    per-pair Python test ran past an hour — the "hang" of 1.0.583).
+    :meth:`touch` is :func:`pieces_touch` exactly."""
+
+    def __init__(self, tri: _t.Mapping[int, _t.Any], eps: float) -> None:
+        import numpy as np
+        self._tri, self._eps = tri, float(eps)
+        self._keys = list(tri)                  # the caller's order
+        flat = [tri[k].reshape(-1, 3) for k in self._keys]
+        self._lo = np.array([f.min(axis=0) for f in flat]).reshape(-1, 3)
+        self._hi = np.array([f.max(axis=0) for f in flat]).reshape(-1, 3)
+        self._row = {k: n for n, k in enumerate(self._keys)}
+        self._uniq: dict[int, _t.Any] = {}
+
+    def overlapping(self, i: int) -> list[int]:
+        """The pieces (``i`` among them) whose boxes are within ``eps`` of
+        ``i``'s, in the caller's order — :func:`pieces_touch`'s own
+        first rejection, for all of them at once."""
+        import numpy as np
+        n, e = self._row[i], self._eps
+        ok = ~((self._lo[n] > self._hi + e).any(axis=1)
+               | (self._lo > self._hi[n] + e).any(axis=1))
+        return [self._keys[m] for m in np.flatnonzero(ok)]
+
+    def _u(self, k: int) -> _t.Any:
+        import numpy as np
+        if k not in self._uniq:
+            self._uniq[k] = np.unique(self._tri[k].reshape(-1, 3), axis=0)
+        return self._uniq[k]
+
+    def touch(self, i: int, j: int) -> bool:
+        """:func:`pieces_touch` of two pieces whose boxes overlap."""
+        return _faces_near(self._u(i), self._tri[i], self._u(j), self._tri[j],
+                           self._eps)
 
 
 def _zero(b: _t.Any) -> "float | None":
@@ -175,6 +222,7 @@ def weld_own_ground(record: _t.Any, m: _t.Any, cutter: _t.Any, counts: dict,
     tri = {i: _body_tris(b, cutter) for i, b in enumerate(bodies) if _zero(b) is not None}
     tri = {i: t for i, t in tri.items() if t is not None and len(t)}
     own = [i for i in own if i in tri]
+    own_set = set(own)          # membership per pair: a list was O(own)
     up = {i: i for i in tri}
 
     def find(i: int) -> int:
@@ -183,15 +231,16 @@ def weld_own_ground(record: _t.Any, m: _t.Any, cutter: _t.Any, counts: dict,
             i = up[i]
         return i
     seated: dict[int, list[int]] = {}
+    boxes = _Boxes(tri, TOUCH_M)
     for i in own:
-        for j in tri:
-            if j == i or (j in own and j < i):
+        for j in boxes.overlapping(i):
+            if j == i or (j in own_set and j < i):
                 continue
-            if j in own and find(i) == find(j):
+            if j in own_set and find(i) == find(j):
                 continue
-            if not pieces_touch(tri[i], tri[j], TOUCH_M):
+            if not boxes.touch(i, j):
                 continue
-            if j in own:
+            if j in own_set:
                 up[find(i)] = find(j)
             else:
                 seated.setdefault(i, []).append(j)

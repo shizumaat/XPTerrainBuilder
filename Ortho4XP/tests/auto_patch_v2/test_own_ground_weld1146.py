@@ -107,3 +107,71 @@ def test_pieces_touch_reads_the_face_not_the_vertex():
     t_rail = np.asarray(_quad(100.0, 110.0, -1.0, -0.5, 19.6), dtype=float)[ix]
     assert PT.pieces_touch(t_beam, t_rail, 1.0)
     assert not PT.pieces_touch(t_beam, t_rail, 0.4)
+
+
+def _reference_zeros(rec, cut):
+    """The pre-1.0.583 pair loop (every own piece against every piece,
+    :func:`pieces_touch` each pair): the answer the box index must keep."""
+    bodies = rec.bodies
+    tri = {i: PT._body_tris(b, cut) for i, b in enumerate(bodies)}
+    own = [i for i, b in enumerate(bodies) if str(b.anchor.reason).startswith(OWN_GROUND)]
+    up = {i: i for i in tri}
+
+    def find(i):
+        while up[i] != i:
+            i = up[i]
+        return i
+    seated: dict = {}
+    for i in own:
+        for j in tri:
+            if j == i or (j in own and j < i):
+                continue
+            if PT.pieces_touch(tri[i], tri[j], 1.0):
+                if j in own:
+                    up[find(i)] = find(j)
+                else:
+                    seated.setdefault(i, []).append(j)
+    comp: dict = {}
+    for i in own:
+        comp.setdefault(find(i), []).append(i)
+    z = [round(float(b.anchor.surface_z) - float(b.anchor.y_zero), 2) for b in bodies]
+    out = list(z)
+    for mem in comp.values():
+        anchors = sorted({j for i in mem for j in seated.get(i, ())})
+        if len(mem) < 2 and not anchors:
+            continue
+        pick = max(anchors or mem, key=lambda k: (len(tri[k]), -k))
+        for i in mem:
+            if abs(z[i] - z[pick]) > 0.05:
+                out[i] = z[pick]
+    return out
+
+
+def test_the_box_index_keeps_the_pairwise_answer():
+    """MMUN (1.0.583 "hang"): the pair loop is now a box index; on a
+    random field of touching and apart pieces, own and carried, every
+    zero is the pairwise loop's."""
+    rng = np.random.default_rng(1146)
+    quads, bodies = [], []
+    for i in range(80):
+        x, z = rng.uniform(0, 60, 2)
+        y = float(rng.choice([19.1, 19.6, 22.0]))
+        quads.append(_quad(x, x + rng.uniform(1, 8), z, z + rng.uniform(0.5, 3), y))
+        reason = (OWN_GROUND + ": none" if rng.random() < 0.7 else "carried by x")
+        bodies.append(_body(i, float(round(rng.uniform(28, 34), 1)), reason=reason))
+    cut, rec = _Cutter(quads), _split(*bodies)
+    assert _zeros(PT.weld_own_ground(rec, _M, cut, {})) == _reference_zeros(rec, cut)
+
+
+def test_far_apart_pieces_are_never_tested_face_to_face(monkeypatch):
+    """A long row of own-ground pieces: only box neighbours reach the exact
+    face test (the loop ran per pair, and a list membership per pair, past
+    an hour on MMUN's pack)."""
+    calls = []
+    real = PT._faces_near
+    monkeypatch.setattr(PT, "_faces_near", lambda *a: calls.append(1) or real(*a))
+    n = 400
+    cut = _Cutter([_quad(10.0 * k, 10.0 * k + 4.0, 0.0, 1.0, 19.1) for k in range(n)])
+    rec = _split(*[_body(k, 30.0 + (k % 2)) for k in range(n)])
+    PT.weld_own_ground(rec, _M, cut, {})
+    assert len(calls) == 0

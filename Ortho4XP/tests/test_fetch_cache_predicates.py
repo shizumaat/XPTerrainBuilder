@@ -634,3 +634,55 @@ def test_no_predicate_opens_a_socket(monkeypatch, tmp_path):
     for step_key in ("vector", "imagery"):
         # The verdict itself does not matter here; not raising does.
         parallel.tile_inputs_are_cached(tile, step_key)
+
+
+def test_inset_predicate_unsettles_on_a_provider_added_since_the_stamp(
+    monkeypatch, tmp_path
+):
+    """#2219: the stamp names the provider SELECTION ("auto"), not the
+    registry.  A provider added since — covering a stamped airport and
+    ranked above its cached answer — has never been asked, so the tile is
+    NOT settled: as a neighbour frame it read warm and was baked without
+    the new inset (TFFF: 1 m lidar one side of the -61 seam, FABDEM the
+    other).  Once it answers (here: no-coverage) the stamp settles again."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_File_Names as FNAMES
+
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
+    monkeypatch.setattr(
+        FNAMES, "Elevation_dir", str(tmp_path / "Elevation_data"))
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda t: True)
+    defs = [{"code": "NEW1M"}, {"code": "OLD30M"}]
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda *a, **k: defs)
+    monkeypatch.setattr(INSETS, "version_stale_capability_free_negatives",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(INSETS, "unverified_capability_negatives",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(INSETS, "_coverage_bbox_intersects",
+                        lambda definition, box: True)
+    tile = _inset_tile(inset_selection_keys=["HECA"])
+    _write_osm_cache(FNAMES.osm_cached(30, 31, "airports"))
+    inset_dir = FNAMES.airport_inset_directory(30, 31)
+    os.makedirs(inset_dir, exist_ok=True)
+    inset_path = os.path.join(inset_dir, "HECA_old30m.tif")
+    with open(inset_path, "wb") as handle:
+        handle.write(b"raster")
+    monkeypatch.setattr(
+        INSETS, "list_cached_inset_dems",
+        lambda lat, lon, provider_codes=None: [inset_path])
+    INSETS._write_inset_completion_stamp(tile)
+
+    def index(record):
+        with open(FNAMES.airport_inset_index(30, 31), "w") as handle:
+            json.dump({"HECA": dict(record, bounding_box=[31.1, 30.1,
+                                                          31.2, 30.2])},
+                      handle)
+
+    index({"OLD30M": "ok"})                  # NEW1M never asked
+    assert INSETS.is_cached(tile) is False
+    index({"NEW1M": "no-coverage", "OLD30M": "ok"})
+    assert INSETS.is_cached(tile) is True
+    # a provider ranked BELOW the cached answer is never asked: lawful
+    defs.append({"code": "LATER"})
+    assert INSETS.is_cached(tile) is True

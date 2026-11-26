@@ -220,3 +220,26 @@ def test_admission_verdicts():
     assert v == "mis-zeroed" and d["z0"] == 373.0
     v, d = adm.admit(_m(-7.0, 0.0, t_from="feet", composite=True), 366.0)
     assert v == "doubt" and d["z0"] == 366.0        # never welded but by airside
+
+
+# ── the sidecar records (U25) ────────────────────────────────────────────
+
+def test_the_sidecar_records_read_the_pad_under_the_unit():
+    from auto_patch_v2.pipeline.underside_publication import underside_records
+    ap, law, cache = _airport()
+    got = uu._derive(ap, law, cache)
+    ap.undersides = uc.join(ap, law, got["maps"], got["sets"])
+    xy = [(-2.0, -12.0), (22.0, -12.0), (22.0, 2.0), (-2.0, 2.0)]
+    planar = SimpleNamespace(
+        faces={7: SimpleNamespace(role="building", ref="building1", ring=0)},
+        vertices=[SimpleNamespace(xy=p) for p in xy],
+        ring_vertices=lambda ring: [0, 1, 2, 3])
+    out = underside_records(planar, ap, z=[200.0] * 4)
+    assert out["perimeter_unserved"] == []
+    by = {r["row"]: r for r in out["unit_undersides"]}
+    west, east = by["dsf:obj1"], by["dsf:obj2"]
+    assert west["pad"] == "building1" and west["D"] == 200.0
+    assert west["verdict"] == "coherent" and west["z0"] == 200.0 and west["t_from"] == "airside"
+    assert east["pad"] is None and east["verdict"] == "exception"
+    assert underside_records(planar, SimpleNamespace(undersides=None), z=None) == \
+        {"unit_undersides": [], "perimeter_unserved": []}

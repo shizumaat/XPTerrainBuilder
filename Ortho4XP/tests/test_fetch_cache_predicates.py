@@ -674,7 +674,8 @@ def test_inset_predicate_unsettles_on_a_provider_added_since_the_stamp(
     INSETS._write_inset_completion_stamp(tile)
 
     def index(record):
-        with open(FNAMES.airport_inset_index(30, 31), "w", encoding="utf-8", newline="\n") as handle:
+        path = FNAMES.airport_inset_index(30, 31)
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump({"HECA": dict(record, bounding_box=[31.1, 30.1,
                                                           31.2, 30.2])},
                       handle)

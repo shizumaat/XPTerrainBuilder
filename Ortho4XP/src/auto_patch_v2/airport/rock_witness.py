@@ -43,8 +43,9 @@ on its own ground zero.  Five gates, read on the geometry only (RULINGS
 Stability (spec 2): each threshold alone may move sheet 0.5-0.95, base
 0.1-5 m, wall 0.05-0.2, right 0.08-0.3, axis 0.4-0.8, smooth 0.40-0.54
 (and ``CURVED_SPAN`` 1.25-1.75) with the same verdicts; never relax one
-to chase a rock.  A composite of terrain and built parts (KSRQ mesh_hill: hill, wall, tree cards, lights) is not a
-rock: it is an ELLX-like partial shell (RULINGS 2026-11-25l (1)).
+to chase a rock.  A composite of terrain and built parts (KSRQ
+mesh_hill: hill, wall, tree cards, lights) is not a rock: it is an
+ELLX-like partial shell (RULINGS 2026-11-25l (1)).
 """
 from __future__ import annotations
 
@@ -161,9 +162,11 @@ def _smooth_curve(p: np.ndarray, unit: np.ndarray, area: np.ndarray, span: float
     tangent frame) is the least-squares fit of ``n_j - n_i = S (c_j -
     c_i)`` over its edge neighbours ``j``; the curved-and-smooth share of
     the area."""
-    t1, t2, _l = _edges(p)
     n = len(p)
-    if not len(t1) or area.sum() <= 0.0:
+    if n < 2 or area.sum() <= 0.0:
+        return 0.0
+    t1, t2, _l = _edges(p)
+    if not len(t1):
         return 0.0
     c = p.mean(axis=1)
     h = np.where(np.abs(unit[:, :1]) < 0.9, [[1.0, 0.0, 0.0]], [[0.0, 0.0, 1.0]])

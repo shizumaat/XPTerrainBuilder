@@ -474,6 +474,10 @@ class DeckAnchor:
     #: grade (``DeckBridge.span_cut``) -- each end line its OWN level, the
     #: span graded between them (``constraints/edge_deck._graded_rows``)
     graded: bool = False
+    #: #2241: each station's own top (``top_y``'s frame), aligned with
+    #: ``stations``, where the slab falls along the end line
+    #: (``constraints/deck_lines.EndLine.tops``); ``()``: ``top_y`` at every one
+    station_tops: tuple[float, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -589,6 +593,11 @@ class DeckBridge:
     #: _one_decision``) -- a DEFECT the census counts
     #: (``pack_bridge_under_deck``); ``()`` when the decision was clean
     pack_under: tuple = ()
+    #: #2241: the driven slab's authored top AT each seat station,
+    #: ``(tops along seats_a, tops along seats_b)`` (``planar/deck_end_top.
+    #: line_tops``): a slab that falls along its end line is welded station
+    #: by station; ``()`` reads ``top_a`` / ``top_b`` at every station
+    station_tops: tuple = ()
 
     @property
     def depth_a(self) -> float:

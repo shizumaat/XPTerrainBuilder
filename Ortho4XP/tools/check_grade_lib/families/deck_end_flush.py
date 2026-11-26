@@ -65,13 +65,13 @@ def check_deck_end_flush(deck_anchors, nodes, ways) -> List[Violation]:
         read = []
         seen = set()
         for rec in recs:
-            for lat, lon in rec.get("stations") or ():
+            for lat, lon, top in _station_tops(rec):
                 key = (round(float(lat), 7), round(float(lon), 7))
                 if key in seen or key not in at:
                     continue
                 seen.add(key)
                 z, w = at[key]
-                read.append((float(lat), float(lon), z, float(rec.get("top_y") or 0.0), w))
+                read.append((float(lat), float(lon), z, top, w))
         if read:
             zero = sum(z - top for _la, _lo, z, top, _w in read) / len(read)
             out.extend(_row(la, lo, z, zero + top, w) for la, lo, z, top, w in read
@@ -80,6 +80,21 @@ def check_deck_end_flush(deck_anchors, nodes, ways) -> List[Violation]:
             if not rec.get("pinned") or rec.get("yielding") or not rec.get("at"):
                 continue
             key = (round(float(rec["at"][0]), 7), round(float(rec["at"][1]), 7))
-            if key in at and abs(at[key][0] - float(rec["z_m"])) > DECK_FLUSH_M:
-                out.append(_row(key[0], key[1], at[key][0], float(rec["z_m"]), at[key][1]))
+            top = float(rec.get("top_y") or 0.0)
+            own = {(round(float(la), 7), round(float(lo), 7)): t
+                   for la, lo, t in _station_tops(rec)}
+            want = float(rec["z_m"]) + own.get(key, top) - top
+            if key in at and abs(at[key][0] - want) > DECK_FLUSH_M:
+                out.append(_row(key[0], key[1], at[key][0], want, at[key][1]))
     return out
+
+
+def _station_tops(rec) -> List[Tuple[float, float, float]]:
+    """``(lat, lon, top)`` per station of one end line's record: its own top
+    where the slab falls along the line (#2241, ``station_tops``), else the
+    line's ``top_y``."""
+    top = float(rec.get("top_y") or 0.0)
+    pts = list(rec.get("stations") or ())
+    st = list(rec.get("station_tops") or ())
+    own = st if len(st) == len(pts) else [top] * len(pts)
+    return [(float(la), float(lo), float(t)) for (la, lo), t in zip(pts, own, strict=True)]

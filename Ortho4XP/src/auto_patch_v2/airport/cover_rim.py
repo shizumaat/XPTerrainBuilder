@@ -33,7 +33,7 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY
 
-__all__ = ["covered_strip", "under_cover"]
+__all__ = ["under_cover"]
 
 #: a footprint reaching less than this plan area past its cover is under it
 #: (the arrangement's own rounding, never a slot a wheel finds), m2
@@ -49,7 +49,7 @@ def _normal(axis: _t.Sequence[XY], i: int) -> XY:
     return (-dy / L, dx / L)
 
 
-def covered_strip(axis: _t.Sequence[XY], cover, far: float):
+def _covered_strip(axis: _t.Sequence[XY], cover, far: float):
     """The cross-sections ``far`` either side of the axis between every two
     consecutive axis points that both lie under ``cover`` (``None`` where
     none do)."""
@@ -76,12 +76,13 @@ def under_cover(footprint, trench, axis: _t.Sequence[XY], cover, gap: float):
     if footprint is None or cover is None or cover.is_empty:
         return footprint, trench, 0.0
     far = math.sqrt(footprint.area) + footprint.length
-    strip = covered_strip(axis, cover, far)
+    strip = _covered_strip(axis, cover, far)
     if strip is None or strip.is_empty:
         return footprint, trench, 0.0
     past = footprint.intersection(strip).difference(cover)
     if past.area < _HAIR_M2:
         return footprint, trench, 0.0
     keep = cover.buffer(-gap, join_style="mitre")
-    fp = unary_union([footprint.difference(strip), footprint.intersection(strip).intersection(keep)])
+    inside = footprint.intersection(strip).intersection(keep)
+    fp = unary_union([footprint.difference(strip), inside])
     return fp, trench.intersection(fp), float(footprint.difference(fp).area)

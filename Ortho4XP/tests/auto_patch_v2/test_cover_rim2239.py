@@ -3,9 +3,8 @@
 the deck and the taxiway that drives onto it."""
 from __future__ import annotations
 
+from auto_patch_v2.airport.cover_rim import _covered_strip, under_cover
 from shapely.geometry import box
-
-from auto_patch_v2.airport.cover_rim import covered_strip, under_cover
 
 GAP = 0.6
 AXIS = [(float(x), 0.0) for x in range(-40, 41, 5)]     # the trench runs along x
@@ -36,5 +35,5 @@ def test_a_footprint_under_its_cover_is_untouched():
 
 
 def test_no_axis_point_under_the_cover_is_no_covered_stretch():
-    assert covered_strip(AXIS, box(100, 100, 110, 110), 50.0) is None
+    assert _covered_strip(AXIS, box(100, 100, 110, 110), 50.0) is None
     assert under_cover(box(0, 0, 1, 1), box(0, 0, 1, 1), AXIS, None, GAP)[2] == 0.0

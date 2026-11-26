@@ -31,8 +31,9 @@ import numpy as np
 
 from ..airport.bridge_witness import placed_faces, up_faces
 from ..geom.lowest_face import every_z_at
+from ..geom.plate_heights import driven_y_at
 
-__all__ = ["EDGE_M", "slab_faces", "station_tops", "driven_top"]
+__all__ = ["EDGE_M", "slab_faces", "line_tops"]
 
 XY = tuple[float, float]
 #: a station up to this far outside a slab face reads it on its plane (the
@@ -54,7 +55,7 @@ def slab_faces(cache: _t.Any, decks: _t.Sequence[_t.Any], normal_min: float) -> 
     return up_faces(np.concatenate(parts), normal_min)
 
 
-def station_tops(faces: np.ndarray, seats: _t.Sequence[XY], edge_m: float) -> list[float]:
+def _station_tops(faces: np.ndarray, seats: _t.Sequence[XY], edge_m: float) -> list[float]:
     """The highest slab face's y over each station, ``nan`` over none."""
     if not len(seats):
         return []
@@ -62,9 +63,15 @@ def station_tops(faces: np.ndarray, seats: _t.Sequence[XY], edge_m: float) -> li
     return [float(np.max(z)) if len(z) else float("nan") for z in zs]
 
 
-def driven_top(faces: np.ndarray, seats: _t.Sequence[XY], edge_m: float,
-               fallback: float) -> float:
-    """The end line's top (module doc): the median of :func:`station_tops`
-    over the stations that read one; ``fallback`` where none does."""
-    got = [t for t in station_tops(faces, seats, edge_m) if t == t]
-    return float(np.median(got)) if got else float(fallback)
+def line_tops(faces: np.ndarray, seats: _t.Sequence[XY], edge_m: float,
+              fallback: float) -> tuple[float, tuple[float, ...]]:
+    """``(the end line's top, the slab's top at each station)`` (module
+    doc, STATION BY STATION); ``(fallback, ())`` where no station reads
+    a slab."""
+    got = [t for t in _station_tops(faces, seats, edge_m) if t == t]
+    if not got:
+        return float(fallback), ()
+    mid = float(np.median(got))
+    ys = driven_y_at(faces, [p[0] for p in seats], [p[1] for p in seats], mid, edge_m)
+    tops = tuple(float(y) if y == y else mid for y in ys.tolist())
+    return float(np.mean(tops)), tops

@@ -299,8 +299,10 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     by_pt = tops.setdefault(oid, {})
     for e in es:
         pts = [tuple(pm.vertices[v].xy) for v, _w in e.terms]
-        for p in pts:
-            by_pt.setdefault(p, bottom + float(e.depth))
+        # #2241: a slab falling along its end line: each station its own top
+        own = dict(getattr(e, "tops", ()) or ())
+        for (v, _w), p in zip(e.terms, pts, strict=True):
+            by_pt.setdefault(p, bottom + float(own.get(v, e.depth)))
         st = st + [p for p in pts if p not in st]
     # W9: EVERY piece published, its own stations and span cut
     while len(rest) < 4:            # an absent anchor zero / span cut

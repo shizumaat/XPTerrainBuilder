@@ -83,7 +83,7 @@ from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
-from .deck_end_top import EDGE_M, driven_top, slab_faces
+from .deck_end_top import EDGE_M, line_tops, slab_faces
 from .deck_route import carried_route
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
@@ -381,7 +381,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
             # #2238 / #2241: the top AT an end line is the slab a wheel rolls
             # on there (``planar/deck_end_top``), never a parapet's top
-            ta, tb = driven_top(slab, sa, EDGE_M, ta), driven_top(slab, sb, EDGE_M, tb)
+            (ta, sta), (tb, stb) = line_tops(slab, sa, EDGE_M, ta), line_tops(slab, sb, EDGE_M, tb)
             # the FAMILY and the ROUTE, one per deck (``planar/deck_route``)
             fam, route, ref = carried_route(airport, piece)
             if fam == "road" and _taxi_at_both_ends(sa, sb, roles):
@@ -400,7 +400,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             mine.append(DeckBridge(str(d.id), str(d.path), tuple(str(q.id) for q in frame),
                                    tuple(piece.exterior.coords[:-1]), sa, sb, ta, tb,
                                    float(pb), float(d.deck_top_z) - top + 0.5 * (ta + tb),
-                                   family=fam, route=route, route_ref=ref, span_cut=span))
+                                   family=fam, route=route, route_ref=ref, span_cut=span,
+                                   station_tops=(sta, stb) if sta and stb else ()))
         # ONE zero per object (30a (1)): every piece plans from one estimate
         z = _deck_z(airport, [p for db in mine for p in db.seats_a + db.seats_b], None)
         objs: list[DeckBridge] = []
@@ -413,7 +414,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                              f"2026-11-05T21:31Z)")
                 reach = max(2.0 * step, 3.0)
                 db = _dc.replace(db, top_a=_end_top(plate, db.seats_a, reach, db.top_a),
-                                 top_b=_end_top(plate, db.seats_b, reach, db.top_b))
+                                 top_b=_end_top(plate, db.seats_b, reach, db.top_b),
+                                 station_tops=())
             r, n = _road_dir(db), across_dir(db)
             db = _dc.replace(db, walls=wall_faces(cache, frame, db.bottom_y,
                                                   0.5 * (db.top_a + db.top_b), r, n))

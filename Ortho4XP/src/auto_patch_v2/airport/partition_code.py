@@ -186,6 +186,8 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.tilt_float",
     "auto_patch_v2.airport.touch_graph",
     "auto_patch_v2.airport.touch_seat",
+    "auto_patch_v2.airport.underside_composite",
+    "auto_patch_v2.airport.unit_underside",
     "auto_patch_v2.airport.wall_class",
     "auto_patch_v2.airport.wall_geometry",
     "auto_patch_v2.airport.wall_sheets",
@@ -216,6 +218,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.sunk_cluster",
     "auto_patch_v2.geom.terrain_deck",
     "auto_patch_v2.geom.triangulate",
+    "auto_patch_v2.geom.underside_map",
     "auto_patch_v2.geom.union_find",
     "auto_patch_v2.geom.vector",
     "auto_patch_v2.law",
@@ -268,6 +271,8 @@ ENTRY_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.basin_witness",
     "auto_patch_v2.planar.cluster",
+    # RULINGS 2026-11-25m: the underside maps are kept beside the partition
+    "auto_patch_v2.airport.unit_underside",
 )
 
 #: The cache's own plumbing: in the closure (the reading's modules import

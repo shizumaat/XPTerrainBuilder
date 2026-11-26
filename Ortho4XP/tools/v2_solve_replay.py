@@ -685,6 +685,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.planar.cluster import clusters as _derive_clusters
     _cl_t = time.perf_counter()
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+    # RULINGS 2026-11-25m: the underside maps, as ``pipeline/build.pack_stage``
+    # derives them (never cached by a capture)
+    from auto_patch_v2.airport import unit_underside as _under
+    airport, (_us, _ust) = _under.attach_undersides(airport, law, ocache, cached=False)
+    print(_under.log_line(icao, airport.undersides, _us, _ust))
     from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law)       # issue #516
     from auto_patch_v2.airport.entrance_shade import entrance_pins

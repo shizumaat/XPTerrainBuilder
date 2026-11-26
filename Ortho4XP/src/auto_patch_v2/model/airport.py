@@ -579,6 +579,12 @@ class Airport:
     #: reading: written ``OBJECT_MSL`` at the model's no-float seat
     #: (``terrain_model.seat_records``).  Empty = none.
     terrain_models: tuple = ()
+    #: RULINGS 2026-11-25m: THE UNDERSIDE HEIGHT MAPS, one per footprint
+    #: unit (``airport/unit_underside``; ``geom.underside_map.UndersideMap``)
+    #: keyed by its sorted placement row ids.  A REPORT in step 1 (spec
+    #: ``underside-height-map-20261125.md`` §7): nothing seats or grades by
+    #: it yet.  ``None`` = not derived (an older capture).
+    undersides: "dict | None" = None
     #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
     #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),
     #: read at load from the pre-build dump.  ``None`` = none installed (or a

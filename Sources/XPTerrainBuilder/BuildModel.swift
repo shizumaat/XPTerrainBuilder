@@ -1357,6 +1357,7 @@ final class BuildModel: ObservableObject {
             let swapped = !Set(worldTilesWaiting?.waiting ?? []).isSubset(of: Set(waiting.waiting))
             worldTilesWaiting = waiting
             if swapped { rescan() }    // a waiting tile went in: the map shows it
+            raisePublishFailures(waiting.failed)   // #2226: never silent
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
         case .flightStatus(let status):
@@ -2133,6 +2134,32 @@ final class BuildModel: ObservableObject {
     private var runIssueLog = O4RunIssueLog()
 
     private var reopenedIssues = 0
+    /// #2226: the World-pack refusals already raised (`tile|utc`).
+    private var raisedPublishFailures = Set<String>()
+
+    /// #2226: a built tile the World pack refused is raised once — its
+    /// three sentences on the console, and in the run's report while a run
+    /// is on, else a report of its own (Qt:
+    /// `O4_Qt_Tile_Failures.publish_failure_events`).
+    private func raisePublishFailures(_ failed: [O4WorldPublishFailure]) {
+        let fresh = failed.filter { !raisedPublishFailures.contains($0.key) }
+        guard !fresh.isEmpty else { return }
+        raisedPublishFailures.formUnion(fresh.map(\.key))
+        let tiles = fresh.map { entry -> O4TileIssues in
+            entry.failure.consoleLines(isWarning: true).forEach { console.append($0, tile: entry.tile) }
+            let lat = Int(entry.tile.prefix(3)) ?? 0
+            let lon = Int(entry.tile.dropFirst(3)) ?? 0
+            return O4TileIssues(tileKey: entry.tile, lat: lat, lon: lon, built: true,
+                                failures: [], warnings: [entry.failure])
+        }
+        if isBuilding {
+            tiles.forEach { runIssueLog.add($0) }
+            return
+        }
+        reopenedIssues += 1
+        let report = O4RunIssues(id: -reopenedIssues, tiles: tiles)
+        if linkFixes.isIdle { runIssues = report } else { deferredRunIssues = report }
+    }
 
     /// #1341: a finished row's gold (or red) status was clicked — show
     /// that tile's end-of-build messages again, with the report buttons.

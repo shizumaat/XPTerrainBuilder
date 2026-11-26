@@ -1045,6 +1045,8 @@ class MainWindow(QMainWindow):
         self._pack_waits = QTWAIT.PackWaits()      # #2200
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
+        # #2226: the World-pack refusals already raised (``tile|utc``).
+        self._raised_publish_failures = set()
         # #695: fixable failures, asked one at a time as each tile fails;
         # the open choice; the run's box held while a choice is on screen.
         self._link_fixes = QTLINK.LinkFixQueue()
@@ -2205,6 +2207,16 @@ class MainWindow(QMainWindow):
         self.tile_world_row.show_waiting(event)
         if not before <= set(event.waiting):
             self.refresh_tiles()
+        # #2226: a built tile that did not go in is raised once -- in the
+        # run's box when a run is on, else a box of its own.
+        fresh = QTFAIL.publish_failure_events(
+            getattr(event, "failed", ()), self._raised_publish_failures)
+        for failed in fresh:
+            print("\n".join(QTFAIL.console_lines(failed)))
+        if fresh and self._building:
+            self._run_issue_events.extend(fresh)
+        elif fresh:
+            self._show_issues_box(fresh)
 
     def _on_flight_notice(self, event):
         """One ``FlightNotice`` (lane F2): a system notification and the

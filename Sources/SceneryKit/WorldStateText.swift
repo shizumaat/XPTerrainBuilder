@@ -80,9 +80,13 @@ public enum O4WorldStateText {
     public static let reloadNote = "{tile} is in the World pack; X-Plane shows it at its next load, or reload scenery now"
 
     /// The tile pane's note for tile `tile` ("+41-088") from a
-    /// `WorldTilesWaiting`; "" for none. Qt: `waiting_note`.
+    /// `WorldTilesWaiting`; "" for none. A tile that did not go in at all
+    /// (#2226) reads the engine's three sentences first. Qt: `waiting_note`.
     public static func waitingNote(tile: String, _ waiting: O4WorldTilesWaiting?) -> String {
         guard let waiting else { return "" }
+        if let failure = waiting.failure(tile: tile) {
+            return [failure.what, failure.why, failure.remedy].joined(separator: " ")
+        }
         if waiting.waiting.contains(tile) {
             return waitingNote.replacingOccurrences(of: "{tile}", with: tile)
         }

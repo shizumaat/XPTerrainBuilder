@@ -964,6 +964,37 @@ def test_both_tile_panes_say_a_tile_waits_for_x_plane(window):
     assert world_row.waiting_label.isHidden() and world_row.reload_button.isHidden()
 
 
+def test_both_apps_raise_a_tile_the_world_pack_refused(window, monkeypatch):
+    """#2226: a built tile that did not go into the World pack says why and
+    what to do on the tile pane, and is raised once in a report box, in
+    both apps (``WorldTilesWaiting.failed``)."""
+    import O4_World_State_Text as WORLD_TEXT
+    from o4_engine import events as EV
+    from o4_engine.world_state import WorldTile
+    from tests.test_world_staged_sweep import FAILED_ENTRY
+
+    model = (SWIFT / "BuildModel.swift").read_text(encoding="utf-8")
+    assert "raisePublishFailures(waiting.failed)" in model
+    kit = (SWIFT.parent / "SceneryKit" / "WorldStateText.swift").read_text(
+        encoding="utf-8")
+    assert "waiting.failure(tile: tile)" in kit
+    shown = []
+    monkeypatch.setattr(window, "_show_issues_box", shown.append)
+    window.map.set_world({(46, -115): WorldTile("full", "xptb", 1.0, "", "")})
+    window._active_changed((46, -115))
+    event = EV.WorldTilesWaiting(failed=(FAILED_ENTRY,))
+    window._on_world_tiles_waiting(event)
+    row = window.tile_world_row
+    assert not row.waiting_label.isHidden()
+    assert row.waiting_label.text() == WORLD_TEXT.waiting_note(
+        "+46-115", (), (), (FAILED_ENTRY,))
+    assert row.waiting_label.text().startswith(
+        "Tile +46-115 was built, but it did not go into X-Plane")
+    assert len(shown) == 1 and shown[0][0].warnings == [FAILED_ENTRY]
+    window._on_world_tiles_waiting(event)       # raised once
+    assert len(shown) == 1
+
+
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     """#1958: one key (the same kinds in the same order; owner
     2026-11-12T22:05Z: one pill in the Build and Fly views) and one

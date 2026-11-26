@@ -218,10 +218,16 @@ def cell_text(world) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def waiting_note(tile: str, waiting, reload) -> str:
+def waiting_note(tile: str, waiting, reload, failed=()) -> str:
     """The tile pane's note for tile ``tile`` (``+41-088``) from a
     ``WorldTilesWaiting``'s ``waiting`` and ``reload`` names; ``""`` for
-    none.  Mac: ``O4WorldStateText.waitingNote``."""
+    none.  A tile in its ``failed`` entries (#2226: it did not go in at
+    all) reads the engine's three sentences first.  Mac:
+    ``O4WorldStateText.waitingNote``."""
+    for entry in tuple(failed or ()):
+        if isinstance(entry, dict) and entry.get("tile") == tile:
+            return " ".join(entry.get(key, "")
+                            for key in ("what", "why", "remedy"))
     if tile in tuple(waiting or ()):
         return WAITING_NOTE.format(tile=tile)
     if tile in tuple(reload or ()):

@@ -704,7 +704,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                 why = []
             if got is None and unit_base(P, airport)[0] == STEPPED:
                 got = plan_low(P, air, airport, law, grid, others, why)
-            if got is None and (down := _held_down(P, levels, airport, seeds)) is not None:
+            if got is None and (down := _held_down(P, levels, airport, law, seeds)) is not None:
                 why = []
                 got = plan_low(P, air, airport, law, grid, others, why, down=down)
             if got is None:
@@ -800,17 +800,21 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     return res
 
 
-def _held_down(P, levels: _t.Sequence, airport, seeds: _t.Sequence = ()):
-    """The held two-floor record a storey DOWN of the unit standing on the
-    pad ``P`` (:func:`unit_share`), or ``None`` -- never a ``floor_zero``
+def _held_down(P, levels: _t.Sequence, airport, law, seeds: _t.Sequence = ()):
+    """The two-floor record a storey DOWN the frontage law takes
+    (``unit_storey.frontage_held``) of the unit standing on the pad ``P``
+    (:func:`unit_share`) and carried by it (``unit_storey.carried_by``),
+    or ``None`` -- never a ``floor_zero``
     frame's (``_frame_seeds`` mints its level, KATL Terminal F) nor a seed
     unit's (``planar/level_regions``)."""
-    from ..airport.unit_storey import HELD
-    down = {r.unit: r for r in levels if r.verdict == HELD and r.rise < 0.0}
+    from ..airport.unit_storey import carried_by, frontage_held
+    down = {r.unit: r for r in levels if r.rise < 0.0}
     if not down:
         return None
     ui, _p = unit_share(P, airport, airport.frame.entry())
     if ui is None or ui not in down or ui in {int(s.unit) for s in seeds}:
+        return None
+    if not carried_by(down[ui], P) or not frontage_held(down[ui], airport, law):
         return None
     if any(getattr(m, "floor_zero", False) for m in airport.partition.units[ui].members):
         return None

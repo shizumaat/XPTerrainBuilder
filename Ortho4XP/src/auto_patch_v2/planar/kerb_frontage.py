@@ -37,16 +37,19 @@ from ..model.registries import LANDSIDE_KERB
 __all__ = ["publish_kerbs"]
 
 
-def _unit_records(reg, units_taken: set, airport, law) -> list:
+def _unit_records(reg, units_taken: set, airport, law, blocks=None) -> list:
     """``(block, record)`` for every held block carrying a two-floor record
     the frontage law takes (``unit_storey.frontage_held``) of a unit no
-    landside lot published (module docstring)."""
-    from ..airport.unit_storey import frontage_held
+    landside lot published (module docstring), carried by its block
+    (``unit_storey.carried_by``; ``blocks``: ``{ref: polygon}``, ``None``
+    skips the test)."""
+    from ..airport.unit_storey import carried_by, frontage_held
     from ..model.registries import UNIT_LEVELS
     out = []
     for block, h in sorted(reg.held.items()):
         u = h.get(UNIT_LEVELS)
-        if u is None or u.unit in units_taken or not frontage_held(u, airport, law):
+        if u is None or u.unit in units_taken or not frontage_held(u, airport, law) \
+                or (blocks is not None and not carried_by(u, blocks.get(block))):
             continue
         out.append((block, {"lot": None, "unit": u.unit, "y": round(float(u.rise), 3),
                             "plan": u.plan, "face": u.face, "air_z": u.ground[0]}))
@@ -113,7 +116,8 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict,
         n += 1
     taken = {u for _plan, _y, units, _z in plans.values() for u in units}
     k = 0
-    for block, rec in (_unit_records(reg, taken, airport, law) if law is not None else ()):
+    for block, rec in (_unit_records(reg, taken, airport, law, union)
+                       if law is not None else ()):
         reg.held[block] = {**reg.held[block],
                            LANDSIDE_KERB: (*reg.held[block].get(LANDSIDE_KERB, ()), rec)}
         k += 1

@@ -43,7 +43,8 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 __all__ = ["FAR", "HELD", "PLINTH_COVER", "SINGLE", "UNCONFIRMED", "Level", "Storey",
-           "UnitLevels", "dem_samples", "frontage_held", "part_footprint", "unit_floor",
+           "UnitLevels", "carried_by", "dem_samples", "frontage_held", "part_footprint",
+           "unit_floor",
            "unit_levels", "upper_pads", "upper_storeys"]
 
 
@@ -626,6 +627,19 @@ def frontage_held(rec: UnitLevels, airport, law) -> bool:
         lv = [x for x in rec.levels if abs(float(x.y) - float(rec.land_y)) < 0.005]
         return bool(lv) and lv[0].area_m2 >= pmin
     return True
+
+
+def carried_by(rec: UnitLevels, P) -> bool:
+    """Whether the pad (or block) ``P`` carries the record's building: half
+    the unit's plan or more stands on it (lane lfront2).  A unit spread over
+    many pads is a GROUP (``planar/group_low``, ``group_up`` read those);
+    the frontage law reads the building its block carries.  MEASURED HECA
+    ``unit:45`` (226,860 m2 over a hillside, +17.7): its block
+    ``building155`` carries a sliver of it; LDSP ``building1`` carries 95 %
+    of ``unit:5``."""
+    if P is None or P.is_empty or not P.intersects(rec.plan):
+        return False
+    return P.intersection(rec.plan).area >= 0.5 * rec.plan.area
 
 
 def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels]:

@@ -37,7 +37,7 @@ def frontage_walls(airport, law, cells: _t.Sequence) -> dict[str, _t.Any]:
     storey landside lot already meets (module docstring)."""
     if airport is None or getattr(airport, "partition", None) is None:
         return {}
-    from ..airport.unit_storey import frontage_held, unit_levels
+    from ..airport.unit_storey import carried_by, frontage_held, unit_levels
     from ..law.tables import is_value_role
     from .storey_edge import STOREY_UNIT_KEY
     air = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells
@@ -60,8 +60,7 @@ def frontage_walls(airport, law, cells: _t.Sequence) -> dict[str, _t.Any]:
             continue
         P = Polygon(c.ring, c.holes).buffer(0.0)
         for r in recs:
-            if P.intersects(r.plan) and P.intersection(r.plan).area >= 0.25 * min(
-                    P.area, r.plan.area):
+            if carried_by(r, P):
                 out[str(c.ref)] = r.face
                 break
     return out

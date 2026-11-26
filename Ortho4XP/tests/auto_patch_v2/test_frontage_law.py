@@ -137,6 +137,7 @@ def test_the_unit_record_is_published_unless_a_lot_holds_the_unit():
     got = _unit_records(reg, set(), _ap(), LAW)
     assert [b for b, _r in got] == ["b"] and got[0][1]["y"] == -5.7
     assert _unit_records(reg, {0}, _ap(), LAW) == []
+    assert _unit_records(reg, set(), _ap(), LAW, {"b": box(0, 0, 3, 3)}) == []   # a sliver
 
 
 def test_the_frontage_law_takes_only_a_held_floor_with_no_kerb_deck():
@@ -161,18 +162,17 @@ def test_the_minted_level_wins():
 
 def test_held_down_skips_a_floor_zero_frame(monkeypatch):
     from auto_patch_v2.planar import low_level as ll
-    rec = us.UnitLevels(0, box(0, 0, 10, 10), 3.0, -2.7, (), "storey_parts",
-                        MultiLineString(), (17.2, 11.4), us.HELD, {})
-    member = types.SimpleNamespace(floor_zero=False)
+    rec = _rec()
+    member = types.SimpleNamespace(floor_zero=False, deck_kind="")
     ap = types.SimpleNamespace(partition=types.SimpleNamespace(
         units=[types.SimpleNamespace(members=[member])]),
         frame=types.SimpleNamespace(entry=lambda: None))
     monkeypatch.setattr(ll, "unit_share", lambda P, airport, to_xy: (0, []))
-    assert ll._held_down(box(0, 0, 1, 1), [rec], ap) is rec
-    assert ll._held_down(box(0, 0, 1, 1), [rec], ap,
+    assert ll._held_down(box(0, 0, 10, 10), [rec], ap, LAW) is rec
+    assert ll._held_down(box(0, 0, 10, 10), [rec], ap, LAW,
                          [types.SimpleNamespace(unit=0)]) is None
     member.floor_zero = True
-    assert ll._held_down(box(0, 0, 1, 1), [rec], ap) is None
+    assert ll._held_down(box(0, 0, 10, 10), [rec], ap, LAW) is None
 
 
 def test_the_census_prices_a_band_vertex_off_its_floor():

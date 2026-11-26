@@ -375,3 +375,32 @@ def test_the_terrain_object_copy_matches_the_mac_app():
         == QTADJ.TERRAIN_OBJECT_MATCHED
     assert joined("static let terrainObjectKept", "static let rebuildNote") \
         == QTADJ.TERRAIN_OBJECT_KEPT
+
+
+def test_hide_them_all_moves_with_the_terrain_row(qapp):
+    """RULINGS 2026-11-25l: "terrain_all" ticks the terrain row, the
+    terrain row unticked unticks it, and while it is ticked the objects'
+    boxes are not the user's to move; it rebuilds the tile (both apps:
+    the Swift sheet's ``rowToggle`` and ``terrainAllKey``)."""
+    objects = [{"path": "Ortho/Cliffs.obj", "hideable": False, "hidden": False}]
+    event = _event(state="adjust", items=[
+        {"key": "terrain", "count": 1, "uses": 1, "automatic": False,
+         "checked": False, "applied": False, "rebuild": True, "objects": objects},
+        {"key": "terrain_all", "count": 1, "uses": 0, "automatic": False,
+         "checked": False, "applied": False, "rebuild": True}])
+    box, _buttons = QTADJ.pack_adjust_box(event)
+    every, row = box.item_boxes["terrain_all"], box.item_boxes["terrain"]
+    assert not box._object_panel.isEnabled()
+    every.setChecked(True)
+    assert row.isChecked() and not box._object_panel.isEnabled()
+    assert box.apply.text() == QTADJ.APPLY_REBUILD_BUTTON
+    assert box.answer_extra("change")["items"] == ["terrain", "terrain_all"]
+    every.setChecked(False)
+    assert row.isChecked() and box._object_panel.isEnabled()
+    every.setChecked(True)
+    row.setChecked(False)
+    assert not every.isChecked()
+    swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "SceneryKit", "PackAdjust.swift")
+    if os.path.exists(swift):
+        assert 'terrainAllKey = "%s"' % QTADJ.TERRAIN_ALL in open(swift, encoding="utf-8").read()

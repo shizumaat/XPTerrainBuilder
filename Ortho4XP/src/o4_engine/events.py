@@ -257,6 +257,7 @@ CAPABILITIES: tuple = (
     "pack_overlaps_default",        # 2026-11-20, #2190 PackOverlaps prefer/keep/default
     "custom_patch_use",             # 2026-11-23, #2179 custom_patch_use + pickers (airports rows)
     "pack_terrain_objects",         # 2026-11-24, #2272 Adjust… terrain row objects
+    "pack_terrain_all",             # 2026-11-26, RULINGS 25l Adjust… row "terrain_all"
 )
 
 
@@ -939,7 +940,12 @@ class PackAdjust(EngineEvent):
       row carries ``objects`` (capability ``pack_terrain_objects``, #2272):
       every terrain object the last build recognised, ``{"path",
       "hideable", "hidden"}``; Apply also sends ``objects`` (path ->
-      hidden), the user's per-object override.
+      hidden), the user's per-object override.  Beside it (capability
+      ``pack_terrain_all``, RULINGS 2026-11-25l) the row ``"terrain_all"``
+      (``count`` the objects listed, ``rebuild``): hide EVERY terrain
+      object the build recognised, matched by our elevation or not; its
+      tick also answers ``terrain`` (the app ticks that row with it, and
+      while it is ticked the per-object ticks are not the user's to move).
     * ``"applied"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``
       lists what was rewritten; ``rebuild`` says the answer changed what

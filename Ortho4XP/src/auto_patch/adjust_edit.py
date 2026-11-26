@@ -42,6 +42,14 @@ WHAT EACH CHOICE REWRITES (the consumer census of the answers):
   that changes it says ``rebuild`` (``adjust_stage.adjust_choice``), the
   app's button is "Apply and rebuild tile" and it queues the tile's build.
 
+* ``terrain_all`` (:data:`ALL_KEY`, owner RULINGS 2026-11-25l) -- the
+  terrain row's "hide them all": every terrain object the last build
+  recognised (shells, rocks, relief skins), matched by our elevation or
+  not, is hidden (``pack_choice.hides_all``); listed beside the terrain
+  row whenever it lists objects.  A tick also ticks the terrain row; the
+  terrain row unticked (or its Undo) keeps them all.  Like ``terrain``
+  it reaches the pack DSF and the tile's mesh (:data:`TILE_ROWS`).
+
 Per tile: the writes are the tile's DSF (``lat``/``lon``), as the
 question's "update" is.  A failure raises to ``adjust_choice``, which
 reports it.
@@ -50,10 +58,12 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["TILE_ROWS", "tile_state", "report", "change"]
+__all__ = ["TILE_ROWS", "ALL_KEY", "tile_state", "report", "change"]
 
+#: the terrain row's "hide them all" (RULINGS 2026-11-25l)
+ALL_KEY = "terrain_all"
 #: the rows whose answer the TILE's mesh reads (the terrain cut)
-TILE_ROWS = ("terrain",)
+TILE_ROWS = ("terrain", ALL_KEY)
 
 
 def tile_state(pack_root: str) -> tuple:
@@ -67,9 +77,8 @@ def tile_state(pack_root: str) -> tuple:
     from auto_patch_v2.airport import pack_terrain as _pt
 
     from . import drape_stage as _DS
-    kinds = {k.key: k for k in _DS.KINDS}
-    return tuple(kinds[key].store.choice(pack_root) == "update"
-                 for key in TILE_ROWS) + (_pt.encode(_PC.hidden_terrain(pack_root)),)
+    return (_DS.TERRAIN.store.choice(pack_root) == "update", _PC.hides_all(pack_root),
+            _pt.encode(_PC.hidden_terrain(pack_root)))
 
 
 def _row(base: dict, applied: bool, choice: str) -> dict:
@@ -101,9 +110,34 @@ def _rows(pack_root: str, lat: int, lon: int) -> list[dict]:
                                  bool(pd.drapes) and set(pd.drapes) <= set(pd.hidden),
                                  kind.store.choice(pack_root)),
                             **({"objects": objects} if objects else {})))
+            if objects:
+                out.append(_all_row(pack_root, objects))
     if _AS._flatten(pack_root, writes=False):
         out.append(dict(_AS._flatten_row(), applied=True, rebuild=False))
     return out
+
+
+def _all_row(pack_root: str, objects: list[dict]) -> dict:
+    """The :data:`ALL_KEY` row: ``count`` the terrain objects listed,
+    ticked while the pack hides them all."""
+    from auto_patch_v2.airport import pack_choice as _PC
+    on = _PC.hides_all(pack_root)
+    return {"key": ALL_KEY, "count": len(objects), "uses": 0, "automatic": False,
+            "checked": on, "applied": on, "rebuild": True, "first_paths": []}
+
+
+def _set_all(on: bool, pack_root: str, lat: int, lon: int) -> list[str]:
+    """The :data:`ALL_KEY` answer remembered, and the terrain row's hiding
+    written again from the pristine DSF with the set it now hides (on: the
+    row is answered "update" too)."""
+    from auto_patch_v2.airport import pack_choice as _PC
+
+    from . import drape_stage as _DS
+    _PC.TERRAIN_ALL_STORE.remember(pack_root, "update" if on else "")
+    if not on and _DS.TERRAIN.store.choice(pack_root) != "update":
+        return []
+    files = _set(_DS.TERRAIN.key, False, True, pack_root, lat, lon)
+    return files + _set(_DS.TERRAIN.key, True, False, pack_root, lat, lon)
 
 
 def _optimise(pack_root: str, lat: int, lon: int):
@@ -188,9 +222,20 @@ def change(pack_root: str, lat: int, lon: int, *,
     if objects is not None:
         was = _DS.terrain_answers(pack_root)
         moved = _DS.terrain_answers(pack_root, objects) != was
-    for row in _rows(pack_root, lat, lon):
+    rows = _rows(pack_root, lat, lon)
+    every = next((r for r in rows if r["key"] == ALL_KEY), None)
+    if (every is not None and (seen is None or ALL_KEY in seen)
+            and (ALL_KEY in ticked) != every["checked"]):
+        # hide them all first: it answers the terrain row too
+        changed.append(ALL_KEY)
+        files += _set_all(ALL_KEY in ticked, pack_root, lat, lon)
+        rows, moved = _rows(pack_root, lat, lon), False
+    if ALL_KEY in ticked:
+        ticked.add(_DS.TERRAIN.key)
+    for row in rows:
         key = row["key"]
-        if row.get("automatic") or (seen is not None and key not in seen):
+        if (row.get("automatic") or key == ALL_KEY
+                or (seen is not None and key not in seen)):
             continue
         if moved and key == _DS.TERRAIN.key and key in ticked and row["checked"]:
             # the set the row hides moved: written again from the pristine

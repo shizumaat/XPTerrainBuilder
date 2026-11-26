@@ -2075,6 +2075,7 @@ def restore_detail(pack_root: str) -> dict:
     _PC.Store(_PC.OPTIMISE_CHOICES).remember(pack_root, "")
     _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list).remember(pack_root, "")
     _PC.Store(_PC.DRAPE_CHOICES).remember(pack_root, "")     # #1916
+    _PC.TERRAIN_ALL_STORE.remember(pack_root, "")           # RULINGS 2026-11-25l
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)

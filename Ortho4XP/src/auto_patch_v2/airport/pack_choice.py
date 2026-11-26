@@ -18,6 +18,7 @@ __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
            "TERRAIN_FOUND", "TERRAIN_MODELS", "TERRAIN_OBJECTS", "PRIORITY_CHOICES",
            "terrain_answers", "OVERLAP_FOUND", "hidden_terrain",
            "TERRAIN_DEFAULT", "TERRAIN_STORE", "terrain_hiding", "hides",
+           "TERRAIN_ALL_CHOICES", "TERRAIN_ALL_STORE", "hides_all",
            "Store", "store_path", "read", "read_all",
            "write", "relative", "step_list"]
 
@@ -45,6 +46,10 @@ TERRAIN_MODELS = "pack_terrain_models.json"
 #: the per-object answers of the terrain row, per pack (#2272,
 #: ``pack_terrain.encode_answers``)
 TERRAIN_OBJECTS = "pack_terrain_objects.json"
+#: the terrain row's "hide them all" answers (RULINGS 2026-11-25l,
+#: :func:`hides_all`): "update" hides every terrain object a build
+#: recognises, matched by our elevation or not
+TERRAIN_ALL_CHOICES = "pack_terrain_all_choices.json"
 #: which pack keeps a structure two packs both draw, per pack pair (#2145;
 #: ``pack_overlap_choice``): keyed by ``pack_overlap_choice.pair_key``
 PRIORITY_CHOICES = "pack_priority_choices.json"
@@ -156,27 +161,46 @@ TERRAIN_DEFAULT = "update"
 TERRAIN_STORE = Store(TERRAIN_CHOICES, default=TERRAIN_DEFAULT)
 
 
+#: the "hide them all" answers (no answer: the terrain row's own offer)
+TERRAIN_ALL_STORE = Store(TERRAIN_ALL_CHOICES)
+
+
+def hides_all(pack_root: str) -> bool:
+    """THE USER PREFERS OUR ELEVATION (owner RULINGS 2026-11-25l): the
+    pack hides EVERY terrain object a build recognises -- shells, rocks,
+    relief skins -- whatever ``terrain_model.quality`` says and whatever
+    the per-object answers are.  A refinement of the terrain row: only
+    while that row's answer is "update" (its Undo / "never" keeps all)."""
+    return (bool(pack_root) and TERRAIN_STORE.choice(pack_root) == "update"
+            and TERRAIN_ALL_STORE.choice(pack_root) == "update")
+
+
 class _TerrainHiding(frozenset):
     """The terrain objects a build hides (:func:`terrain_hiding`): the set
     is the paths hidden by name (:func:`hidden_terrain`); :attr:`kept` is
     ``None`` when the pack does not hide its offer, else the paths the
     user keeps -- every other object this build finds hideable is hidden
-    too (:func:`hides`), so a pack's first build hides what it offers."""
+    too (:func:`hides`), so a pack's first build hides what it offers;
+    :attr:`every` hides every object recognised (:func:`hides_all`)."""
 
     kept: "frozenset[str] | None" = None
+    every: bool = False
 
     def __new__(cls, paths: _t.Iterable[str] = (),
-                kept: "_t.Iterable[str] | None" = None) -> "_TerrainHiding":
+                kept: "_t.Iterable[str] | None" = None,
+                every: bool = False) -> "_TerrainHiding":
         self = super().__new__(cls, paths)
         self.kept = None if kept is None else frozenset(kept)
+        self.every = bool(every)
         return self
 
 
 def hides(hidden: _t.AbstractSet[str], path: str, hideable: bool) -> bool:
     """Is the terrain object ``path`` hidden: named in ``hidden``, or
     offered (``hideable``) where ``hidden`` is a :class:`_TerrainHiding`
-    that hides its offer and the user does not keep it."""
-    if path in hidden:
+    that hides its offer and the user does not keep it -- or any
+    recognised object where it hides them all (:func:`hides_all`)."""
+    if path in hidden or getattr(hidden, "every", False):
         return True
     kept = getattr(hidden, "kept", None)
     return bool(hideable) and kept is not None and path not in kept
@@ -185,7 +209,10 @@ def hides(hidden: _t.AbstractSet[str], path: str, hideable: bool) -> bool:
 def terrain_hiding(pack_root: str) -> _TerrainHiding:
     """THE BUILD'S HIDING for a pack (#2285): :func:`hidden_terrain`, and
     when the pack's answer is ``update`` (:data:`TERRAIN_DEFAULT` with
-    none) the objects the user keeps (``pack_terrain.KEEP``)."""
+    none) the objects the user keeps (``pack_terrain.KEEP``); every
+    recognised object where the pack hides them all (:func:`hides_all`)."""
+    if hides_all(pack_root):
+        return _TerrainHiding(hidden_terrain(pack_root), (), every=True)
     if not pack_root or TERRAIN_STORE.choice(pack_root) != "update":
         return _TerrainHiding(hidden_terrain(pack_root))
     from .pack_terrain import KEEP
@@ -201,13 +228,18 @@ def hidden_terrain(pack_root: str) -> frozenset[str]:
     per-object answers move it (:data:`TERRAIN_OBJECTS`, #2272); empty
     otherwise.  The build reads it (their frames dissolve,
     ``auto_patch_v2.airport.terrain_model``) and the patch stamps it
-    (``provenance.terrain_hidden_identity``)."""
+    (``provenance.terrain_hidden_identity``).  Where the pack hides them
+    all (:func:`hides_all`): the offer and every object the last build
+    recognised (:data:`TERRAIN_MODELS`), whatever the per-object answers."""
     if not pack_root:
         return frozenset()
     if TERRAIN_STORE.choice(pack_root) != "update":
         return frozenset()
     from .pack_terrain import decode, offered
     found = Store(TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v)).choice(pack_root)
+    if hides_all(pack_root):
+        models = Store(TERRAIN_MODELS, lambda v: isinstance(v, str) and bool(v))
+        return frozenset(decode(found)) | frozenset(decode(models.choice(pack_root)))
     # #2272: the user's per-object answers move objects in and out
     return frozenset(offered(decode(found), terrain_answers(pack_root)))
 

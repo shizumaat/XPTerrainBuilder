@@ -312,8 +312,10 @@ def _hiding_digest(airport) -> str:
     from .basin_witness import _hidden_terrain
     got = _hidden_terrain(airport)
     kept = getattr(got, "kept", None)
-    return hashlib.sha256(repr((sorted(got), None if kept is None else sorted(kept)))
-                          .encode()).hexdigest()
+    key: tuple = (sorted(got), None if kept is None else sorted(kept))
+    if getattr(got, "every", False):        # RULINGS 2026-11-25l: hide them all
+        key += ("every",)
+    return hashlib.sha256(repr(key).encode()).hexdigest()
 
 
 #: ``fingerprint -> pristine stamps`` of the fingerprints this process

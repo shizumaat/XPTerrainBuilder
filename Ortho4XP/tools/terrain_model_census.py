@@ -292,7 +292,11 @@ def _rounded(values: dict) -> dict:
 
 
 def _witness_text(w: dict) -> str:
-    """One line of a rock's witness values (``rock_witness.features``)."""
+    """One line of a rock's witness values (``rock_witness.features``; a
+    refused candidate's ``steep`` / ``big`` alone when the witness was not
+    read)."""
+    if "sheet" not in w:
+        return f"steep {w['steep']:.3f} big {w['big']:.3f}"
     return (f"sheet {w['sheet']:.3f} base {w['base_m']:+.2f} top {w['top_m']:.2f} "
             f"wall {w['wall']:.3f} right {w['right']:.3f} axis {w['axis']:.3f}")
 

@@ -81,13 +81,34 @@ def big_piece_share(covered: np.ndarray, cell_m: float, min_m: float) -> float:
 
 
 
+#: :func:`rock_verdict` per file version (``(path, mtime_ns, size)``): the
+#: build's shape test and the census ask it of the same file
+_VERDICTS: dict = {}
+_VERDICTS_MAX = 512
+
+
 def rock_verdict(path: str, g: _t.Any) -> "tuple[dict, list[str]] | None":
+    """:func:`_verdict`, once per file version."""
+    import os
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _verdict(path, g)
+    if key not in _VERDICTS:
+        if len(_VERDICTS) >= _VERDICTS_MAX:
+            _VERDICTS.clear()
+        _VERDICTS[key] = _verdict(path, g)
+    return _VERDICTS[key]
+
+
+def _verdict(path: str, g: _t.Any) -> "tuple[dict, list[str]] | None":
     """``(values, failed gates)`` of an object in a rock's plan and relief
     range (module doc, THE CANDIDATE) on the parsed geometry ``g`` of
     ``path``: ``rock_witness.features`` with ``plan_m``, ``relief_m``,
     ``steep`` and ``big``; the gates failed -- ``hillside``, ``big_pieces``
-    (the candidate's) and ``rock_witness.failed`` at lift 0 -- or ``None``
-    out of that range."""
+    (the candidate's; then the witness is not read) or
+    ``rock_witness.failed`` at lift 0 -- or ``None`` out of that range."""
     from ..geom.terrain_deck import CELL_M
     from . import relief_skin as _rs
     from . import rock_witness as _rw
@@ -106,10 +127,13 @@ def rock_verdict(path: str, g: _t.Any) -> "tuple[dict, list[str]] | None":
     m = _rs._measures(grid)
     steep = 0.0 if m is None else float(m["steep"])
     big = big_piece_share(grid.covered, CELL_M, SHELL_MIN_PLAN_M)
-    f = _rw.features(g, _tm._vt_rows(path), grid)
+    values = {"plan_m": float(plan), "relief_m": float(hi - lo), "steep": steep, "big": big}
     fails = (["hillside"] if steep < _rs.MIN_STEEP else []) + \
-        (["big_pieces"] if big < _rs.MIN_SHARE else []) + _rw.failed(f)
-    return dict(f, plan_m=float(plan), relief_m=float(hi - lo), steep=steep, big=big), fails
+        (["big_pieces"] if big < _rs.MIN_SHARE else [])
+    if fails:                      # no candidate: the witness is not read
+        return values, fails
+    f = _rw.features(g, _tm._vt_rows(path), grid)
+    return dict(f, **values), _rw.failed(f)
 
 
 def rock_shape(path: str, g: _t.Any) -> "_t.Any | None":

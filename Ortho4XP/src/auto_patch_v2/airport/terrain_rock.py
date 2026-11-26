@@ -181,15 +181,18 @@ def own_frame(shape: _t.Any, others: _t.Iterable[_t.Any]) -> bool:
     """ONE RIGID FRAME of its own (module doc): every other row sharing the
     rock's origin (anchor, heading, lift; their parsed geometries
     ``others``, ``None`` unread) is its CONTENT -- the centre of its plan
-    lies over the rock's plan (LICR's approach lights on its hillside) --
+    lies over the rock's plan (LICR's approach lights on its hillside; a
+    row of lights alone has no plan and is content) --
     else the frame is a composite scene (a whole airport exported at one
     zero: LPLA's ground pieces, EGKK's hills among its construction site)
     and the row is not read as a rock (RULINGS 2026-11-25l (1): composites
     are partial shells)."""
     grid = shape.grid
     for g in others:
-        if g is None or not len(g.vertices):
+        if g is None:
             return False
+        if not len(g.vertices):          # lights alone: nothing to seat
+            continue
         lo, hi = g.vertices.min(axis=0), g.vertices.max(axis=0)
         mid = 0.5 * (lo + hi)
         if not bool(grid.cell_of(np.array([mid[0]]), np.array([mid[2]]))[2][0]):

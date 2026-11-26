@@ -217,8 +217,8 @@ def _layers(got: list, max_samples: "float | None" = _um.MAX_SAMPLES,
 def _feet_of(airport, by_pid: dict) -> dict:
     """``{pid: (k, 3)}`` frame east/north and ``y`` of every solid part's
     ground feet (``Part.feet``: ``(lat, lon, authored y)``, already over the
-    member's zero), projected in ONE batch through the frame's forward
-    transform (the 1 m grid needs no entry snap)."""
+    member's zero), projected in ONE batch through the frame's own CRS (the
+    1 m grid needs no entry snap; ``pack_partition._batch_to_ll``'s way)."""
     pids, rows = [], []
     for q, (_m, p) in by_pid.items():
         f = getattr(p, "feet", ()) or ()
@@ -228,8 +228,14 @@ def _feet_of(airport, by_pid: dict) -> dict:
     if not rows:
         return {}
     a = np.asarray(rows, dtype=float)
-    fwd = airport.frame.transformers()[0]
-    xs, ys = fwd(a[:, 1], a[:, 0])
+    crs = getattr(airport.frame, "crs", None)
+    if crs:
+        from pyproj import Transformer
+        xs, ys = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(
+            a[:, 1], a[:, 0])
+    else:                   # a frame with no CRS: its own projection, per point
+        to_xy = airport.frame.entry()
+        xs, ys = zip(*(to_xy(lon, lat) for lat, lon in a[:, :2]), strict=True)
     xyz = np.column_stack([np.asarray(xs, float), np.asarray(ys, float), a[:, 2]])
     out, at = {}, 0
     for q, k in pids:

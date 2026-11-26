@@ -139,8 +139,8 @@ def _airport():
     part = SimpleNamespace(units=(Unit("unit:0", (0.0, 0.0), 0.0, (ma, mb)),),
                            contacts=(), pack_root="", icao="TEST")
     cl = plan_clusters(part, 1.0, chain_min_height_m=2.0)
-    fwd = lambda lon, lat: (np.asarray(lon) * _MO, np.asarray(lat) * _ML)  # noqa: E731
-    frame = SimpleNamespace(entry=lambda: fwd,
+    fwd = lambda lon, lat: (lon * _MO, lat * _ML)  # noqa: E731
+    frame = SimpleNamespace(entry=lambda: fwd, crs="",
                             transformers=lambda: (fwd, lambda x, y: (y / _ML, x / _MO)))
     pav = SimpleNamespace(id="pav1", outer=((-30, -5), (-1, -5), (-1, 5), (-30, 5)),
                           holes=())

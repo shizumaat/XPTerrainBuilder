@@ -120,3 +120,30 @@ def test_the_law_reads_the_placement_table_and_zero_disarms(tmp_path):
     rows = [_row(g, None, kind="OBJECT"), _row("lib/car.obj", ZA + 3.5, north=2)]
     assert GR.ground_rider_seats(rows, (1,), str(tmp_path), {}, lambda la, lo: Z,
                                  0.5, GR.Law(), ()) == ()
+
+
+def test_lights_on_a_sunk_gantry_ride_it_past_the_terrain_allowance(tmp_path):
+    """#2243: a gantry sunk ``OBJECT_AGL -80`` (its bars at y 90 / 94),
+    where our ground stands 2.3 m under the author's at its origin -- past
+    ``tol_m`` -- and the lights on its bars stand ``OBJECT_MSL`` tens of
+    metres over the ground under them.  Riding the gantry moves each light
+    2.3 m, converting it would move it ~70 m: they ride, on the bars."""
+    lift, drop = -80.0, 2.3
+    g = _obj(tmp_path, "gantry.obj", (89.65, 90.02, 93.63, 94.0))
+    za = Z + drop + lift                      # the author's zero
+    rows = [_row(g, lift, kind="OBJECT_AGL")]
+    rows += [_row("lib/light.obj", za + 94.0, north=n) for n in (-6, -2, 2, 6)]
+    seats = _seats(tmp_path, rows)
+    assert [s.index for s in seats] == [1, 2, 3, 4]
+    for s in seats:                            # on the bar of the gantry as written
+        assert abs(s.elevation - (Z + lift + 94.0)) < 1e-6
+
+
+def test_a_ground_row_under_a_roof_is_not_lifted_past_the_allowance(tmp_path):
+    """The admission past ``tol_m`` never lifts a row off the ground onto
+    a roof: the roof's trial is a storey off the build's zero, the row's
+    conversion only the terrain difference (2.5 m here, past the
+    allowance too)."""
+    c = _obj(tmp_path, "canopy.obj", (3.0, 3.2))
+    rows = [_row(c, None, kind="OBJECT"), _row("lib/car.obj", Z - 2.5, north=2)]
+    assert _seats(tmp_path, rows) == ()

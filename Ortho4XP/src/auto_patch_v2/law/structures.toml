@@ -1304,6 +1304,9 @@ isolated_sheet_max_aspect = 0.05
 #   the least storey (2.1 m vehicle clearance plus its slab), so a row on an
 #   upper floor never reads as standing on the floor below; over the
 #   0.2-1.6 m the author's terrain stood off ours under KMCI's frames.
+#   A zero past it is still a candidate for a row it moves less than the
+#   conversion to the ground would (#2243: BGGH's sunk approach-light
+#   gantry, our ground 2.3 m under the author's at its origin).
 #   0 disarms the rule.
 # ground_rider_fit_m: the zero is the one the most rows stand EXACTLY at --
 #   an author's stock row is placed on its deck (KMCI 0.00-0.01 m) -- so a

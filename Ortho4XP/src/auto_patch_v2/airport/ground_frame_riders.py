@@ -23,6 +23,19 @@ and the rows, never a name:
   frame_zero``: the zero its terrain was adapted for, else the surface at
   its origin plus its lift); ties go to the nearest.  One zero per ANCHOR
   FAMILY (origin and lift): the files of one model share it.
+* A trial past that allowance is still ADMITTED when the frame explains
+  the row it comes from better than the ground does: riding it moves the
+  row less than converting it would (``|trial - build's zero| < |ground
+  under the row - E|``; #2243).  The author's terrain can stand further
+  off ours than the allowance where the ground falls away under a model
+  -- BGGH's approach-light gantry, sunk ``OBJECT_AGL -80`` down a slope
+  off a runway end, read our ground 2.3 m under the author's at its
+  origin, and every light on its crossbars (``OBJECT_MSL 80``, ground
+  14-70 m under them) converted to the ground.  A row on the ground
+  under a roof is never lifted onto it (the roof's trial is a storey off,
+  its conversion a terrain difference), and a storey misread stays
+  refused by the vote: the true zero has every floor's rows, a storey
+  off has only some, and a tie goes to the nearest.
 * A row of the family that stands at ``Z_F``, or hangs ENCLOSED by its
   geometry there (a surface under it and one over it under its anchor --
   a ceiling light), is its content and moves by the family's seat delta,
@@ -153,14 +166,23 @@ def _enclosed(hits: _t.Sequence[tuple], h: float) -> "tuple | None":
     return under[-1] if under and any(s[0] > h for s in hits) else None
 
 
-def _family_zero(ref: float, rows_hits: _t.Sequence[tuple[float, list]],
+def _admitted(z: float, ref: float, e: float, g: "float | None", law: Law) -> bool:
+    """Is the trial zero ``z`` (from a row at ``e`` over ground ``g``) a
+    candidate: within the allowance of the build's zero ``ref``, or moving
+    the row less than its conversion to the ground would (module doc)."""
+    off = abs(z - ref)
+    return off <= law.tol_m or (g is not None and off < abs(float(g) - e))
+
+
+def _family_zero(ref: float, rows_hits: _t.Sequence[tuple[float, "float | None", list]],
                  contact_m: float, law: Law) -> "float | None":
-    """THE AUTHORED ZERO ``Z_F`` (module doc), or ``None``."""
+    """THE AUTHORED ZERO ``Z_F`` (module doc), or ``None``.  Each row is
+    ``(elevation, ground under it, surfaces over its anchor)``."""
     best: "tuple[int, float, float] | None" = None
-    trials = sorted({round(e - s[0], 3) for e, hits in rows_hits for s in hits
-                     if abs(e - s[0] - ref) <= law.tol_m})
+    trials = sorted({round(e - s[0], 3) for e, g, hits in rows_hits for s in hits
+                     if _admitted(e - s[0], ref, e, g, law)})
     for z in trials:
-        n = sum(1 for e, hits in rows_hits
+        n = sum(1 for e, _g, hits in rows_hits
                 if _stands(hits, e - z, law.fit_m, contact_m, law.under_m))
         key = (n, -abs(z - ref), z)
         if n and (best is None or key > best):
@@ -187,25 +209,26 @@ def ground_rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
     lat = np.array([fams[k][1][0].lat for k in keys])
     lon = np.array([fams[k][1][0].lon for k in keys])
     reach = np.array([max(f.deck.reach for f in fams[k][1]) for k in keys])
-    over: dict[tuple, list[tuple[int, float, list]]] = {}
+    over: dict[tuple, list[tuple[int, float, "float | None", list]]] = {}
     for i in cand:
         la, lo = float(rows[i].lat), float(rows[i].lon)
         e = (lon - lo) * _M_PER_DEG * math.cos(math.radians(la))
         n = (lat - la) * _M_PER_DEG
-        for k in np.flatnonzero(e * e + n * n <= reach * reach):
-            hits = _surfaces(fams[keys[int(k)]][1], la, lo)
-            if hits:
-                over.setdefault(keys[int(k)], []).append(
-                    (i, float(rows[i].elevation), hits))
+        near = [(keys[int(k)], _surfaces(fams[keys[int(k)]][1], la, lo))
+                for k in np.flatnonzero(e * e + n * n <= reach * reach)]
+        near = [(key, hits) for key, hits in near if hits]
+        g = surface(la, lo) if near else None      # its conversion's ground
+        for key, hits in near:
+            over.setdefault(key, []).append((i, float(rows[i].elevation), g, hits))
     best: dict[int, tuple[float, float]] = {}        # row -> (height, move)
     n_fams = 0
     for key, members in over.items():
         ref = fams[key][0]
-        zf = _family_zero(ref, [(e, h) for _i, e, h in members], contact_m, law)
+        zf = _family_zero(ref, [(e, g, h) for _i, e, g, h in members], contact_m, law)
         if zf is None:
             continue
         n_fams += 1
-        for i, e, hits in members:
+        for i, e, _g, hits in members:
             s = (_stands(hits, e - zf, contact_m, contact_m, law.under_m)
                  or _enclosed(hits, e - zf))
             if s is None:

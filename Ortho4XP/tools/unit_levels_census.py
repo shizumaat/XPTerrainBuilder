@@ -156,12 +156,22 @@ def census_of(cap: dict, path: str) -> dict:
     plans = {r.unit: r.plan for r in levels}
     air = map_sides(pm, law)[0]
     today = _today(pm, airport, law, air, plans)
+    from auto_patch_v2.airport.unit_storey import carried_by, frontage_held
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    pads: dict = {}
+    for f in pm.faces.values():
+        pads.setdefault(str(f.ref), []).append(
+            Polygon([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)]).buffer(0.0))
     rows = []
     for r, rec in zip(levels, recs, strict=True):
         c = plans[r.unit].centroid
         lat, lon = to_ll(c.x, c.y)
         row = {**{k: v for k, v in rec.items() if k != "face_ll"},
-               "lat": round(lat, 6), "lon": round(lon, 6), **today[r.unit]}
+               "lat": round(lat, 6), "lon": round(lon, 6), **today[r.unit],
+               # step 2: whether the frontage law takes the record
+               "frontage": bool(rec["block"] is not None and frontage_held(r, airport, law)
+                                and carried_by(r, unary_union(pads[rec["block"]])))}
         if r.rise < 0.0 or any(a[0] > r.air_y for a in r.clues.get("air_planes", ())[:1]):
             # a storey DOWN, or the airside's own objects above the floor read
             row["low_refusal"] = low_refusal(pm, airport, law, air, plans[r.unit])
@@ -196,7 +206,8 @@ def _fmt(icao: str, r: dict) -> str:
             f"g {r['g_air']}/{r['g_land']} {r['verdict']:11s} face {r['face_m']:6.0f} m "
             f"band {r['band_vertices']:4d} lv {[lv['rise'] for lv in r['levels']]} "
             f"clues {_clues(r['clues'])}  today R1={'y' if r['r1'] else 'n'} "
-            f"minted {r['minted']}  @{r['lat']},{r['lon']}")
+            f"minted {r['minted']}  law {'TAKES' if r.get('frontage') else '-'}  "
+            f"@{r['lat']},{r['lon']}")
 
 
 def report(results: list[dict]) -> None:

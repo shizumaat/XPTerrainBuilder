@@ -41,7 +41,7 @@ def two_tiles(tmp_path, monkeypatch):
     fresh = {"value": False}
     monkeypatch.setattr(PM, "_mesh_is_newer_than_alt",
                         lambda tile, path: fresh["value"])
-    monkeypatch.setattr(GS, "_MESH_PENDING", {})
+    monkeypatch.setattr(GS, "_RUN_MESHES", {})
     here_mesh = tiles / "zOrtho4XP_+47+013" / "Data+47+013.mesh"
     here_mesh.parent.mkdir(parents=True)
     here_mesh.write_bytes(b"new mesh")
@@ -56,7 +56,7 @@ def test_the_reseat_waits_for_the_origin_still_building_in_the_run(two_tiles):
     """RED ON BASE: +47+013 re-ran +47+012's plan over +47+012's stale
     ground and raised "the buildings of LOWS were not fitted"."""
     t = two_tiles
-    t.GS.note_mesh_pending(B_, [list(A)])
+    t.GS.note_run_meshes(B_, [list(A)])
     failed = []
     assert t.GS.reseat_guests(t.tile, t.mesh, failed=failed) == {"guests_deferred": 1}
     assert t.ran == [] and failed == []
@@ -71,7 +71,7 @@ def test_an_origin_whose_ground_is_built_is_reseated_now(two_tiles):
     """The origin is still in the run but already wrote its mesh (its own
     object stage may have read this tile's OLD mesh): re-seat now."""
     t = two_tiles
-    t.GS.note_mesh_pending(B_, [list(A)])
+    t.GS.note_run_meshes(B_, [list(A)])
     t.origin_mesh.parent.mkdir(parents=True)
     t.origin_mesh.write_bytes(b"this run's mesh")
     t.fresh["value"] = True
@@ -84,24 +84,18 @@ def test_an_origin_the_run_is_not_building_is_reseated_as_before(two_tiles):
     """No pending neighbour (another tile's run, or none): #2129 unchanged —
     the origin's plan runs, and its own stage names a stale ground."""
     t = two_tiles
-    t.GS.note_mesh_pending((10, 10), [list(A)])      # another tile's run
+    t.GS.note_run_meshes((10, 10), [list(A)])      # another tile's run
     assert t.GS.reseat_guests(t.tile, t.mesh) == {"guests_reseated": 1,
                                                   "guests_reseat_failed": 0}
     assert t.ran == [(A, frozenset({"LOWS"}))]
 
 
-def _run(programs, at, queue):
+def test_the_parallel_run_names_its_neighbours_that_build_a_mesh():
     from o4_engine.parallel import ParallelBuildRun
-    run = object.__new__(ParallelBuildRun)
-    run._programs, run._next_step_index, run._queue = programs, at, list(queue)
-    return run
-
-
-def test_the_parallel_run_names_the_neighbours_still_owed_their_mesh():
     prog = ["vector", "mesh", "masks"]
-    run = _run({A: prog, B_: prog, (48, 12): prog, (47, 11): prog,
-                (46, 13): ["imagery"], (47, 15): prog},
-               {B_: 2, A: 1, (48, 12): 2},          # A in its mesh step
-               [(47, 11), (46, 13), (47, 15)])
-    assert sorted(map(tuple, run._mesh_pending_locked(B_))) == [A]
-    assert sorted(map(tuple, run._mesh_pending_locked(A))) == [(47, 11)]
+    run = object.__new__(ParallelBuildRun)
+    run._programs = {A: prog, B_: prog, (48, 12): prog,
+                     (46, 13): ["imagery"], (47, 15): prog}
+    run._run_cells = set(run._programs)
+    assert sorted(map(tuple, run._run_meshes_locked(B_))) == [A, (48, 12)]
+    assert sorted(map(tuple, run._run_meshes_locked(A))) == [B_, (48, 12)]

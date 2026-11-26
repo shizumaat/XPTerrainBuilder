@@ -356,13 +356,13 @@ def _clear_boundary_skips():
 CORES_STEP_LABEL = "Sharpening airport imagery · %d of %d squares"
 
 
-def _note_mesh_pending(tile, cells) -> None:
-    """Land the run's neighbour tiles still owed a mesh step for the
-    object stage of ``tile`` (#2290).  Never fatal."""
+def _note_run_meshes(tile, cells) -> None:
+    """Land the run's tiles that build a mesh for the object stage of
+    ``tile`` (#2290).  Never fatal."""
     try:
         from auto_patch import guest_stage as _GUESTS
 
-        _GUESTS.note_mesh_pending(tile, cells)
+        _GUESTS.note_run_meshes(tile, cells)
     except Exception:                                    # pragma: no cover
         pass
 
@@ -1196,7 +1196,7 @@ class EngineSession:
               slots=None, steps=None, boundary_policy=None,
               boundary_batch=None, missing_art=None, prefetch=None,
               overrides=None, deadline=None, klass=None, token_lent=None,
-              mesh_pending=None):
+              run_meshes=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -1231,9 +1231,9 @@ class EngineSession:
         rank this batch's tiles in the run's queue (World spec §8.4,
         ``build_order``); a batch with neither keeps first-in-first-out.
 
-        ``mesh_pending`` (#2290): a worker child's run's neighbour tiles
-        still owed their mesh step (``parallel._mesh_pending_locked``),
-        landed for the object stage's guest re-seat.
+        ``run_meshes`` (#2290): a worker child's run's neighbour tiles
+        that build a mesh (``parallel._run_meshes_locked``), landed for
+        the object stage's guest re-seat.
         """
         if self._building:
             return False
@@ -1264,8 +1264,8 @@ class EngineSession:
                 boundary_batch if boundary_batch is not None else tiles)
         except Exception:                                # pragma: no cover
             pass
-        if mesh_pending is not None and len(tiles or ()) == 1:
-            _note_mesh_pending(tiles[0], mesh_pending)
+        if run_meshes is not None and len(tiles or ()) == 1:
+            _note_run_meshes(tiles[0], run_meshes)
         self._next_token_lent = token_lent is not False
         self._building = True
         try:
@@ -1719,7 +1719,7 @@ class EngineSession:
 
     def _queued_meshes_locked(self):
         """The in-process run's queued tiles still owed a mesh step
-        (#2290, ``guest_stage.note_mesh_pending``)."""
+        (#2290, ``guest_stage.note_run_meshes``)."""
         return [item[0] for item in list(self._work_queue)
                 if any(step[0] == "mesh" for step in item[4] or ())]
 
@@ -1971,7 +1971,7 @@ class EngineSession:
                 continue
             self._active_tile = (lat, lon)
             if not self._stepwise_run:      # a child's parent sends it
-                _note_mesh_pending((lat, lon), self._queued_meshes_locked())
+                _note_run_meshes((lat, lon), self._queued_meshes_locked())
             self._hold_tile((lat, lon))
             if not self._stepwise_run:
                 self.tile_logs.begin((lat, lon), FNAMES.build_dir(

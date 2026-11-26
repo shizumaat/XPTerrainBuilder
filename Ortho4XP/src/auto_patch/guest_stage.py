@@ -20,8 +20,8 @@ The reuse key (#879) carries the neighbour grounds (:func:`neighbour_marks`),
 so an origin build never serves a placement seated on a ground that moved.
 
 A RE-SEAT WAITS FOR THE ORIGIN'S OWN BUILD IN THE SAME RUN (#2290): when
-the origin tile is still owed its mesh step in this run
-(:func:`note_mesh_pending`) and its ground is not built yet, its own object
+the origin tile builds its mesh in this run (:func:`note_run_meshes`)
+and its ground is not built yet, its own object
 stage — later, over this tile's new mesh — places the airport, guests and
 all; the re-seat is skipped without a not-fitted row.  LOWS, app 1.0.585:
 ``+47+013`` finished first, re-ran ``+47+012``'s plan over ``+47+012``'s
@@ -34,30 +34,32 @@ import os
 import traceback
 
 __all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests", "own_ground",
-           "note_mesh_pending"]
+           "note_run_meshes"]
 
 #: (path, size, mtime_ns) -> sha256 of a mesh: one read per process
 _DIGESTS: dict = {}
 
 #: (lat, lon) of a tile this process builds -> the tiles of the same run
-#: (its 3x3 block) still owed their mesh step (#2290)
-_MESH_PENDING: dict = {}
+#: (its 3x3 block) that build their mesh in it (#2290)
+_RUN_MESHES: dict = {}
 
 
-def note_mesh_pending(here, cells) -> None:
-    """Record that the run building tile ``here`` still owes the mesh step
-    of the tiles ``cells`` (``[[lat, lon], ...]``): the parallel parent
-    sends it with every step (``parallel._mesh_pending_locked``), the
-    in-process run lands it per tile from its queue."""
-    _MESH_PENDING[(int(here[0]), int(here[1]))] = frozenset(
+def note_run_meshes(here, cells) -> None:
+    """Record that the run building tile ``here`` builds the mesh of the
+    tiles ``cells`` (``[[lat, lon], ...]``) too: the parallel parent sends
+    it with every step (``parallel._run_meshes_locked``), the in-process
+    run lands its queued tiles per tile."""
+    _RUN_MESHES[(int(here[0]), int(here[1]))] = frozenset(
         (int(c[0]), int(c[1])) for c in cells or ())
 
 
 def _waits_for(here, origin, other) -> bool:
-    """Is ``origin`` (its tile ``other``) still to build its mesh in the
-    run building ``here``, its ground not ready — so its own object stage
-    places the airport over ``here``'s new mesh (module docstring)?"""
-    if tuple(origin) not in _MESH_PENDING.get(tuple(here), ()):
+    """Does ``origin`` (its tile ``other``) build its mesh in the run
+    building ``here``, and is that ground not built yet (absent, or older
+    than its ``.alt``) — so its own object stage, still to come, places
+    the airport over ``here``'s new mesh (module docstring)?  A tile that
+    fails before its mesh leaves its own failure to rebuild it."""
+    if tuple(origin) not in _RUN_MESHES.get(tuple(here), ()):
         return False
     from .post_mesh import _mesh_is_newer_than_alt
     mesh = _tile_mesh_path(other, origin)

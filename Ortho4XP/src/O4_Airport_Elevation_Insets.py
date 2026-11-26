@@ -6913,6 +6913,26 @@ def _write_inset_completion_stamp(tile):
         UI.vprint(2, "Could not stamp the airport-inset cache:", error)
 
 
+def _definitions_the_pass_reaches(lat, lon, icao, airport_record,
+                                  provider_definitions):
+    """The providers the fetch loop of ``ensure_airport_insets`` ASKS for
+    ``icao``: the ranking up to and including the best inset the airport
+    HAS (:func:`_best_cached_inset`).  The loop reuses that sound cached
+    raster and stops (its ``break``), so a negative ranked BELOW it is
+    never re-probed and is not a pending re-probe.
+
+    Measured 2026-11-26 (tile +49+006): a FRANCE1M negative stamped under
+    another provider version sat below the airport's cached
+    LUXEMBOURG50CM inset; the pre-flight named it as a re-probe, the
+    ``--refresh-data dem`` pass (the build's own loop) never reached it,
+    and every closing build was refused on a row nothing could clear."""
+    best = _best_cached_inset(lat, lon, icao, airport_record,
+                              provider_definitions)
+    if best is None:
+        return list(provider_definitions)
+    return list(provider_definitions[:best[0] + 1])
+
+
 def unverified_capability_negatives(lat, lon, provider_definitions=None):
     """Every UNVERIFIED no-coverage negative in a tile's inset index.
 
@@ -6930,16 +6950,15 @@ def unverified_capability_negatives(lat, lon, provider_definitions=None):
         provider_definitions = select_provider_definitions(
             "auto", role=ROLE_AIRPORT_INSET
         )
-    gated = [
-        definition
-        for definition in provider_definitions
-        if provider_required_capabilities(definition)
-    ]
-    if not gated:
+    if not any(provider_required_capabilities(definition)
+               for definition in provider_definitions):
         return []
     out = []
     for (icao, airport_record) in sorted(_read_index(lat, lon).items()):
-        for definition in gated:
+        for definition in _definitions_the_pass_reaches(
+                lat, lon, icao, airport_record, provider_definitions):
+            if not provider_required_capabilities(definition):
+                continue
             code = definition["code"]
             if negative_is_unverified(airport_record, code, definition):
                 out.append(
@@ -6970,16 +6989,15 @@ def version_stale_capability_free_negatives(lat, lon,
         provider_definitions = select_provider_definitions(
             "auto", role=ROLE_AIRPORT_INSET
         )
-    free = [
-        definition
-        for definition in provider_definitions
-        if not provider_required_capabilities(definition)
-    ]
-    if not free:
+    if all(provider_required_capabilities(definition)
+           for definition in provider_definitions):
         return []
     out = []
     for (icao, airport_record) in sorted(_read_index(lat, lon).items()):
-        for definition in free:
+        for definition in _definitions_the_pass_reaches(
+                lat, lon, icao, airport_record, provider_definitions):
+            if provider_required_capabilities(definition):
+                continue
             code = definition["code"]
             if negative_is_version_stale(airport_record, code, definition):
                 out.append(

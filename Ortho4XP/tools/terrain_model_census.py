@@ -138,6 +138,7 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
     return read
 
 
+_TILE = re.compile(r"^([+-]\d{2})([+-]\d{3})\.dsf$", re.I)
 _VT = re.compile(rb"^VT[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)", re.M)
 
 
@@ -287,6 +288,15 @@ def _model_row(shape, hdg: float, dem, fine, water, datum=None, rock: bool = Fal
     return rec
 
 
+@functools.lru_cache(maxsize=512)
+def _geometry(pack_root: str, resource: str):
+    """A pack resource's parsed OBJ8 (``None``: a library path or unread)."""
+    try:
+        return parse_obj8(os.path.join(pack_root, resource.replace("\\", "/")))
+    except (OSError, ValueError):
+        return None
+
+
 def _rounded(values: dict) -> dict:
     return {k: round(float(v), 3) for k, v in values.items()}
 
@@ -311,12 +321,19 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
     refused = {r["resource"]: r for r in out["refused"]}
     for dsf in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))):
         src = dsf + ".anchor_bak" if os.path.isfile(dsf + ".anchor_bak") else dsf
-        lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
+        tile = _TILE.match(os.path.basename(dsf))
+        if tile is None:                     # not a tile DSF (an author's stray name)
+            continue
+        lat, lon = int(tile.group(1)), int(tile.group(2))
         if not shapes:                       # nothing to place: no dump
             continue
         defs, rows = placements(src, dsftool)
         dems = rasters(elevation_root, lat, lon)
-        for i, lo, la, hdg, kind, elev in rows:
+        frames: dict = {}
+        for k, (i, lo, la, hdg, kind, elev) in enumerate(rows):
+            frames.setdefault((lo, la, hdg, kind, elev if kind != "OBJECT_MSL" else None),
+                              []).append((k, i))
+        for k_row, (i, lo, la, hdg, kind, elev) in enumerate(rows):
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
             if key in refused:
                 refused[key]["rows"] += 1
@@ -356,6 +373,14 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                 continue
             if rock:
                 rec["witness"] = _rounded(dict(shape.witness))
+                sibs = [_geometry(pack_root, defs[j]) for kk, j in
+                        frames[(lo, la, hdg, kind, elev if kind != "OBJECT_MSL" else None)]
+                        if kk != k_row]
+                if not TR.own_frame(shape, sibs):
+                    rec["verdict"] = "rock in a shared frame"
+                    rec["frame_rows"] = len(sibs)
+                    out["rock_unmatched"].append(rec)
+                    continue
                 datum = TR.row_datum(kind, elev, (0.0, 0.0), dem, shape)
             if datum is not None:
                 rec["datum"] = datum
@@ -380,15 +405,26 @@ def main(argv=None) -> int:
     ap.add_argument("--elevation-root", default=DEFAULT_ELEVATION)
     ap.add_argument("--dsftool", default=os.path.join(HERE, "..", "Utils", "mac", "DSFTool"))
     ap.add_argument("--json")
+    ap.add_argument("--jsonl", help="append one line per pack here; packs already in it "
+                                    "are skipped (a long census resumes)")
     a = ap.parse_args(argv)
     # owner 2026-11-25: the census takes its memory on the machine ledger
     # before it loads anything (O4_Machine_Jobs; released at exit)
     import O4_Machine_Jobs as _jobs
     _jobs.admit_process("terrain_model_census")
     report = []
+    done = set()
+    if a.jsonl and os.path.isfile(a.jsonl):
+        with open(a.jsonl, encoding="utf-8") as fh:
+            done = {json.loads(line)["pack"] for line in fh if line.strip()}
     for p in a.packs:
+        if os.path.basename(os.path.normpath(p)) in done:
+            continue
         r = census(p, a.elevation_root, a.dsftool)
         report.append(r)
+        if a.jsonl:
+            with open(a.jsonl, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(r) + "\n")
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
             wet = row.get("water_rim")

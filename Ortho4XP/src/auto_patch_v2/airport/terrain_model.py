@@ -554,6 +554,9 @@ def placement_models(placements: _t.Sequence[tuple],
     from .pack_choice import hides
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
+    frames: dict[tuple, list] = {}
+    for oid, dpath, xy, heading, elev, kind in placements:
+        frames.setdefault(_origin(xy, heading, elev, kind), []).append((str(oid), dpath))
     for oid, dpath, xy, heading, elev, kind in placements:
         if is_stock_library_resource(dpath):
             continue
@@ -568,9 +571,12 @@ def placement_models(placements: _t.Sequence[tuple],
         datum = float(elev) if kind == "OBJECT_MSL" and elev is not None else None
         fill_z0 = None
         if shape.rock and kind != "OBJECT_MSL":
-            from .terrain_rock import fill_seat, row_datum
-            m = match(shape, xy2, float(heading), dem_many, fine, water,
-                      row_datum(str(kind), elev, xy2, dem_many, shape), rock=True)
+            from .terrain_rock import fill_seat, own_frame, row_datum
+            sibs = [None if is_stock_library_resource(d) else geometry(d)
+                    for o, d in frames[_origin(xy, heading, elev, kind)] if o != str(oid)]
+            m = (match(shape, xy2, float(heading), dem_many, fine, water,
+                       row_datum(str(kind), elev, xy2, dem_many, shape), rock=True)
+                 if own_frame(shape, sibs) else None)
             if m is not None:
                 fill_z0 = fill_seat(str(path_of(dpath)), xy2, float(heading), m["z0"],
                                     dem_many)

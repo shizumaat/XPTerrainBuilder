@@ -254,3 +254,24 @@ def test_the_run_out_fill_raises_our_ground_to_the_rim_never_in_the_patch(tmp_pa
     frozen = TCS.run_out_fill(raster(lambda rows, cols, lons, lats: np.ones(len(rows), bool)),
                               rec)
     assert frozen["raised"] == 0 and frozen["unserved"] == frozen["supports"] > 0
+
+
+def test_a_rock_reads_only_in_a_frame_of_its_own(tmp_path):
+    # RULINGS 2026-11-25l (1): rows sharing the rock's origin must be its
+    # content (over its plan, LICR's lights on its hillside); a scene
+    # exported at one zero around it (LPLA, EGKK) is a composite
+    path = _write(tmp_path)
+    on = _soup(tmp_path, "light.obj", _quad((0.0, 15.0, 0.0), (1.0, 15.0, 0.0),
+                                            (1.0, 16.0, 0.0), (0.0, 16.0, 0.0)))
+    off = _soup(tmp_path, "hangar.obj", _box(300.0, 340.0, 0.0, 40.0, 10.0))
+    s = TM.shape_of(path)
+    assert TR.own_frame(s, [parse_obj8(on)]) and not TR.own_frame(s, [parse_obj8(off)])
+    assert not TR.own_frame(s, [None])
+    paths = {"m.obj": path, "on.obj": on, "off.obj": off}
+
+    def found(*others):
+        rows = [("dsf:obj1", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+        rows += [(f"dsf:obj{k + 2}", d, (0.0, 0.0), 0.0, None, "OBJECT")
+                 for k, d in enumerate(others)]
+        return TM.placement_models(rows, paths.get, lambda d: parse_obj8(paths[d]), _flat(10.0))
+    assert "dsf:obj1" in found("on.obj") and "dsf:obj1" not in found("on.obj", "off.obj")

@@ -30,6 +30,9 @@ candidate it refuses is not a rock (the census lists it with its failing
 gates).  A composite of terrain and built parts is not a rock (RULINGS
 2026-11-25l (1): it is an ELLX-like partial shell).
 
+ONE RIGID FRAME OF ITS OWN (:func:`own_frame`): every other row sharing
+its origin is its content (over its plan), never a scene around it.
+
 THE MATCH (:func:`rock_match`): its datum is the ground under its anchor
 plus its ``OBJECT_AGL`` lift (:func:`row_datum`: X-Plane stands such a
 row's zero on the terrain at its anchor), and its rim must not FLOAT over
@@ -55,7 +58,7 @@ import typing as _t
 import numpy as np
 
 __all__ = ["ROCK_MIN_RELIEF_M", "big_piece_share", "rock_verdict", "rock_shape", "row_datum",
-           "rock_match", "fill_seat"]
+           "rock_match", "own_frame", "fill_seat"]
 
 ROCK_MIN_RELIEF_M = 5.0
 
@@ -172,6 +175,26 @@ def row_datum(kind: str, elev: _t.Any, xy: tuple[float, float],
     z = float(np.asarray(dem_many(np.array([float(xy[0])]), np.array([float(xy[1])])),
                          dtype=float)[0])
     return z + lift if np.isfinite(z) else None
+
+
+def own_frame(shape: _t.Any, others: _t.Iterable[_t.Any]) -> bool:
+    """ONE RIGID FRAME of its own (module doc): every other row sharing the
+    rock's origin (anchor, heading, lift; their parsed geometries
+    ``others``, ``None`` unread) is its CONTENT -- the centre of its plan
+    lies over the rock's plan (LICR's approach lights on its hillside) --
+    else the frame is a composite scene (a whole airport exported at one
+    zero: LPLA's ground pieces, EGKK's hills among its construction site)
+    and the row is not read as a rock (RULINGS 2026-11-25l (1): composites
+    are partial shells)."""
+    grid = shape.grid
+    for g in others:
+        if g is None or not len(g.vertices):
+            return False
+        lo, hi = g.vertices.min(axis=0), g.vertices.max(axis=0)
+        mid = 0.5 * (lo + hi)
+        if not bool(grid.cell_of(np.array([mid[0]]), np.array([mid[2]]))[2][0]):
+            return False
+    return True
 
 
 def fill_seat(file: str, xy: tuple[float, float], heading: float, z0: float,

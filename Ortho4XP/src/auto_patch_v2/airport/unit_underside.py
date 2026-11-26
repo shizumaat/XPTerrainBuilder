@@ -205,12 +205,27 @@ def _law(law) -> tuple[float, float, float, float]:
             float(law.tables.structures.placement.chain_min_height_m))
 
 
-def _layers(got: list, max_samples: "float | None" = _um.MAX_SAMPLES) -> "_um.Layers | None":
+def _layers(got: list, max_samples: "float | None" = _um.MAX_SAMPLES,
+            feet: "np.ndarray | None" = None) -> "_um.Layers | None":
     got = [g for g in got if g is not None]
     if not got:
         return None
     return _um.rasterise_layers(*(np.concatenate([g[k] for g in got]) for k in range(3)),
-                                max_samples=max_samples)
+                                max_samples=max_samples, feet=feet)
+
+
+def _feet(placer: _Placer, by_pid: dict, pids) -> "np.ndarray | None":
+    """``(k, 3)`` frame east/north and ``y`` of the parts' ground feet
+    (``Part.feet``: ``(lat, lon, authored y)``, already over the member's
+    zero), never a line or scatter part's."""
+    rows = [f for q in pids for f in (getattr(by_pid[q][1], "feet", ()) or ())
+            if not getattr(by_pid[q][1], "line", False)
+            and not getattr(by_pid[q][1], "scatter", False)]
+    if not rows:
+        return None
+    a = np.asarray(rows, dtype=float)
+    xs, ys = zip(*(placer.to_xy(lon, lat) for lat, lon in a[:, :2]), strict=True)
+    return np.column_stack([xs, ys, a[:, 2]])
 
 
 def _set_layers(part, maps: dict, unit_of: dict, placer: _Placer) -> dict:
@@ -283,7 +298,8 @@ def _derive(airport, law, cache) -> dict:
     for key, cid, pids in unit_population(airport):
         if not any(getattr(parts[q], "feet", ()) for q in pids):
             continue            # FOOTLESS: no map; today's carriers seat it (spec §1)
-        layers = _layers([placer.placed(*by_pid[q]) for q in sorted(pids)])
+        layers = _layers([placer.placed(*by_pid[q]) for q in sorted(pids)],
+                         feet=_feet(placer, by_pid, sorted(pids)))
         if layers is None:
             continue
         m = _um.underside(layers, key, cid, near, storey)

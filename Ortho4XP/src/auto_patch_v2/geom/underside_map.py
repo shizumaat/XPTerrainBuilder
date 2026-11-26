@@ -180,16 +180,22 @@ def _grid(lo: np.ndarray, hi: np.ndarray, step: float, max_cells: int
 def rasterise_layers(p: np.ndarray, floor_ok: np.ndarray, foot_max: np.ndarray,
                      step: float = CELL_M, max_cells: int = MAX_CELLS,
                      max_samples: "float | None" = MAX_SAMPLES,
+                     feet: "np.ndarray | None" = None,
                      chunk: int = 4_000_000) -> "Layers | None":
     """THE LAYERS (module doc) of the triangles ``p`` ``(n, 3, 3)`` as
     ``(east, north, y)``, binned at cell centres: ``floor_ok`` per triangle
     whether it may be a floor (near-horizontal); ``foot_max`` per triangle
     the highest ``y`` a sample of it is a ground contact (``-inf``: none --
-    an elevated part).  Extends ``ground_rim._raster_of`` (one vectorised
-    rasteriser, chunked so a terminal never holds 10^8 samples at once)."""
+    an elevated part).  ``feet`` ``(k, 3)`` east/north/``y``: the parts'
+    own ground feet (``Part.feet``), read as foot samples where they stand
+    -- a building of bare walls has no plan area at its feet.  Extends
+    ``ground_rim._raster_of`` (one vectorised rasteriser, chunked so a
+    terminal never holds 10^8 samples at once)."""
     if not len(p):
         return None
     xy = p[:, :, :2].reshape(-1, 2)
+    if feet is not None and len(feet):
+        xy = np.concatenate([xy, feet[:, :2]])
     lo, hi = xy.min(0), xy.max(0)
     e0, n0, step, ncol, nrow = _grid(lo, hi, step, max_cells)
     # THE SAMPLE BUDGET: each triangle samples its box's cells, so a plan of
@@ -238,6 +244,13 @@ def rasterise_layers(p: np.ndarray, floor_ok: np.ndarray, foot_max: np.ndarray,
         ft &= fl
         np.maximum.at(tread, cell[ft], zz[ft])
         k0 = k1
+    if feet is not None and len(feet):
+        fc = np.clip(np.floor((feet[:, 0] - e0) / step).astype(np.int64), 0, ncol - 1)
+        fr = np.clip(np.floor((feet[:, 1] - n0) / step).astype(np.int64), 0, nrow - 1)
+        cell, fy = fr * ncol + fc, feet[:, 2]
+        np.minimum.at(foot, cell, fy)
+        np.minimum.at(low, cell, fy)
+        np.maximum.at(top, cell, fy)
     arrs = []
     for a in (top, low, flo, foot, tread):
         a[~np.isfinite(a)] = np.nan

@@ -16,6 +16,10 @@ installed on disk; this says where X-Plane shows something else.
   (``O4_Live_Preview.squares``: X-Plane still shows the earlier imagery
   until the user reloads).  A tile X-Plane has not loaded yet will be
   read as installed: nothing to mark.
+  X-Plane pages a square's texture in only when it comes into range, so
+  a tier the follow job landed ON TIME (before that) is shown without a
+  reload, landed after the tile load or not (#2246): those squares
+  (:func:`on_time_keys`) are never stale on their change time alone.
 * When the log cannot be read, the follow job's ``late`` landings stand
   in (a tier that landed after X-Plane crossed into its square), while
   their reload offer (``reload_offer``) is pending.
@@ -31,7 +35,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-__all__ = ["RUNNING_EVERY_S", "late_keys", "tile_state", "xplane_log"]
+__all__ = ["RUNNING_EVERY_S", "late_keys", "on_time_keys", "tile_state", "xplane_log"]
 
 #: Seconds between looks for X-Plane's process.
 RUNNING_EVERY_S = 5.0
@@ -158,3 +162,16 @@ def late_keys(scenery_dir: str, running: Optional[bool] = None,
     if log[0] is not None:
         return frozenset()
     return frozenset(follow_late_landings())
+
+
+def on_time_keys(running: Optional[bool] = None) -> frozenset:
+    """``{"<tile>/<texture>"}`` the follow job landed before X-Plane
+    paged the square in (#2246), less any it also landed late: their
+    change after the tile load does not make them stale.  Empty unless
+    X-Plane runs."""
+    from .imagery_commands import follow_late_landings
+    running = _xplane_running() if running is None else running
+    if not running:
+        return frozenset()
+    return frozenset(follow_late_landings(late=False)) - frozenset(
+        follow_late_landings())

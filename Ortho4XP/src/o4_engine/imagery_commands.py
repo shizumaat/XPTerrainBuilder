@@ -164,14 +164,17 @@ def follow_running() -> bool:
         return job is not None and job.running
 
 
-def follow_late_landings() -> list:
+def follow_late_landings(late: bool = True) -> list:
     """The running follow job's ``late`` landings (``"<tile>/<texture>"``
     keys, in order): tiers that landed after X-Plane crossed into their
-    square (the live preview's stand-in witness)."""
+    square (the live preview's stand-in witness).  ``late=False``: the
+    on-time ones instead, landed before X-Plane paged the square in
+    (#2246: X-Plane shows those without a reload)."""
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
         landings = list(job.landings) if job is not None else []
-    return [item["square"] for item in landings if item.get("late")]
+    return [item["square"] for item in landings
+            if bool(item.get("late")) == bool(late)]
 
 
 def focus_imagery_follow(lat: float, lon: float, tiles=()) -> bool:

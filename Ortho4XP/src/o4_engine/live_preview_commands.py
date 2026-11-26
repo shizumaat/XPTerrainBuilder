@@ -79,9 +79,10 @@ def live_preview_squares(south: float, west: float, north: float,
 
     scenery = scenery_dir_or_default(scenery_dir)
     state = WITNESS.tile_state(scenery)
-    late = frozenset()
+    late = on_time = frozenset()
     with contextlib.suppress(Exception):          # no follow job: none late
         late = WITNESS.late_keys(scenery)
+        on_time = WITNESS.on_time_keys()
     conn = None
     with contextlib.suppress(Exception):          # no index: none read
         if os.path.isfile(INDEX.index_path()):
@@ -90,7 +91,8 @@ def live_preview_squares(south: float, west: float, north: float,
         return LIVE.squares(float(south), float(west), float(north),
                             float(east), float(px_per_deg),
                             tile_folders(scenery, conn), state,
-                            scale=max(1.0, float(scale or 1.0)), late=late)
+                            scale=max(1.0, float(scale or 1.0)), late=late,
+                            on_time=on_time)
     finally:
         if conn is not None:
             conn.close()

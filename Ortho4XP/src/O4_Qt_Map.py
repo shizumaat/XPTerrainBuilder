@@ -12,6 +12,7 @@ building tiles), so every TMS/WMTS webmercator provider works unmodified.
 Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 """
 
+import copy
 import math
 import os
 import threading
@@ -529,6 +530,19 @@ class MapView(QGraphicsView):
     def set_built(self, built):
         self._built = dict(built)
         self.built_changed.emit()
+        self.viewport().update()
+
+    def set_favorite(self, tile, pinned):
+        """A star's click shows at once (#2228): the tile's Favorite as the
+        user asked, until the rescan brings the record (or the refusal
+        puts it back).  The Mac's ``BuildModel.favoriteFlips``."""
+        tile = tuple(tile)
+        info = self._built.get(tile)
+        if info is None or bool(getattr(info, "pinned", False)) == bool(pinned):
+            return
+        info = copy.copy(info)
+        info.pinned = bool(pinned)
+        self._built[tile] = info
         self.viewport().update()
 
     def set_dimmed(self, tiles):

@@ -20,6 +20,7 @@ from auto_patch_v2.model.constraints import Band, ConstraintSet, Linear, Source
 from auto_patch_v2.model.registries import LANDSIDE_KERB
 from auto_patch_v2.planar.frontage_roads import frontage_roads
 from shapely.geometry import box
+from shapely.ops import unary_union
 
 LAW = Law.for_airport("SYNT")
 G_RAMP = float(LAW.tables.emit.road_contact.ramp_grade)
@@ -172,3 +173,38 @@ def test_a_road_entering_the_block_is_on_its_level_to_the_edge():
 def test_no_road_no_piece():
     P, air, L = box(0.0, 0.0, 100.0, 60.0), box(-50.0, 0.0, 0.0, 60.0), box(60.0, 10.0, 90.0, 50.0)
     assert frontage_roads(L, P, air, NS(osm_ways=[]), LAW, 3.0, 1.0) == []
+
+
+def _part(x0, y0, x1, y1, base_y, feet=False):
+    ring = ((y0, x0), (y0, x1), (y1, x1), (y1, x0))      # (lat, lon) = (y, x)
+    return NS(lon=0.5 * (x0 + x1), lat=0.5 * (y0 + y1), base_y=base_y, rings=(ring,),
+              feet=((y0, x0, base_y),) if feet else (), line=False, scatter=False)
+
+
+def test_the_airside_floor_ends_at_the_road_through_the_storey():
+    """RULINGS 2026-11-26c: the #2279 terminal (``test_kerb_frontage2279.
+    _landside``) with a mapped road across its storey 30 m in from the
+    apron.  The body past the road (cut off the airside by it) and the road
+    itself are the landside's; the airside floor is the body short of the
+    road -- never the road's corridor, nor a bay past it."""
+    from auto_patch_v2.classify.airside_edge import airside_edge_flip
+    from auto_patch_v2.classify.rules import load_rules
+    from auto_patch_v2.classify.storey_edge import knife_storeys, storey_band
+    floor = _part(100.0, -20.0, 140.0, -2.0, 0.0, feet=True)
+    upper = [_part(20.0, 0.0, 60.0, 60.0, 4.1), _part(200.0, 0.0, 250.0, 60.0, 4.1),
+             _part(60.0, 0.0, 200.0, 40.0, 4.1)]
+    road = NS(tags={"highway": "service"}, points=[(0.0, 30.0), (270.0, 30.0)])
+    ap = NS(partition=NS(units=[NS(members=[NS(parts=[floor, *upper])])]),
+            frame=NS(entry=lambda: (lambda lon, lat: (lon, lat))),
+            dem=NS(z=lambda x, y: 46.0 + 4.6 * (y > 0)), osm_ways=[road])
+    final = [["apron", "apron0", box(-50.0, -100.0, 320.0, 0.0), None, {}, "apron"],
+             ["parking_lot", "lot0", box(0.0, 0.0, 270.0, 100.0), None, {}, "parking_lot"]]
+    band = storey_band(ap, LAW, [], final)
+    half = 0.5 * (band.roads.bounds[3] - band.roads.bounds[1])
+    cuts: dict = {}
+    airside_edge_flip(final, [], LAW, load_rules(),
+                      storey=band, storey_cuts=cuts, to_xy=lambda lon, lat: (lon, lat))
+    assert knife_storeys(final, cuts, LAW, 1.0, band) == 1
+    under = unary_union([f[2] for f in final[2:] if f[0] == "apron"])
+    assert under.area == pytest.approx(230.0 * (30.0 - half), rel=1e-3)
+    assert under.intersection(band.roads).area < 1.0

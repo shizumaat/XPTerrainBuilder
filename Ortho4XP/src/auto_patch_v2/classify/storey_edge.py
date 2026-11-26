@@ -99,6 +99,10 @@ class StoreyBand:
     #: the storeys' PLANS (:func:`_plan`), widened by the weld: a unit's
     #: landside reads its contact across them (#2279)
     plan: _t.Any = None
+    #: the mapped roads' carriageways over the plans
+    #: (``airport/road_ways.road_corridors``): the landside's, never the
+    #: building's airside floor (:func:`_floor`)
+    roads: _t.Any = None
 
 
 def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
@@ -114,12 +118,14 @@ def storey_band(airport, law: Law, cells, final) -> "StoreyBand | None":
     st = upper_storeys(airport, law, air)
     if not st:
         return None
+    from ..airport.road_ways import road_corridors
     from ..law.tables import design as design_law
     weld = float(law.tables.emit.identity.weld_spacing_m)
+    plan = unary_union([_plan(s) for s in st]).buffer(weld)
+    roads = unary_union([c for c, _w in road_corridors(plan, airport, law)])
     return StoreyBand(unary_union([s.footprint for s in st]).buffer(weld), tuple(st),
                       weld, air, getattr(airport, "dem", None),
-                      float(design_law(law).pad_frontage_m),
-                      unary_union([_plan(s) for s in st]).buffer(weld))
+                      float(design_law(law).pad_frontage_m), plan, roads)
 
 
 def _plan(s) -> _t.Any:
@@ -262,8 +268,23 @@ def _floor(lot, met, band: StoreyBand, weld: float) -> _t.Any:
     hull = unary_union([_plan(s) for s in met])
     body = body.intersection(hull)
     air = band.air.buffer(weld) if band.air is not None else None
-    bays = [p for p in polygon_parts(lot.intersection(hull).difference(body))
-            if air is not None and p.intersects(air)]
+    roads = band.roads if band.roads is not None and not band.roads.is_empty else None
+    if roads is not None and air is not None:
+        # THE AIRSIDE FLOOR ENDS AT THE RETAINING WALL (owner 2026-11-26,
+        # RULINGS 2026-11-26c: "everything past the retaining wall is at the
+        # upper groundside level"): a mapped road through the plan runs on
+        # the landside (a road is no part of the object, #1291), and the
+        # body it cuts off the airside -- a kerb island, a canopy's far half
+        # -- stands past the wall.  MEASURED PHLI: the kerb canopy
+        # ``dsf:obj7697`` (upper part, base +4.0) over roads -552/-217/-551
+        # and the island ``pav63#4`` past them read as the airside floor,
+        # 47.52 m between a forecourt at 51.6
+        body = unary_union([p for p in polygon_parts(body.difference(roads))
+                            if p.intersects(air)])
+    rest = lot.intersection(hull).difference(body)
+    if roads is not None:
+        rest = rest.difference(roads)
+    bays = [p for p in polygon_parts(rest) if air is not None and p.intersects(air)]
     return unary_union([body, *bays])
 
 

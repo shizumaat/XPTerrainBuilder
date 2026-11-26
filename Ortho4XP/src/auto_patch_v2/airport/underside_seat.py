@@ -270,7 +270,8 @@ def _riders(m: _t.Any, objects: _t.Sequence[_t.Any], free: _t.AbstractSet[str],
 
 def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
                  objects: _t.Sequence[_t.Any], taken: _t.AbstractSet[str],
-                 widen_m: float, storey_m: float = 3.0) -> tuple[list[dict[str, _t.Any]], list[dict[str, _t.Any]]]:
+                 widen_m: float, storey_m: float = 3.0
+                 ) -> tuple[list[dict[str, _t.Any]], list[dict[str, _t.Any]]]:
     """``(records, report)``: one ``RebakePlan.authored_seats`` record per
     row of every admitted unit and its riders (module doc), and one report
     row per unit S3 admits (its ``z0``, or why it was still refused).

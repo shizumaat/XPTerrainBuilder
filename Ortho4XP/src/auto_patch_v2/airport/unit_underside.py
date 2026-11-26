@@ -50,7 +50,7 @@ import numpy as np
 
 from ..geom import underside_map as _um
 
-__all__ = ["AIRSIDE_NEAR_M", "SUFFIX", "LABEL", "unit_population", "derive",
+__all__ = ["AIRSIDE_NEAR_M", "SUFFIX", "LABEL", "unit_population",
            "attach_undersides", "log_line"]
 
 #: a station within this of airside pavement is an airside contact (m)
@@ -239,7 +239,7 @@ def _set_layers(part, maps: dict, unit_of: dict, placer: _Placer) -> dict:
     return out
 
 
-def derive(airport, law, cache) -> dict:
+def _derive(airport, law, cache) -> dict:
     """``{"maps": {key: map}, "sets": {origin-set id: Layers}}`` of
     ``airport`` (module doc): the per-cluster maps and the plans the
     composite test reads; ``cache`` the pack's ``obj8.ResourceCache``
@@ -296,7 +296,7 @@ def _cached(airport, law, cache, write: bool) -> tuple[dict, str]:
     if isinstance(got, dict) and "maps" in got:
         _pcache.companion_note(LABEL, "HIT", f"{slot[0]} ({len(got['maps'])} map(s))")
         return got, "HIT"
-    maps = derive(airport, law, cache)
+    maps = _derive(airport, law, cache)
     held = bool(write) and _pcache.hold_companion(root, icao, SUFFIX, key, maps, LABEL)
     state = "MISS" if slot is not None or held else "OFF"
     _pcache.companion_note(LABEL, state, slot[0] if slot is not None else
@@ -320,7 +320,7 @@ def attach_undersides(airport, law, cache, *, write_cache: bool = False,
     if cached:
         got, state = _cached(airport, law, cache, write_cache)
     else:
-        got, state = derive(airport, law, cache), "OFF"
+        got, state = _derive(airport, law, cache), "OFF"
     maps = join(airport, law, got["maps"], got["sets"])
     return _dc.replace(airport, undersides=maps), (time.perf_counter() - t0, state)
 

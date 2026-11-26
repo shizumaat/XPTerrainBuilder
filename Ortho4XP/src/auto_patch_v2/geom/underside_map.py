@@ -63,8 +63,8 @@ import numpy as np
 
 __all__ = ["CELL_M", "MAX_CELLS", "SKIN_M", "SHEET_STEP_M", "BEHIND_M", "WALL_M",
            "SKIRT_M", "FLOOR_SUNKEN_MIN_M", "ROOFED_COVER_MIN", "FLAT_M",
-           "KINDS", "Layers", "Interior", "UndersideMap", "rasterise_layers",
-           "compose", "ground_sheet", 
+           "KINDS", "Layers", "UndersideMap", "rasterise_layers",
+           "compose", "ground_sheet",
            "relief", "underside"]
 
 #: the plan grid (m); a grid that would exceed :data:`MAX_CELLS` coarsens
@@ -113,7 +113,7 @@ class Layers:
 
 
 @_dc.dataclass(frozen=True)
-class Interior:
+class _Interior:
     """One below-grade interior: ``open`` or ``roofed``, its cell count,
     its lowest floor (authored ``y``) and its covered share."""
 
@@ -143,7 +143,7 @@ class UndersideMap:
     kind: np.ndarray
     levels_k: np.ndarray
     airside: np.ndarray
-    interiors: tuple[Interior, ...]
+    interiors: tuple[_Interior, ...]
     t: "float | None"
     t_from: str
     levels: tuple[float, ...]
@@ -365,7 +365,7 @@ def _stations(g: Layers, P: np.ndarray, storey_m: float) -> dict[str, np.ndarray
 
 
 def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
-              ) -> tuple[Interior, ...]:
+              ) -> tuple[_Interior, ...]:
     """THE BELOW-GRADE INTERIORS of ``P`` (module doc)."""
     from scipy import ndimage
     if not len(st["ii"]):
@@ -390,7 +390,7 @@ def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
             continue
         with np.errstate(invalid="ignore"):
             cover = float(np.mean((g.top[sl] - g.floor[sl])[m] > SKIN_M))
-        out.append(Interior("roofed" if cover >= ROOFED_COVER_MIN else "open", cells,
+        out.append(_Interior("roofed" if cover >= ROOFED_COVER_MIN else "open", cells,
                             round(float(np.nanmin(g.floor[sl][m])), 3), round(cover, 3)))
     return tuple(out)
 

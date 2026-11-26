@@ -36,8 +36,8 @@ import numpy as np
 
 from ..geom import underside_map as _um
 
-__all__ = ["MIN_SHEET_SHARE", "MIN_RIM_SHARE", "MIN_FOLLOW_SHARE", "MAX_UNEXPLAINED", "dem_many",
-           "MIN_SKIN_SHARE", "is_composite", "join"]
+__all__ = ["MIN_SHEET_SHARE", "MIN_RIM_SHARE", "MIN_FOLLOW_SHARE", "MAX_UNEXPLAINED",
+           "MIN_SKIN_SHARE", "dem_many", "join"]
 
 #: the least share of the set's plan, and of its outer rim, the sheet holds
 MIN_SHEET_SHARE = 0.5
@@ -66,7 +66,7 @@ def dem_many(dem) -> _t.Callable[[np.ndarray, np.ndarray], np.ndarray]:
     return one
 
 
-def is_composite(g: _um.Layers, dem_many) -> "np.ndarray | None":
+def _is_composite(g: _um.Layers, dem_many) -> "np.ndarray | None":
     """THE TEST (module doc) of one origin set's composed layers ``g``:
     its sheet (a boolean grid) when it is a composite, else ``None``."""
     from .ground_shell import AT_GRADE_M
@@ -145,7 +145,7 @@ def join(airport, law, maps: _t.Mapping[tuple, _um.UndersideMap],
     out = dict(maps)
     for uid, keys in sorted(by_set.items()):
         g = sets.get(uid)
-        sheet = is_composite(g, many) if g is not None and g.step == _um.CELL_M else None
+        sheet = _is_composite(g, many) if g is not None and g.step == _um.CELL_M else None
         if sheet is None:
             continue
         members = [k for k in keys if (_on(sheet, g, maps[k].layers) & maps[k].plan).any()]

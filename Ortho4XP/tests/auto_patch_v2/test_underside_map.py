@@ -161,7 +161,7 @@ def _rows(ap, c):
 def test_one_map_per_cluster_keyed_by_its_rows_twin_of_plan_clusters():
     ap, law, cache = _airport()
     assert len(ap.clusters) == 2 and all(c.pids for c in ap.clusters)
-    maps = uu.derive(ap, law, cache)["maps"]
+    maps = uu._derive(ap, law, cache)["maps"]
     by_rows = {_rows(ap, c): c for c in ap.clusters}
     assert set(maps) == set(by_rows)
     for key, m in maps.items():
@@ -185,7 +185,7 @@ def test_a_second_cluster_on_the_same_rows_takes_its_id():
 
 def test_no_composite_without_a_sheet_and_the_log_line():
     ap, law, cache = _airport()
-    got = uu.derive(ap, law, cache)
+    got = uu._derive(ap, law, cache)
     joined = uc.join(ap, law, got["maps"], got["sets"])
     assert set(joined) == set(got["maps"]) and not any(m.composite for m in joined.values())
     assert "2 grounded unit(s)" in uu.log_line("TEST", joined)
@@ -197,9 +197,9 @@ def test_a_paved_skirt_on_our_ground_is_a_composite():
     top = np.tile(40.0 * u * u, (n, 1)).astype(np.float32)     # a modelled hollow
     g = um.Layers(0.0, 0.0, 1.0, top, top - 0.2, top - 0.2, top - 0.2, top)
     dem = lambda e, n_: 100.0 + 40.0 * (e / n) ** 2  # noqa: E731
-    assert uc.is_composite(g, dem) is not None
+    assert uc._is_composite(g, dem) is not None
     flat = lambda e, n_: np.full(len(e), 100.0)      # noqa: E731 -- our ground explains none
-    assert uc.is_composite(g, flat) is None
+    assert uc._is_composite(g, flat) is None
 
 
 # ── admission S3 ─────────────────────────────────────────────────────────

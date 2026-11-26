@@ -33,6 +33,7 @@ def kerb_wall_joints(planar, law, z: "_t.Sequence[float] | None") -> list[dict[s
     import numpy as np
     from scipy.spatial import cKDTree
     from shapely.geometry import LineString
+
     from .ribbon_steps import _to_ll
     ws = sorted(wall)
     tree = cKDTree(np.array([planar.vertices[w].xy for w in ws]))

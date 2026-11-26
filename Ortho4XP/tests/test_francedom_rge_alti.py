@@ -81,6 +81,7 @@ def test_geographic_request_is_lat_first_one_metre(shipped):
 def test_native_pyramid_per_territory(shipped):
     """1 m comes from each territory's NATIVE pyramid: the all-France
     HIGHRES layer's finest level is ~4.8 m (5x5 px blocks at 1 m)."""
+    pytest.importorskip("osgeo.osr")   # the UTM sheet pick reprojects
     dom, metro = shipped["FRANCEDOM1M"], shipped["FRANCE1M"]
     strategy = WcsKvpStrategy()
     for (box, layer) in (

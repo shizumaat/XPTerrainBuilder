@@ -3,6 +3,9 @@ object's placement and a generated road chain, written into a DSFTool
 text dump.  ``dsf_write`` EDITS the rows a pack already has; this module
 only ADDS rows, and never renumbers a definition the dump declares.
 
+* :func:`def_insert_at` -- where a new definition goes: in DSFTool's
+  dump order (:data:`DEF_ORDER`), so a round trip lists it where it was
+  written;
 * :func:`add_object` -- one ``OBJECT_DEF`` appended after the last one
   and one ``OBJECT_MSL idx lon lat msl heading`` row (:func:`add_objects`
   places many in one pass, reusing a definition the dump declares) (the token order of
@@ -29,7 +32,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Chain", "add_object", "add_objects", "add_network"]
+__all__ = ["Chain", "DEF_ORDER", "add_object", "add_objects", "add_network",
+           "def_insert_at"]
 
 
 @_dc.dataclass(frozen=True)
@@ -41,20 +45,41 @@ class Chain:
     junctions: tuple[tuple[float, float, int], ...]
 
 
-def _last_index(lines: list[str], keyword: str) -> int:
-    last = -1
+#: The order DSFTool prints the definition lists in, whatever order the
+#: text it encoded gave them (each list is its own atom; measured
+#: DSFTool 2.4.0-b1, 2026-11-26: a text declaring NETWORK_DEF, OBJECT_DEF,
+#: TERRAIN_DEF in that order dumps TERRAIN_DEF, OBJECT_DEF, POLYGON_DEF,
+#: NETWORK_DEF).  A definition added anywhere else is a structural-row
+#: change to the round-trip verifier (#2291: CYYZ's new tree
+#: ``POLYGON_DEF``s written after its ``NETWORK_DEF``).
+DEF_ORDER = ("TERRAIN_DEF", "OBJECT_DEF", "POLYGON_DEF", "NETWORK_DEF",
+             "RASTER_DEF")
+
+
+def _keyword(line: str) -> str:
+    return line.split(None, 1)[0] if line.strip() else ""
+
+
+def def_insert_at(lines: _t.Sequence[str], keyword: str) -> int:
+    """The line index a new ``keyword`` definition (one of
+    :data:`DEF_ORDER`) is inserted at so the text lists its definitions
+    as DSFTool dumps them: one past the last row of ``keyword`` or of a
+    kind before it, else at the first row of a kind after it, else one
+    past the last ``PROPERTY`` row.  Never renumbers a definition."""
+    rank = DEF_ORDER.index(keyword)
+    after = before = prop = -1
     for i, ln in enumerate(lines):
-        if ln.startswith(keyword + " "):
-            last = i
-    return last
-
-
-def _defs_end(lines: list[str]) -> int:
-    """One past the last ``*_DEF`` row (``PROPERTY`` rows when none)."""
-    last = max(_last_index(lines, kw) for kw in
-               ("TERRAIN_DEF", "OBJECT_DEF", "POLYGON_DEF", "NETWORK_DEF",
-                "RASTER_DEF", "PROPERTY"))
-    return last + 1
+        kw = _keyword(ln)
+        if kw in DEF_ORDER:
+            if DEF_ORDER.index(kw) <= rank:
+                after = i
+            elif before < 0:
+                before = i
+        elif kw == "PROPERTY":
+            prop = i
+    if after >= 0:
+        return after + 1
+    return before if before >= 0 else prop + 1
 
 
 def add_object(text: str, resource: str, lon: float, lat: float, msl: float,
@@ -73,9 +98,7 @@ def add_objects(text: str, rows: _t.Sequence[tuple[str, float, float, float, flo
     (appended).  Returns ``(text, each row's definition index)``."""
     lines = text.split("\n")
     defs = [ln.split(None, 1)[1].strip() for ln in lines if ln.startswith("OBJECT_DEF ")]
-    at = _last_index(lines, "OBJECT_DEF")
-    if at < 0:
-        at = _defs_end(lines) - 1
+    at = def_insert_at(lines, "OBJECT_DEF")
     known = {d: i for i, d in enumerate(defs)} if reuse else {}
     new: list[str] = []
     idx: list[int] = []
@@ -84,7 +107,7 @@ def add_objects(text: str, rows: _t.Sequence[tuple[str, float, float, float, flo
             known[res] = len(defs) + len(new)
             new.append(res)
         idx.append(known[res])
-    lines[at + 1:at + 1] = [f"OBJECT_DEF {r}" for r in new]
+    lines[at:at] = [f"OBJECT_DEF {r}" for r in new]
     tail = len(lines)
     while tail > 0 and not lines[tail - 1].strip():
         tail -= 1
@@ -102,7 +125,7 @@ def add_network(text: str, net_def: str, chains: _t.Sequence[Chain]) -> str:
     if nets and nets != [net_def]:
         raise ValueError(f"the DSF already uses {nets[0]!r}; one network per DSF")
     if not nets:
-        lines.insert(_defs_end(lines), f"NETWORK_DEF {net_def}")
+        lines.insert(def_insert_at(lines, "NETWORK_DEF"), f"NETWORK_DEF {net_def}")
     node = 0
     for ln in lines:
         t = ln.split()

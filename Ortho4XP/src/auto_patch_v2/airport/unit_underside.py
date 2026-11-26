@@ -214,18 +214,28 @@ def _layers(got: list, max_samples: "float | None" = _um.MAX_SAMPLES,
                                 max_samples=max_samples, feet=feet)
 
 
-def _feet(placer: _Placer, by_pid: dict, pids) -> "np.ndarray | None":
-    """``(k, 3)`` frame east/north and ``y`` of the parts' ground feet
-    (``Part.feet``: ``(lat, lon, authored y)``, already over the member's
-    zero), never a line or scatter part's."""
-    rows = [f for q in pids for f in (getattr(by_pid[q][1], "feet", ()) or ())
-            if not getattr(by_pid[q][1], "line", False)
-            and not getattr(by_pid[q][1], "scatter", False)]
+def _feet_of(airport, by_pid: dict) -> dict:
+    """``{pid: (k, 3)}`` frame east/north and ``y`` of every solid part's
+    ground feet (``Part.feet``: ``(lat, lon, authored y)``, already over the
+    member's zero), projected in ONE batch through the frame's forward
+    transform (the 1 m grid needs no entry snap)."""
+    pids, rows = [], []
+    for q, (_m, p) in by_pid.items():
+        f = getattr(p, "feet", ()) or ()
+        if f and not getattr(p, "line", False) and not getattr(p, "scatter", False):
+            pids.append((q, len(f)))
+            rows.extend(f)
     if not rows:
-        return None
+        return {}
     a = np.asarray(rows, dtype=float)
-    xs, ys = zip(*(placer.to_xy(lon, lat) for lat, lon in a[:, :2]), strict=True)
-    return np.column_stack([xs, ys, a[:, 2]])
+    fwd = airport.frame.transformers()[0]
+    xs, ys = fwd(a[:, 1], a[:, 0])
+    xyz = np.column_stack([np.asarray(xs, float), np.asarray(ys, float), a[:, 2]])
+    out, at = {}, 0
+    for q, k in pids:
+        out[q] = xyz[at:at + k]
+        at += k
+    return out
 
 
 def _set_layers(part, maps: dict, unit_of: dict, placer: _Placer) -> dict:
@@ -294,12 +304,14 @@ def _derive(airport, law, cache) -> dict:
     near = _near_airside(airport)
     by_pid = {p.pid: (m, p) for u in part.units for m in u.members for p in m.parts}
     parts = {q: mp[1] for q, mp in by_pid.items()}
+    feet = _feet_of(airport, by_pid)
     out: dict = {}
     for key, cid, pids in unit_population(airport):
         if not any(getattr(parts[q], "feet", ()) for q in pids):
             continue            # FOOTLESS: no map; today's carriers seat it (spec §1)
+        fq = [feet[q] for q in sorted(pids) if q in feet]
         layers = _layers([placer.placed(*by_pid[q]) for q in sorted(pids)],
-                         feet=_feet(placer, by_pid, sorted(pids)))
+                         feet=np.concatenate(fq) if fq else None)
         if layers is None:
             continue
         m = _um.underside(layers, key, cid, near, storey)

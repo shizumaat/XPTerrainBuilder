@@ -48,6 +48,16 @@ THE RULE'S LIMITS, each a witness in the geometry, none an airport:
   ground under the model (#2071).
 * A member with NO static solid (a lights file, an animated part) neither
   guards nor seats: it rides its set's seat (20l).
+* A LONE SET AT TERRAIN SCALE KEEPS ITS AUTHORED ROW (#2250): where its
+  static geometry spans at least ``terrain_model.MIN_PLAN_M`` -- the
+  terrain model's own scale -- the row's elevation is the author's datum
+  and the geometry carries its own heights over the ground it was made on
+  (FlyTampa LGKR: Corfu's buildings in 2-6 km tiles at ``OBJECT_MSL 0``,
+  anchored on a grid corner).  No one elevation seats feet spread over
+  kilometres of our ground (their minimax lifted LGKR's tiles 3-147 m),
+  and the drape at the anchor says nothing about them (+17.6 m at the town
+  north of the field), so the author's own height stands, as a kept
+  terrain shell's does (RULINGS 2026-11-24k (3)).
 * A set at a footprint unit's pad (the surface at its origin IS the
   unit's datum) or in a DECK unit is the unit's to seat.
 * No graded face under its feet: the rows stay converted, X-Plane drapes
@@ -69,12 +79,14 @@ from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "static_triangles", "lowest_feet", "origin_set_lifts",
            "origin_key", "origin_of_row", "feet_seats",
-           "lifted_feet_seats", "LIFTED_FEET"]
+           "lifted_feet_seats", "LIFTED_FEET", "on_datum", "AUTHORED_DATUM"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
 #: the ``MslSeat.why`` of :func:`lifted_feet_seats`
 LIFTED_FEET = "lifted_feet"
+#: the ``MslSeat.why`` of a set on a datum kept at its row (:func:`on_datum`)
+AUTHORED_DATUM = "authored_datum"
 #: one origin, to the DSF's own precision (1e-8° ≈ 1 mm; 1 mm of elevation)
 _ORIGIN_DP = 8
 
@@ -194,6 +206,8 @@ class _Resource(_t.NamedTuple):
     below: bool                         #: reaches below its origin
     guard: bool                         #: ... under a triangle over it
     path: str
+    #: the static solid's plan box ``(x0, x1, z0, z1)`` in its OBJ8 frame
+    box: tuple = ()
 
 
 RESOLVED, NO_SOLID, UNRESOLVED = "resolved", "no_solid", "unresolved"
@@ -232,7 +246,9 @@ def _read_resource(phys: str, tol_m: float) -> _Resource:
     v = tris.reshape(-1, 3)
     low = float(v[:, 1].min())
     return _Resource(RESOLVED, np.unique(v[v[:, 1] <= low + tol_m], axis=0),
-                     low < -tol_m, _guards_origin(tris, tol_m), phys)
+                     low < -tol_m, _guards_origin(tris, tol_m), phys,
+                     (float(v[:, 0].min()), float(v[:, 0].max()),
+                      float(v[:, 2].min()), float(v[:, 2].max())))
 
 
 def _resource_reader(pack_root: str, tol_m: float) -> _t.Callable[[str], _Resource]:
@@ -310,7 +326,12 @@ class _SeatContext(_t.NamedTuple):
 
 def _seat_set(members: list, res: list, ctx: _SeatContext) -> list:
     """The seats of ONE origin's rigid set: every member at the one
-    elevation centring its feet's needs on the surface — or none."""
+    elevation centring its feet's needs on the surface — or none; a set
+    at terrain scale at its authored row (:func:`on_datum`)."""
+    if on_datum(res):
+        _bump(ctx.counts, "msl_datum_sets_kept")
+        _bump(ctx.counts, "msl_datum_rows_kept", len(members))
+        return _authored(members, ctx)
     vote = _set_vote(members, res, ctx)
     return [] if vote is None else _written(members, vote, ctx)
 
@@ -342,6 +363,29 @@ def _set_vote(members: list, res: list, ctx: _SeatContext, *,
         _bump(c, "msl_feet_off_sheet", n)
         return None
     return (min(needs) + max(needs)) / 2.0
+
+
+def on_datum(res: _t.Sequence[_Resource]) -> bool:
+    """A LONE SET AT TERRAIN SCALE (module doc, #2250): every member
+    readable and the resolved members' static solid spanning at least
+    ``terrain_model.MIN_PLAN_M`` on its longer plan side."""
+    from .terrain_model import MIN_PLAN_M
+    solid = [r for r in res if r.state == RESOLVED and r.box]
+    if not solid or any(r.state == UNRESOLVED for r in res):
+        return False
+    x0, x1 = min(r.box[0] for r in solid), max(r.box[1] for r in solid)
+    z0, z1 = min(r.box[2] for r in solid), max(r.box[3] for r in solid)
+    return max(x1 - x0, z1 - z0) >= MIN_PLAN_M
+
+
+def _authored(members: list, ctx: _SeatContext) -> list:
+    """Every member of one set seated at its own authored row elevation."""
+    from ..model.placement import MslSeat
+    rows = ctx.rows
+    return [MslSeat(m.index, m.resource, float(rows[m.index].lon),
+                    float(rows[m.index].lat), float(rows[m.index].heading_deg),
+                    float(rows[m.index].elevation or 0.0), AUTHORED_DATUM)
+            for m in members]
 
 
 def _written(members: list, elev: float, ctx: _SeatContext) -> list:

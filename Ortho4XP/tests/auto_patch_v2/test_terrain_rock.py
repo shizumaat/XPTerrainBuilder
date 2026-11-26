@@ -224,7 +224,8 @@ def test_the_run_out_fill_is_a_rim_only_fill_record(tmp_path):
     path = _write(tmp_path)
     plan = {"icao": "TEST", "pack_root": str(tmp_path / "pack"),
             "authored_seats": [_shell_rec(path), dict(_shell_rec(path, 44.0), id="dsf:obj2")]}
-    (tmp_path / "o4_v2_rebake_TEST.json").write_text(json.dumps(plan), encoding="utf-8")
+    (tmp_path / "o4_v2_rebake_TEST.json").write_text(json.dumps(plan), encoding="utf-8",
+                                                       newline="")
     recs = TCS.cut_records(str(tmp_path), ["TEST"])
     assert [r["id"] for r in recs] == ["dsf:obj2"]
     assert recs[0]["elevation"] == 44.0

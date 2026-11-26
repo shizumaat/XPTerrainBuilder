@@ -7039,9 +7039,40 @@ def is_cached(tile) -> bool:
             # negative that a decoder-less run minted.  A tile carrying
             # one is not settled -- the pass must run and re-probe.
             return False
+        if _stamped_airports_left_unasked(tile, stamp):
+            # A PROVIDER ADDED SINCE THE STAMP (#2219): the stamp's key
+            # names the provider SELECTION ("auto"), not the registry, so
+            # a new provider covering a stamped airport left the stamp
+            # valid while the pass would ask it.  As a neighbour frame
+            # that read WARM and was baked without the new inset: TFFF's
+            # runway crossed the -61 seam on 1 m lidar one side and
+            # FABDEM the other (pins 1.86 / 0.92 m, 10 m apart) and the
+            # verify rejected the whole airport.
+            return False
         return True
     except Exception:
         return False
+
+
+def _stamped_airports_left_unasked(tile, stamp):
+    """True when an airport the stamp settled has a provider covering its
+    recorded box that ranks above its cached answer and was never asked
+    (:func:`unanswered_inset_providers`, the frame check's own reading).
+    Cheap: the tile's index is one JSON read."""
+    selected = {str(icao).upper() for icao in stamp.get("selected") or ()}
+    if not selected:
+        return False
+    providers = getattr(tile, "airport_elevation_providers", "auto")
+    for (icao, record) in _read_index(tile.lat, tile.lon).items():
+        if str(icao).upper() not in selected or not isinstance(record, dict):
+            continue
+        box = record.get("bounding_box")
+        if not box or len(box) != 4:
+            continue
+        if unanswered_inset_providers(tile.lat, tile.lon, icao, box,
+                                      providers):
+            return True
+    return False
 
 
 def assemble_inset_composite_source(tile, base_source):

@@ -155,11 +155,45 @@ def test_a_fence_and_a_gentle_mound_are_not(tmp_path):
 
 def test_the_gates_and_their_constants():
     f = {"sheet": 0.95, "base_m": 0.5, "top_m": 6.0, "wall": 0.01, "right": 0.02,
-         "axis": 0.3}
+         "axis": 0.3, "smooth": 0.2}
     assert RW.failed(f) == []
     assert RW.failed(f, lift=1.0) == ["on_ground"]
     assert RW.failed(dict(f, sheet=0.85, axis=0.6)) == ["one_sheet", "not_axis_aligned"]
     assert RW.failed(dict(f, top_m=4.0)) == ["on_ground"]
+    assert RW.failed(dict(f, smooth=0.6)) == ["natural_surface"]
+
+
+def _dome(x, z):
+    """A smooth spherical cap: 40 m radius, 20 m over its 69 m rim."""
+    return max(0.0, math.sqrt(max(1600.0 - x * x - z * z, 0.0)) - 20.0)
+
+
+def _rough_berm(x, z):
+    """A 14 m berm across a 100 m square with undulations at several
+    scales (RULINGS 2026-11-26b: natural relief changes its curvature)."""
+    body = 14.0 * math.exp(-(z / 18.0) ** 2) * (1.0 - (x / 50.0) ** 2)
+    rough = (1.2 * math.sin(0.9 * x + 1.3 * z) * math.cos(1.7 * x - 0.6 * z)
+             + 0.8 * math.sin(0.23 * x * z + 0.5) + 0.6 * math.cos(2.1 * z - 0.4 * x))
+    return max(0.0, body + rough * body / 14.0)
+
+
+def test_a_smooth_dome_on_the_ground_is_not_natural(tmp_path):
+    # RULINGS 2026-11-26b (1): one sheet on its ground, no walls, no
+    # creases, not axis-aligned -- but one large continuous curve
+    path = TTM._write(tmp_path, "dome.obj", _dome, half=36.0, step=2.0, hard=True, uv="atlas")
+    assert TM.shape_of(path) is None
+    f, failed = _verdict(path)
+    assert failed == ["natural_surface"]
+    assert f["smooth"] > RW.ROCK_MAX_SMOOTH
+
+
+def test_a_rough_berm_is_natural_and_a_rock(tmp_path):
+    path = TTM._write(tmp_path, "rough_berm.obj", _rough_berm, half=50.0, step=2.5, hard=True,
+                      uv="atlas")
+    f, failed = _verdict(path)
+    assert failed == [] and f["smooth"] < RW.ROCK_MAX_SMOOTH / 4
+    s = TM.shape_of(path)
+    assert s is not None and s.rock
 
 
 def test_row_datum_is_the_ground_plus_the_lift_and_msl_rows_are_never_rocks(tmp_path):

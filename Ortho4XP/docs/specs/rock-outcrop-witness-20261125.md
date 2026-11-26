@@ -28,6 +28,19 @@ Stability (one threshold at a time): sheet 0.5–0.95, axis 0.4–0.8, base 0.1�
 
 Match: lrocks' `rock_match` unchanged (base rim within `SHELL_LEVEL_M` of our ground at the row datum, no correlation); hide offer `terrain_model.quality()` unchanged.
 
+### 2b. A NATURAL SURFACE (RULINGS 2026-11-26b (1); lane lrocks3)
+
+Owner: "no natural terrain or rock would have that large a continuous curve, it would have undulations and imperfections and changes in curvature." Sixth gate, `natural_surface` (`rock_witness._smooth_curve`), on the top sheet seen from above (upward faces no other face covers, plan raster span/128): per face, the shape operator `S` fitted to `n_j - n_i = S (c_j - c_i)` over its edge neighbours; CURVED when its larger principal curvature x plan span >= `CURVED_SPAN` 1.5 (radius <= 2/3 of the plan); SMOOTH when its 3-D operator differs from each neighbour's by < `SMOOTH_CHANGE` 0.3 of their norms' sum (mean over its edges). Value `smooth` = curved-and-smooth area share; refused above `ROCK_MAX_SMOOTH` 0.45.
+
+| Population | `smooth` |
+|---|---|
+| Bremen_Universum (owner's case) | 0.706 |
+| smooth-shell family: shanghai_expo_axis 0.811, Terminal_LOWS_35 0.765, national_grand_theater 0.687, MX-CITY-16_0120 (faceted ring cap) 0.582, ang_tarp 0.544; EGKK Hill_1_2 / Hill_2_1 (lofted sweeps) 0.674 / 0.664 | 0.54-0.81 |
+| six named rocks: CYAZ Rock_1 0.365, LGSR Colina 0.111, EBBR hill_03 0.051, BGGH Rocks3 0.020, LICR Circo 0.021, CYPQ Hill 0.030 | 0.02-0.37 |
+| other passing hills/grounds (Telfs 0.395, lplax 0.304, rw34hill, Kefalos, Ebersberg, Isenburg, BridgeApp) and all TFFJ/TNCS shells | 0.02-0.40 |
+
+Margins: Rock_1 0.085 under, Telfs 0.055 under; ang_tarp 0.094 over, Universum 0.256 over. Stability (one at a time, same verdicts): `ROCK_MAX_SMOOTH` 0.40-0.54, `CURVED_SPAN` 1.25-1.75; `SMOOTH_CHANGE` is the tight one (0.2 passes national_grand_theater, 0.4 refuses Telfs). Not caught by this gate (not one smooth curve): khan_shatyr 0.266 (cable-ribbed cone), myr_tube_hangar 0.211 (corrugated), HighwayPass1 0.190 (planar ramps), MX-CITY-16 62de 0.000 (16 large flat facets); all four are already unmatched (off their ground or rim floats), no row.
+
 ## 3. Texture content and placement context — not witnesses
 
 Texture: sand roofs, grass logos and sports fields are earth-hued (earth ≥ 0.45 & no LIT & hue spread ≤ 35: 5/5 rocks but 43 built). Placement: rocks sit inside boundaries with vegetation and neighbours; custom packs barely use apt.dat pavement (off-pavement & isolated & ≥ 300 m from runway: 2/5 rocks, 68 built). Neither is needed.

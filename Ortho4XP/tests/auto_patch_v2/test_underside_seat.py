@@ -48,7 +48,9 @@ def _obj(i, agl=0.0, bbox=None, **kw):
 def _airport(maps):
     dem = SimpleNamespace(z_many=lambda x, y: np.full(len(x), 100.0))
     frame = SimpleNamespace(transformers=lambda: (None, _ll))
-    part = SimpleNamespace(units=(SimpleNamespace(id="unit:0", members=()),))
+    rows = sorted({r for m in maps for r in m.key} | {"dsf:obj3"})
+    part = SimpleNamespace(units=(SimpleNamespace(
+        id="unit:0", members=tuple(SimpleNamespace(id=r, parts=()) for r in rows)),))
     return SimpleNamespace(undersides={m.key: m for m in maps}, frame=frame, dem=dem,
                            partition=part, clusters=())
 
@@ -106,6 +108,20 @@ def test_refusals_keep_todays_seat():
 
 
 def test_records_write_the_rows_whole_and_a_rider_rides():
+    m = _map(0.9, 0.0, key=("dsf:obj1", "dsf:obj2"), composite=False, t_from="feet")
+    # a mis-zeroed unit: ground confirms when our DEM stands at D - t + h
+    m = _dc.replace(m, h=np.full(len(m.e), 0.9))
+    objs = [_obj(1), _obj(2), _obj(3, agl=2.0, bbox=box(2, 2, 6, 6)),
+            _obj(5, bbox=box(3, 3, 5, 5))]          # obj5: another frame's prop
+    ap = _airport([m])
+    ap.dem = SimpleNamespace(z_many=lambda x, y: np.full(len(x), 366.5))
+    recs, rep = us.seat_records(ap, [_pad("low", -1, 21, -1, 11, 366.5)], objs, set(), 0.5)
+    by = {r["id"]: r for r in recs}
+    assert set(by) == {"dsf:obj1", "dsf:obj2", "dsf:obj3"}, rep
+    assert by["dsf:obj1"]["elevation"] == 365.6 and by["dsf:obj3"]["elevation"] == 367.6
+
+
+def test_a_composite_writes_its_whole_origin_set():
     m = _map(-6.0, -6.6, key=("dsf:obj1", "dsf:obj2"))
     objs = [_obj(1), _obj(2), _obj(3, agl=2.0, bbox=box(2, 2, 6, 6)),
             _obj(4, bbox=box(40, 40, 50, 50))]

@@ -21,8 +21,9 @@ touch, carry or post-mesh re-seat: U15-U17's bypass) -- and their records
 (seat :data:`SEAT`, ``terrain_shaped.row_seats`` writes them) into
 ``authored_seats``.  S2: a row of no map (a footless roof, a canopy) whose
 plan box stands half or more inside the unit's ground-contact plan rides
-it, at ``z0`` plus its lift over the unit's own; for a COMPOSITE, so does
-any other row of its origin set (25l: the set is one group).
+it, at ``z0`` plus its lift over the unit's own -- a row of the unit's
+own origin set (a pack ``Unit``: one anchor) only; for a COMPOSITE every
+other row of its origin set rides it (25l: the set is one group).
 
 DOUBT KEEPS TODAY'S SEAT (13r; S3, S5): a coherent unit (nothing to
 change), a unit off every pad, a row another seat already holds
@@ -292,11 +293,13 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
             continue
         z0 = round(_unit_zero(m, verdict, D), 3)
         lift = float(getattr(by_id[rows[0]], "agl_m", 0.0) or 0.0)
-        own_set = (set().union(*(set_rows.get(c.split("#", 1)[0], set())
-                                 for c in str(m.unit).split("+"))) - taken - held - set(rows)
-                   if m.composite else set())
-        riders = [by_id[r] for r in sorted(own_set) if r in by_id
-                  and _rides(by_id[r])] + _riders(m, objects, free - held - own_set, widen_m)
+        own_set = set().union(*(set_rows.get(c.split("#", 1)[0], set())
+                                for c in str(m.unit).split("+"))) - taken - held - set(rows)
+        # S2 riders are rows of the unit's own frame: a prop of another frame
+        # (a lamp, a van, a worker of the stock library) stands on its own
+        # ground (MEASURED ELLX Tower.023: 8 such rows would ride it 3.4 m up)
+        riders = ([by_id[r] for r in sorted(own_set) if r in by_id and _rides(by_id[r])]
+                  if m.composite else _riders(m, objects, free & own_set - held, widen_m))
         rid = {str(o.id) for o in riders}
         for o in [by_id[r] for r in rows] + riders:
             own = float(getattr(o, "agl_m", 0.0) or 0.0)

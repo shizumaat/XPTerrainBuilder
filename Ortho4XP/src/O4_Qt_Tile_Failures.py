@@ -160,8 +160,8 @@ def publish_failure_events(failed, seen: set) -> list:
     (``seen`` holds their ``tile|utc`` keys and is updated), each as a
     built tile's ``BuildDone`` with that one warning -- what the run's box
     and console take (Mac: ``BuildModel.raisePublishFailures``)."""
-    from o4_engine.events import BuildDone
     import O4_World_Pack as WP
+    from o4_engine.events import BuildDone
     out = []
     for entry in tuple(failed or ()):
         if not isinstance(entry, dict) or not entry.get("tile"):

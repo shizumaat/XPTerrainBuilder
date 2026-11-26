@@ -66,6 +66,8 @@ def world_tile_remove(lat, lon, scenery_dir: str = "", confirm: bool = False,
     from . import world_commands as WORLD
     package = FIRST.Pass().tile(lat, lon, built=True) or {}
     done = WORLD.world_tile_set(lat, lon, scenery_dir=scenery_dir)
+    from . import world_publish_failed as FAILED
+    FAILED.clear(done.get("tile", ""))      # #2226: not ours to publish
     return {**done, "package": package}
 
 

@@ -648,6 +648,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     carries the seed's keys and the between-levels report under
     ``between_levels``."""
     cs, rep = _reach_seed(planar, law, cs, levels)
+    # spec 2026-11-25 §3.2 (step 3): a road meeting a two-floor unit's
+    # frontage ramps from its groundside floor (``constraints/frontage_ramp``)
+    from .frontage_ramp import REPORT_KEY as _FR, frontage_ramp_rewrite
+    cs, rep[_FR] = frontage_ramp_rewrite(planar, law, cs, levels)
     # 10-03b BEFORE 29x: a ribbon vertex between two pavements at different
     # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
     cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)

@@ -68,12 +68,10 @@ import weakref
 
 import numpy as np
 from shapely.errors import GEOSException
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..airport.deck_signature import is_tunnel_way
-from ..airport.road_ways import mapped_width_m
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
@@ -350,7 +348,7 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None, down=
     if not polys:
         return None
     cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin, airport,
-                    unit_min=pmin if down is not None else None)
+                    unit_min=pmin if down is not None else None, frontage=down is not None)
     if cut is None:
         return None
     H, L, S = cut
@@ -403,8 +401,8 @@ def top_level(parts, air, airport, law, to_xy, near: float
 
 
 def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
-              grow: bool = True, whole: bool = False, unit_min: "float | None" = None
-              ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
+              grow: bool = True, whole: bool = False, unit_min: "float | None" = None,
+              frontage: bool = False) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
     """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
     ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
     the airside ``air`` and a riser's width off the pads ``others``, at
@@ -415,15 +413,23 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
     ``whole``: the pad may become the level entire (a station's own pad,
     ``planar/station_level``: its level is tied to another block, so no
     frontage block need stay).  ``unit_min``: the low level's least area
-    (default ``[placement] cluster_pad_min_m2``)."""
+    (default ``[placement] cluster_pad_min_m2``).  ``frontage``: the level
+    is a two-floor unit's groundside floor, and the mapped roads that leave
+    the pad from it on its groundside are on it to the pad's edge
+    (``planar/frontage_roads``, spec 2026-11-25 §3.2)."""
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
     L = L0.buffer(near, join_style=2).buffer(-near, join_style=2)
+    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
+    fr: list = []
     if airport is not None:
         L = _with_roads(L, P, airport, law, near)
+        if frontage:
+            from .frontage_roads import frontage_roads
+            fr = frontage_roads(L, P, air, airport, law, near, w)
+            L = valid_area(unary_union([L, *fr]))
     L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
-    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     if others is not None and not others.is_empty:
         # ANOTHER PAD the low level touches keeps its own floor (two pads
         # may sit at different floors, ``step_exemption_pad_to_pad``): the
@@ -431,7 +437,10 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
         # (MEASURED KATL: ``building34`` / ``building36`` at the apron's level
         # shared 10 vertices with the low level and held it up)
         L = valid_area(L.difference(valid_area(others).buffer(w, join_style=2)))
-    keep = [q for q in nonempty_polygon_parts(L) if q.area >= pmin]
+    # a frontage road's piece is the level's at any size (it crosses a
+    # groundside arm of the block: ``planar/frontage_roads``)
+    keep = [q for q in nonempty_polygon_parts(L)
+            if q.area >= pmin or any(q.intersects(f) for f in fr)]
     # A STOREY OF THE UNIT, not a sill: the low level is a unit pad's worth
     # of ground (``[placement] cluster_pad_min_m2``, the §30 (4) bar) —
     # MEASURED KATL ``building11``: two parts 7 m down over 571 m² asked a
@@ -477,19 +486,10 @@ def _with_roads(L, P, airport, law, near: float):
     and runs on over the block never carries the low level with it."""
     if L.is_empty:
         return L
-    tn = law.tables.structures.tunnel
-    admitted = tuple(tn.admitted_values)
-    add = []
-    for w in getattr(airport, "osm_ways", ()) or ():
-        tags = getattr(w, "tags", None) or {}
-        if not tags.get("highway") or len(w.points) < 2 or is_tunnel_way(tags, admitted):
-            continue
-        width = mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
-        c = LineString(w.points).buffer(0.5 * width, cap_style="flat")
-        if not c.intersects(P) or c.distance(L) > near:
-            continue
-        add.append(valid_area(_overlay(valid_area(c), P, "intersection", 0.01))
-                   .intersection(L.buffer(width, join_style=2)))
+    from ..airport.road_ways import road_corridors
+    add = [valid_area(_overlay(c, P, "intersection", 0.01)).intersection(
+               L.buffer(width, join_style=2))
+           for c, width in road_corridors(P, airport, law) if c.distance(L) <= near]
     if not add:
         return L
     return (valid_area(unary_union([L, *add]))
@@ -559,17 +559,22 @@ def _fmt(g_hi, g_lo) -> str:
     return "n/a" if g_hi is None or g_lo is None else f"{g_hi - g_lo:+.2f}"
 
 
-def plan_up(P, air, lots, rise: float, law, grid: float, others=None
+def plan_up(P, air, lots, rise: float, law, grid: float, others=None, airport=None
             ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, upper, strip, record)`` for one held pad ``P`` touching the
     storey lots ``lots`` (one geometry) whose storey stands ``rise`` above
-    the pad's floor (module docstring), or ``None``."""
+    the pad's floor (module docstring), or ``None``.  With ``airport`` the
+    mapped roads leaving the pad from the upper level on its groundside are
+    on it (``planar/frontage_roads``)."""
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    U = (P.intersection(lots.buffer(near, join_style=2))
-         .difference(air.buffer(near + w, join_style=2)))
+    U = P.intersection(lots.buffer(near, join_style=2))
+    if airport is not None:
+        from .frontage_roads import frontage_roads
+        U = unary_union([U, *frontage_roads(U, P, air, airport, law, near, w)])
+    U = U.difference(air.buffer(near + w, join_style=2))
     if others is not None and not others.is_empty:
         U = U.difference(others.buffer(w, join_style=2))
     # a piece the riser could not stand beside is no level
@@ -751,7 +756,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                             law, grid, counts, reg, cut_levels)
     _upper_split({r: g for r, g in groups.items() if r not in by_pad and not (
                      r in done and r in (upper or {}))}, done, out, tree,
-                 air_polys, storey_lots, law, grid, reg)
+                 air_polys, storey_lots, law, grid, reg, airport)
     if cut_levels:
         # the cut's ENDS grade to the open cut at the rail grade (28r (3),
         # ``planar/cut_runout``): landing run-outs of the level
@@ -917,7 +922,7 @@ def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:
 
 
 def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
-                 grid: float, reg: Registries) -> None:
+                 grid: float, reg: Registries, airport=None) -> None:
     """THE UPPER LEVELS (module docstring): every held pad in ``groups``
     touching a storey lot -- a block a lower level split keeps it, as
     ``<block>/p2`` on its high remainder (RULINGS 2026-10-23b: a two-level
@@ -940,7 +945,7 @@ def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))]
                              + [r.polygon for r in rest if r.polygon is not None])
         got = plan_up(P, air, unary_union([lots[j] for j in hit]),
-                      min(storey_lots[j][1] for j in hit), law, grid, others)
+                      min(storey_lots[j][1] for j in hit), law, grid, others, airport)
         if got is None:
             continue
         H, U, S, rec = got

@@ -3875,6 +3875,22 @@ for _stage in ("shapes", "constraints.assembly", "late_cut", "late_solve", "emit
 for _stage in ("emit", "verify"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
                                          *_mods("pipeline.kerb_publication")}))
+# lfront3 (2026-11-26, terminal-frontage step 3): a frontage road over a
+# two-floor block is on its level (planar/frontage_roads, read by
+# planar/low_level) and roads ramp to the frontage (constraints/frontage_ramp,
+# bound in constraints/road_ramp's stage-2 rewrite)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.planar.low_level" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("planar.frontage_roads")}))
+    if "auto_patch_v2.airport.road_ways" in _mods_of:
+        # its carriageway corridors (``road_corridors``) read valid areas
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.valid_area")}))
+    if "auto_patch_v2.constraints.road_ramp" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("constraints.frontage_ramp "
+                                                    "constraints.kerb_frontage "
+                                                    "constraints.groundside")}))
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

@@ -5,12 +5,15 @@ mint, RULINGS 2026-09-30e (1)).  It lives at the ``airport`` layer so
 ``classify`` may read it (``classify`` never imports ``planar``)."""
 from __future__ import annotations
 
+import typing as _t
+
 from shapely.geometry import LineString
 
+from ..geom.valid_area import valid_area
 from ..model.road_clearance import mapped_width_m
 from .deck_signature import is_bridge_way, is_tunnel_way
 
-__all__ = ["road_ways", "mapped_width_m", "ribbon_half_width_m"]
+__all__ = ["road_corridors", "road_ways", "mapped_width_m", "ribbon_half_width_m"]
 
 
 def ribbon_half_width_m(tags, law) -> float:
@@ -43,3 +46,23 @@ def road_ways(osm_ways=()) -> tuple[tuple[object, LineString], ...]:
         if len(pts) >= 2:
             out.append((w, LineString(pts)))
     return tuple(out)
+
+
+def road_corridors(P, airport, law) -> list[tuple[_t.Any, float]]:
+    """``[(corridor, width)]``: every mapped road's carriageway meeting
+    ``P`` -- the way buffered by half its mapped width
+    (``airport/road_ways.mapped_width_m`` at the ``[tunnel]`` lane law); a
+    bridge's corridor counts (the ground under a bridge is the ground the
+    road beneath runs on), a bore never (it runs under the pad)."""
+    tn = law.tables.structures.tunnel
+    admitted = tuple(tn.admitted_values)
+    out = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(w, "tags", None) or {}
+        if not tags.get("highway") or len(w.points) < 2 or is_tunnel_way(tags, admitted):
+            continue
+        width = mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        c = LineString(w.points).buffer(0.5 * width, cap_style="flat")
+        if c.intersects(P):
+            out.append((valid_area(c), float(width)))
+    return out

@@ -43,8 +43,8 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 __all__ = ["FAR", "HELD", "PLINTH_COVER", "SINGLE", "UNCONFIRMED", "Level", "Storey",
-           "UnitLevels", "dem_samples", "part_footprint", "unit_floor", "unit_levels",
-           "upper_pads", "upper_storeys"]
+           "UnitLevels", "dem_samples", "frontage_held", "part_footprint", "unit_floor",
+           "unit_levels", "upper_pads", "upper_storeys"]
 
 
 @_dc.dataclass(frozen=True)
@@ -596,6 +596,36 @@ def _verdict(t: float, levels, ground, span, step: float) -> str:
         lo = min(rels + ([span[0] - t] if span else []))
         return FAR if d < lo - step else HELD
     return FAR if d > max(rels) + step else HELD
+
+
+#: a pack deck of the unit (``planar/landing``'s viaduct test): the
+#: unit's kerb deck, rung L3
+_DECK_KINDS = ("flag", "signature")
+
+
+def frontage_held(rec: UnitLevels, airport, law) -> bool:
+    """Whether the frontage law takes ``rec`` (spec §3.1; lane lfront2):
+    verdict ``held``; no rung L3 -- the unit carries no pack deck of its
+    own (a kerb deck or viaduct: the deck top is the upper kerb, an
+    object, and the kerb road under it gets no ground rows, spec §1.3 L3,
+    §3.2) and no mapped bridge road runs along its face (``upper_roads``,
+    §1.4); and a storey-parts floor (L1) is a floor -- its parts cover a
+    pad's worth of plan (``[building_pad] min_area_m2``).  MEASURED HECA
+    (identity airport): ``unit:46`` -4.0 carries the terminal's viaduct
+    (``deck_kind`` flag, 4 bridge roads on its face); ``unit:44`` +7.5 is
+    two parts over 0.9 m2."""
+    if rec.verdict != HELD or rec.land_y is None:
+        return False
+    if rec.clues.get("upper_roads"):
+        return False
+    u = airport.partition.units[rec.unit]
+    if any(str(getattr(m, "deck_kind", "") or "") in _DECK_KINDS for m in u.members):
+        return False
+    if rec.witness == _L1:
+        pmin = float(law.tables.structures.building_pad.min_area_m2)
+        lv = [x for x in rec.levels if abs(float(x.y) - float(rec.land_y)) < 0.005]
+        return bool(lv) and lv[0].area_m2 >= pmin
+    return True
 
 
 def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels]:

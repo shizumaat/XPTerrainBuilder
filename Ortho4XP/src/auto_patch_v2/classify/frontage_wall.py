@@ -37,7 +37,7 @@ def frontage_walls(airport, law, cells: _t.Sequence) -> dict[str, _t.Any]:
     storey landside lot already meets (module docstring)."""
     if airport is None or getattr(airport, "partition", None) is None:
         return {}
-    from ..airport.unit_storey import HELD, unit_levels
+    from ..airport.unit_storey import frontage_held, unit_levels
     from ..law.tables import is_value_role
     from .storey_edge import STOREY_UNIT_KEY
     air = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells
@@ -50,8 +50,8 @@ def frontage_walls(airport, law, cells: _t.Sequence) -> dict[str, _t.Any]:
     # the first set-back (``roles.classify``), so the groundside is not all
     # standing yet (MEASURED LDSP: 146 m of face against the map's 1,523 m)
     recs = [r for r in unit_levels(airport, law, air, ground=None)
-            if r.verdict == HELD and r.land_y is not None and r.unit not in taken
-            and not r.face.is_empty]
+            if r.unit not in taken and not r.face.is_empty
+            and frontage_held(r, airport, law)]
     if not recs:
         return {}
     out: dict[str, _t.Any] = {}

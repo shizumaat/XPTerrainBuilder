@@ -119,17 +119,32 @@ def test_a_lower_frontage_is_read_along_the_face(monkeypatch):
     assert dict(up.terms) == {1: 1.0, 3: -1.0} and up.hi == -5.7
 
 
+def _rec(verdict=us.HELD, area=421.0, clues=None):
+    lv = (us.Level(-2.7, area, 5, 1.0),)
+    return us.UnitLevels(0, box(0, 0, 10, 10), 3.0, -2.7, lv, "storey_parts",
+                         MultiLineString(), (17.2, 11.4), verdict, clues or {})
+
+
+def _ap(deck=""):
+    m = types.SimpleNamespace(deck_kind=deck)
+    return types.SimpleNamespace(partition=types.SimpleNamespace(
+        units=[types.SimpleNamespace(members=[m])]))
+
+
 def test_the_unit_record_is_published_unless_a_lot_holds_the_unit():
     from auto_patch_v2.planar.kerb_frontage import _unit_records
-    rec = us.UnitLevels(0, box(0, 0, 10, 10), 3.0, -2.7, (), "storey_parts",
-                        MultiLineString(), (17.2, 11.4), us.HELD, {})
-    reg = types.SimpleNamespace(held={"b": {UNIT_LEVELS: rec}, "c": {}})
-    got = _unit_records(reg, set())
+    reg = types.SimpleNamespace(held={"b": {UNIT_LEVELS: _rec()}, "c": {}})
+    got = _unit_records(reg, set(), _ap(), LAW)
     assert [b for b, _r in got] == ["b"] and got[0][1]["y"] == -5.7
-    assert _unit_records(reg, {0}) == []
-    far = us.UnitLevels(0, box(0, 0, 10, 10), 3.0, -2.7, (), "storey_parts",
-                        MultiLineString(), (17.2, 11.4), us.FAR, {})
-    assert _unit_records(types.SimpleNamespace(held={"b": {UNIT_LEVELS: far}}), set()) == []
+    assert _unit_records(reg, {0}, _ap(), LAW) == []
+
+
+def test_the_frontage_law_takes_only_a_held_floor_with_no_kerb_deck():
+    assert us.frontage_held(_rec(), _ap(), LAW)
+    assert not us.frontage_held(_rec(us.FAR), _ap(), LAW)
+    assert not us.frontage_held(_rec(), _ap("flag"), LAW)            # L3: a pack deck
+    assert not us.frontage_held(_rec(clues={"upper_roads": [7]}), _ap(), LAW)
+    assert not us.frontage_held(_rec(area=0.9), _ap(), LAW)          # no floor's worth
 
 
 def test_the_minted_level_wins():

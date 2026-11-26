@@ -37,15 +37,16 @@ from ..model.registries import LANDSIDE_KERB
 __all__ = ["publish_kerbs"]
 
 
-def _unit_records(reg, units_taken: set) -> list:
-    """``(block, record)`` for every held block carrying a HELD two-floor
-    record of a unit no landside lot published (module docstring)."""
-    from ..airport.unit_storey import HELD
+def _unit_records(reg, units_taken: set, airport, law) -> list:
+    """``(block, record)`` for every held block carrying a two-floor record
+    the frontage law takes (``unit_storey.frontage_held``) of a unit no
+    landside lot published (module docstring)."""
+    from ..airport.unit_storey import frontage_held
     from ..model.registries import UNIT_LEVELS
     out = []
     for block, h in sorted(reg.held.items()):
         u = h.get(UNIT_LEVELS)
-        if u is None or u.verdict != HELD or u.land_y is None or u.unit in units_taken:
+        if u is None or u.unit in units_taken or not frontage_held(u, airport, law):
             continue
         out.append((block, {"lot": None, "unit": u.unit, "y": round(float(u.rise), 3),
                             "plan": u.plan, "face": u.face, "air_z": u.ground[0]}))
@@ -72,7 +73,8 @@ def _landside_plans(cells) -> dict[str, tuple]:
     return out
 
 
-def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -> int:
+def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict,
+                  law=None) -> int:
     """Put each landside lot's kerb record on its unit block's ``held``
     entry (module docstring); returns the lots published, the refused
     counted into ``counts`` (``kerb_frontage_refused``)."""
@@ -111,7 +113,7 @@ def publish_kerbs(cells, pad_regions: _t.Sequence, reg, airport, counts: dict) -
         n += 1
     taken = {u for _plan, _y, units, _z in plans.values() for u in units}
     k = 0
-    for block, rec in _unit_records(reg, taken):
+    for block, rec in (_unit_records(reg, taken, airport, law) if law is not None else ()):
         reg.held[block] = {**reg.held[block],
                            LANDSIDE_KERB: (*reg.held[block].get(LANDSIDE_KERB, ()), rec)}
         k += 1

@@ -94,6 +94,9 @@ def test_pads_read_off_a_hidden_placement_leave():
     assert [c.ref for c in out.cells] == ["r", "building2"] and notes
     same, notes = hidden_cells_off(cl, (_deck(),))
     assert same is cl and not notes
+    # a pack bridge's part kept drawn elsewhere is no building ground either
+    out, notes = hidden_cells_off(cl, (_deck(kept_plans=(far,)),))
+    assert [c.ref for c in out.cells] == ["building1", "w", "r"] and notes
 
 
 def test_the_deck_has_straight_sides_and_a_steeper_bank():

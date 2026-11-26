@@ -276,11 +276,17 @@ def hidden_cells_off(classification, decks) -> tuple[_t.Any, list[str]]:
     ground: left in, its pad stood at the faked floor's rim and stopped the
     real cut (MEASURED KJFK ``o4gen_0abbd35b`` / ``o4gen_db1cfe30`` over the
     motorways under ``deprimido_jetblue.obj``: the ground under the decks
-    6.2 m over their floors).  No hidden plan, no change."""
+    6.2 m over their floors).  The same for a cell read off the parts a
+    pack bridge piece hidden only piece-wise keeps drawn elsewhere
+    (``kept_plans``): bridge solid, no building ground (#2203 follow-up,
+    MEASURED KDFW: 220.obj's north plate as a pad over the road it spans).
+    No such plan, no change."""
     import dataclasses as _dc
 
     from shapely.ops import unary_union
-    plans = [Polygon(r) for d in decks for r in getattr(d, "hidden_plans", ()) or ()
+    plans = [Polygon(r) for d in decks
+             for r in (*(getattr(d, "hidden_plans", ()) or ()),
+                       *(getattr(d, "kept_plans", ()) or ()))
              if len(r) >= 3]
     if not plans or classification is None:
         return classification, []

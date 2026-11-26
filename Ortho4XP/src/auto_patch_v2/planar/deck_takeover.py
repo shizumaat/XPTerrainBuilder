@@ -761,17 +761,26 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
 def _elsewhere(o, cache, law, footprint):
     """The plan of ``o``'s drawn solid on our decks' ``footprint`` when it
     draws PIECES at other sites too -- under ``[deck_gen]
-    hide_inside_share`` of its solid there (RULINGS 2026-11-20u: a hide
-    takes only what stands on the deck) -- else ``None`` (hidden whole)."""
+    hide_inside_share`` of its solid there, and a part of it (a connected
+    piece) standing on none of our decks by ``[deck_gen] min_area_m2``
+    (RULINGS 2026-11-20u: a hide takes only what stands on the deck) --
+    else ``None`` (hidden whole: one bridge whose every piece our decks
+    take, its approaches beyond them, is one bridge, and goes with its
+    lights; MEASURED KMCO ``puente.obj`` / ``puente2.obj``)."""
     sol = _solid_plan(o, cache, law)
     if sol is None or sol.is_empty or footprint is None or footprint.is_empty:
         return None
+    share = float(law.tables.structures.deck_gen.hide_inside_share)
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
     try:
         on = sol.intersection(footprint)
+        if on.is_empty or on.area >= share * sol.area:
+            return None
+        kept = any(p.geom_type == "Polygon" and p.intersection(footprint).area < a_min
+                   for p in getattr(sol, "geoms", [sol]))
     except shapely.errors.GEOSException:             # an invalid pack outline
         return None
-    share = float(law.tables.structures.deck_gen.hide_inside_share)
-    return on if not on.is_empty and on.area < share * sol.area else None
+    return on if kept else None
 
 
 def _with_pieces(g: DeckBridge, q, on, footprint, cache, law, to_ll) -> DeckBridge:
@@ -783,15 +792,15 @@ def _with_pieces(g: DeckBridge, q, on, footprint, cache, law, to_ll) -> DeckBrid
     take, never a part standing elsewhere (MEASURED KDFW: 220.obj's south
     plate under four decks goes, its north plate 2.6 km away, under none,
     stays; one hull over every deck reached across both) -- and the parts
-    as ``hidden_plans``."""
+    as ``hidden_plans``, the parts it keeps drawn as ``kept_plans``."""
     a_min = float(law.tables.structures.deck_gen.min_area_m2)
     reach = float(law.tables.structures.bridge.abutment_sample_step_m)
     sol = _solid_plan(q, cache, law)
-    parts = []
+    parts, kept = [], []
     for p in getattr(sol, "geoms", [sol]) if sol is not None else ():
         try:
-            if p.geom_type == "Polygon" and p.intersection(footprint).area >= a_min:
-                parts.append(p)
+            if p.geom_type == "Polygon":
+                (parts if p.intersection(footprint).area >= a_min else kept).append(p)
         except shapely.errors.GEOSException:         # an invalid pack outline
             continue
     if not parts:                                    # the pieces themselves
@@ -803,7 +812,9 @@ def _with_pieces(g: DeckBridge, q, on, footprint, cache, law, to_ll) -> DeckBrid
                      tuple(tuple(reversed(to_ll(x, y))) for x, y in within.exterior.coords)))
     return _dc.replace(g, hides=tuple(g.hides) + tuple(rows),
                        hidden_plans=tuple(g.hidden_plans) + tuple(
-                           tuple(p.exterior.coords[:-1]) for p in parts))
+                           tuple(p.exterior.coords[:-1]) for p in parts),
+                       kept_plans=tuple(g.kept_plans) + tuple(
+                           tuple(p.exterior.coords[:-1]) for p in kept))
 
 
 def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], law) -> list:

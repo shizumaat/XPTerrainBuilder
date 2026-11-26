@@ -6097,6 +6097,49 @@ def test_a_tile_with_a_version_stale_negative_is_not_settled(
     assert INSETS.is_cached(tile) is True
 
 
+def test_a_due_negative_below_the_cached_inset_is_not_a_pending_re_probe(
+    tmp_path, monkeypatch
+):
+    """The fetch loop stops at the best inset the airport HAS (its
+    ``break`` on a sound cached raster), so a due negative ranked below
+    it is never re-asked -- and a ``--refresh-data dem`` that runs that
+    loop can never clear it.  The pre-flight predicates must not name it
+    (2026-11-26: a FRANCE1M negative below a cached LUXEMBOURG50CM
+    inset refused every closing build of the tile).  A due negative
+    ranked ABOVE the cached inset is still named."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    finer = dict(_PLAIN_DEFINITION, code="FINERPROVIDER", priority=95.0)
+    coarser = dict(_PLAIN_DEFINITION, code="COARSERPROVIDER", priority=80.0)
+    ranking = [finer, _PLAIN_DEFINITION, coarser]
+    stale = {"engine": "1.0.340", "capabilities": [],
+             "negative_law": INSETS.NEGATIVE_LAW, "checked": _today(),
+             "provider_version": "not-the-current-one"}
+    record = {"FINERPROVIDER": INSETS.NO_COVERAGE,
+              "PLAINPROVIDER": "ok",
+              "COARSERPROVIDER": INSETS.NO_COVERAGE,
+              "checked": _today(),
+              "bounding_box": [-112.05, 33.41, -111.98, 33.45],
+              "capabilities": {"FINERPROVIDER": dict(stale),
+                               "COARSERPROVIDER": dict(stale)}}
+    index_path = FNAMES.airport_inset_index(33, -112)
+    os.makedirs(os.path.dirname(index_path), exist_ok=True)
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
+        json.dump({"KPHX": record}, handle)
+    raster = FNAMES.airport_inset_dem(33, -112, "KPHX", "PLAINPROVIDER")
+    os.makedirs(os.path.dirname(raster), exist_ok=True)
+    with open(raster, "wb") as handle:
+        handle.write(b"cached")
+
+    rows = INSETS.version_stale_capability_free_negatives(33, -112, ranking)
+    assert [(icao, code) for (icao, code, _why) in rows] == [
+        ("KPHX", "FINERPROVIDER")]
+    # Without the cached raster the loop walks the whole ranking.
+    os.remove(raster)
+    rows = INSETS.version_stale_capability_free_negatives(33, -112, ranking)
+    assert [(icao, code) for (icao, code, _why) in rows] == [
+        ("KPHX", "FINERPROVIDER"), ("KPHX", "COARSERPROVIDER")]
+
+
 # =====================================================================
 # Multi-box coverage declarations (owner RULINGS 2026-09-16c)
 # =====================================================================

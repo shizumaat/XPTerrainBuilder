@@ -102,6 +102,12 @@ def test_refusals_keep_todays_seat():
     assert us._whole_refusal(_map(0.14, 0.06), ["dsf:obj1"], ok, set(), {}, set()) \
         == "today's readers seat its airside floor"
     assert us._whole_refusal(m, ["dsf:obj1"], ok, set(), shared, set()) is None  # footless
+    lib = SimpleNamespace(**{**vars(_obj(1)), "path": "lib/people/p.obj"})
+    assert us._whole_refusal(m, ["dsf:obj1"], {"dsf:obj1": lib}, set(), {}, set()) \
+        == "library object"
+    far = SimpleNamespace(**{**vars(_obj(1)), "resolved": "/other/lib/w.obj"})
+    assert us._whole_refusal(m, ["dsf:obj1"], {"dsf:obj1": far}, set(), {}, set(), 3.0,
+                             "/packs/P") == "library object"
     two = {"dsf:obj1": _obj(1), "dsf:obj2": _obj(2, agl=1.0)}
     assert us._whole_refusal(m, ["dsf:obj1", "dsf:obj2"], two, set(), {}, set()) \
         == "rows disagree on their lift"

@@ -28,7 +28,8 @@ other row of its origin set rides it (25l: the set is one group).
 DOUBT KEEPS TODAY'S SEAT (13r; S3, S5): a coherent unit (nothing to
 change), a unit off every pad, a row another seat already holds
 (``taken``: kept walls and pits, plates, floors, models, shells, portals),
-a row carrying a deck of a deck family or a walled plate, a converted
+a library object (a person, a lamp: S5's isolated objects), a row
+carrying a deck of a deck family or a walled plate, a converted
 ``OBJECT_MSL`` row (``zero_y``), a unit whose rows carry parts of a
 grounded unit outside its map (one row cannot take two zeros), and a
 unit whose rows disagree on their lift.
@@ -157,7 +158,8 @@ def _clusters_of_rows(airport) -> dict[str, set[str]]:
 
 def _whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.Any],
                   taken: _t.AbstractSet[str], clusters_of: _t.Mapping[str, set],
-                  mapped: _t.AbstractSet[str], storey_m: float = 3.0) -> "str | None":
+                  mapped: _t.AbstractSet[str], storey_m: float = 3.0,
+                  pack_root: str = "") -> "str | None":
     """Why ``m``'s rows cannot be written whole (module doc, DOUBT), or
     ``None``.  ``mapped``: the cluster ids carrying a map (a grounded
     unit); ``clusters_of``: :func:`_clusters_of_rows`.  A COMPOSITE's rows
@@ -176,6 +178,8 @@ def _whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.
         o = by_id.get(r)
         if o is None:
             return "row not loaded"
+        if _library(o, pack_root):
+            return "library object"
         if r in taken or str(getattr(o, "path", "")) in taken:
             return "row seated by another rule"
         if str(getattr(o, "deck_kind", "") or "") in _DECK_KINDS:
@@ -211,6 +215,24 @@ def _plan_polygon(m: _t.Any, widen_m: float):
     h = 0.5 * g.step
     cells = [box(x - h, y - h, x + h, y + h) for x, y in zip(e, n, strict=True)]
     return unary_union(cells).buffer(float(widen_m)) if cells else None
+
+
+def _library(o: _t.Any, pack_root: str) -> bool:
+    """A row of a LIBRARY (S5: a stock or third-party catalogue asset -- a
+    person, a lamp -- is an isolated object, never a unit written whole):
+    a ``lib/`` virtual path, or a file resolved outside the pack's folder.
+    MEASURED PHLI ``nss-lib/_people/nss-woman-01.obj`` (S3 read her
+    mis-zeroed 0.9 m)."""
+    import os
+
+    from .obj8 import is_stock_library_resource
+    if is_stock_library_resource(str(getattr(o, "path", ""))):
+        return True
+    got = getattr(o, "resolved", None)
+    if not pack_root or not got:
+        return False
+    root = os.path.abspath(pack_root)
+    return not os.path.abspath(str(got)).startswith(root + os.sep)
 
 
 def _rides(o: _t.Any) -> bool:
@@ -287,7 +309,8 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
         rep = {"unit": m.unit, "row": rows[0], "rows": len(rows), "pad": pad,
                "D": round(D, 3), "t": round(float(m.t), 3),
                "base": round(float(m.base or 0.0), 3), "verdict": verdict, **det}
-        why = _whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped, storey_m)
+        why = _whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped, storey_m,
+                             str(getattr(part, "pack_root", "") or ""))
         if why is not None:
             report.append({**rep, "refused": why})
             continue

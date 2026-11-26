@@ -19,8 +19,7 @@ never tightened.  A released vertex is a vertex of such a face that is
 * not §20b stage 1's (airside is king: an airside vertex's rows are the
   airside's, and a road row welded to it stays one-way at its own cap);
 * not a band kerb (``PlanarMap.band_kerb_vertices``: the zone band's rows
-  lead there), nor a terminal frontage's (``constraints/kerb_frontage``:
-  the frontage never yields to a road, RULINGS 2026-11-25g; spec §3.2);
+  lead there);
 * touched by no other pavement face (the free-road ruling: a vertex an
   apron, lot or service road also carries is that pavement's).
 
@@ -120,8 +119,6 @@ def _release_sets(planar: PlanarMap, law: Law,
             vs |= face_vertex_set(planar, planar.faces[fid])
     vs -= stage_one_vertices(planar, law)
     shared: set[int] = vs & planar.band_kerb_vertices(airside_stage_roles(law))
-    from .kerb_frontage import kerb_vertices
-    shared |= vs & set(kerb_vertices(planar, law)[0])
     pav = set(pavement_roles(law))
     for f in planar.faces.values():
         if f.id not in lifted and f.role in pav:

@@ -384,6 +384,31 @@ def test_a_bridge_body_drawing_pieces_at_other_sites_is_hidden_only_on_our_decks
                                          for w in withins)
     assert any("only its" in n and "other sites" in n for n in notes)
     assert all(not d.pack_under for d in out)
+    # the plate it keeps drawn is bridge solid: carried as ``kept_plans``,
+    # so no pad is read off it (#2203 follow-up, KDFW north plate)
+    kept = [Polygon(r) for d in out for r in d.kept_plans]
+    assert kept and any(k.covers(Polygon(rect(400, 200, 600, 700))) for k in kept)
+
+
+def test_one_bridge_reaching_past_our_deck_is_hidden_whole(monkeypatch):
+    """A body whose ONE connected piece our deck takes, its approaches
+    reaching past the footprint, is one bridge: hidden whole with its
+    lights, never piece-wise (MEASURED KMCO ``puente2.obj``: under the
+    share on our deck, no piece at another site)."""
+    from shapely.geometry import box
+    gen = dataclasses.replace(_gen(0.0, "g0"), covered=(
+        ("-1", (("highway", "service"),), ((5.0, -30.0), (5.0, 30.0))),))
+    body = _placement("p1", "puente2.obj")
+    body.plan_bbox = box(-300.0, -50.0, 300.0, 50.0)
+    solid = box(-200.0, -10.0, 210.0, 10.0)                 # one piece, long approaches
+    monkeypatch.setattr(dt, "_body_top", lambda o, cache, law, lo, hi:
+                        None if hi == float("inf") else box(0.0, -10.0, 10.0, 10.0))
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: tuple(solid.exterior.coords[:-1]))
+    monkeypatch.setattr(dt, "_solid_plan", lambda o, *_a: solid)
+    out, notes = dt._one_decision([gen], (), [body], object(), _airport(), load_default())
+    assert dt.hidden_ids(out) == frozenset({"p1"})
+    assert all(len(h) == 3 for d in out for h in d.hides)    # no piece-wise row
+    assert not any("only its" in n for n in notes) and not out[0].kept_plans
 
 
 def test_the_hide_guard_keeps_only_the_bodies_past_its_share():

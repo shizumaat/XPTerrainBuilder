@@ -559,6 +559,13 @@ class DeckBridge:
     #: off them are no ground once hidden (``planar/deck_pack_cover.
     #: hidden_cells_off``)
     hidden_plans: tuple = ()
+    #: #2203 follow-up: the parts a pack bridge piece hidden only piece-wise
+    #: keeps DRAWN at its other sites (frame rings, ``planar/deck_takeover.
+    #: _with_pieces``) -- bridge solid, never a building: the pads and walls
+    #: the classification read off them are no ground either (``planar/
+    #: deck_pack_cover.hidden_cells_off``; MEASURED KDFW: 220.obj's north
+    #: plate read as a 178.4 m pad over the road it spans, 4.6 m over it)
+    kept_plans: tuple = ()
     #: owner 2026-11-19T13:51Z (RULINGS 2026-11-19m (2)): the placement ids
     #: of a pack's WALLED MULTI-BRIDGE FRAME this GENERATED deck takes over
     #: (``planar/deck_takeover``) -- hidden in the pack copy (``hides``) and

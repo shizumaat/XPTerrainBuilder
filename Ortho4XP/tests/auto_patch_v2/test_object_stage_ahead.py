@@ -146,3 +146,36 @@ def test_an_airport_the_loop_never_places_gets_no_half(tmp_path, monkeypatch):
     STAGE._plan_ahead_half(_job(plan_path=str(plan), screen=None,
                                 patch_dir=str(tmp_path)), out)
     assert out["half"] is None and out["plan_sha"] is None
+
+
+def test_live_counts_each_started_job_once(monkeypatch):
+    """``live`` (the pool's running count) is +1 per start, -1 per done."""
+    import O4_Machine_Slots as SLOTS
+    from auto_patch import config as CFG
+    from auto_patch import slot_gated_pool as GATED
+
+    seen = {}
+
+    class _Ex:
+        def __init__(self, *a, initargs=(), **kw):
+            seen["live"] = initargs[1]
+
+        def submit(self, fn, job):
+            fut = cf.Future()
+            fut.set_result({"half": None, "error": "stub"})
+            return fut
+
+    def fake_run(jobs, *, start, on_done, teardown, **kw):
+        for job in jobs:
+            _ex, fut = start(job)
+            on_done(job, fut)
+            seen.setdefault("after", []).append(seen["live"].value)
+
+    monkeypatch.setattr(cf, "ProcessPoolExecutor", _Ex)
+    monkeypatch.setattr(STAGE, "_stop_executor", lambda ex: None)
+    monkeypatch.setattr(GATED, "run", fake_run)
+    monkeypatch.setattr(CFG, "parallel_airports_worker_count", lambda n: 2)
+    monkeypatch.setattr(SLOTS, "ensure_session", lambda: (None, 2))
+    ahead = STAGE._Ahead([_job(), _job(plan_path="/p/b.json", icao="YYYY")])
+    ahead._run()
+    assert seen["after"] == [0, 0]

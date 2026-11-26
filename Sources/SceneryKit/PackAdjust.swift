@@ -49,6 +49,12 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
         self.objects = objects
     }
 
+    /// The terrain row's "hide them all" (RULINGS 2026-11-25l, capability
+    /// `pack_terrain_all`): every terrain object the build recognised is
+    /// hidden; ticking it ticks `terrain`, unticking `terrain` unticks it.
+    public static let terrainAllKey = "terrain_all"
+    public static let terrainKey = "terrain"
+
     /// The row's title.
     public var title: String { O4PackAdjustCopy.itemTitles[key] ?? key }
     /// The row's one-line explanation.
@@ -197,6 +203,7 @@ public enum O4PackAdjustCopy {
         "drapes": "Hide draped orthophotos included with the package",
         "ground": "Hide large ground textures included with the package",
         "terrain": "Hide terrain objects included with the package",
+        "terrain_all": "Hide all of the package’s terrain and rock objects",
         "generic": "Hide generic X-Plane ground textures the package drapes",
         "flatten": "Remove the airport’s flatten flag (always)",
     ]
@@ -214,6 +221,9 @@ public enum O4PackAdjustCopy {
             + "that the tile’s detailed elevation data already describes. "
             + "The package’s other objects are then placed on that "
             + "terrain.",
+        "terrain_all": "All {n} objects that model hills, cliffs or rocks are "
+            + "hidden, even where the tile’s elevation data does not match them, "
+            + "and the ground follows the elevation data.",
         "generic": "{n} stock X-Plane grass, sand or scrub textures ({uses} "
             + "polygons, about {ha} ha) cover the tile’s imagery.",
         "flatten": "The apt.dat asks X-Plane to flatten the airport, which "

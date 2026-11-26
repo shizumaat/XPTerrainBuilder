@@ -79,11 +79,15 @@ _EDGE_POSTS = 2
 def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
     """The user hides this model: the pack's "Hide terrain objects" answer
     is ``update`` and it is offered (``hideable``) -- as the user's
-    per-object answers move it (#2272, ``pack_terrain.offered``)."""
+    per-object answers move it (#2272, ``pack_terrain.offered``); every
+    model where the pack hides them all (``pack_choice.hides_all``)."""
     if _PC.TERRAIN_STORE.choice(pack_root) != "update":
         return False
-    from auto_patch_v2.airport import pack_terrain as _pt
     res = str(rec.get("resource", ""))
+    if _PC.hides_all(pack_root):        # a ground object on its bridges is no terrain
+        return not rec.get("by") and (bool(rec.get("hideable"))
+                                      or res in _PC.hidden_terrain(pack_root))
+    from auto_patch_v2.airport import pack_terrain as _pt
     return res in _pt.offered([res] if rec.get("hideable") else [],
                               _PC.terrain_answers(pack_root))
 

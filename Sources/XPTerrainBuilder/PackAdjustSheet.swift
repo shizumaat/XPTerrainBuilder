@@ -12,7 +12,8 @@ import SwiftUI
 /// Apply / Cancel; Apply reads "Apply and rebuild tile" while a row the
 /// tile's mesh reads (the terrain objects) differs from the pack. The
 /// terrain row lists its objects (#2272): each ticked when the row hides
-/// it, the user's per-object override.
+/// it, the user's per-object override, unless "hide them all"
+/// (`terrain_all`, RULINGS 2026-11-25l) is ticked.
 struct PackAdjustSheet: View {
     let adjust: O4PackAdjust
     /// `(action, items, steps, objects)`: "update" with the checked rows,
@@ -30,7 +31,7 @@ struct PackAdjustSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             ForEach(adjust.choices) { item in
                 row(item.detail) {
-                    Toggle(item.title, isOn: toggle(item.key, in: $checked))
+                    Toggle(item.title, isOn: rowToggle(item.key))
                 }
                 if !item.objects.isEmpty {
                     objectList(item)
@@ -116,7 +117,22 @@ struct PackAdjustSheet: View {
             .frame(maxHeight: 220)
         }
         .padding(.leading, 20)
-        .disabled(!checked.contains(item.key))
+        .disabled(!checked.contains(item.key)
+                  || checked.contains(O4PackAdjustItem.terrainAllKey))
+    }
+
+    /// A row's tick; "hide them all" and the terrain row move together
+    /// (RULINGS 2026-11-25l: the first refines the second).
+    private func rowToggle(_ key: String) -> Binding<Bool> {
+        Binding(get: { checked.contains(key) },
+                set: { on in
+                    if on { checked.insert(key) } else { checked.remove(key) }
+                    if on && key == O4PackAdjustItem.terrainAllKey {
+                        checked.insert(O4PackAdjustItem.terrainKey)
+                    } else if !on && key == O4PackAdjustItem.terrainKey {
+                        checked.remove(O4PackAdjustItem.terrainAllKey)
+                    }
+                })
     }
 
     private func toggle(_ key: String, in set: Binding<Set<String>>) -> Binding<Bool> {

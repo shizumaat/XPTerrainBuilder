@@ -476,7 +476,13 @@ def _apron_floor(pg, t: float, near, apt, step: float) -> float:
     apron the pad meets; ``plan_low``'s ``top_level`` reads +3.00 too).
     PHLI ``unit:23`` (an open-air terminal over apt.dat pavement): 132
     grounded parts at 0 against 62 open roof trims at +7.3 -- ``t``
-    stands; LPHR ``unit:8``: the open objects stand at 0."""
+    stands; LPHR ``unit:8``: the open objects stand at 0.  The plane must
+    also be the one ``planar/low_level.top_level`` reads at the airside
+    (the modal base of the unit's parts there).  MEASURED, census over 29
+    registered captures: six units re-read (LDSP ``unit:5`` +3.0, ELLX
+    ``unit:138`` +3.4 and ``unit:8`` +4.6, KORD ``unit:17`` +4.3, KLAX
+    ``unit:10`` +13.0, CYYZ ``unit:245`` +29.2); only LDSP's record is one
+    the frontage law takes (:func:`frontage_held`)."""
     from shapely.strtree import STRtree
     if apt is None or apt.is_empty or not pg:
         return t
@@ -489,6 +495,12 @@ def _apron_floor(pg, t: float, near, apt, step: float) -> float:
               and _open_sky(p, g, pg, tree, geoms)]
     planes = sorted(_planes(opened, apt, band), key=lambda lv: (-lv.parts, lv.y))
     if not planes or abs(planes[0].y - t) < step:
+        return t
+    # and the pad stage reads the same airside top: the base most of the
+    # unit's parts at the airside stand at (``planar/low_level.top_level``'s
+    # frontage level) -- one airside floor, read alike by both
+    top = min(_st.multimode(round(p.base_y) for p, _g in nr)) if nr else None
+    if top is None or abs(planes[0].y - top) > band:
         return t
     at_t = sum(1 for p, g in nr if getattr(p, "feet", ()) and round(p.base_y) == t) + sum(
         1 for p, _g in opened if abs(float(p.base_y) - t) <= band)

@@ -54,11 +54,14 @@ extension BuildModel {
         }
     }
 
-    /// "Always keep full resolution" / "Let it go low-res again" for one
-    /// tile (engine `imagery_pin`), then a rescan so the tile pane and the
-    /// Library show the pin. Answers one sentence for the user.
+    /// A tile's Favorite (engine `imagery_pin`), then a rescan so the tile
+    /// pane and the Library read it from the record. The star flips at
+    /// once (#2228: every control reacts on click) and goes back if the
+    /// engine refuses. Answers one sentence for the user.
     func setImageryPinned(_ coord: TileCoord, _ pinned: Bool) async -> String {
         guard let context = libraryContext() else { return "The engine is not running." }
+        let before = isFavorite(coord)
+        favoriteFlips[coord] = pinned
         do {
             let done = try await context.client.imageryPin(
                 lat: coord.lat, lon: coord.lon, pinned: pinned, workingDir: context.workingDir)
@@ -66,6 +69,7 @@ extension BuildModel {
             rescan()
             return O4OnDemandText.pinDone(done)
         } catch {
+            if favoriteFlips[coord] == pinned { favoriteFlips[coord] = before }
             return "\(error)"
         }
     }

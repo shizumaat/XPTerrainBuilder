@@ -21,7 +21,7 @@ import O4_Imagery_OnDemand_Text as TEXT
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
 
-__all__ = ["FollowStatusLine", "FavoriteStar", "pin_tile"]
+__all__ = ["FollowStatusLine", "FavoriteStar", "PinRefused", "pin_tile"]
 
 NOTE_STYLE = "color: gray; font-size: 11px;"
 #: The star's two faces (outlined, filled) and the filled one's colour
@@ -31,17 +31,32 @@ STAR_FILLED = "\u2605"
 STAR_FILLED_STYLE = "color: #FFD60A;"
 
 
+class PinRefused(Exception):
+    """``imagery_pin`` failed for ``tile`` (lat, lon) asked to become
+    ``pinned``: the star that flipped on the click goes back (#2228).
+    Its text is the engine's error."""
+
+    def __init__(self, tile, pinned, error):
+        super().__init__(str(error))
+        self.tile = tuple(tile)
+        self.pinned = bool(pinned)
+
+
 def pin_tile(lat, lon, pinned, signal, busy=lambda: False, working_dir=""):
-    """``imagery_pin`` for one tile on a daemon thread; its reply (or the
-    error) is emitted on ``signal``.  ``busy()`` says a build runs: the
-    Favorite is still set, without landing textures (#2033)."""
+    """``imagery_pin`` for one tile on a daemon thread; its reply (or a
+    :class:`PinRefused`) is emitted on ``signal``.  ``busy()`` says a
+    build runs: the Favorite is still set, without landing textures
+    (#2033)."""
     from O4_Qt_Library import emit_from_thread  # it imports this module
     serve = not busy()
 
     def work():
         from o4_engine.imagery_ondemand import imagery_pin
-        return imagery_pin(int(lat), int(lon), working_dir=working_dir,
-                           pinned=bool(pinned), serve=serve)
+        try:
+            return imagery_pin(int(lat), int(lon), working_dir=working_dir,
+                               pinned=bool(pinned), serve=serve)
+        except Exception as error:
+            raise PinRefused((int(lat), int(lon)), pinned, error) from error
     emit_from_thread(work, signal, "o4-qt-imagery-pin")
 
 

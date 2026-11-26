@@ -1271,7 +1271,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if objects:
         from auto_patch_v2.pipeline.rebake_inputs import _rebake_inputs
         got = _rebake_inputs(pm, law, surf, airport, objects, agp_report=agp_report)
-        _under_seat_line(icao, pm, surf, airport, objects, got)
+        _under_seat_line(icao, law, surf, airport, objects, got)
         (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
             sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
             indent=0, default=str), encoding="utf-8")
@@ -1298,7 +1298,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     return {"patch": str(paths.patch), "surface": surf_out}
 
 
-def _under_seat_line(icao, pm, surf, airport, objects, got) -> None:
+def _under_seat_line(icao, law, surf, airport, objects, got) -> None:
     """RULINGS 2026-11-25m (4): the units ``airport/underside_seat`` wrote
     whole (and the ones S3 admitted but it refused), one line each."""
     from auto_patch_v2.airport import underside_seat as _us
@@ -1310,7 +1310,8 @@ def _under_seat_line(icao, pm, surf, airport, objects, got) -> None:
     taken = (set(got.get("exclude", ())) | {str(r.get("id")) for r in got.get(
         "authored_seats", ())} | set(got.get("tunnel_objects") or ())) - mine
     _r, rep = _us.seat_records(airport, pads_rims_from_graded_doc(surf.to_dict())[0],
-                               objects, taken, TOUCH_M)
+                               objects, taken, TOUCH_M, float(
+                                   law.tables.structures.building_pad.low_level_min_step_m))
     print(_us.log_line(icao, rep))
     for r in rep:
         print(f"    {r['verdict']:<10} {str(r['unit'])[:40]:<40} {r['row']} rows {r['rows']} "

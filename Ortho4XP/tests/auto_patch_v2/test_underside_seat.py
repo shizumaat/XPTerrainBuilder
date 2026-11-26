@@ -3,6 +3,7 @@
 2: ``airport/underside_seat``) and rung L0 (``unit_storey.contact_level``)."""
 from __future__ import annotations
 
+import dataclasses as _dc
 from types import SimpleNamespace
 
 import numpy as np
@@ -66,6 +67,16 @@ def test_the_pad_is_the_one_under_the_airside_contacts():
     m = _map(-6.0, -6.6)
     pads = [_pad("low", -1, 10, -1, 11, 366.5), _pad("high", 10, 21, -1, 11, 373.0)]
     assert us._unit_pad(m, pads, _ll) == ("low", 366.5)
+    # airside contacts on the apron, off every pad: the pad its feet stand on
+    m = _dc.replace(m, layers=_dc.replace(m.layers, foot=np.where(
+        np.arange(20)[None, :] >= 15, 0.0, np.nan) * np.ones((10, 1))))
+    assert us._unit_pad(m, [_pad("feet", 14, 21, -1, 11, 366.0)], _ll) == ("feet", 366.0)
+    # stations on the edge, the pad drawn a little inside it: the pad beside
+    edge = m
+    inner = [_pad("inner", 1.0, 9.0, 1.0, 9.0, 366.2)]
+    assert us._unit_pad(edge, inner, _ll) == (None, None)
+    assert us._unit_pad(edge, inner, _ll, lambda lo, la: (lo * 1e5, la * 1e5), 3.0) \
+        == ("inner", 366.2)
     assert us._unit_pad(m, [], _ll) == (None, None)
 
 
@@ -80,8 +91,14 @@ def test_refusals_keep_todays_seat():
     assert us._whole_refusal(m, ["dsf:obj1"], {"dsf:obj1": _obj(1, zero_y=2.0)},
                             set(), {}, set()) == "converted MSL row"
     shared = {"dsf:obj1": {"unit:0#0", "unit:0#1"}}
-    assert us._whole_refusal(m, ["dsf:obj1"], ok, set(), shared, {"unit:0#1"}) \
+    single = _map(0.8, 0.0, composite=False, t_from="feet")
+    assert us._whole_refusal(single, ["dsf:obj1"], ok, set(), shared, {"unit:0#1"}) \
         == "row shared with another grounded unit"
+    # a composite's rows are one authored frame: its other buildings ride it
+    assert us._whole_refusal(m, ["dsf:obj1"], ok, set(), shared, {"unit:0#1"}) is None
+    # a composite at its frame's zero near its base: today's readers seat it
+    assert us._whole_refusal(_map(0.14, 0.06), ["dsf:obj1"], ok, set(), {}, set()) \
+        == "today's readers seat its airside floor"
     assert us._whole_refusal(m, ["dsf:obj1"], ok, set(), shared, set()) is None  # footless
     two = {"dsf:obj1": _obj(1), "dsf:obj2": _obj(2, agl=1.0)}
     assert us._whole_refusal(m, ["dsf:obj1", "dsf:obj2"], two, set(), {}, set()) \

@@ -54,33 +54,85 @@ RIDER_SHARE = 0.5
 _DECK_KINDS = ("flag", "signature")
 
 
-def contact_samples(m: _t.Any) -> tuple[np.ndarray, np.ndarray]:
+def contact_samples(m: _t.Any, airside: bool = True) -> tuple[np.ndarray, np.ndarray]:
     """Up to :data:`SAMPLES_MAX` frame points of ``m``'s ground contacts,
-    its airside stations first (25n Q2: the airside it touches sets D)."""
+    its airside stations instead when it has any and ``airside`` (25n Q2:
+    the airside it touches sets D)."""
     g = m.layers
     ii, jj = np.nonzero(m.plan & np.isfinite(g.foot))
     e, n = g.centres(ii, jj)
     air = np.asarray(m.airside, dtype=bool)
-    if air.any():
+    if airside and air.any():
         e, n = m.e[air], m.n[air]
     k = max(1, -(-len(e) // SAMPLES_MAX))
     return e[::k], n[::k]
 
 
-def _unit_pad(m: _t.Any, pads: _t.Sequence[_t.Any], to_ll: _t.Callable
-             ) -> tuple["str | None", "float | None"]:
+def _pad_beside(e: np.ndarray, n: np.ndarray, pads: _t.Sequence[_t.Any],
+                to_xy: _t.Callable, reach_m: float) -> "str | None":
+    """The pad ref most of the frame points ``(e, n)`` stand within
+    ``reach_m`` of (each point counts for its nearest pad), or ``None``.
+    A perimeter station stands on the unit's EDGE, a cell or so outside
+    the pad drawn under it."""
+    import shapely
+    from shapely.geometry import Polygon
+    refs, polys = [], []
+    x0, x1, y0, y1 = e.min() - reach_m, e.max() + reach_m, n.min() - reach_m, n.max() + reach_m
+    for p in pads:
+        xy = [to_xy(lo, la) for la, lo in p.ring]
+        xs, ys = [q[0] for q in xy], [q[1] for q in xy]
+        if max(xs) < x0 or min(xs) > x1 or max(ys) < y0 or min(ys) > y1:
+            continue
+        g = Polygon(xy).buffer(0.0)
+        if not g.is_empty:
+            refs.append(str(p.ref))
+            polys.append(g)
+    if not polys:
+        return None
+    tree = shapely.STRtree(polys)
+    near, dist = tree.query_nearest(shapely.points(e, n), max_distance=reach_m,
+                                    return_distance=True, all_matches=False)
+    if not len(dist):
+        return None
+    hits: dict[str, int] = {}
+    for k in near[1]:
+        hits[refs[int(k)]] = hits.get(refs[int(k)], 0) + 1
+    return max(sorted(hits), key=lambda r: hits[r])
+
+
+def _unit_pad(m: _t.Any, pads: _t.Sequence[_t.Any], to_ll: _t.Callable,
+              to_xy: "_t.Callable | None" = None, reach_m: float = 0.0
+              ) -> tuple["str | None", "float | None"]:
     """``(pad ref, D)``: the pad holding the plurality of ``m``'s sampled
-    contacts (:func:`contact_samples`; ``placement_family.pad_plurality``,
-    folded over every face of its ref) and its level, the median of its
-    heights (``pad_block_seat.pad_levels``: the one pad datum rule the
-    object stage seats on); ``(None, None)`` off every pad."""
+    contacts (:func:`contact_samples`, its airside stations first, else --
+    the airside they meet is apron, not a pad -- its ground contacts;
+    ``placement_family.pad_plurality``, folded over every face of its ref)
+    and its level, the median of its heights (``pad_block_seat.pad_levels``:
+    the one pad datum rule the object stage seats on); ``(None, None)`` off
+    every pad.  With ``to_xy`` and ``reach_m``, a unit whose contacts no pad
+    holds takes the pad they stand beside (:func:`_pad_beside`, the
+    airside stations first).  MEASURED ELLX ``firestation``: none of its 86
+    airside stations stands inside a pad; they stand 0.1-1.2 m (median)
+    outside ``building21`` (366.52), the pad drawn under its lower storey."""
     from .pad_block_seat import pad_levels
     from .placement_family import pad_plurality
-    e, n = contact_samples(m)
-    if not len(e) or not pads:
+    if not pads:
         return None, None
-    cc = [(*to_ll(float(x), float(y)), 0.0, 0.0) for x, y in zip(e, n, strict=True)]
-    p = pad_plurality(cc, pads)
+    p = None
+    for airside in (True, False):
+        e, n = contact_samples(m, airside)
+        cc = [(*to_ll(float(x), float(y)), 0.0, 0.0) for x, y in zip(e, n, strict=True)]
+        p = pad_plurality(cc, pads) if cc else None
+        if p is not None:
+            break
+    if p is None and to_xy is not None and reach_m > 0.0:
+        from .anchor_rule import fold_pad_ref
+        for airside in (True, False):
+            e, n = contact_samples(m, airside)
+            ref = _pad_beside(e, n, pads, to_xy, reach_m) if len(e) else None
+            if ref is not None:
+                p = fold_pad_ref(pads, ref)
+                break
     if p is None:
         return None, None
     lv = pad_levels(pads, [p.ref]).get(p.ref)
@@ -103,11 +155,20 @@ def _clusters_of_rows(airport) -> dict[str, set[str]]:
 
 def _whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.Any],
                   taken: _t.AbstractSet[str], clusters_of: _t.Mapping[str, set],
-                  mapped: _t.AbstractSet[str]) -> "str | None":
+                  mapped: _t.AbstractSet[str], storey_m: float = 3.0) -> "str | None":
     """Why ``m``'s rows cannot be written whole (module doc, DOUBT), or
     ``None``.  ``mapped``: the cluster ids carrying a map (a grounded
-    unit); ``clusters_of``: :func:`_clusters_of_rows`."""
+    unit); ``clusters_of``: :func:`_clusters_of_rows`.  A COMPOSITE's rows
+    are its author's one frame: the other buildings they carry ride it;
+    one whose airside floor stands at its frame's zero (``|t|`` under
+    ``storey_m``) within ``underside_admission.MIS_ZEROED_M`` of its base is
+    one today's readers already seat there (spec F1; ELLX Terminal-A,
+    ``t`` +0.14 against its walls' +0.06) and keeps today's seat."""
+    from .underside_admission import MIS_ZEROED_M
     mine = set(str(m.unit).split("+"))
+    if m.composite and abs(float(m.t)) < storey_m \
+            and abs(float(m.t) - float(m.base or 0.0)) < MIS_ZEROED_M:
+        return "today's readers seat its airside floor"
     lifts = set()
     for r in rows:
         o = by_id.get(r)
@@ -121,7 +182,7 @@ def _whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.
             return "walled plate"
         if float(getattr(o, "zero_y", 0.0) or 0.0) != 0.0:
             return "converted MSL row"
-        if (clusters_of.get(r, set()) - mine) & mapped:
+        if not m.composite and (clusters_of.get(r, set()) - mine) & mapped:
             return "row shared with another grounded unit"
         lifts.add(round(float(getattr(o, "agl_m", 0.0) or 0.0), 3))
     if len(lifts) > 1:
@@ -177,19 +238,21 @@ def _riders(m: _t.Any, objects: _t.Sequence[_t.Any], free: _t.AbstractSet[str],
 
 def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
                  objects: _t.Sequence[_t.Any], taken: _t.AbstractSet[str],
-                 widen_m: float) -> tuple[list[dict[str, _t.Any]], list[dict[str, _t.Any]]]:
+                 widen_m: float, storey_m: float = 3.0) -> tuple[list[dict[str, _t.Any]], list[dict[str, _t.Any]]]:
     """``(records, report)``: one ``RebakePlan.authored_seats`` record per
     row of every admitted unit and its riders (module doc), and one report
     row per unit S3 admits (its ``z0``, or why it was still refused).
     ``pads``: the graded surface's object pads
     (``placement_read.pads_rims_from_graded_doc``); ``taken``: the rows
-    another seat already holds; ``widen_m``: a rider's touch reach."""
+    another seat already holds; ``widen_m``: a rider's touch reach;
+    ``storey_m``: ``[building_pad] low_level_min_step_m``."""
     from .underside_composite import dem_many
     maps = [m for m in (getattr(airport, "undersides", None) or {}).values()
             if not m.footless]
     if not maps or not objects:
         return [], []
-    to_ll = airport.frame.transformers()[1]
+    from .unit_underside import AIRSIDE_NEAR_M
+    to_xy, to_ll = airport.frame.transformers()
     many = dem_many(airport.dem)
     by_id = {str(o.id): o for o in objects}
     clusters_of = _clusters_of_rows(airport)
@@ -201,14 +264,14 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
     report: list[dict[str, _t.Any]] = []
     for m in sorted(maps, key=lambda q: q.key):
         rows = [str(r) for r in m.key if not str(r).startswith("@")]
-        pad, D = _unit_pad(m, pads, to_ll)
+        pad, D = _unit_pad(m, pads, to_ll, to_xy, AIRSIDE_NEAR_M)
         verdict, det = admit(m, D, np.asarray(many(m.e, m.n), dtype=float))
         if verdict not in ADMITTED or D is None:
             continue
         rep = {"unit": m.unit, "row": rows[0], "rows": len(rows), "pad": pad,
                "D": round(D, 3), "t": round(float(m.t), 3),
                "base": round(float(m.base or 0.0), 3), "verdict": verdict, **det}
-        why = _whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped)
+        why = _whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped, storey_m)
         if why is not None:
             report.append({**rep, "refused": why})
             continue

@@ -617,7 +617,8 @@ def _structure_ids(pm) -> set[str]:
                for oid in getattr(b, "objects", ()) or ()})
 
 
-def _underside_seats(airport, surf, objects, taken, touch_m: float) -> list:
+def _underside_seats(airport, surf, objects, taken, touch_m: float,
+                     storey_m: float) -> list:
     """``airport/underside_seat.seat_records`` on the solved surface's object
     pads (read as the object stage reads them, ``placement_read``)."""
     if not objects or not getattr(airport, "undersides", None) or surf is None:
@@ -625,7 +626,7 @@ def _underside_seats(airport, surf, objects, taken, touch_m: float) -> list:
     from ..airport import underside_seat as _us
     from ..airport.placement_read import pads_rims_from_graded_doc
     pads, _rims = pads_rims_from_graded_doc(surf.to_dict())
-    return _us.seat_records(airport, pads, objects, taken, touch_m)[0]
+    return _us.seat_records(airport, pads, objects, taken, touch_m, storey_m)[0]
 
 
 def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[str, _t.Any]:
@@ -692,7 +693,8 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
     storey_seats = storey_seats + _underside_seats(
         airport, surf, objects, excluded | {str(r["id"]) for r in storey_seats}
         | {str(r["id"]) for r in model_seats} | {str(r["id"]) for r in floor_seats}
-        | {str(r["id"]) for r in _ts.seat_records(airport)} | _structure_ids(pm), TOUCH_M)
+        | {str(r["id"]) for r in _ts.seat_records(airport)} | _structure_ids(pm), TOUCH_M,
+        float(law.tables.structures.building_pad.low_level_min_step_m))
     shelled = {str(r["id"]) for r in storey_seats}
     excluded |= shelled
     model_seats = [r for r in model_seats if str(r["id"]) not in shelled] + storey_seats

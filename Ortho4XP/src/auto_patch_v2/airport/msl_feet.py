@@ -79,13 +79,13 @@ from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "static_triangles", "lowest_feet", "origin_set_lifts",
            "origin_key", "origin_of_row", "feet_seats",
-           "lifted_feet_seats", "LIFTED_FEET", "on_datum", "AUTHORED_DATUM"]
+           "lifted_feet_seats", "LIFTED_FEET", "AUTHORED_DATUM"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
 #: the ``MslSeat.why`` of :func:`lifted_feet_seats`
 LIFTED_FEET = "lifted_feet"
-#: the ``MslSeat.why`` of a set on a datum kept at its row (:func:`on_datum`)
+#: the ``MslSeat.why`` of a set on a datum kept at its row (:func:`_on_datum`)
 AUTHORED_DATUM = "authored_datum"
 #: one origin, to the DSF's own precision (1e-8° ≈ 1 mm; 1 mm of elevation)
 _ORIGIN_DP = 8
@@ -327,8 +327,8 @@ class _SeatContext(_t.NamedTuple):
 def _seat_set(members: list, res: list, ctx: _SeatContext) -> list:
     """The seats of ONE origin's rigid set: every member at the one
     elevation centring its feet's needs on the surface — or none; a set
-    at terrain scale at its authored row (:func:`on_datum`)."""
-    if on_datum(res):
+    at terrain scale at its authored row (:func:`_on_datum`)."""
+    if _on_datum(res):
         _bump(ctx.counts, "msl_datum_sets_kept")
         _bump(ctx.counts, "msl_datum_rows_kept", len(members))
         return _authored(members, ctx)
@@ -365,7 +365,7 @@ def _set_vote(members: list, res: list, ctx: _SeatContext, *,
     return (min(needs) + max(needs)) / 2.0
 
 
-def on_datum(res: _t.Sequence[_Resource]) -> bool:
+def _on_datum(res: _t.Sequence[_Resource]) -> bool:
     """A LONE SET AT TERRAIN SCALE (module doc, #2250): every member
     readable and the resolved members' static solid spanning at least
     ``terrain_model.MIN_PLAN_M`` on its longer plan side."""

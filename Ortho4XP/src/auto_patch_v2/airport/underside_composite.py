@@ -57,7 +57,7 @@ def dem_many(dem) -> _t.Callable[[np.ndarray, np.ndarray], np.ndarray]:
 
     def one(x, y):
         out = np.full(len(x), np.nan)
-        for k, (a, b) in enumerate(zip(x, y)):
+        for k, (a, b) in enumerate(zip(x, y, strict=True)):
             try:
                 out[k] = float(dem.z(float(a), float(b)))
             except Exception:                   # noqa: BLE001 -- off the raster

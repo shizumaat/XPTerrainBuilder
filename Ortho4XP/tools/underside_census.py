@@ -86,7 +86,6 @@ def _mode(xs: list[float]) -> "float | None":
 def row_of(m, today: dict, many, to_ll, rsc: dict) -> dict:
     """One unit's census row (module doc)."""
     import numpy as np
-
     from auto_patch_v2.airport.underside_admission import admit
     bodies = [b for r in m.key for b in today.get(r, ())]
     pads = [p for _z, p in bodies if p is not None]
@@ -196,7 +195,8 @@ def main(argv=None) -> int:
     ap.add_argument("--icao", action="append", default=None)
     ap.add_argument("--pack", action="append", default=[], metavar="ICAO")
     ap.add_argument("--plan", default=None, help="a placement plan (default: newest in Patches)")
-    ap.add_argument("--unit", action="append", default=[], help="print units whose resources contain this")
+    ap.add_argument("--unit", action="append", default=[],
+                    help="print units whose resources contain this")
     ap.add_argument("--json", default=None)
     a = ap.parse_args(argv)
     from sunk_census import registered

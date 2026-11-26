@@ -4,7 +4,9 @@
 
 THE POPULATION is the §16g footprint units the design surface already
 derived (``Airport.clusters``, ``placement_family.plan_clusters``: one
-population, §16g (9)) -- one map per cluster, keyed by the SORTED
+population, §16g (9)) -- one map per cluster with a grounded part (a
+FOOTLESS cluster -- a roof, a canopy, a sign -- has none: today's carriers
+seat it, spec §1), keyed by the SORTED
 PLACEMENT ROW IDS of its members (``Member.id``); a second cluster on the
 same rows (one OBJ authoring two separate buildings) takes its cluster id
 as a last key element.  A recognised COMPOSITE (25l) then joins its sheet
@@ -48,7 +50,7 @@ import numpy as np
 
 from ..geom import underside_map as _um
 
-__all__ = ["AIRSIDE_NEAR_M", "SUFFIX", "LABEL", "unit_population", "routed_pavement", "derive",
+__all__ = ["AIRSIDE_NEAR_M", "SUFFIX", "LABEL", "unit_population", "derive",
            "attach_undersides", "log_line"]
 
 #: a station within this of airside pavement is an airside contact (m)
@@ -94,31 +96,47 @@ class _Placer:
             self._authored[k] = self._read(path, comp)
         return self._authored[k]
 
+    def _file(self, path: str) -> "tuple | None":
+        """The file's solid triangles ``(m, 3, 3)``, which are static, and
+        which may be a floor -- read once per file."""
+        k = (path, None)
+        if k not in self._authored:
+            g = self.cache.geometry(path)
+            if g is None or not len(g.solid):
+                self._authored[k] = None
+            else:
+                v = g.vertices[g.solid]
+                keep = np.ones(len(v), dtype=bool)
+                for flag in ("animated", "under_terrain"):
+                    a = getattr(g, flag, None)
+                    if a is not None and a.shape[0] == len(v):
+                        keep &= ~a
+                d1, d2 = v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]
+                ny = d1[:, 2] * d2[:, 0] - d1[:, 0] * d2[:, 2]
+                ln = np.sqrt((d1[:, 1] * d2[:, 2] - d1[:, 2] * d2[:, 1]) ** 2 + ny ** 2
+                             + (d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) ** 2)
+                self._authored[k] = (v, keep,
+                                     np.abs(ny) >= self.normal_y_min * np.maximum(ln, 1e-12))
+        return self._authored[k]
+
     def _read(self, path: str, comp: int) -> "tuple | None":
-        """Component ``comp``'s static triangles, or the whole file's static
-        solid for ``comp`` -1 (a composite's plan reads every face)."""
-        g = self.cache.geometry(path)
-        if g is None:
+        """Component ``comp``'s static triangles and floor flags, or the
+        whole file's static solid for ``comp`` -1 (a composite's plan reads
+        every face)."""
+        f = self._file(path)
+        if f is None:
             return None
+        v, keep, floor_ok = f
         if comp < 0:
-            tris, idx = g.solid, np.arange(len(g.solid))
+            idx = np.flatnonzero(keep)
         else:
             comps = self.cache.components(path)
-            if not 0 <= comp < len(comps) or getattr(comps[comp], "animated", False):
+            if not 0 <= comp < len(comps) or getattr(comps[comp], "animated", False) \
+                    or comps[comp].idx is None:
                 return None
-            tris, idx = comps[comp].tris, comps[comp].idx
-        keep = np.ones(len(tris), dtype=bool)
-        for flag in ("animated", "under_terrain"):
-            a = getattr(g, flag, None)
-            if idx is not None and a is not None and a.shape[0]:
-                keep &= ~a[idx]
-        v = g.vertices[tris[keep]]
-        if not len(v):
-            return None
-        nrm = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
-        ln = np.linalg.norm(nrm, axis=1)
-        floor_ok = np.abs(nrm[:, 1]) >= self.normal_y_min * np.maximum(ln, 1e-12)
-        return v, floor_ok
+            idx = np.asarray(comps[comp].idx)
+            idx = idx[keep[idx]]
+        return (v[idx], floor_ok[idx]) if len(idx) else None
 
     def placed(self, member, p) -> "tuple | None":
         """``(tris (n, 3, 3) east/north/y, floor_ok, foot_max)`` of part
@@ -142,7 +160,7 @@ class _Placer:
         return out, floor_ok, np.full(len(v), top)
 
 
-def routed_pavement(airport):
+def _routed_pavement(airport):
     """THE AIRSIDE (module doc): the union of the apt.dat pavement polygons
     the taxi network runs on, or ``None``."""
     import shapely
@@ -167,9 +185,9 @@ def routed_pavement(airport):
 
 def _near_airside(airport):
     """``near(e, n) -> bool array``: within :data:`AIRSIDE_NEAR_M` of the
-    airside (:func:`routed_pavement`; none: every station is off airside)."""
+    airside (:func:`_routed_pavement`; none: every station is off airside)."""
     import shapely
-    air = routed_pavement(airport)
+    air = _routed_pavement(airport)
     if air is None:
         return lambda e, n: np.zeros(len(e), dtype=bool)
     g = air.buffer(AIRSIDE_NEAR_M)
@@ -239,6 +257,8 @@ def derive(airport, law, cache) -> dict:
     parts = {q: mp[1] for q, mp in by_pid.items()}
     out: dict = {}
     for key, cid, pids in unit_population(airport):
+        if not any(getattr(parts[q], "feet", ()) for q in pids):
+            continue            # FOOTLESS: no map; today's carriers seat it (spec §1)
         layers = _layers([placer.placed(*by_pid[q]) for q in sorted(pids)])
         if layers is None:
             continue
@@ -312,8 +332,7 @@ def log_line(icao: str, maps: "dict | None", seconds: float = 0.0, state: str = 
         return f"[{icao}] underside maps: none"
     comp = [m for m in ms if m.composite]
     sunk = sum(len(m.interiors) for m in ms)
-    return (f"[{icao}] underside maps: {len(ms)} unit(s), "
-            f"{sum(1 for m in ms if m.footless)} footless, {len(comp)} composite"
+    return (f"[{icao}] underside maps: {len(ms)} grounded unit(s), {len(comp)} composite"
             + (" (" + ", ".join(f"{m.unit} t {m.t:+.2f}" for m in comp
                                 if m.t is not None) + ")" if comp else "")
             + f", {sunk} below-grade interior(s), {seconds:.2f} s"

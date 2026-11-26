@@ -21,7 +21,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["SAMPLES_MAX", "pad_levels", "underside_records"]
+__all__ = ["SAMPLES_MAX", "underside_records"]
 
 #: the most ground contacts a unit's pad lookup reads
 SAMPLES_MAX = 64
@@ -40,7 +40,7 @@ def _samples(m) -> tuple[np.ndarray, np.ndarray]:
     return e[::k], n[::k]
 
 
-def pad_levels(planar, maps: _t.Sequence, z) -> list[tuple["str | None", "float | None"]]:
+def _pad_levels(planar, maps: _t.Sequence, z) -> list[tuple["str | None", "float | None"]]:
     """``(pad ref, level)`` per map: the ``building`` face holding most of
     its sampled contacts (:func:`_samples`) and the median solved height of
     its vertices; ``(None, None)`` off every pad or without ``z``."""
@@ -80,7 +80,7 @@ def underside_records(planar, airport, z=None) -> dict[str, list]:
     to_ll = airport.frame.transformers()[1]
     many = dem_many(airport.dem)
     recs = []
-    for m, (pad, D) in zip(maps, pad_levels(planar, maps, z), strict=True):
+    for m, (pad, D) in zip(maps, _pad_levels(planar, maps, z), strict=True):
         verdict, det = admit(m, D, np.asarray(many(m.e, m.n), dtype=float))
         air = np.asarray(m.airside, dtype=bool)
         lat, lon = to_ll(float(np.mean(m.e)), float(np.mean(m.n)))

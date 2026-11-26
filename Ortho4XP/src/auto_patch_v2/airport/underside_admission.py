@@ -30,7 +30,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["COHERENT_M", "MIS_ZEROED_M", "VERDICTS", "misfit", "admit"]
+__all__ = ["COHERENT_M", "MIS_ZEROED_M", "VERDICTS", "admit"]
 
 #: two zeros this close are one (m)
 COHERENT_M = 0.05
@@ -39,7 +39,7 @@ MIS_ZEROED_M = 0.5
 VERDICTS = ("coherent", "mis-zeroed", "composite", "doubt", "exception")
 
 
-def misfit(m: _t.Any, z0: float, g: np.ndarray) -> float:
+def _misfit(m: _t.Any, z0: float, g: np.ndarray) -> float:
     """The L1 misfit of our ground ``g`` (per station of ``m``, ``nan``
     unread) to ``m``'s non-airside stations seated at ``z0``; ``nan`` when
     none is read."""
@@ -67,7 +67,7 @@ def admit(m: _t.Any, D: "float | None", g: "np.ndarray | None" = None
     if off < COHERENT_M:
         return "coherent", det
     if off >= MIS_ZEROED_M and g is not None:
-        before, after = misfit(m, D - base, g), misfit(m, D - m.t, g)
+        before, after = _misfit(m, D - base, g), _misfit(m, D - m.t, g)
         det.update(misfit_today=round(before, 3), misfit_z0=round(after, 3))
         if np.isfinite(before) and np.isfinite(after) and before - after >= MIS_ZEROED_M:
             det["z0"] = round(D - m.t, 3)

@@ -15,7 +15,7 @@ and ``tread`` (the HIGHEST near-horizontal surface within that band: the
 surface the ground meets -- a slab's top, never its buried underside).
 Vectorised and chunked: a terminal is 10^5-10^6 triangles.
 
-THE GROUND-CONTACT PLAN ``P`` (:func:`contact_plan`): the foot cells and the
+THE GROUND-CONTACT PLAN ``P`` (:func:`_contact_plan`): the foot cells and the
 SKIN cells (``top - low`` at most :data:`SKIN_M`: a paved sheet, a kerb, a
 ramp) standing within ``reach_m`` (a storey) of their nearest foot's
 contact and joined to the feet through 4-neighbours whose contact heights
@@ -24,7 +24,7 @@ jetway or a span is cut off by its own height, and a car park's ramp ends
 a storey up: OVERHANGS SET NO PERIMETER.  A composite's ground sheet
 (read on our DEM by the caller) joins ``P`` whole.
 
-THE PERIMETER STATIONS (:func:`stations`): every cell of ``P`` with a
+THE PERIMETER STATIONS (:func:`_stations`): every cell of ``P`` with a
 4-neighbour outside it (the outer edge and every hole).  Each carries
 ``lo`` (the lowest outer edge: the cell's lowest surface), ``hi`` (the
 median floor of ``P`` within :data:`BEHIND_M` behind it), its contact
@@ -34,20 +34,22 @@ it), ``wall`` (:data:`WALL_M` or more of solid over the cell), ``sheet``
 (a skin) or ``open`` -- and ``levels`` (how many storey levels the floor
 behind it stands on).
 
-THE BELOW-GRADE INTERIORS (:func:`interiors`): cells of ``P`` whose floor
+THE BELOW-GRADE INTERIORS (:func:`_interiors`): cells of ``P`` whose floor
 lies :data:`FLOOR_SUNKEN_MIN_M` or more under the contact surface (each
 cell reads its nearest station's contact height); 8-connected pieces of at
 least :data:`INTERIOR_MIN_CELLS`, ``open`` where under
 :data:`ROOFED_COVER_MIN` of the piece has solid over its floor, else
 ``roofed``.  Kept so they can be cut out (25m (3)), never ignored.
 
-THE SCALARS (:func:`summarise`): ``t`` -- the floor the AIRSIDE contact
-stations stand at (:func:`floor_plane` of the contact heights of the
-ground contacts (the plan's foot cells) the caller marks airside; when
-none is, of every ground contact: the floor the group stands on),
-``levels`` (the stations' contact
-heights' populated storey levels), ``relief`` (their 5th-95th percentile
-span beyond their least-squares plane) and ``flat``.
+THE SCALARS (:func:`_summarise`): ``t`` -- the floor the AIRSIDE ground
+contacts (the plan's foot cells the caller marks airside) stand at: the
+plurality floor of their contact heights (:func:`_floor_plane`); when none
+is airside, the floor every ground contact stands on.  ``levels`` (the
+stations' contact heights' populated storey levels), ``relief`` (their
+5th-95th percentile span beyond their least-squares plane) and ``flat``.
+(``foot_planes.floor_plane``, the seat's airside-floor reading of zero
+CANDIDATES, was tried and reads the wrong plane of contact heights: ELLX
+Terminal-A 0.89 against its walls' 0.33 at the apron.)
 
 Pure numpy and scipy: no shapely, no engine type, no law.  Nothing here
 names a pack, an object or an airport."""
@@ -62,8 +64,8 @@ import numpy as np
 __all__ = ["CELL_M", "MAX_CELLS", "SKIN_M", "SHEET_STEP_M", "BEHIND_M", "WALL_M",
            "SKIRT_M", "FLOOR_SUNKEN_MIN_M", "ROOFED_COVER_MIN", "FLAT_M",
            "KINDS", "Layers", "Interior", "UndersideMap", "rasterise_layers",
-           "compose", "contact_plan", "ground_sheet", "stations", "interiors",
-           "summarise", "relief", "floor_plane", "underside"]
+           "compose", "ground_sheet", 
+           "relief", "underside"]
 
 #: the plan grid (m); a grid that would exceed :data:`MAX_CELLS` coarsens
 CELL_M = 1.0
@@ -280,7 +282,7 @@ def _contact(g: Layers) -> np.ndarray:
     return np.where(np.isfinite(g.tread), g.tread, g.foot).astype(float)
 
 
-def contact_plan(g: Layers, reach_m: float, sheet: "np.ndarray | None" = None
+def _contact_plan(g: Layers, reach_m: float, sheet: "np.ndarray | None" = None
                  ) -> np.ndarray:
     """THE GROUND-CONTACT PLAN ``P`` (module doc): a boolean grid;
     ``sheet`` a composite's ground sheet on ``g``'s grid."""
@@ -328,7 +330,7 @@ def _window(vals: np.ndarray, P: np.ndarray, ii: np.ndarray, jj: np.ndarray,
                (jj + r)[:, None] + dj.ravel()[None, :]]
 
 
-def stations(g: Layers, P: np.ndarray, storey_m: float) -> dict[str, np.ndarray]:
+def _stations(g: Layers, P: np.ndarray, storey_m: float) -> dict[str, np.ndarray]:
     """THE PERIMETER STATIONS of ``P`` (module doc): aligned arrays
     ``ii``, ``jj``, ``e``, ``n``, ``lo``, ``hi``, ``h``, ``kind``,
     ``levels``."""
@@ -362,7 +364,7 @@ def stations(g: Layers, P: np.ndarray, storey_m: float) -> dict[str, np.ndarray]
             "kind": kind, "levels": levels}
 
 
-def interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
+def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
               ) -> tuple[Interior, ...]:
     """THE BELOW-GRADE INTERIORS of ``P`` (module doc)."""
     from scipy import ndimage
@@ -418,16 +420,16 @@ def _levels(h: np.ndarray, storey_m: float, min_share: float = 0.1) -> tuple[flo
     return tuple(sorted(out))
 
 
-def floor_plane(h: np.ndarray) -> float:
+def _floor_plane(h: np.ndarray, storey_m: float) -> float:
     """THE FLOOR most of the contact heights ``h`` stand on: the median of
     those within :data:`SHEET_STEP_M` of the fullest 0.5 m bin (a plurality
-    floor, never a mean of two storeys)."""
-    vals, cnt = np.unique(np.round(h * 2.0) / 2.0, return_counts=True)
+    floor, never a mean of two storeys; ``storey_m`` is not read)."""
+    vals, cnt = np.unique(np.round(np.asarray(h) * 2.0) / 2.0, return_counts=True)
     mode = float(vals[int(np.argmax(cnt))])
     return float(np.median(h[np.abs(h - mode) <= SHEET_STEP_M]))
 
 
-def summarise(h: np.ndarray, e: np.ndarray, n: np.ndarray, air_feet: np.ndarray,
+def _summarise(h: np.ndarray, e: np.ndarray, n: np.ndarray, air_feet: np.ndarray,
               storey_m: float, feet: np.ndarray) -> dict[str, _t.Any]:
     """THE SCALARS (module doc): ``t``, ``t_from``, ``levels``, ``relief``,
     ``flat`` of the stations' contact heights ``h``; ``t`` reads
@@ -437,11 +439,11 @@ def summarise(h: np.ndarray, e: np.ndarray, n: np.ndarray, air_feet: np.ndarray,
         return {"t": None, "t_from": "none", "levels": (), "relief": 0.0, "flat": True}
     rel = relief(e, n, h)
     if len(air_feet):
-        t, src = floor_plane(air_feet), "airside"
+        t, src = _floor_plane(air_feet, storey_m), "airside"
     elif len(feet):
-        t, src = floor_plane(feet), "feet"
+        t, src = _floor_plane(feet, storey_m), "feet"
     else:
-        t, src = floor_plane(h), "all"
+        t, src = _floor_plane(h, storey_m), "all"
     return {"t": t, "t_from": src, "levels": _levels(h, storey_m), "relief": rel,
             "flat": rel <= FLAT_M}
 
@@ -452,15 +454,15 @@ def underside(g: Layers, key: _t.Sequence[str], unit: str,
     """The whole map of one group's layers ``g`` (module doc);
     ``near_airside(e, n)`` marks the stations standing at airside;
     ``sheet`` a composite's ground sheet on ``g``'s grid."""
-    P = contact_plan(g, storey_m, sheet)
-    st = stations(g, P, storey_m)
+    P = _contact_plan(g, storey_m, sheet)
+    st = _stations(g, P, storey_m)
     air = (np.asarray(near_airside(st["e"], st["n"]), dtype=bool) if len(st["e"])
            else np.zeros(0, dtype=bool))
     fi, fj = np.nonzero(P & np.isfinite(g.foot))
     feet = _contact(g)[fi, fj]
     fair = (np.asarray(near_airside(*g.centres(fi, fj)), dtype=bool) if len(fi)
             else np.zeros(0, dtype=bool))
-    s = summarise(st["h"], st["e"], st["n"], feet[fair], storey_m, feet)
+    s = _summarise(st["h"], st["e"], st["n"], feet[fair], storey_m, feet)
     return UndersideMap(tuple(key), str(unit), g, P, st["e"], st["n"], st["lo"], st["hi"],
-                        st["h"], st["kind"], st["levels"], air, interiors(g, P, st),
+                        st["h"], st["kind"], st["levels"], air, _interiors(g, P, st),
                         s["t"], s["t_from"], s["levels"], s["relief"], s["flat"])

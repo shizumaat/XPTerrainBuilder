@@ -70,7 +70,8 @@ def test_the_run_out_fill_is_replayed_and_what_floats_is_placed(tmp_path):
     assert left["floating_free"] == 0
     patch = shapely.box(TSS.LON - 0.01, TSS.LAT - 0.01, TSS.LON + 0.01, TSS.LAT + 0.01)
     held, reps = SSR.filled_surface(recs, surf, patch, 5.0)
-    assert reps["shell0"]["raised"] == 0 and reps["shell0"]["in_patch"] == reps["shell0"]["stations"]
+    rep0 = reps["shell0"]
+    assert rep0["raised"] == 0 and rep0["in_patch"] == rep0["stations"]
     (rep,) = SSR.measure(recs, held)
     left = SSR.floating(recs[0], rep["dz"], held, patch, 5.0)
     assert left["floating_in_patch"] > 0 and left["floating_free"] == 0

@@ -136,8 +136,14 @@ def gates_key() -> str:
     a kept :func:`outline` is read again only under the same gates."""
     import hashlib
 
-    from . import ground_shell, relief_skin, rock_witness, terrain_model, terrain_rock
-    from . import terrain_shell
+    from . import (
+        ground_shell,
+        relief_skin,
+        rock_witness,
+        terrain_model,
+        terrain_rock,
+        terrain_shell,
+    )
     rows = sorted((m.__name__.rsplit(".", 1)[-1], k, repr(v))
                   for m in (terrain_model, terrain_shell, terrain_rock, rock_witness,
                             ground_shell, relief_skin)

@@ -22,7 +22,7 @@ THE CANDIDATE (:func:`rock_verdict`): its static solid spans
 HILLSIDE (``relief_skin.MIN_STEEP`` of its cells steeper than
 ``relief_skin.STEEP_GRADIENT``); at least ``relief_skin.MIN_SHARE`` of
 its plan in pieces each spanning ``SHELL_MIN_PLAN_M`` or more
-(:func:`big_piece_share`).
+(:func:`_big_piece_share`).
 
 THE WITNESS (``rock_witness``): one top sheet standing on its own ground
 zero, no storey walls, no right-angle creases, not axis-aligned.  A
@@ -57,13 +57,13 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["ROCK_MIN_RELIEF_M", "big_piece_share", "rock_verdict", "rock_shape", "row_datum",
+__all__ = ["ROCK_MIN_RELIEF_M", "rock_verdict", "rock_shape", "row_datum",
            "rock_match", "own_frame", "fill_seat"]
 
 ROCK_MIN_RELIEF_M = 5.0
 
 
-def big_piece_share(covered: np.ndarray, cell_m: float, min_m: float) -> float:
+def _big_piece_share(covered: np.ndarray, cell_m: float, min_m: float) -> float:
     """ONE BODY, OR A FEW LARGE ONES (module doc): the share of the
     ``covered`` plan cells lying in 8-connected pieces spanning ``min_m``
     or more."""
@@ -129,7 +129,7 @@ def _verdict(path: str, g: _t.Any) -> "tuple[dict, list[str]] | None":
         return None
     m = _rs._measures(grid)
     steep = 0.0 if m is None else float(m["steep"])
-    big = big_piece_share(grid.covered, CELL_M, SHELL_MIN_PLAN_M)
+    big = _big_piece_share(grid.covered, CELL_M, SHELL_MIN_PLAN_M)
     values = {"plan_m": float(plan), "relief_m": float(hi - lo), "steep": steep, "big": big}
     fails = (["hillside"] if steep < _rs.MIN_STEEP else []) + \
         (["big_pieces"] if big < _rs.MIN_SHARE else [])

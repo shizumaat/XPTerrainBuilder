@@ -63,7 +63,8 @@ from .pack_trees_map import FAMILIES, GRASS_M, PLANTERS
 
 __all__ = ["old_forests",
            "renames_of", "apply_upgrade", "record",
-           "recorded", "recorded_version", "clear_strips", "summary",
+           "recorded", "recorded_version", "converted_objects",
+           "without_converted", "CONVERTED_SKIP", "clear_strips", "summary",
            "log_line", "target_lines", "RECORD_KEY", "UPGRADE_VERSION"]
 
 #: the key of the record row (``o4_placement_provenance.json``)
@@ -371,6 +372,53 @@ def recorded_version(entry: _t.Mapping[str, _t.Any] | None) -> int:
     row = (entry or {}).get(RECORD_KEY)
     v = row.get("version", 1) if isinstance(row, dict) else 1
     return v if isinstance(v, int) else 1
+
+
+#: the reason a converted tree object's rows are left out of the object plan
+CONVERTED_SKIP = "converted to X-Plane 12 3D trees by the recorded upgrade (#1710)"
+
+
+def converted_objects(dsf_path: str) -> frozenset[str]:
+    """The pack's own flat tree OBJECTS the upgrade recorded beside
+    ``dsf_path`` turns into point forests (the renames whose target is a
+    ``FAMILIES`` species): the DSF write drops every row of them and every
+    body cut of them (``pack_trees.convert_objects``), so the object stage
+    has nothing to seat there.  Empty with no backup or no accepted record
+    for it — what ``dsf_write.write_pack`` re-applies, read the same way."""
+    from ..model.placement import BACKUP_SUFFIX
+    from . import backup_state as _bs
+    from .file_hash import sha256_file_or_none
+    sha = sha256_file_or_none(dsf_path + BACKUP_SUFFIX)
+    if not sha:
+        return frozenset()
+    entry = _bs.dsf_entry(_bs.read_record(dsf_path), os.path.basename(dsf_path))
+    return frozenset(p for p, t in recorded(entry, sha).items() if t in FAMILIES)
+
+
+def without_converted(plan: _t.Any, converted: _t.AbstractSet[str]) -> _t.Any:
+    """The rebake ``plan`` (``model.rebake.RebakePlan``) without the
+    members whose resource is in ``converted`` (:func:`converted_objects`),
+    each resource listed in ``skipped`` (:data:`CONVERTED_SKIP`).  MMUN's
+    Cancun pack: two flat tree objects the write turns into 43,036 forest
+    points were cut into 3,840 body files no DSF row named."""
+    if not converted:
+        return plan
+    norm = {p.replace("\\", "/") for p in converted}
+    units, gone = [], set()
+    for u in plan.units:
+        out = [m.resource.replace("\\", "/") in norm for m in u.members]
+        keep = tuple(m for m, o in zip(u.members, out, strict=True) if not o)
+        gone.update(m.resource for m, o in zip(u.members, out, strict=True) if o)
+        if keep:
+            units.append(u if len(keep) == len(u.members)
+                         else _dc.replace(u, members=keep))
+    if not gone:
+        return plan
+    skipped = dict(plan.skipped)
+    for r in gone:
+        skipped.setdefault(r, CONVERTED_SKIP)
+    return _dc.replace(plan, units=tuple(units),
+                       skipped=tuple(sorted(skipped.items())))
 
 
 def summary(old: _t.Sequence[OldForest]) -> dict[str, _t.Any]:

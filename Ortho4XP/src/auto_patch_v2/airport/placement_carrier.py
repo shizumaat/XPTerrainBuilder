@@ -62,8 +62,8 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
 # reads it as this module's.
 from .placement_boxes import (                           # noqa: E402
     FOOT_BOXES_MAX, GROUND_OFF_FEET_MAX, anchor_ground_off, box_area_m2,
-    box_gap_m, box_of, fill_of, foot_boxes, ground_at_box, ground_samples,
-    CONTACT_PTS_MAX, contact_ground, foot_box_index, ground_under,
+    any_gap_within, box_gap_m, box_of, fill_of, foot_boxes, ground_at_box,
+    ground_samples, CONTACT_PTS_MAX, contact_ground, foot_box_index, ground_under,
     hull_of, overlap,
     overlap_m2, parts_overlap,
     stands_over_rank)
@@ -177,23 +177,62 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
     groups: list[list[int]] = []
     zeros: list[float | None] = []
     near = (reach_m > 0.0 and boxes is not None)
+    # per group, what its two screens read (MMUN's 14,803-piece scatter
+    # file asked 34.6 M member pairs): the members' boxes, their HULL —
+    # the gap to which bounds the gap to every member, so a body beyond
+    # reach of the hull is beyond reach of the group — whether a member's
+    # box is empty (``box_gap_m`` reads 0 there), and the members' ground
+    # range (``|g - x|`` is greatest at the range's ends)
+    g_boxes: list[list] = []
+    g_hull: list[list[float] | None] = []
+    g_empty: list[bool] = []
+    g_range: list[list[float] | None] = []
+
+    def _join(gi: int, i: int) -> None:
+        if gi == len(groups):
+            groups.append([])
+            g_boxes.append([])
+            g_hull.append(None)
+            g_empty.append(False)
+            g_range.append(None)
+        groups[gi].append(i)
+        b = boxes[i] if boxes is not None and i < len(boxes) else None
+        if b is not None:
+            if not b:
+                g_empty[gi] = True
+            else:
+                g_boxes[gi].append(b)
+                h = g_hull[gi]
+                g_hull[gi] = (list(b[:4]) if h is None else
+                              [min(h[0], b[0]), min(h[1], b[1]),
+                               max(h[2], b[2]), max(h[3], b[3])])
+        g = grounds[i] if grounds is not None and i < len(grounds) else None
+        if g is not None:
+            r = g_range[gi]
+            g_range[gi] = ([float(g), float(g)] if r is None else
+                           [min(r[0], float(g)), max(r[1], float(g))])
 
     def _contiguous(gi: int, i: int) -> bool:
-        """§16b (1): is body ``i`` within ``reach_m`` of the group?"""
+        """§16b (1): is body ``i`` within ``reach_m`` of the group (a box
+        of a member within ``reach_m`` of its own)?"""
         if not near or i >= len(boxes) or boxes[i] is None:
             return True
-        return any(j < len(boxes) and boxes[j] is not None
-                   and box_gap_m(boxes[i], boxes[j]) <= reach_m
-                   for j in groups[gi])
+        a = boxes[i]
+        if not a or g_empty[gi]:
+            return bool(g_boxes[gi]) or g_empty[gi]
+        h = g_hull[gi]
+        if h is None or box_gap_m(a, tuple(h)) > reach_m:
+            return False
+        return any_gap_within(a, g_boxes[gi], reach_m)
 
     def _same_terrain(gi: int, i: int) -> bool:
-        """§16b (1): does body ``i`` stand on the group's own terrain?"""
+        """§16b (1): does body ``i`` stand on the group's own terrain
+        (every member's ground within ``tol_m`` of its own)?"""
         if grounds is None or tol_m <= 0.0 or i >= len(grounds) \
                 or grounds[i] is None:
             return True
-        return all(j >= len(grounds) or grounds[j] is None
-                   or abs(float(grounds[i]) - float(grounds[j])) <= tol_m
-                   for j in groups[gi])
+        r, x = g_range[gi], float(grounds[i])
+        return r is None or (abs(x - r[0]) <= tol_m and abs(x - r[1]) <= tol_m)
 
     for i in order:
         _bi, a, _n = bodies[i]
@@ -204,18 +243,18 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
                 if (z is None) == (g0 is None) and (
                         z is None or abs(z - g0) <= tol_m) \
                         and _contiguous(gi, i) and _same_terrain(gi, i):
-                    groups[gi].append(i)
+                    _join(gi, i)
                     placed = True
                     break
         elif z is None:
             # no tolerance at all: only the off-surface bodies still merge
             for gi, g0 in enumerate(zeros):
                 if g0 is None:
-                    groups[gi].append(i)
+                    _join(gi, i)
                     placed = True
                     break
         if not placed:
-            groups.append([i])
+            _join(len(groups), i)
             zeros.append(z)
     if not attach_elevated:
         # §15 (1): the elevated bodies are the UNIT's business, not this

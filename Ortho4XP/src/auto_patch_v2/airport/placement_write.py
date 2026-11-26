@@ -227,8 +227,12 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     ONE AIRPORT, SEVERAL TILE DSFS (#1645): ``tile`` names the DSF written
     here, and the plan and riders are first narrowed to its rows
     (``tile_rows.for_tile``)."""
+    from .pack_forests import converted_objects, without_converted
     from .tile_rows import for_tile
     rebake_plan, jetway_strips = for_tile(rebake_plan, jetway_strips, tile)
+    # #1710: the tree objects the recorded 3D upgrade turns into forests
+    # leave the DSF, bodies and all — never seated, never cut
+    rebake_plan = without_converted(rebake_plan, converted_objects(dsf_path))
     ss = _pp.build_splits(rebake_plan, surface, pads, rims, write=write_cuts,
                           split_tol_m=split_tol_m, elevated_base_m=elevated_base_m,
                           line_segment_m=line_segment_m,

@@ -39,7 +39,8 @@ from .cut_portal_seat import CUT_BRIDGE_PLATE
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "frame_lifts", "carried_lift",
            "group_key", "root_zeros", "body_root",
-           "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
+           "frame_root_boxes", "RootIndex", "merge_frame_roots", "unchained_links",
+           "group_zero",
            "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "UNIT_FREE_PLATES",
            "plate_led",
            "WALLED_SRC",
@@ -340,7 +341,7 @@ TOUCH_M = 1.0
 
 
 def frame_root_boxes(u: _t.Any, plan_wide: _t.Mapping[int, tuple]
-                     ) -> dict[str, list[tuple]]:
+                     ) -> "RootIndex":
     """``root -> the plan boxes of its parts`` in ONE frame (plan unit
     ``u``) — what an unchained body of the frame is measured against.  A
     LINE part's box is no root's (RULINGS 2026-11-14a (2)): a fence never
@@ -352,7 +353,7 @@ def frame_root_boxes(u: _t.Any, plan_wide: _t.Mapping[int, tuple]
             if (seat and seat[0] and getattr(p, "box", None)
                     and not getattr(p, "line", False)):
                 out.setdefault(unit_root(seat[0]), []).append(tuple(p.box))
-    return out
+    return RootIndex(out)
 
 
 def merge_frame_roots(root_boxes: _t.Mapping[str, _t.Sequence[tuple]],
@@ -549,14 +550,50 @@ def body_root(b: _t.Any, plan_wide: _t.Mapping[int, tuple],
         return file_root[carrier]
     box = getattr(b, "plan_box", None) or getattr(b, "geom_box", None)
     if box and root_boxes:
+        index = root_boxes if isinstance(root_boxes, RootIndex) else RootIndex(root_boxes)
         best = None
-        for r in sorted(root_boxes):
-            g = _gap_m(tuple(box), root_boxes[r])
+        for r in index.near(tuple(box), TOUCH_M):
+            g = _gap_m(tuple(box), index.boxes(r))
             if g is not None and g <= TOUCH_M and (best is None or g < best[0]):
                 best = (g, r)
         if best is not None:
             return best[1]
     return None
+
+
+class RootIndex(dict):
+    """:func:`frame_root_boxes`' ``root -> boxes``, read by :func:`body_root`
+    once per frame rather than once per body (MMUN: 43,412 bodies x 77
+    roots re-read every root's boxes): each root's boxes as one array, and
+    the roots whose HULL comes within reach of a box — the gap to a hull
+    bounds the gap to every box in it, so no other root can be within
+    reach.  The mapping it was built from is never changed after."""
+
+    def __init__(self, root_boxes: _t.Mapping[str, _t.Sequence[tuple]]) -> None:
+        import numpy as np
+        super().__init__(root_boxes)
+        self._roots = sorted(self)
+        self._arr = {r: np.asarray(self[r], dtype=float).reshape(-1, 4) for r in self._roots}
+        self._hull = np.array([(a[:, 0].min(), a[:, 1].min(), a[:, 2].max(), a[:, 3].max())
+                               if len(a) else (np.inf, np.inf, -np.inf, -np.inf)
+                               for a in (self._arr[r] for r in self._roots)]).reshape(-1, 4)
+
+    def boxes(self, r: str) -> _t.Any:
+        return self._arr[r]
+
+    def near(self, box: tuple, reach_m: float) -> list[str]:
+        """The roots, in sorted order, whose hull is within ``reach_m`` of ``box``."""
+        import numpy as np
+
+        from . import anchor_rule as _ar
+        if not self._roots:
+            return []
+        q = self._hull
+        ml, mo = _ar._m_per_deg(0.5 * (box[0] + box[2]))
+        dla = np.maximum(0.0, np.maximum(box[0] - q[:, 2], q[:, 0] - box[2])) * ml
+        dlo = np.maximum(0.0, np.maximum(box[1] - q[:, 3], q[:, 1] - box[3])) * mo
+        ok = np.sqrt(dla * dla + dlo * dlo) <= reach_m
+        return [r for r, k in zip(self._roots, ok, strict=True) if k]
 
 
 def _gap_m(box: tuple, boxes: _t.Any) -> "float | None":
@@ -641,6 +678,8 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         return record
     if not plan_wide or not zeros:
         return record
+    if root_boxes and not isinstance(root_boxes, RootIndex):
+        root_boxes = RootIndex(root_boxes)
     roots = {id(b): body_root(b, plan_wide, file_root, root_boxes)
              for b in record.bodies}
     if merged:

@@ -139,14 +139,19 @@ class StageReuse:
         from . import user_seats as _user_seats
         from .dsf import dsf_path_in_pack
         from .dsf_write import pristine_dsf_path
+        from .pack_forests import converted_objects
         seats = _user_seats.digest(patch_dir, plan_.icao)
+        dsf = dsf_path_in_pack(plan_.pack_root, lat, lon)
+        # #1710: the tree objects the recorded upgrade converts are planned
+        # out (``pack_forests.without_converted``); an Undo re-runs the stage
+        trees = sorted(converted_objects(dsf))
         objects = [os.path.join(plan_.pack_root,
                                 *m.resource.replace("\\", "/").split("/"))
                    for u in plan_.units for m in u.members]
         return self.recipe(
             plan_.to_dict(),
             graded_path=graded_surface_path(patch_dir, plan_.icao),
-            pristine_path=pristine_dsf_path(dsf_path_in_pack(plan_.pack_root, lat, lon)),
+            pristine_path=pristine_dsf_path(dsf),
             objects=objects,
             params={"write_enabled": bool(writes[0]), "measure_only": bool(writes[1]),
                     "omit": sorted(repr(m) for m in omit),
@@ -156,6 +161,7 @@ class StageReuse:
                     # airport with none keeps the key it had)
                     **({"user_seats": seats} if seats else {}),
                     **({"isolated_foreign": foreign} if foreign else {}),
+                    **({"converted_trees": trees} if trees else {}),
                     **({"neighbours": dict(sorted(neighbours.items()))}
                        if neighbours else {})})
 

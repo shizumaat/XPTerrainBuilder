@@ -66,6 +66,11 @@
    "within"
   ],
   [
+   "frontage_level",
+   "FRONTAGE vertex off its unit's GROUNDSIDE FLOOR (block datum + rise)",
+   "within"
+  ],
+  [
    "platform_rim_relief",
    "PLATFORM rim relief the collar carries (one row per platform)",
    "within"
@@ -1066,6 +1071,10 @@
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],
   "runway_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "frontage_level": [
    0,
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ]

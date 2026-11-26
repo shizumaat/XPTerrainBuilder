@@ -299,3 +299,24 @@ def test_a_pack_hiding_its_offer_hides_a_hideable_model_this_build(tmp_path):
     assert run(_TerrainHiding((), kept=("m.obj",)), fine).ground == "", "the user keeps it"
     assert run(_TerrainHiding(()), fine).ground == "", "the pack does not hide its offer"
     assert run(frozenset(), fine).ground == ""
+
+
+def test_a_photo_textured_town_on_a_hill_is_not(tmp_path):
+    """#2250 (FlyTampa LGKR's island tiles): separate roofs over a hill
+    under one photo atlas pass the texel density and their tops follow the
+    ground -- but a terrain's top is ONE sheet, a roofscape many."""
+    full = _write(tmp_path, "m.obj", _hill)
+    assert TM.shape_of(full) is not None
+    lines = open(full, encoding="utf-8").read().splitlines()
+    idx = [int(x.split()[1]) for x in lines if x.startswith("IDX")]
+    # keep every other cell's two triangles: a checkerboard of lone roofs
+    n = int(2 * HALF / STEP)
+    keep = [t for c in range(n * n) if (c // n + c % n) % 2 == 0
+            for t in idx[6 * c:6 * c + 6]]
+    head = [x for x in lines if not x.startswith(("IDX", "TRIS", "POINT_COUNTS"))]
+    nvt = sum(1 for x in head if x.startswith("VT"))
+    body = head[:3] + [f"POINT_COUNTS {nvt} 0 0 {len(keep)}"] + head[3:]
+    body += [f"IDX {i}" for i in keep] + [f"TRIS 0 {len(keep)}"]
+    town = tmp_path / "t.obj"
+    town.write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
+    assert TM.shape_of(str(town)) is None

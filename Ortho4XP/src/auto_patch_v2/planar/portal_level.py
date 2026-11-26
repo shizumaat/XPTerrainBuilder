@@ -1,6 +1,7 @@
-"""AN AT-GRADE MOUTH OFF ITS ROAD IS SEATED ON ITS MOUTH'S FLOOR, AND THE
-FLOOR STAYS LEVEL UNDER IT (#2221, owner RULINGS 2026-11-21d; the edge
-bridge's rule, ``bridge_span.edge_flat_s``, 27r).
+"""A FLOORLESS PORTAL OFF ITS ROAD IS SEATED ON ITS MOUTH'S FLOOR, AND THE
+FLOOR STAYS LEVEL UNDER IT (#2221, owner RULINGS 2026-11-21d, for every
+floorless portal #2225; the edge bridge's rule, ``bridge_span.edge_flat_s``,
+27r).
 
 A roofed portal states its road: the road at its zero runs ``depth_m``
 (its roof top) under the ground at the bore end, so the mouth's floor is
@@ -26,13 +27,16 @@ __all__ = ["off_road", "level_to_s"]
 
 
 def off_road(pin, mouth_z: float, law) -> bool:
-    """Whether the roofed portal ``pin`` (no stated floor, an opening) is an
-    AT-GRADE MOUTH (``Portal.at_grade``, 2026-11-21d) whose row stands off
-    the road its roof states -- its zero more than ``[tunnel.object]
-    cover_flush_m`` from ``mouth_z``.  Other floorless portals off their
-    road (RJTT ``tunnel6.obj``, LFPG ``2A_22.obj``: measured, lane
-    ltunnel2) keep today's seat: the ruling covers the at-grade mouth."""
-    return (pin is not None and getattr(pin, "at_grade", False) and pin.floor_z is None
+    """Whether the roofed portal ``pin`` (no stated floor, an opening)
+    stands off the road its roof states -- its zero more than
+    ``[tunnel.object] cover_flush_m`` from ``mouth_z``.  Every FLOORLESS
+    roofed portal (no floor of its own: ``airport/portal_floor`` reads none,
+    an arch's soffit never one, #2225) is seated on its mouth's floor, the
+    at-grade mouth of 2026-11-21d and the one under the author's ground
+    alike: its walls stand on that road (RJTT ``tunnel6.obj``, measured
+    lane l2225: its row 5.2 m over its bore's mouth cut).  A portal with a
+    floor (``floor_z``) is seated by that floor."""
+    return (pin is not None and pin.floor_z is None
             and float(getattr(pin, "opening_m", 0.0) or 0.0) > 0.0
             and getattr(pin, "zero_z", None) is not None
             and abs(float(pin.zero_z) - float(mouth_z))

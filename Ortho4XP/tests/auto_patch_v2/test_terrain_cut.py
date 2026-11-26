@@ -84,6 +84,10 @@ def shaped(monkeypatch):
     # the cut reads the file's plan grid (a ground object on its bridges,
     # #2053, is no terrain-model candidate and is cut too)
     monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    # 13k's cut alone: the dome lies wholly under the flat 200 m ground, so
+    # THE SKIRT (RULINGS 2026-11-26b (4), test_terrain_shell_cut) would
+    # leave all of it buried
+    monkeypatch.setattr(TCS, "_skirted", lambda rec: False)
     return g
 
 

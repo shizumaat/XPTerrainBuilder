@@ -370,6 +370,11 @@ class UnitLevels:
     ground: tuple
     verdict: str
     clues: _t.Mapping
+    #: RUNG L0 (owner RULINGS 2026-11-25m (5); underside spec §1, U7): the
+    #: groundside level the unit's underside contacts stand at along its
+    #: landside face (:func:`_contact_level`), ``None`` where they state
+    #: none; a twin of ``land_y`` -- nothing reads it yet
+    l0: "float | None" = None
 
     @property
     def rise(self) -> float:
@@ -407,6 +412,35 @@ def _planes(pg, air, band: float) -> list[Level]:
         if p is not None:
             run.append((p, g))
     return out
+
+
+def _contact_level(airport, ui: int, face, t: float, near_m: float, step: float
+                  ) -> "float | None":
+    """RUNG L0: the groundside level of pack unit ``ui`` read off its
+    underside maps (``Airport.undersides``, ``geom/underside_map``): the
+    contact heights ``h`` of its non-airside perimeter stations within
+    ``near_m`` of its landside ``face`` standing a storey (``step``) or more
+    off its airside floor ``t``, either sign -- their fullest 0.1 m plane
+    (the lowest of a tie), or ``None`` where no such station stands."""
+    import numpy as np
+    import shapely
+    maps = getattr(airport, "undersides", None) or {}
+    if face is None or face.is_empty or not maps:
+        return None
+    uid = str(airport.partition.units[ui].id)
+    band = face.buffer(float(near_m))
+    shapely.prepare(band)
+    hs = []
+    for m in maps.values():
+        if m.footless or not any(str(c).split("#", 1)[0] == uid
+                                 for c in str(m.unit).split("+")):
+            continue
+        ok = ~np.asarray(m.airside, dtype=bool) & (np.abs(m.h - float(t)) >= float(step))
+        ok &= np.asarray(shapely.contains_xy(band, m.e, m.n), dtype=bool)
+        hs.extend(float(h) for h in m.h[ok])
+    if not hs:
+        return None
+    return round(float(min(_st.multimode(round(h, 1) for h in hs))), 2)
 
 
 def _band_m() -> float:
@@ -723,5 +757,6 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
         out.append(UnitLevels(
             ui, plan, float(t), levels[0].y if levels else None,
             tuple(sorted(levels, key=lambda lv: lv.dist_m)), witness if levels else None,
-            face, g, _verdict(t, levels, g, clues["face_span"], step), clues))
+            face, g, _verdict(t, levels, g, clues["face_span"], step), clues,
+            _contact_level(airport, ui, face, t, near_m, step)))
     return out

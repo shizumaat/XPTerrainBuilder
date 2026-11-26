@@ -758,6 +758,65 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
     return out
 
 
+def _elsewhere(o, cache, law, footprint):
+    """The plan of ``o``'s drawn solid on our decks' ``footprint`` when it
+    draws PIECES at other sites too -- under ``[deck_gen]
+    hide_inside_share`` of its solid there, and a part of it (a connected
+    piece) standing on none of our decks by ``[deck_gen] min_area_m2``
+    (RULINGS 2026-11-20u: a hide takes only what stands on the deck) --
+    else ``None`` (hidden whole: one bridge whose every piece our decks
+    take, its approaches beyond them, is one bridge, and goes with its
+    lights; MEASURED KMCO ``puente.obj`` / ``puente2.obj``)."""
+    sol = _solid_plan(o, cache, law)
+    if sol is None or sol.is_empty or footprint is None or footprint.is_empty:
+        return None
+    share = float(law.tables.structures.deck_gen.hide_inside_share)
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    try:
+        on = sol.intersection(footprint)
+        if on.is_empty or on.area >= share * sol.area:
+            return None
+        kept = any(p.geom_type == "Polygon" and p.intersection(footprint).area < a_min
+                   for p in getattr(sol, "geoms", [sol]))
+    except shapely.errors.GEOSException:             # an invalid pack outline
+        return None
+    return on if kept else None
+
+
+def _with_pieces(g: DeckBridge, q, on, footprint, cache, law, to_ll) -> DeckBridge:
+    """``g`` hiding ``q``'s pieces ``on`` our decks piece-wise: one
+    ``hides`` row per PART of its drawn solid (a connected piece,
+    :func:`_solid_plan`) standing on our decks' ``footprint`` by
+    ``[deck_gen] min_area_m2``, its ``within`` plan that part's hull
+    ``[bridge] abutment_sample_step_m`` out -- the whole plate our decks
+    take, never a part standing elsewhere (MEASURED KDFW: 220.obj's south
+    plate under four decks goes, its north plate 2.6 km away, under none,
+    stays; one hull over every deck reached across both) -- and the parts
+    as ``hidden_plans``, the parts it keeps drawn as ``kept_plans``."""
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+    reach = float(law.tables.structures.bridge.abutment_sample_step_m)
+    sol = _solid_plan(q, cache, law)
+    parts, kept = [], []
+    for p in getattr(sol, "geoms", [sol]) if sol is not None else ():
+        try:
+            if p.geom_type == "Polygon":
+                (parts if p.intersection(footprint).area >= a_min else kept).append(p)
+        except shapely.errors.GEOSException:         # an invalid pack outline
+            continue
+    if not parts:                                    # the pieces themselves
+        parts = [p for p in getattr(on, "geoms", [on]) if p.geom_type == "Polygon"]
+    rows = []
+    for p in parts:
+        within = p.convex_hull.buffer(reach)
+        rows.append((str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))),
+                     tuple(tuple(reversed(to_ll(x, y))) for x, y in within.exterior.coords)))
+    return _dc.replace(g, hides=tuple(g.hides) + tuple(rows),
+                       hidden_plans=tuple(g.hidden_plans) + tuple(
+                           tuple(p.exterior.coords[:-1]) for p in parts),
+                       kept_plans=tuple(g.kept_plans) + tuple(
+                           tuple(p.exterior.coords[:-1]) for p in kept))
+
+
 def _capped(out: list, objects, bodies: _t.AbstractSet[str], notes: list[str], law) -> list:
     """THE HIDE GUARD (owner 2026-11-20T22:39Z): the decks of ``out`` hide
     at most ``[deck_gen] hide_max_share`` of the pack's placements
@@ -812,28 +871,36 @@ def _one_decision(gen: _t.Sequence[DeckBridge], takes: _t.Sequence[_Takeover], o
         for o, area in _bodies(g, objects, cache, airport, law, hidden, share):
             mates = _mates(o, objects, hidden, cache, law, tol, foot,
                            float(g.floor_min_m) + clear)
-            hidden.update(str(q.id) for q in mates)
             bodies.add(str(o.id))
+            # the body itself is no exception to 20u: one drawing its
+            # pieces at other sites too keeps them (MEASURED KDFW: 220.obj,
+            # 263,157 m2 of solid over 2.85 x 0.82 km, 24,598 m2 of it on
+            # our seven decks, was hidden WHOLE -- lane l2203, #2203)
+            on = _elsewhere(o, cache, law, foot)
+            # ... and its lights stay with the pieces it keeps
+            whole = mates if on is None else [q for q in mates[1:]
+                                               if _plan(q, cache, law) is not None]
+            hidden.update(str(q.id) for q in (o, *whole))
             g = _dc.replace(g, hides=tuple(g.hides) + tuple(
-                (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy)))) for q in mates),
+                (str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy)))) for q in whole),
                 hidden_plans=tuple(g.hidden_plans) + tuple(
-                    r for q in mates if (r := _plan(q, cache, law))))
+                    r for q in whole if (r := _plan(q, cache, law))))
+            if on is not None:
+                g = _with_pieces(g, o, on, foot, cache, law, to_ll)
             notes.append(f"{g.object_id}: the pack's bridge {o.id} {o.path} ({area:,.0f} m2 "
                          f"over it) cannot be seated by the deck law (no hard deck): our "
-                         f"deck takes the crossing, it is HIDDEN in the pack copy with "
+                         f"deck takes the crossing, it is HIDDEN in the pack copy"
+                         + ("" if on is None else
+                            f" (only its {on.area:,.0f} m2 on our decks: it draws pieces "
+                            f"at other sites too, 20u)")
+                         + " with "
                          + ", ".join(f"{q.id} {q.path}" for q in mates if q is not o)
                          + (" (none)" if len(mates) == 1 else "")
                          + " (RULINGS 2026-11-20a (1))")
             for q, on in _pieces_on(o, objects, hidden, cache, law, tol, foot,
                                     float(g.floor_min_m) + clear):
                 hidden.add(str(q.id))
-                within = on.convex_hull.buffer(reach)
-                g = _dc.replace(g, hides=tuple(g.hides) + ((
-                    str(q.id), str(q.path), tuple(reversed(to_ll(*q.xy))),
-                    tuple(tuple(reversed(to_ll(x, y))) for x, y in within.exterior.coords)),),
-                    hidden_plans=tuple(g.hidden_plans) + tuple(
-                        tuple(p.exterior.coords[:-1]) for p in getattr(on, "geoms", [on])
-                        if p.geom_type == "Polygon"))
+                g = _with_pieces(g, q, on, foot, cache, law, to_ll)
                 notes.append(f"{g.object_id}: {q.id} {q.path} draws pieces at other sites too: "
                              f"only its {on.area:,.0f} m2 on our decks is HIDDEN (the bodies "
                              f"of its split there; RULINGS 2026-11-20a (1), 20u)")

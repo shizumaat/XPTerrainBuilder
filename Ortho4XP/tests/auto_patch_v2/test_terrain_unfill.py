@@ -89,6 +89,9 @@ def test_t2_the_bake_records_its_planes_and_fills_alone(monkeypatch):
     top[0, :] = top[-1, :] = top[:, 0] = top[:, -1] = 5.0
     g = DeckGrid(-4.5 * CELL_M, -4.5 * CELL_M, top - 2.0, top)
     monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    # the cut alone under the planes and fills: the 380-440 m ground buries
+    # the whole skin, which THE SKIRT (RULINGS 2026-11-26b (4)) leaves uncut
+    monkeypatch.setattr(TCS, "_skirted", lambda rec: False)
     lat, lon = 47.5, 13.5
     to_xy, to_ll = TC.projector(lat, lon)
     sq = np.array([[60.0, -40.0], [140.0, -40.0], [140.0, 40.0], [60.0, 40.0], [60.0, -40.0]])
@@ -180,6 +183,9 @@ def test_r2p_the_bake_keeps_the_plane_off_the_raster_near_water(monkeypatch):
     top = np.full((9, 9), 5.0)
     g = DeckGrid(-4.5 * CELL_M, -4.5 * CELL_M, top - 2.0, top)
     monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    # the cut alone under the planes and fills: the 380-440 m ground buries
+    # the whole skin, which THE SKIRT (RULINGS 2026-11-26b (4)) leaves uncut
+    monkeypatch.setattr(TCS, "_skirted", lambda rec: False)
     lat, lon = 47.5, 13.5
     to_xy, to_ll = TC.projector(lat, lon)
     sq = np.array([[60.0, -40.0], [240.0, -40.0], [240.0, 40.0], [60.0, 40.0], [60.0, -40.0]])

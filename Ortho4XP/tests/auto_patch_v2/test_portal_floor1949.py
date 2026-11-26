@@ -125,3 +125,26 @@ def test_a_floor_of_several_planes_is_cut_one_face_per_plane():
     ramp = cells_of(quad(0.0, 40.0, -2.0, -2.0) + quad(40.0, 80.0, -2.0, 3.0))
     assert len(ramp) == 2 and abs(sum(c[2].area for c in ramp) - 800.0) < 1.0
     assert {c[1] for c in ramp} == {"object_floor:t.obj@portal0", "object_floor:t.obj@portal0#1"}
+
+
+def test_an_arch_s_soffit_is_no_floor(tmp_path):
+    """#2225 (RJTT ``tunnel6.obj``): an arch with no floor plate -- two
+    walls standing on the road and a lintel 1.5 m thick over the opening,
+    every face two-sided -- off the road its roof states.  The lintel's
+    underside (4.5 m over the road, 1.5 m under the roof top) is the lowest
+    face under its roof, but no passage stands over it: it is a soffit, so
+    the portal states no floor and its bore's mouth ramp stays the cut.  A
+    floor plate's underside under the same arch is still a floor."""
+    def two_sided(box):
+        return box + [(a, c, b) for a, b, c in box]
+
+    walls = [two_sided(_box(-7.0, 0.0, 0.5, 20.0, 6.0)), two_sided(_box(6.5, 0.0, 0.5, 20.0, 6.0))]
+    lintel = two_sided(_box(-7.0, 0.0, 14.0, 20.0, 1.5, y0=4.5))
+    arch = _at(_write(tmp_path / "arch.obj", walls + [lintel]), "dsf:obj1")
+    floors, notes = _read([arch], [_pin("dsf:obj1", 99.2)])
+    assert floors == [] and "no floor of a plate's worth" in notes[0], notes
+    plate = two_sided(_box(-6.5, 0.0, 13.0, 20.0, 0.2))
+    floored = _at(_write(tmp_path / "floored.obj", walls + [lintel, plate]), "dsf:obj1")
+    floors, notes = _read([floored], [_pin("dsf:obj1", 99.2)])
+    assert len(floors) == 1, notes
+    assert abs(floors[0].floor_z - 94.0) < 0.05 and float(floors[0].faces[:, :, 2].max()) < 94.5

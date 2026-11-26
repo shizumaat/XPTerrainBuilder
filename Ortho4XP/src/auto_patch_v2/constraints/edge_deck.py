@@ -157,6 +157,8 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                                    lambda v: v in air or v in all_seats, GEN)
     for oid, es in sorted(lines.items()):
         ends = [(e.terms, e.depth) for e in es]
+        # #2241: a slab falling along its end line: each seat its own top
+        vt = {v: d for e in es for v, d in getattr(e, "tops", ())}
         under = [t for t in tunnels if t.deck_bridge == oid]
         # THE TRENCH'S SEATS (deck redesign PR B, attributing PR A's LFPG
         # strip_seam_tear 27 -> 106): the open stretch a trench runs on to the
@@ -172,13 +174,13 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         groups = sorted(set(plates))
         graded = {plates[i] for i, e in enumerate(es) if getattr(e.deck, "span_cut", ())}
         tops = None
-        if len(groups) > 1 or graded:
+        if len(groups) > 1 or graded or vt:
             tops = {}
             for g in groups:
                 idx = [i for i, q in enumerate(plates) if q == g]
                 # a GRADED span reads each end line from its own level
                 for part in ([[i] for i in idx] if g in graded else [idx]):
-                    tg = _station_tops([ends[i] for i in part])
+                    tg = _station_tops([ends[i] for i in part], vt)
                     tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
                                _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law)))
@@ -194,11 +196,11 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
             name = oid if len(groups) == 1 else f"{oid} plate {g}"
             if g in graded:
                 for i in idx:
-                    rows.extend(_station_rows(oid, [ends[i]], flush, [held[i]]))
+                    rows.extend(_station_rows(oid, [ends[i]], flush, [held[i]], vt))
                 rows.extend(_graded_rows(name, eg, [es[i].line for i in idx],
                                          law.ruleset.taxi.longitudinal.value(None, None)))
                 continue
-            rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx]))
+            rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx], vt))
             rows.extend(_rigid_rows(name, eg))
     return rows
 
@@ -655,7 +657,8 @@ def _bridge_ground(planar: PlanarMap, vx) -> bool:
 
 
 def _station_rows(oid: str, ends: list, flush: float,
-                  level: "_t.Sequence[float | None]" = ()) -> list[Row]:
+                  level: "_t.Sequence[float | None]" = (),
+                  vt: "_t.Mapping[int, float] | None" = None) -> list[Row]:
     """EVERY STATION FLUSH (owner RULINGS 2026-10-30a (1), 30f (4); #1692),
     hard, under :data:`RIGID`.  Where its end line's anchor HOLDS a level
     (``level[k]``, :func:`_held_levels`), each station stands ABSOLUTELY
@@ -667,28 +670,36 @@ def _station_rows(oid: str, ends: list, flush: float,
     station, each once (``pipeline/rebake_inputs._deck_plate``) — so
     ``z[v] − mean z[S] ∈ top(v) − mean top[S] ± flush``.  The rigid row
     holds the end means; a taxiway's cross-fall left the stations of one
-    end line 0.76 m apart under a flat deck (KBNA round 4)."""
-    top_of = _station_tops(ends)
-    held: dict[int, "float | None"] = {}
-    for k, (terms, _top) in enumerate(ends):
+    end line 0.76 m apart under a flat deck (KBNA round 4).  ``vt`` (#2241):
+    each seat's own depth where the slab falls along its end line
+    (``EndLine.tops``) -- a held level is the line's mean, each station
+    offset from it by its own top."""
+    top_of = _station_tops(ends, vt)
+    held: dict[int, "tuple[float, float] | None"] = {}
+    for k, (terms, top) in enumerate(ends):
         for v, _w in terms:
-            held.setdefault(v, level[k] if k < len(level) else None)
+            lv = level[k] if k < len(level) else None
+            held.setdefault(v, None if lv is None else (float(lv), float(top)))
     out: list[Row] = []
     for v in sorted(top_of):
         src = Source(GEN, RIGID, (oid, f"station v{v}"))
-        z = held.get(v)
-        out.append(Band(v, z - flush, z + flush, src) if z is not None
-                   else _from_zero(v, top_of, top_of[v], -flush, flush, src))
+        h = held.get(v)
+        if h is not None:
+            z = h[0] + top_of[v] - h[1]
+            out.append(Band(v, z - flush, z + flush, src))
+        else:
+            out.append(_from_zero(v, top_of, top_of[v], -flush, flush, src))
     return out
 
 
-def _station_tops(ends: list) -> dict[int, float]:
+def _station_tops(ends: list, vt: "_t.Mapping[int, float] | None" = None) -> dict[int, float]:
     """Every station vertex of a deck's end lines, each once, with its end
-    line's top (the first end line naming it)."""
+    line's top (the first end line naming it) -- its own (``vt``, #2241)
+    where the slab falls along the line."""
     top_of: dict[int, float] = {}
     for terms, top in ends:
         for v, _w in terms:
-            top_of.setdefault(v, float(top))
+            top_of.setdefault(v, float(vt[v]) if vt and v in vt else float(top))
     return top_of
 
 

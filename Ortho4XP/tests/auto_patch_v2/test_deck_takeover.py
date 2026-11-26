@@ -352,6 +352,65 @@ def test_a_giant_shared_anchor_plate_never_hides_the_terminal(monkeypatch):
     assert any("pack placements hidden: 2 of 103" in n for n in notes)
 
 
+def test_a_bridge_body_drawing_pieces_at_other_sites_is_hidden_only_on_our_decks(monkeypatch):
+    """#2203 (MEASURED KDFW, lane l2203): the shared-anchor pack's bridge
+    body 220.obj draws 263,157 m2 of solid over 2.85 x 0.82 km, 24,598 m2
+    of it on our decks -- the body itself keeps its pieces at its other
+    sites (RULINGS 2026-11-20u), as its mates do: one piece-wise row per
+    part of its solid our decks stand on, each within that part alone (its
+    north plate, under no deck, stays; never one hull over parts a
+    kilometre apart), and no whole-placement row."""
+    from shapely.geometry import Polygon, box
+    def rect(x0, y0, x1, y1):
+        return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    gens = [dataclasses.replace(_gen(x0, f"g{x0:.0f}"), covered=(
+        ("-1", (("highway", "service"),), ((x0 + 5.0, -30.0), (x0 + 5.0, 30.0))),))
+        for x0 in (0.0, 1000.0)]
+    body = _placement("p220", "220.obj")
+    body.plan_bbox = box(-50.0, -50.0, 1100.0, 900.0)
+    solid = box(0.0, -10.0, 10.0, 10.0).union(box(1000.0, -10.0, 1010.0, 10.0)) \
+        .union(box(0.0, 100.0, 1010.0, 800.0))              # the plates elsewhere
+    tops = box(0.0, -10.0, 10.0, 10.0).union(box(1000.0, -10.0, 1010.0, 10.0))
+    monkeypatch.setattr(dt, "_body_top",
+                        lambda o, cache, law, lo, hi: None if hi == float("inf") else tops)
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: rect(0.0, -10.0, 1010.0, 800.0))
+    monkeypatch.setattr(dt, "_solid_plan", lambda o, *_a: solid)
+    out, notes = dt._one_decision(gens, (), [body], object(), _airport(), load_default())
+    rows = [h for d in out for h in d.hides]
+    assert rows and all(h[0] == "p220" and len(h) == 4 for h in rows)
+    assert dt.hidden_ids(out) == frozenset()                 # no whole placement
+    withins = [Polygon([(lon, lat) for lat, lon in h[3]]) for h in rows]
+    assert len(withins) == 2 and not any(w.covers(Polygon(rect(400, -5, 600, 5)))
+                                         for w in withins)
+    assert any("only its" in n and "other sites" in n for n in notes)
+    assert all(not d.pack_under for d in out)
+    # the plate it keeps drawn is bridge solid: carried as ``kept_plans``,
+    # so no pad is read off it (#2203 follow-up, KDFW north plate)
+    kept = [Polygon(r) for d in out for r in d.kept_plans]
+    assert kept and any(k.covers(Polygon(rect(400, 200, 600, 700))) for k in kept)
+
+
+def test_one_bridge_reaching_past_our_deck_is_hidden_whole(monkeypatch):
+    """A body whose ONE connected piece our deck takes, its approaches
+    reaching past the footprint, is one bridge: hidden whole with its
+    lights, never piece-wise (MEASURED KMCO ``puente2.obj``: under the
+    share on our deck, no piece at another site)."""
+    from shapely.geometry import box
+    gen = dataclasses.replace(_gen(0.0, "g0"), covered=(
+        ("-1", (("highway", "service"),), ((5.0, -30.0), (5.0, 30.0))),))
+    body = _placement("p1", "puente2.obj")
+    body.plan_bbox = box(-300.0, -50.0, 300.0, 50.0)
+    solid = box(-200.0, -10.0, 210.0, 10.0)                 # one piece, long approaches
+    monkeypatch.setattr(dt, "_body_top", lambda o, cache, law, lo, hi:
+                        None if hi == float("inf") else box(0.0, -10.0, 10.0, 10.0))
+    monkeypatch.setattr(dt, "_plan", lambda o, *_a: tuple(solid.exterior.coords[:-1]))
+    monkeypatch.setattr(dt, "_solid_plan", lambda o, *_a: solid)
+    out, notes = dt._one_decision([gen], (), [body], object(), _airport(), load_default())
+    assert dt.hidden_ids(out) == frozenset({"p1"})
+    assert all(len(h) == 3 for d in out for h in d.hides)    # no piece-wise row
+    assert not any("only its" in n for n in notes) and not out[0].kept_plans
+
+
 def test_the_hide_guard_keeps_only_the_bodies_past_its_share():
     """The backstop: hides past ``[deck_gen] hide_max_share`` of the pack
     keep only the bridge bodies (their mates stay drawn)."""

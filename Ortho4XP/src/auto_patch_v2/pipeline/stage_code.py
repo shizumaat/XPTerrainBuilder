@@ -667,6 +667,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.touch_seat",
         "auto_patch_v2.airport.trench_objects",
         "auto_patch_v2.airport.tunnel_objects",
+        "auto_patch_v2.airport.cover_rim",
         "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.frontage_face",
@@ -862,6 +863,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_airside",
         "auto_patch_v2.planar.deck_bores",
         "auto_patch_v2.planar.deck_bridge",
+        "auto_patch_v2.planar.deck_end_top",
         "auto_patch_v2.planar.deck_generated",
         "auto_patch_v2.planar.deck_pack_cover",
         "auto_patch_v2.planar.deck_route",
@@ -2852,7 +2854,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.footed_portal
+    airport.tunnel_objects airport.cover_rim airport.portal_objects
+    airport.footed_portal
     airport.tunnel_walls airport.wall_class airport.sunk_frame
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
@@ -2910,7 +2913,8 @@ CODE_MODULES["solve"] = _mods("""
     geom.station_runs airport.bridge_ground airport.road_bridge_ground
     airport.bore_ground airport.object_ground
     airport.terrain_cut
-    planar.cut_frame planar.deck_bridge planar.deck_walls geom.wall_lines model.deck_bank
+    planar.cut_frame planar.deck_bridge planar.deck_end_top planar.deck_walls geom.wall_lines
+    model.deck_bank
     planar.deck_route
     planar.door_ramps planar.dual_width planar.edges planar.end_barriers planar.end_witness
     planar.landing
@@ -3066,7 +3070,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.footed_portal
+    airport.tunnel_objects airport.cover_rim airport.portal_objects
+    airport.footed_portal
     airport.tunnel_walls airport.wall_class airport.sunk_frame
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
@@ -3144,7 +3149,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.station_runs airport.bridge_ground airport.road_bridge_ground
     airport.bore_ground airport.object_ground
     airport.terrain_cut
-    planar.cut_frame planar.deck_bridge planar.deck_walls
+    planar.cut_frame planar.deck_bridge planar.deck_end_top planar.deck_walls
     planar.deck_route
     planar.door_ramps planar.dual_width planar.edges planar.end_barriers planar.end_witness
     planar.landing
@@ -3371,6 +3376,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
+    airport.underside_seat
     pipeline.storey_publication
     pipeline.upper_pad_publication
     pipeline.frontage_publication airport.frontage_face classify.frontage_wall
@@ -3390,7 +3396,7 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.generated_publication planar.bore_continuation planar.cell_knife planar.channel
     planar.channel_depth planar.channel_floor planar.channel_geometry planar.channel_stretch
     planar.channel_strip planar.channel_building planar.channel_witness
-    planar.covered_ground planar.deck_bridge
+    planar.covered_ground planar.deck_bridge planar.deck_end_top
     planar.deck_generated planar.deck_route planar.deck_walls geom.wall_lines model.deck_bank
     planar.end_witness
     planar.deck_pack_cover
@@ -3541,6 +3547,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.taxi_route_yield
     pipeline.storey_publication pipeline.upper_pad_publication
     pipeline.frontage_publication airport.frontage_face classify.frontage_wall
+    airport.underside_seat
     airport.shell_ground
     model.free_bridge
     constraints.bridge_span_release

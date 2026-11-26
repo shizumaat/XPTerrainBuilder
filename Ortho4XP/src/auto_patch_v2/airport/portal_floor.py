@@ -8,8 +8,9 @@ the object's zero and the ground stands on its roof, so the road runs
 (``Portal.depth_m``; a TALL portal's ``floor_z`` states it absolutely and
 the structure pass seats it there already).  A portal whose row reads its
 zero there (within ``cover_flush_m``) stands on its road as authored, and
-one with no floor plate under its roof (the road is the terrain) keeps its
-bore's mouth ramp as the cut: nothing here applies to either.  One whose row reads its
+one with no floor plate under its roof (the road is the terrain; an arch's
+soffit is no floor, #2225) keeps its bore's mouth ramp as the cut and is
+seated on it by ``planar/portal_level``: nothing here applies to either.  One whose row reads its
 zero OFF that road (OMDB ``tunner_5_1``: ``OBJECT_AGL`` -4.8 off a DEM
 bump at its anchor, zero 3.63 where its roof puts the road at -2.11 — the
 box stood 5.7 m proud with no cut under it) is moved onto it, and the
@@ -35,7 +36,7 @@ import numpy as np
 import shapely
 from shapely.ops import unary_union
 
-from ..geom.lowest_face import floor_z_at
+from ..geom.lowest_face import every_z_at, floor_z_at
 from .below_grade_witness import placed_all
 from .hanging_objects import _co_placed
 from .object_cut import _base, _face_normals_y, valid_polygon
@@ -51,6 +52,29 @@ def _lowest(F: np.ndarray, tol: float) -> np.ndarray:
     c = F.mean(axis=1)
     low = floor_z_at(F, c[:, 0], c[:, 1])
     return F[~(c[:, 2] > low + tol)]
+
+
+def _carries_passage(faces: np.ndarray, F: np.ndarray, headroom: float, roof_z: float,
+                     tol: float) -> np.ndarray:
+    """Per face of ``faces``, whether it is a FLOOR rather than a SOFFIT
+    (#2225).  A soffit is the underside of the material that carries the
+    roof: the object (``F``) stands over it up to its roof top (``roof_z``,
+    within ``tol``) and every gap between the levels over it (deduplicated
+    to the millimetre -- a two-sided face is one level) is that material's
+    thickness, none the road's ``headroom`` (RJTT ``tunnel6.obj``: the
+    soffit at y 5, its lintel's top the roof at 6, no floor plate).  A face
+    with nothing over it (the ramp out to the open end), a floor plate's
+    own underside (its road's headroom over its top) and a kerb or ramp
+    slab's underside under open air (LFPG ``2A_21.obj``: its top 2.0-2.3
+    under a roof at 6.1) stay floors: ``faces`` keep today's lowest
+    reading and never gain one."""
+    c = faces.mean(axis=1)
+    keep = np.ones(len(faces), bool)
+    for k, zs in enumerate(every_z_at(F, c[:, 0], c[:, 1])):
+        lv = np.unique(np.round(zs[zs > c[k, 2] + 1e-3], 3))
+        if len(lv) and lv[-1] >= roof_z - tol:
+            keep[k] = bool((np.diff(np.concatenate(([c[k, 2]], lv))) >= headroom).any())
+    return keep
 
 
 def _road_zero(p, ground) -> float:
@@ -147,6 +171,11 @@ def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, g
         # the terrain) states none, and its bore's mouth ramp stays the cut
         faces = _lowest(F, tol)
         faces = faces[faces[:, :, 2].mean(axis=1) < zero + float(p.depth_m) - tol]
+        # ...and never an arch's soffit (#2225): a floor carries its road's
+        # headroom (``[cutout.wall_corridor] min_headroom_m``) under the roof
+        faces = faces[_carries_passage(
+            faces, F, float(law.tables.structures.cutout.wall_corridor.min_headroom_m),
+            zero + float(p.depth_m), tol)]
         tris = shapely.polygons(faces[:, :, :2]) if len(faces) else np.zeros(0, object)
         foot = valid_polygon(unary_union(tris[shapely.area(tris) > 1e-6])) if len(tris) \
             else None

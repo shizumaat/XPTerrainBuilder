@@ -66,8 +66,7 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (airside_stage_roles, family, pavement_roles, road_terrain_cap,
-                          role_cap)
+from ..law.tables import airside_stage_roles, family, pavement_roles, road_terrain_cap, role_cap
 from ..model.constraints import Diff, Linear, Row
 from ..model.planar import PlanarMap, face_vertex_set
 from .roads import stage_one_vertices

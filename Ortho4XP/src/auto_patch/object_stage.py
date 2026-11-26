@@ -1183,8 +1183,6 @@ class _Ahead:
                     fut = _cf.Future()
                     fut.set_result({"half": None, "error": "not wanted"})
                     return None, fut
-                with live.get_lock():
-                    live.value += 1
                 ex = _cf.ProcessPoolExecutor(max_workers=1, mp_context=ctx,
                                              initializer=_ahead_init,
                                              initargs=(width + 1, live))

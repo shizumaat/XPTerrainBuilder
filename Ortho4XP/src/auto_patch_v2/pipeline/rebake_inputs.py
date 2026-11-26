@@ -608,6 +608,27 @@ def _solid_cache(law):
     return ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
 
 
+def _structure_ids(pm) -> set[str]:
+    """The rows a planar structure holds (tunnel walls, mouths, portals,
+    basins): never another seat's (``airport/underside_seat``'s ``taken``)."""
+    return ({str(oid) for tn in getattr(pm, "structures", ()) or ()
+             for oid in getattr(tn, "objects", ()) or ()}
+            | {str(oid) for b in getattr(pm, "basins", ()) or ()
+               for oid in getattr(b, "objects", ()) or ()})
+
+
+def _underside_seats(airport, surf, objects, taken, touch_m: float,
+                     storey_m: float) -> list:
+    """``airport/underside_seat.seat_records`` on the solved surface's object
+    pads (read as the object stage reads them, ``placement_read``)."""
+    if not objects or not getattr(airport, "undersides", None) or surf is None:
+        return []
+    from ..airport import underside_seat as _us
+    from ..airport.placement_read import pads_rims_from_graded_doc
+    pads, _rims = pads_rims_from_graded_doc(surf.to_dict())
+    return _us.seat_records(airport, pads, objects, taken, touch_m, storey_m)[0]
+
+
 def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[str, _t.Any]:
     """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
     partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
@@ -667,6 +688,13 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         shells, pm, _surface_z_at(surf, _to_xy), objects, TOUCH_M, _solid_cache(law),
         float(law.tables.structures.building_pad.split_level_probe_m)) \
         if objects and shells else []
+    # RULINGS 2026-11-25m (4) (spec U13): an admitted unit is written whole at
+    # its underside zero ``D - t`` -- no other seat moves a row of it
+    storey_seats = storey_seats + _underside_seats(
+        airport, surf, objects, excluded | {str(r["id"]) for r in storey_seats}
+        | {str(r["id"]) for r in model_seats} | {str(r["id"]) for r in floor_seats}
+        | {str(r["id"]) for r in _ts.seat_records(airport)} | _structure_ids(pm), TOUCH_M,
+        float(law.tables.structures.building_pad.low_level_min_step_m))
     shelled = {str(r["id"]) for r in storey_seats}
     excluded |= shelled
     model_seats = [r for r in model_seats if str(r["id"]) not in shelled] + storey_seats

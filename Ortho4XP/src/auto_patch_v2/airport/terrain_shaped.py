@@ -106,7 +106,11 @@ MODEL_SEAT = "terrain model"
 #: #2062: a storey shell's rigid-set row at the building's zero plus its
 #: own lift (``airport/storey_seat.seat_records``)
 STOREY_SEAT = "storey shell"
+#: owner RULINGS 2026-11-25m (4): an admitted unit's row at its underside
+#: zero ``D - t`` (``airport/underside_seat.seat_records``)
+UNDERSIDE_SEAT = "underside map"
 _WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model", STOREY_SEAT: "storey_shell",
+        UNDERSIDE_SEAT: "underside_map",
         PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
         OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY,
         FRAME_SEAT: "object_floor_frame", DECK_ENDS_SEAT: "object_floor_deck_ends"}

@@ -1271,6 +1271,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if objects:
         from auto_patch_v2.pipeline.rebake_inputs import _rebake_inputs
         got = _rebake_inputs(pm, law, surf, airport, objects, agp_report=agp_report)
+        _under_seat_line(icao, law, surf, airport, objects, got)
         (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
             sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
             indent=0, default=str), encoding="utf-8")
@@ -1295,6 +1296,28 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
             _out.write_text(_p.to_json(), encoding="utf-8")
             print(f"    rebake plan -> {_out}")
     return {"patch": str(paths.patch), "surface": surf_out}
+
+
+def _under_seat_line(icao, law, surf, airport, objects, got) -> None:
+    """RULINGS 2026-11-25m (4): the units ``airport/underside_seat`` wrote
+    whole (and the ones S3 admitted but it refused), one line each."""
+    from auto_patch_v2.airport import underside_seat as _us
+    from auto_patch_v2.airport.open_frame_seat import TOUCH_M
+    from auto_patch_v2.airport.placement_read import pads_rims_from_graded_doc
+    if not getattr(airport, "undersides", None):
+        return
+    mine = {str(r["id"]) for r in got.get("authored_seats", ()) if r.get("seat") == _us.SEAT}
+    taken = (set(got.get("exclude", ())) | {str(r.get("id")) for r in got.get(
+        "authored_seats", ())} | set(got.get("tunnel_objects") or ())) - mine
+    _r, rep = _us.seat_records(airport, pads_rims_from_graded_doc(surf.to_dict())[0],
+                               objects, taken, TOUCH_M, float(
+                                   law.tables.structures.building_pad.low_level_min_step_m))
+    print(_us.log_line(icao, rep))
+    for r in rep:
+        print(f"    {r['verdict']:<10} {str(r['unit'])[:40]:<40} {r['row']} rows {r['rows']} "
+              f"pad {r['pad']} D {r['D']} t {r['t']} base {r['base']} -> "
+              + (f"z0 {r['z0']} riders {r['riders']}" if 'z0' in r and 'refused' not in r
+                 else f"refused: {r.get('refused')}"))
 
 
 def reclassify(pkl: Path, rule: dict[str, object],
@@ -2347,6 +2370,21 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
+    if getattr(airport, "undersides", None) is None and resume not in ("classify", "planar"):
+        # RULINGS 2026-11-25m: a capture older than the underside maps
+        # derives them here, as ``pipeline/build.pack_stage`` does (the
+        # object seat reads them, ``airport/underside_seat``)
+        from auto_patch_v2.airport import frame_entry as _fe0
+        from auto_patch_v2.airport import unit_underside as _under0
+        from auto_patch_v2.airport.obj8 import ResourceCache as _RC0
+        if not any(getattr(c, "pids", None) for c in airport.clusters or ()):
+            # a capture's clusters predate their part sets (``Cluster.pids``)
+            from auto_patch_v2.planar.cluster import clusters as _cl0
+            airport = _dc.replace(airport, clusters=tuple(_cl0(airport, law)))
+        airport, (_us0, _st0) = _under0.attach_undersides(
+            airport, law, _RC0(law.tables.structures.basin.min_solid_thickness_m,
+                               _fe0.quantum(law)), cached=False)
+        print(_under0.log_line(airport.icao, airport.undersides, _us0, _st0))
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):

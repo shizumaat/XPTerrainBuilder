@@ -228,7 +228,8 @@ def _no_witness(_lat: int, _lon: int):
 
 def squares(south: float, west: float, north: float, east: float,
             px_per_deg: float, folders_of, tile_state=None,
-            scale: float = 1.0, late=frozenset()) -> dict:
+            scale: float = 1.0, late=frozenset(),
+            on_time=frozenset()) -> dict:
     """The squares and marked tiles of a viewport (the module docstring).
 
     ``px_per_deg``: screen points per degree of longitude; ``scale``:
@@ -238,7 +239,9 @@ def squares(south: float, west: float, north: float, east: float,
     :data:`TILE_STATES` word, and when X-Plane loaded the tile (epoch
     seconds, ``None`` when it has not); a square whose file is newer than
     that load is ``stale``, as is one whose key is in ``late`` (the
-    follow job's late landings, when the load is not known).  Replies
+    follow job's late landings, when the load is not known) -- unless
+    its key is in ``on_time`` (landed before X-Plane paged the square
+    in, so shown without a reload: #2246).  Replies
     ``{"squares": [{key, path, stamp, px, zl, tier_px, sharp, stale,
     north, south, west, east}], "tiles": [{lat, lon, state}], "reason":
     "" | "zoom"}`` (``zoom``: too far out for squares to be drawn)."""
@@ -268,7 +271,8 @@ def squares(south: float, west: float, north: float, east: float,
                 continue
             key = "%s/%s" % (WP.tile_name(lat, lon), sq["name"])
             stale = state == "reload" or key in late or (
-                loaded_at is not None and sq["mtime"] > loaded_at)
+                loaded_at is not None and sq["mtime"] > loaded_at
+                and key not in on_time)
             out.append({"key": key,
                         "path": sq["path"], "stamp": sq["stamp"],
                         "px": screen * scale, "zl": sq["zl"],

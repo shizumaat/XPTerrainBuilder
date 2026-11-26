@@ -272,9 +272,9 @@ def test_a_late_landed_square_is_stale_and_marked_tiles_listed(tmp_path):
     def state(loaded_at, kind="ours"):
         return lambda lat, lon: ((kind, loaded_at) if (lat, lon) == (53, -61)
                                  else ("own", None))
-    def stale(tile_state, late_keys=frozenset()):
+    def stale(tile_state, late_keys=frozenset(), on_time=frozenset()):
         got = LIVE.squares(53, -61, 54, -59.5, 3000, lambda la, lo: [folder],
-                           tile_state, late=late_keys)
+                           tile_state, late=late_keys, on_time=on_time)
         return {s["key"].split("/")[1]: s["stale"] for s in got["squares"]}, got["tiles"]
     marks, tiles = stale(state(2000.0))
     assert marks == {early: False, late: True}
@@ -284,6 +284,12 @@ def test_a_late_landed_square_is_stale_and_marked_tiles_listed(tmp_path):
     assert stale(state(None), frozenset({"+53-061/" + early}))[0] == {
         early: True, late: False}                                   # follow job's late
     assert stale(lambda la, lo: ("own", None))[0] == {}
+    # #2246: landed by the follow job before X-Plane paged it in -- shown
+    # sharp without a reload, so not stale; a DSF swap still is.
+    on_time = frozenset({"+53-061/" + late})
+    assert stale(state(2000.0), on_time=on_time)[0] == {early: False, late: False}
+    assert stale(state(2000.0, "reload"), on_time=on_time)[0] == {
+        early: True, late: True}
 
 
 def test_the_first_folder_wins_and_partials_are_skipped(tmp_path):
@@ -415,6 +421,12 @@ def test_the_follow_jobs_late_landings_stand_in_without_a_log(tmp_path, monkeypa
     assert WITNESS.late_keys(scenery, running=False) == frozenset()
     monkeypatch.setitem(RELOAD._STATE, "offer", "")          # reloaded since
     assert WITNESS.late_keys(scenery, running=True, log=(None, {})) == frozenset()
+    # #2246: the on-time landings, whatever the log or the offer; a square
+    # that also landed late is not one.
+    assert WITNESS.on_time_keys(running=True) == {"+53-061/b.dds"}
+    assert WITNESS.on_time_keys(running=False) == frozenset()
+    job.landings.append({"square": "+53-061/b.dds", "late": True})
+    assert WITNESS.on_time_keys(running=True) == frozenset()
 
 
 def test_a_fine_level_is_read_off_the_command_loop(tmp_path, monkeypatch):

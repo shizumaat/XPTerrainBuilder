@@ -38,6 +38,13 @@ worker (``world_job_run._PackPublisher`` does not count that time
 against its wait); :func:`add_core_point` names an airport the tile's
 cores must cover when its build graded none (a flight's departure).
 
+A tile that does not go in is never silent (#2226): the worker
+publishes it once more after ``world_publish_failed.RETRY_AFTER_S``
+(:func:`_publish_or_note`), and one still refused -- or a swap the
+staged sweep is refused -- is noted in the user's words
+(``world_publish_failed.note``) until its next publish succeeds; the
+staged sweep's ``WorldTilesWaiting.failed`` carries it to both apps.
+
 The build folder stays (its rebuild data, record and the consumers of
 spec §18 that read a build folder); since RULINGS 2026-11-12g it lives in
 the World folder itself (``<World>/XPTerrainBuilder_tiles``,
@@ -57,6 +64,7 @@ import O4_World_Pack as WP
 
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
+from . import world_publish_failed as FAILED
 
 __all__ = ["LAYOUT_KEY", "SWAP_LOCK", "add_core_point", "log_refused",
            "publishing", "watch", "write_layout"]
@@ -212,6 +220,8 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
         SWEEP.note_swapped(scenery_dir, [result["tile"]])
     elif result["state"] == "staged":
         SWEEP.add_waiting(lat, lon)
+    if result["state"] != "failed":
+        FAILED.clear(result["tile"])
     WORLD.write_log({"publish": result["tile"], "kind": kind,
                      "state": result["state"], "build_dir": build_dir,
                      "problems": result["problems"][:5]})
@@ -243,11 +253,13 @@ def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
                                    only=tile, refused=refused)]
     for error in refused:
         log_refused(error)
+        FAILED.note(error.tile, error.where, problems=error.missing)
     USE.settle(scenery_dir, loaded)
     for name in done:
         lat, lon = WP.parse_tile(name)
         _after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)
         WORLD.write_log({"swap_in": name, "from": "staged"})
+        FAILED.clear(name)
     SWEEP.note_swapped(scenery_dir, done)
     return done
 
@@ -258,6 +270,34 @@ def log_refused(error: "WP.IncompleteTile") -> None:
     WORLD.write_log({"swap_refused": error.tile, "where": error.where,
                      "missing": len(error.missing),
                      "first": error.missing[:3]})
+
+
+def _app_driven(session: Any) -> bool:
+    return bool(getattr(session, "app_driven", False))
+
+
+def _publish_or_note(scenery_dir: str, build_dir: str, lat: int, lon: int,
+                     report_button: bool = True,
+                     retry_after_s: Optional[float] = None
+                     ) -> Optional[dict]:
+    """:func:`_publish_built`, once more after ``retry_after_s`` (default
+    ``world_publish_failed.RETRY_AFTER_S``) when it fails; a tile failed
+    twice is noted for the user (#2226)."""
+    import time
+    result = _publish_built(scenery_dir, build_dir, lat, lon)
+    if result is None or result["state"] != "failed":
+        return result
+    WORLD.write_log({"publish_retry": result["tile"],
+                     "where": result.get("where", "")})
+    time.sleep(FAILED.RETRY_AFTER_S if retry_after_s is None
+               else retry_after_s)
+    result = _publish_built(scenery_dir, build_dir, lat, lon)
+    if result is not None and result["state"] == "failed":
+        FAILED.note(result["tile"], result.get("where", "error"),
+                    problems=result["problems"],
+                    report_button=report_button,
+                    errnum=result.get("errno"))
+    return result
 
 
 def watch(session: Any,
@@ -277,7 +317,8 @@ def watch(session: Any,
             try:
                 build_dir = session.tile_build_dir(lat, lon)
                 _sharpen(where, build_dir, lat, lon)
-                result = _publish_built(where, build_dir, lat, lon)
+                result = _publish_or_note(where, build_dir, lat, lon,
+                                          _app_driven(session))
                 if result is not None:
                     swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
@@ -290,9 +331,12 @@ def watch(session: Any,
                     if result["state"] in ("swapped", "staged"):
                         from . import world_spawn_window as SPAWN
                         SPAWN.start(lat, lon, where)    # #2142 part 1
-            except Exception as error:      # logged; the build is done
+            except Exception as error:      # logged and noted (#2226)
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
+                FAILED.note(WP.tile_name(lat, lon), "error", error=error,
+                            report_button=_app_driven(session))
+                sweeper.poke()
             finally:
                 with _STATE_LOCK:
                     _IN_WORK.discard((lat, lon))

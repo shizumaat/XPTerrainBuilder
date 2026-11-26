@@ -18,8 +18,9 @@ A tile swapped over a version X-Plane loaded this session
 (:func:`note_swapped`) raises the "tiles" reload offer
 (``reload_offer``): X-Plane shows the new tile at its next load of it or
 when the user clicks "Reload scenery".  :class:`WorldTilesWaiting
-<o4_engine.events.WorldTilesWaiting>` tells both apps which tiles wait
-and which a reload would show, whenever either list changes.
+<o4_engine.events.WorldTilesWaiting>` tells both apps which tiles wait,
+which a reload would show and which did not go in at all
+(``world_publish_failed``, #2226), whenever a list changes.
 
 Tiles the build-ahead or flight jobs stage are theirs
 (``world_job_run._PackPublisher``, ``flight_swap_reload``): the sweep
@@ -34,6 +35,7 @@ from typing import Callable, Iterable, Optional
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
+from . import world_publish_failed as FAILED
 
 __all__ = ["SWEEP_EVERY_S", "attach", "add_waiting", "note_swapped"]
 
@@ -142,7 +144,7 @@ class Sweeper:
         self.build_dir_of, self.every_s = build_dir_of, every_s
         self._wake = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._shown: tuple = ((), ())
+        self._shown: tuple = ((), (), ())
         self._leftovers = False
         self._guard = threading.Lock()
 
@@ -157,16 +159,20 @@ class Sweeper:
                                             self.build_dir_of, only=tiles)
         waiting = tuple(WP.tile_name(*t) for t in waiting_tiles())
         reload = tuple(reload_tiles())
-        self._show(waiting, reload)
-        return {"swapped": swapped, "waiting": waiting, "reload": reload}
+        failed = FAILED.entries()
+        self._show(waiting, reload, failed)
+        return {"swapped": swapped, "waiting": waiting, "reload": reload,
+                "failed": failed}
 
-    def _show(self, waiting: tuple, reload: tuple) -> None:
+    def _show(self, waiting: tuple, reload: tuple, failed: tuple = ()
+              ) -> None:
         from .events import WorldTilesWaiting
         with self._guard:
-            if (waiting, reload) == self._shown:
+            if (waiting, reload, failed) == self._shown:
                 return
-            self._shown = (waiting, reload)
-        self.emit(WorldTilesWaiting(waiting=waiting, reload=reload))
+            self._shown = (waiting, reload, failed)
+        self.emit(WorldTilesWaiting(waiting=waiting, reload=reload,
+                                    failed=failed))
 
     def poke(self, leftovers: bool = False) -> None:
         """Sweep now; a thread keeps sweeping while a tile waits or a
@@ -175,7 +181,8 @@ class Sweeper:
         app's World pack is not installed (no pack to swap into)."""
         if not self._managed():
             return
-        if not (waiting_tiles() or reload_tiles() or self._shown != ((), ())
+        if not (waiting_tiles() or reload_tiles() or FAILED.entries()
+                or self._shown != ((), (), ())
                 or (leftovers and _any_staged())):
             return
         with self._guard:

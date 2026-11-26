@@ -794,23 +794,27 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     with :func:`nothing_held` through).  A tile the user turned off goes
     into its kept folder (``state`` ``kept``, #2100).  Returns ``{"tile",
     "state" ("swapped" | "staged" | "kept" | "failed"), "problems",
-    "counts"}``."""
+    "counts"}``; a failed one also ``"where"`` (``stage``: staging raised,
+    ``"errno"`` its errno; ``verify``; or :class:`IncompleteTile`'s
+    ``staged`` / ``pack``), which ``world_publish_failed`` words (#2226)."""
     tile = tile_name(lat, lon)
     try:
         done = _stage_tile(build_dir, staging_root, lat, lon, kind)
     except (OSError, ValueError) as error:
         return {"tile": tile, "state": "failed", "problems": [str(error)],
-                "counts": {}}
+                "counts": {}, "where": "stage",
+                "errno": getattr(error, "errno", None)}
     out = {"tile": tile, "problems": done["problems"], "counts": done["counts"]}
     if done["problems"]:
         shutil.rmtree(done["staged"], ignore_errors=True)
-        return {**out, "state": "failed"}
+        return {**out, "state": "failed", "where": "verify"}
     if loaded(lat, lon) and not _kept_home(pack, lat, lon):
         return {**out, "state": "staged"}
     try:
         _swap_staged_tile(pack, done["staged"], lat, lon)
     except IncompleteTile as error:
-        return {**out, "state": "failed", "problems": [str(error)]}
+        return {**out, "state": "failed", "problems": [str(error)],
+                "where": error.where}
     return {**out, "state": "kept" if _kept_home(pack, lat, lon)
             else "swapped"}
 

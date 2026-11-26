@@ -1399,6 +1399,11 @@ class WorldTilesWaiting(EngineEvent):
     ``reload``: tile names swapped in over a version X-Plane loaded this
     session while the "tiles" reload offer stands
     (``o4_engine.reload_offer``); the tile pane offers "Reload scenery".
+    ``failed`` (#2226, additive): the built tiles that did NOT go into
+    the World pack (``o4_engine.world_publish_failed``), one
+    ``BuildDone.warnings``-shaped entry each plus ``tile`` and ``utc``,
+    until the tile's next publish succeeds; the tile pane shows it and
+    each app raises it once in a run report.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1406,6 +1411,7 @@ class WorldTilesWaiting(EngineEvent):
 
     waiting: tuple = ()
     reload: tuple = ()
+    failed: tuple = ()
 
 
 @dataclass(frozen=True)

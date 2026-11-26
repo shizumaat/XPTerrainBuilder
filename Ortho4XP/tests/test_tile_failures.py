@@ -912,7 +912,8 @@ def test_every_warning_print_of_a_step_module_is_in_the_census():
     # by a step's census row; and the pack-supplied ground with no mesh of
     # its own (#1362), published by the auto-patch driver per airport;
     # and the pack objects the object stage did not fit (#2186), published
-    # by ``O4_Object_Stage`` per airport
+    # by ``O4_Object_Stage`` per airport; and a built tile the World pack
+    # refused (#2226), noted after the build by ``world_publish_failed``
     degraded = {c for c, e in FAIL.CATALOGUE.items()
                 if e.severity == "degraded"}
     assert degraded - census_codes == {"pack_restore_unproven",
@@ -920,4 +921,6 @@ def test_every_warning_print_of_a_step_module_is_in_the_census():
                                        "pack_objects_not_fitted",
                                        "airport_pack_unmounted",
                                        "scenery_hidden_by_mesh",
-                                       "scenery_hides_mesh"}
+                                       "scenery_hides_mesh",
+                                       "world_publish_failed",
+                                       "world_publish_no_space"}

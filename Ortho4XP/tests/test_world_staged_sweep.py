@@ -10,6 +10,7 @@ import json
 import os
 import time
 
+import O4_Tile_Failures as FAIL
 import O4_World_Pack as WP
 import O4_World_State_Text as TEXT
 import pytest
@@ -25,6 +26,14 @@ from tests.test_world_commands import _build, world  # noqa: F401  (fixture)
 HERE = os.path.dirname(os.path.abspath(__file__))
 WIRE_FIXTURE = os.path.join(HERE, "fixtures", "world",
                             "world_tiles_waiting_event.json")
+
+
+#: A ``world_publish_failed`` entry as the wire carries it (#2226).
+FAILED_ENTRY = {**FAIL.fold([FAIL.record(
+    "world_publish_failed", "+46-115.ter: missing ../a.dds",
+    reason="Files its scenery names were missing or unreadable when it "
+           "was copied into the World pack.")], "+46-115", built=True,
+    report_button=True)[0], "tile": "+46-115", "utc": "2026-11-26T05:00:00Z"}
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +191,8 @@ def test_a_swap_over_a_loaded_tile_offers_the_reload(world, tmp_path, monkeypatc
 
 def test_world_tiles_waiting_wire_fixture_is_what_python_emits():
     """The JSON the Swift twin (``WorldWireTests.swift``) decodes."""
-    event = WorldTilesWaiting(waiting=("+41-088",), reload=("+45+007",))
+    event = WorldTilesWaiting(waiting=("+41-088",), reload=("+45+007",),
+                              failed=(FAILED_ENTRY,))
     payload = json.loads(json.dumps(jsonl.serialize_event(event)))
     payload.pop("seq")
     payload.pop("ts")

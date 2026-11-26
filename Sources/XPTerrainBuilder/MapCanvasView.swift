@@ -27,7 +27,7 @@ struct MapCanvasView: View {
         var state = buildModel.worldTiles[coord]?.state
         let info = buildModel.built[coord]
         if info != nil, state == .nothing { state = nil }
-        return filter.showsTile(state: state, pinned: info?.pinned == true)
+        return filter.showsTile(state: state, pinned: buildModel.isFavorite(coord))
     }
 
     @State private var cursorText: String?
@@ -515,10 +515,10 @@ struct MapCanvasView: View {
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.maxY - s * 0.7))
             }
             // The Favorite star, top-right (#2033; Qt:
-            // O4_Qt_Map_Favorite.draw_star): filled when info.pinned == true,
+            // O4_Qt_Map_Favorite.draw_star): filled on a favorite (isFavorite),
             // outlined on the others; a click flips it (tileSelect).
             if modes.mode == .build {
-                FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)
+                FavoriteStar.draw(in: context, rect: r, pinned: buildModel.isFavorite(coord))
             }
         }
 
@@ -702,10 +702,10 @@ struct MapCanvasView: View {
                 let tile = BuildModel.TileCoord(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
                 // A built tile's Favorite star (#2033): the click flips it.
                 if modes.mode == .build, showsTile(tile, mapFilter),
-                   let info = buildModel.built[tile], !buildActivity.isBuilding(tile),
+                   buildModel.built[tile] != nil, !buildActivity.isBuilding(tile),
                    FavoriteStar.hit(value.location,
                                     in: tileRect(lat: tile.lat, lon: tile.lon, cam: camera.value, size: size)) {
-                    Task { _ = await buildModel.setImageryPinned(tile, info.pinned != true) }
+                    Task { _ = await buildModel.setImageryPinned(tile, !buildModel.isFavorite(tile)) }
                     return
                 }
                 buildModel.click(lat: tile.lat, lon: tile.lon,

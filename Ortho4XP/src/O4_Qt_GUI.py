@@ -3183,14 +3183,23 @@ class MainWindow(QMainWindow):
         """A Favorite star (the tile pane's or the map's, #2033):
         ``imagery_pin`` -- a build running or not -- then the tiles
         rescan (the pane, the map and the Library read it from the
-        tile)."""
+        tile).  Both stars show the asked state at once (#2228) and go
+        back only if the engine refuses."""
         lat, lon, pinned = request
+        self._show_favorite((lat, lon), pinned)
         QTONDEMAND.pin_tile(lat, lon, pinned, self._bridge.pin_done,
                             busy=lambda: bool(self._building),
                             working_dir=self.working_dir())
 
+    def _show_favorite(self, tile, pinned):
+        self.map.set_favorite(tile, pinned)
+        if self.map.active_tile() == tuple(tile):
+            self.favorite_star.set_pinned(pinned)
+
     def _on_pin_done(self, result):
         if isinstance(result, Exception):
+            if isinstance(result, QTONDEMAND.PinRefused):
+                self._show_favorite(result.tile, not result.pinned)
             print(str(result))
             return
         print(QTONDEMAND.TEXT.pin_done(result))

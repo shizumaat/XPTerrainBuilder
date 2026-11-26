@@ -322,7 +322,22 @@ final class BuildModel: ObservableObject {
     // MARK: Scan state (what exists on disk / in X-Plane)
 
     @Published private(set) var built: [TileCoord: O4TileInfo] = [:] {
-        didSet { adoptArrivedTileConfig() }
+        didSet {
+            adoptArrivedTileConfig()
+            // A scan that reads the flipped Favorite ends its override.
+            favoriteFlips = favoriteFlips.filter { built[$0.key]?.pinned != $0.value }
+        }
+    }
+    /// Favorite stars flipped by a click and not yet read back by a scan
+    /// (#2228): the star answers the click at once, and goes back only if
+    /// the engine refuses. Read through `isFavorite`. Python:
+    /// `O4_Qt_Map.set_favorite`.
+    @Published var favoriteFlips: [TileCoord: Bool] = [:]
+
+    /// The Favorite state every star and filter shows: the click's flip
+    /// until a scan reads it, else the tile's record.
+    func isFavorite(_ coord: TileCoord) -> Bool {
+        favoriteFlips[coord] ?? (built[coord]?.pinned == true)
     }
     @Published private(set) var installed: Set<TileCoord> = []
     /// What the World pack draws on each tile it knows (#2024, the scan's

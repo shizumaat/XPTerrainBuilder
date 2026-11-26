@@ -244,7 +244,7 @@ struct BuildPane: View {
                 // The Favorite star, top right (#2033; the Qt pane: the
                 // same): any tile this app built, a build running or not.
                 if let info, !info.builtElsewhere {
-                    FavoriteStarButton(pinned: info.pinned == true) { pinned in
+                    FavoriteStarButton(pinned: buildModel.isFavorite(active)) { pinned in
                         await buildModel.setImageryPinned(active, pinned)
                     }
                 }

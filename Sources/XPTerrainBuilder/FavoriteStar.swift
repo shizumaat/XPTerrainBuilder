@@ -48,27 +48,23 @@ enum FavoriteStar {
 }
 
 /// The star beside the tile pane's title: outlined, or filled on a
-/// favorite; a click asks for the other state.
+/// favorite; a click asks for the other state. `pinned` is the model's
+/// `isFavorite`, which flips on the click itself (#2228), so the star
+/// never waits for the engine and stays enabled.
 struct FavoriteStarButton: View {
     let pinned: Bool
     /// Favorite or not; a sentence for the user (the reply or the error).
     let setPinned: (Bool) async -> String
 
-    @State private var working = false
-
     var body: some View {
         Button {
-            working = true
-            Task {
-                _ = await setPinned(!pinned)
-                working = false
-            }
+            let wanted = !pinned
+            Task { _ = await setPinned(wanted) }
         } label: {
             Image(systemName: pinned ? "star.fill" : "star")
                 .foregroundStyle(pinned ? FavoriteStar.color : .secondary)
         }
         .buttonStyle(.borderless)
-        .disabled(working)
         .help(O4OnDemandText.starHelp(pinned))
         .accessibilityLabel(O4OnDemandText.favoriteTitle)
     }

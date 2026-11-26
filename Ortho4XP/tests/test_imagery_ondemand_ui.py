@@ -306,6 +306,58 @@ def test_a_pin_during_a_build_is_set_without_landing(qapp, monkeypatch):
         "+60-136 is a favorite.")
 
 
+def test_a_star_flips_on_the_click_and_goes_back_on_a_refusal(qapp, monkeypatch):
+    """#2228 (owner 2026-11-21T20:38Z): the star changes the moment it is
+    clicked; the engine round trip runs after, and a refusal puts it
+    back.  Qt: the map's ``set_favorite`` + :class:`PinRefused`; Mac:
+    ``BuildModel.favoriteFlips`` set before ``imageryPin`` is awaited."""
+    from types import SimpleNamespace as NS
+
+    import O4_Qt_Imagery_OnDemand as QTONDEMAND
+    import O4_Qt_Map as QTMAP
+    from o4_engine import imagery_ondemand as ONDEMAND
+    from PySide6.QtCore import QObject, Signal
+
+    tile_map = QTMAP.MapView()
+    record = NS(pinned=False, on_demand=False, origin="")
+    tile_map.set_built({(60, -136): record})
+    tile_map.set_favorite((60, -136), True)
+    assert tile_map._built[(60, -136)].pinned is True
+    assert record.pinned is False                # the record is not touched
+    tile_map.set_favorite((60, -136), False)
+    assert tile_map._built[(60, -136)].pinned is False
+    tile_map.set_favorite((1, 1), True)          # not built: nothing to show
+    assert (1, 1) not in tile_map._built
+
+    def refuse(lat, lon, **kw):
+        raise ValueError("imagery_pin: this tile is not built.")
+    monkeypatch.setattr(ONDEMAND, "imagery_pin", refuse)
+    _sync_thread(monkeypatch)
+
+    class Bridge(QObject):
+        done = Signal(object)
+    bridge, got = Bridge(), []
+    bridge.done.connect(got.append)
+    QTONDEMAND.pin_tile(60, -136, True, bridge.done)
+    assert isinstance(got[0], QTONDEMAND.PinRefused)
+    assert got[0].tile == (60, -136) and got[0].pinned is True
+    assert str(got[0]) == "imagery_pin: this tile is not built."
+
+    gui = Path(QTONDEMAND.__file__).with_name("O4_Qt_GUI.py").read_text(encoding="utf-8")
+    body = gui.split("def _pin_tile(", 1)[1].split("\n    def ", 1)[0]
+    assert body.index("self._show_favorite(") < body.index("QTONDEMAND.pin_tile(")
+    app = REPO / "Sources" / "XPTerrainBuilder"
+    follow = (app / "BuildModel+ImageryFollow.swift").read_text(encoding="utf-8")
+    pin = follow.split("func setImageryPinned(", 1)[1]
+    assert pin.index("favoriteFlips[coord] = pinned") < pin.index("client.imageryPin(")
+    assert "favoriteFlips[coord] = before" in pin
+    star = (app / "FavoriteStar.swift").read_text(encoding="utf-8")
+    assert ".disabled(working)" not in star
+    for name in ("BuildPane.swift", "MapCanvasView.swift"):
+        text = (app / name).read_text(encoding="utf-8")
+        assert "info.pinned == true" not in text and "isFavorite(" in text, name
+
+
 def test_no_user_text_names_the_engine_command():
     """#2033: the user sees "Favorite", never "imagery_pin" / "pinning",
     and the full-imagery note is gone."""
@@ -453,7 +505,7 @@ def test_favorites_show_a_star_on_both_maps(qapp):
     assert "QTFAVSTAR.draw_star" in source and "QTFAVSTAR.hit(" in source
     app = REPO / "Sources" / "XPTerrainBuilder"
     mac = (app / "MapCanvasView.swift").read_text(encoding="utf-8")
-    assert "FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)" in mac
+    assert "FavoriteStar.draw(in: context, rect: r, pinned: buildModel.isFavorite(coord))" in mac
     assert "FavoriteStar.hit(value.location" in mac
     star = (app / "FavoriteStar.swift").read_text(encoding="utf-8")
     assert 'pinned ? "star.fill" : "star"' in star

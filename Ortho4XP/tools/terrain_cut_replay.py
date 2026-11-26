@@ -214,9 +214,8 @@ def rim_stats(tile, rec: dict, before: np.ndarray, after: np.ndarray) -> dict:
 
 def _edge_depth(grid) -> np.ndarray:
     """Each cell's distance (m) to the plan's edge cells (0 on them)."""
-    from scipy import ndimage
-
     from auto_patch_v2.geom.terrain_deck import CELL_M
+    from scipy import ndimage
     cov = grid.covered
     rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
     return ndimage.distance_transform_edt(~rim) * CELL_M

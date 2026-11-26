@@ -13,7 +13,10 @@ raster under the plan is cut to the object's surface
 (``auto_patch_v2.airport.terrain_cut``, which carries the consumer
 census) and the plan's edge goes into the vector map as a constrained
 line.  The mesh step's refinement re-bake (``tile.iterate``) calls
-:func:`bake` again on the raster it rewrites.
+:func:`bake` again on the raster it rewrites.  A terrain model's SKIRT
+(``terrain_cut`` THE SKIRT, owner RULINGS 2026-11-26b (4)) is read on the
+raster before any cut (:func:`_skirt`) and never cut: our ground covers
+it, no moat.
 
 THE HOLD (#2053 round 3, ``auto_patch_v2.airport.terrain_cut`` THE
 HOLD): a record whose ``cut`` names ``erode_m`` (an object carrying
@@ -154,7 +157,33 @@ def _fit(rec, band: tuple[float, float] | None = None):
     reach = band if band is not None and c.get("fill") else (_tc.BAND_M, None)
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
                        float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)),
-                       float(reach[0]), reach[1])
+                       float(reach[0]), reach[1], rec.get("skirt"))
+
+
+def _skirted(rec: _t.Mapping[str, _t.Any]) -> bool:
+    """A record whose skirt is never cut (``terrain_cut`` THE SKIRT): a
+    terrain model's -- not a ground object's (``erode_m`` / ``floor_m``)
+    nor a rock's run-out fill (``rim_only``)."""
+    c = rec["cut"]
+    return not (c.get("rim_only") or "erode_m" in c or "floor_m" in c)
+
+
+def _skirt(dem, tile, rec) -> "np.ndarray | None":
+    """THE SKIRT of one record (``terrain_cut.buried_skirt``) on the uncut
+    raster: its plan cells' ground, bilinear, over the record's zero;
+    ``None`` where its file cannot be read."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
+    c = rec["cut"]
+    grid = _tm.plan_grid(str(c["file"]))
+    if grid is None:
+        return None
+    _xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
+    ii, jj = np.nonzero(grid.covered)
+    lons, lats = to_ll(*_tm._world(grid, ii, jj, (0.0, 0.0), float(c["heading"])))
+    ground = np.full(grid.bot.shape, np.nan)
+    ground[ii, jj] = _raster(dem, tile, None).sample(lons, lats) - float(rec["elevation"])
+    return _tc.buried_skirt(grid, ground)
 
 
 def _cut_one(dem, tile, rec) -> int:
@@ -203,18 +232,29 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
     if records is None:
         records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
     total = 0
-    for rec in records:
+    # THE SKIRT is read on the raster before any cut (``terrain_cut``)
+    skirts = {}
+    for k, rec in enumerate(records):
+        if not rec["cut"].get("rim_only") and _skirted(rec):
+            try:
+                skirts[k] = _skirt(dem, tile, rec)
+            except Exception as exc:
+                UI.vprint(1, f"   terrain model {rec.get('resource')}: no skirt read ({exc})")
+    for k, rec in enumerate(records):
         if rec["cut"].get("rim_only"):
             continue
+        skirt = skirts.get(k)
         try:
-            k = _cut_one(dem, tile, rec)
+            n = _cut_one(dem, tile, rec if skirt is None else dict(rec, skirt=skirt))
         except Exception as exc:
             UI.vprint(1, f"   terrain model {rec.get('resource')} not cut ({exc})")
             UI.vprint(2, traceback.format_exc())
             continue
-        total += k
+        total += n
+        kept = "" if skirt is None else (f", its skirt ({int(skirt.sum())} plan cell(s)) "
+                                         f"left buried")
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
-                     f"({rec.get('id')}): the ground under it cut at {k} posting(s)")
+                     f"({rec.get('id')}): the ground under it cut at {n} posting(s){kept}")
     dem.terrain_fill_delta = None
     if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:

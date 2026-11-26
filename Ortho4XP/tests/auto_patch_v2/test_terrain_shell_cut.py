@@ -102,3 +102,55 @@ def test_target_at_never_carries_nan():
         z, ok = target_at(fit, xs.ravel(), ys.ravel(), np.full(xs.size, ground))
         assert not np.isnan(z).any()
         assert np.all(z[~ok] == ground)
+
+
+def _skirted_hill(n=61, skirt=4, drop=20.0):
+    """A HILL (top == bot) rising 1 m per cell from its rim, its outer
+    ``skirt`` cells a skirt dropping ``drop`` m under the rim's level."""
+    h = (n - 1) / 2.0
+    i, j = np.mgrid[0:n, 0:n]
+    edge = np.minimum.reduce([i, j, n - 1 - i, n - 1 - j]).astype(float)
+    top = np.where(edge < skirt, -drop * (skirt - edge) / skirt, edge - skirt)
+    return DeckGrid(-h * CELL_M, -h * CELL_M, top.copy(), top), edge
+
+
+def test_the_skirt_is_the_rim_connected_buried_lower_edge():
+    g, edge = _skirted_hill()
+    ground = np.zeros(g.top.shape)            # flat ground at the model's zero
+    ground[28:33, 28:33] = 80.0               # a coarse DEM's bump over the body
+    sk = TC.buried_skirt(g, ground)
+    assert sk[edge < 4].all(), "the skirt under the ground round it is buried"
+    assert not sk[edge >= 4].any(), "the body over the ground is not"
+    assert not sk[28:33, 28:33].any(), "a body a bump covers is no skirt (it rises over its edge)"
+    # buried but not reaching the edge: no skirt
+    assert not TC.buried_skirt(g, np.where(edge < 2, -50.0, 0.0)).any()
+
+
+def test_the_ground_is_never_cut_under_the_skirt_no_moat(monkeypatch):
+    g, _edge = _skirted_hill()
+    monkeypatch.setattr(TM, "plan_grid", lambda p: g)
+    bump = lambda x, y: np.where(np.hypot(x, y) < 12.0, 80.0, 10.0)  # noqa: E731
+    rec = dict(_rec(), cut=dict(_rec()["cut"], fill=False))
+    tile = _tile(bump)
+    before = tile.dem.alt_dem.copy()
+    TCS.bake(tile, [rec])
+    a = tile.dem.alt_dem
+    h = (g.top.shape[0] - 1) / 2.0 * CELL_M
+    # the rim's ground (the skirt, 10-20 m over its top) stands as it was
+    for x, y in ((h - 2.0, 0.0), (0.0, -h + 2.0), (-h + 4.0, 0.0)):
+        assert float(_at(tile, x, y)[0]) == pytest.approx(10.0, abs=1e-3)
+    # the bump over the body is cut to the top as 13k rules
+    assert float(_at(tile, 0.0, 0.0)[0]) < 80.0 - 1.0
+    assert np.all(a <= before + 1e-6)
+    # without THE SKIRT the cut lowers the rim toward the skirt's bottom
+    monkeypatch.setattr(TCS, "_skirted", lambda r: False)
+    moat = _tile(bump)
+    TCS.bake(moat, [rec])
+    assert float(_at(moat, h - 2.0, 0.0)[0]) < 10.0 - 5.0
+
+
+def test_a_ground_object_and_a_rock_run_out_have_no_skirt():
+    assert TCS._skirted(_rec())
+    assert not TCS._skirted(dict(_rec(), cut=dict(_rec()["cut"], erode_m=5.0)))
+    assert not TCS._skirted(dict(_rec(), cut=dict(_rec()["cut"], floor_m=3.0)))
+    assert not TCS._skirted(dict(_rec(), cut=dict(_rec()["cut"], rim_only=True)))

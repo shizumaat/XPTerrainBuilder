@@ -127,6 +127,22 @@ larger posting step, ``terrain_cut_stage._fill_band``) -- never over the
 lowest top within ``clip_m`` = one posting diagonal.  Every other record
 keeps :data:`BAND_M`.
 
+THE SKIRT (owner RULINGS 2026-11-26b (4), #2217 option (b)): the ground
+is never cut under a terrain model's RIM-CONNECTED BURIED REGION
+(:func:`buried_skirt`) -- the cells where our uncut ground stands more
+than :data:`BURIED_M` over the top and the top lies under the ground at
+the nearest edge cell (a lower edge, a deep skirt, authored under the
+terrain round it), connected through such cells to the plan's edge.  The
+model sits as authored and our ground covers its skirt: the cut (and its
+erosion and edge band) reads the plan less the skirt, so no ring under
+the edge is lowered to the skirt's bottom (KSEZ / LXGB's moat, 34-71 m).
+A covered cell our ground does not stand over, or a buried body whose top
+rises over the ground at its edge (a coarse DEM's bump), is cut as 13k
+rules.  The rim fill's bound and the plan's DUMMY ring keep the whole
+plan (the skirt's ground stands over its top: the fill never raises it,
+and the ground meets the top where the skirt ends).  A ground object
+(``erode_m`` / ``floor_m``) and a rock's run-out fill have no skirt.
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """
@@ -139,8 +155,9 @@ import numpy as np
 
 from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit, target_at
 
-__all__ = ["ERODE_M", "BAND_M", "HOLD_CELL_M", "cut_fit", "projector", "cut_heights",
-           "outline_rings", "plan_box", "hold_bound", "hold_heights"]
+__all__ = ["ERODE_M", "BAND_M", "HOLD_CELL_M", "BURIED_M", "cut_fit", "projector",
+           "cut_heights", "outline_rings", "plan_box", "hold_bound", "hold_heights",
+           "buried_skirt"]
 
 #: the radius the top is eroded over inside the plan (module doc): wider
 #: than the triangles the mesher leaves on a surface this smooth
@@ -155,6 +172,32 @@ HOLD_CELL_M = 1.0
 _HOLD_TOL_M = 1e-3
 #: the hold's passes at most
 _HOLD_PASSES = 20
+#: THE SKIRT (RULINGS 2026-11-26b (4)): a cell is BURIED where our ground
+#: stands more than this over the model's top (the 0.05 m pavement bar)
+BURIED_M = 0.05
+
+
+def buried_skirt(grid: DeckGrid, ground: np.ndarray) -> np.ndarray:
+    """THE SKIRT (module doc): the covered cells of ``grid`` where
+    ``ground`` (per cell, metres over the model's zero; ``nan`` unread)
+    stands more than :data:`BURIED_M` over the top AND the top lies under
+    the ground at the cell's nearest edge cell (a LOWER edge, authored
+    under the terrain round it -- not a body a coarse DEM's bump covers),
+    8-connected through such cells to the plan's edge (a covered cell
+    touching an uncovered one)."""
+    from scipy import ndimage
+    cov = grid.covered
+    g = np.asarray(ground, float)
+    rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
+    if not rim.any():
+        return np.zeros(cov.shape, bool)
+    _d, (ni, nj) = ndimage.distance_transform_edt(~rim, return_indices=True)
+    top = np.where(cov, grid.top, np.inf)
+    with np.errstate(invalid="ignore"):
+        buried = cov & np.isfinite(g) & (g - top > BURIED_M) & (top < g[ni, nj])
+    lab, _n = ndimage.label(buried, np.ones((3, 3), bool))
+    keep = np.unique(lab[rim & buried])
+    return np.isin(lab, keep[keep > 0])
 
 
 def _floor(bot: np.ndarray, top: np.ndarray, floor_m: float) -> np.ndarray:
@@ -227,11 +270,17 @@ def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor_m: float = 0.0,
 
 def cut_fit(grid: DeckGrid, zero: float, heading: float,
             erode_m: float = ERODE_M, floor_m: float = 0.0,
-            band_m: float = BAND_M, clip_m: float | None = None) -> TerrainFit:
+            band_m: float = BAND_M, clip_m: float | None = None,
+            skirt: np.ndarray | None = None) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
     model's anchor), seated at ``zero``, filling nothing; ``floor_m`` > 0:
     cut to the object's floor per cell (module doc, THE FLOOR); ``band_m``
-    / ``clip_m``: a fill record's edge band (:func:`_bound`, #2077 R1)."""
+    / ``clip_m``: a fill record's edge band (:func:`_bound`, #2077 R1);
+    ``skirt`` (:func:`buried_skirt`): cells never cut, left out of the
+    plan before its bound is eroded (module doc, THE SKIRT)."""
+    if skirt is not None and skirt.any():
+        grid = DeckGrid(grid.x0, grid.z0, np.where(skirt, np.nan, grid.bot),
+                        np.where(skirt, np.nan, grid.top))
     cut = _cut_grid(grid, erode_m, floor_m, band_m, clip_m)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)

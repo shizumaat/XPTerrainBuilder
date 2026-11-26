@@ -83,6 +83,7 @@ from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
+from .deck_end_top import EDGE_M, driven_top, slab_faces
 from .deck_route import carried_route
 from .deck_walls import inner_faces, wall_faces, wall_strip
 
@@ -346,6 +347,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         u = unary_union([q.hard_deck for q in decks])
         plate = _plate(cache, decks)
         solid = _hard_plate(cache, decks)
+        slab = slab_faces(cache, decks, float(law.tables.structures.bridge.deck_plate_normal_y_min))
         top = max((y for _x, _y, y in plate), default=None)
         if top is None or d.deck_top_z is None:
             continue
@@ -377,6 +379,9 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
             sa, sb = (tuple(to_xy(lo, la) for la, lo in e) for e in pair)
             reach = max(2.0 * step, 3.0)
             ta, tb = _top_at(plate, sa, reach, top), _top_at(plate, sb, reach, top)
+            # #2238 / #2241: the top AT an end line is the slab a wheel rolls
+            # on there (``planar/deck_end_top``), never a parapet's top
+            ta, tb = driven_top(slab, sa, EDGE_M, ta), driven_top(slab, sb, EDGE_M, tb)
             # the FAMILY and the ROUTE, one per deck (``planar/deck_route``)
             fam, route, ref = carried_route(airport, piece)
             if fam == "road" and _taxi_at_both_ends(sa, sb, roles):

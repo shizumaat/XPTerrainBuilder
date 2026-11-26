@@ -11,7 +11,12 @@ value-face vertices within ``[design] pad_frontage_m`` of the face, spec
 under the unit: its ref (``block``), its solved height (``block_z``, the
 median of its vertices) and ``land_z`` = ``block_z`` + rise.
 
-A REPORT key: nothing in the solve or the census reads it (step 1)."""
+THE BAND (step 2, C27/C28): ``band_ll`` -- ``[lat, lon, G]`` of every
+frontage vertex the frontage law held on the record's block
+(``constraints/kerb_frontage.kerb_vertices``: the block's datum + the
+kerb's rise, solved); the census family ``frontage_level``
+(``tools/check_grade_lib/families/frontage_level.py``) prices each emitted
+vertex against its ``G``."""
 from __future__ import annotations
 
 import statistics as _st
@@ -86,6 +91,28 @@ def _band(planar, law, face) -> int:
     return sum(1 for v in vs if zone.contains(Point(planar.vertices[v].xy)))
 
 
+def _bands(planar, law, z) -> dict[str, list]:
+    """``{block: [[lat, lon, G], ...]}`` (module docstring); ``{}`` before a
+    solve."""
+    if z is None:
+        return {}
+    from ..constraints.kerb_frontage import kerb_vertices
+    from ..model.platform import datum_vertices
+    kerb, _wall = kerb_vertices(planar, law)
+    if not kerb:
+        return {}
+    held = datum_vertices(planar, law, fills=True)
+    out: dict[str, list] = {}
+    for v, (block, y) in sorted(kerb.items()):
+        dv = held.get(block)
+        if dv is None or dv == v:
+            continue
+        lat, lon = planar.vertices[v].key[:2]
+        out.setdefault(block, []).append([round(float(lat), 11), round(float(lon), 11),
+                                          round(float(z[dv]) + float(y), 3)])
+    return out
+
+
 def terminal_frontage_records(planar, law, airport, levels=None,
                               z: "_t.Sequence[float] | None" = None) -> list[dict]:
     """The ``terminal_frontages`` records (module docstring); ``levels``:
@@ -95,6 +122,7 @@ def terminal_frontage_records(planar, law, airport, levels=None,
         return []
     to_ll = airport.frame.transformers()[1]
     units = airport.partition.units
+    bands = _bands(planar, law, z)
 
     def ll(pts) -> list:
         return [[round(float(a), 8), round(float(b), 8)]
@@ -117,5 +145,6 @@ def terminal_frontage_records(planar, law, airport, levels=None,
             "band_vertices": _band(planar, law, r.face),
             "block": block, "block_z": block_z,
             "land_z": None if block_z is None else round(block_z + r.rise, 3),
+            "band_ll": bands.get(block, []) if block is not None else [],
             "clues": dict(r.clues)})
     return out

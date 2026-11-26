@@ -175,6 +175,22 @@ solver    = "construction"
 # and within_shape; this family is REPORTED.
 cockpit   = "keepout"
 
+# RULINGS 2026-11-25g (2) THE FRONTAGE IS FLAT ALONG THE BUILDING AT THE
+# GROUNDSIDE FLOOR (spec terminal-frontage-split-level-20261125 §2 C28).
+# SIDECAR-DECLARED: `terminal_frontages` publishes per unit the frontage
+# vertices the frontage law held (`band_ll`: lat, lon, G = the block's
+# solved datum + the unit's rise); the family prices each emitted vertex
+# off its G by more than §31's visual floor.  A residual of one vertex
+# against a plane (the jetway strip's precedent): REPORTED.
+[frontage_level]
+measures  = "a groundside frontage vertex standing off its unit's groundside floor (block datum + rise)"
+parameter = "emit.design.pad_frontage_m"
+roles     = ["service_road", "service_junction", "groundside_pavement", "parking_lot"]
+pairs     = "within"
+ruling    = "2026-11-25g"
+solver    = "construction"
+cockpit   = "keepout"
+
 # §16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET
 # (Fable 2026-09-16; RULINGS 2026-09-16b).  The airside cells' geometry and
 # vertex set are computed BEFORE any pad exists and are never modified by
@@ -190,6 +206,7 @@ cockpit   = "keepout"
 # airside vertices and minted 235, which re-noded the whole airside
 # problem, and no family could see it because the emitted surface breaks
 # no grade law by carrying an extra vertex.
+
 [pad_airside_renode]
 measures  = "an airside cell vertex MINTED or DELETED by the pad stage — the airside re-noded because a pad exists"
 parameter = "structures.placement.pad_airside_clip"

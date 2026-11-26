@@ -293,7 +293,7 @@ def _low_plane(ys: _t.Sequence[float], t: float) -> "float | None":
     return med if n >= need else None
 
 
-def plan_low(P, air, airport, law, grid: float, others=None, refused=None
+def plan_low(P, air, airport, law, grid: float, others=None, refused=None, down=None
              ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for one held pad ``P`` (module
     docstring), or ``None`` where its unit carries no lower storey — or
@@ -305,7 +305,19 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     neighbour pad may arrive self-touching or on a fixed precision model,
     and an overlay of the low region against it then raised ``side
     location conflict`` and cost the airport its whole patch (EDDF).
-    ``geom/valid_area`` reads each one's area before it is cut."""
+    ``geom/valid_area`` reads each one's area before it is cut.
+
+    ``down``: the unit's HELD two-floor record a storey DOWN
+    (``airport/unit_storey.UnitLevels``, RULINGS 2026-11-25g; spec
+    ``terminal-frontage-split-level-20261125.md`` §2 C7): the record is the
+    witness -- pack and ground already read (its verdict) -- so neither the
+    ``unit_base`` STEPPED pre-gate nor the ground drop is asked, the low
+    region need only be a pad's worth (``[building_pad] min_area_m2``: the
+    record's plan is the terminal-sized one), and the level stands at the
+    record's rise (G = D + rise).  The record's airside floor must be the
+    pad's top (doubt refuses).  MEASURED LDSP ``building1``: top +3.00
+    (the apron's objects), the landside hall's parts at -2.4 .. -2.9 over
+    2,927 m2, rise -5.70, ground 17.16 -> 11.41."""
     P, air = valid_area(P), valid_area(air)
     bp = law.tables.structures.building_pad
     step_min = float(getattr(bp, "low_level_min_step_m", 0.0) or 0.0)
@@ -322,7 +334,13 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     if top is None:
         return None
     t, y_feet = top
-    if y_feet is not None:
+    if down is not None:
+        if abs(t - float(down.air_y)) > _plane_band():
+            if refused is not None:
+                refused.append(f"top {t:+.2f} is not the record's floor {down.air_y:+.2f}")
+            return None
+        y_feet = None
+    elif y_feet is not None:
         step_min = 2.0 * _plane_band()
     low_parts = [p for p, _xy in parts if p.base_y <= t - step_min]
     if not low_parts:
@@ -331,13 +349,15 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              if (g := _ring_poly(rg, to_xy)) is not None]
     if not polys:
         return None
-    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin, airport)
+    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin, airport,
+                    unit_min=pmin if down is not None else None)
     if cut is None:
         return None
     H, L, S = cut
     dem = getattr(airport, "dem", None)
     g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
-    if y_feet is None and (g_lo is None or g_hi is None or g_hi - g_lo < step_min):
+    if down is None and y_feet is None and (g_lo is None or g_hi is None
+                                            or g_hi - g_lo < step_min):
         # THE GROUND IS THE OTHER HALF OF THE WITNESS (#1115): a storey of
         # the object stands a storey down only where its own ground does.
         # MEASURED EDDF Terminal 1: frontage parts at y 6-17 (piers, decks)
@@ -349,8 +369,11 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
         return None
     # the lower storey's FLOOR: its walls' plane where the feet read it,
     # else the lowest low part (KATL: both -13)
-    y_floor = (y_feet if y_feet is not None else min(p.base_y for p in low_parts)) - t
-    rec = {"witness": "feet" if y_feet is not None else "frontage", "top_y": round(t, 3),
+    y_floor = (float(down.rise) if down is not None else
+               (y_feet if y_feet is not None else min(p.base_y for p in low_parts)) - t)
+    witness = "unit_levels" if down is not None else ("feet" if y_feet is not None
+                                                       else "frontage")
+    rec = {"witness": witness, "top_y": round(t, 3),
            "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
            "ground_z": g_lo, "ground_high_z": g_hi}
@@ -380,7 +403,8 @@ def top_level(parts, air, airport, law, to_xy, near: float
 
 
 def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
-              grow: bool = True, whole: bool = False) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
+              grow: bool = True, whole: bool = False, unit_min: "float | None" = None
+              ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
     """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
     ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
     the airside ``air`` and a riser's width off the pads ``others``, at
@@ -390,7 +414,8 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
     level is the cut's alone and never grows (RULINGS 2026-10-28r (1)).
     ``whole``: the pad may become the level entire (a station's own pad,
     ``planar/station_level``: its level is tied to another block, so no
-    frontage block need stay)."""
+    frontage block need stay).  ``unit_min``: the low level's least area
+    (default ``[placement] cluster_pad_min_m2``)."""
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
@@ -412,8 +437,9 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None,
     # MEASURED KATL ``building11``: two parts 7 m down over 571 m² asked a
     # 3 m drop of ground the apron holds, and the band was relaxed
     # (a station's level is its objects' own: the station is the witness, #1739)
-    if not whole and sum(q.area for q in keep) < float(
-            law.tables.structures.placement.cluster_pad_min_m2):
+    if not whole and sum(q.area for q in keep) < (float(
+            law.tables.structures.placement.cluster_pad_min_m2) if unit_min is None
+            else float(unit_min)):
         return None
     if not keep:
         return None
@@ -592,7 +618,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     beyond: _t.Sequence = (),
                     lots: _t.Sequence = (), seeds: _t.Sequence = (),
                     shells: _t.Sequence = (),
-                    upper: _t.Mapping[str, tuple] | None = None) -> list:
+                    upper: _t.Mapping[str, tuple] | None = None,
+                    levels: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -611,7 +638,10 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     own storeys through the same level / strip / landing grammar and read
     by none of the readings above (their levels are never extended); ``upper``
     the pads under a unit's upper storey (``planar/group_up``, #2068), taken
-    first, held or not, as their unit block's upper level."""
+    first, held or not, as their unit block's upper level; ``levels`` the
+    units' two-floor records (``airport/unit_storey.unit_levels``): a held
+    record a storey down is its block's witness (:func:`plan_low`'s
+    ``down``, spec 2026-11-25 §2 C7)."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -674,6 +704,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                 why = []
             if got is None and unit_base(P, airport)[0] == STEPPED:
                 got = plan_low(P, air, airport, law, grid, others, why)
+            if got is None and (down := _held_down(P, levels, airport, law, seeds)) is not None:
+                why = []
+                got = plan_low(P, air, airport, law, grid, others, why, down=down)
             if got is None:
                 # a pad holding ONE level a storey under its group's floor
                 # is the group's lower level (``planar/group_low``, #1214
@@ -765,6 +798,27 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _held_down(P, levels: _t.Sequence, airport, law, seeds: _t.Sequence = ()):
+    """The two-floor record a storey DOWN the frontage law takes
+    (``unit_storey.frontage_held``) of the unit standing on the pad ``P``
+    (:func:`unit_share`) and carried by it (``unit_storey.carried_by``),
+    or ``None`` -- never a ``floor_zero``
+    frame's (``_frame_seeds`` mints its level, KATL Terminal F) nor a seed
+    unit's (``planar/level_regions``)."""
+    from ..airport.unit_storey import carried_by, frontage_held
+    down = {r.unit: r for r in levels if r.rise < 0.0}
+    if not down:
+        return None
+    ui, _p = unit_share(P, airport, airport.frame.entry())
+    if ui is None or ui not in down or ui in {int(s.unit) for s in seeds}:
+        return None
+    if not carried_by(down[ui], P) or not frontage_held(down[ui], airport, law):
+        return None
+    if any(getattr(m, "floor_zero", False) for m in airport.partition.units[ui].members):
+        return None
+    return down[ui]
 
 
 def _frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mapping,

@@ -379,6 +379,9 @@ def platform_split(base_regions, pad_regions, law: Law,
     from ..law.tables import is_structure_role
     from .low_level import low_level_split
     from .reach_after_pads import BEYOND
+    from .unit_levels_read import publish_levels, read_levels
+    # RULINGS 2026-11-25g: the units' two floors, read once (C7, C12)
+    levels = read_levels(base_regions, air_polys, airport, law, shells)
     out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg,
                           storey_lots=[(r.polygon, float(storey[str(r.ref)]))
                                        for r in base_regions if storey
@@ -396,7 +399,8 @@ def platform_split(base_regions, pad_regions, law: Law,
                           # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
                                 and r.role in LOT_ROLES and BEYOND not in str(r.ref)],
-                          seeds=seeds, shells=shells, upper=upper)
+                          seeds=seeds, shells=shells, upper=upper, levels=levels)
+    publish_levels(levels, out, reg, airport, counts)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

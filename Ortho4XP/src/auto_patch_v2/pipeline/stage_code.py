@@ -346,6 +346,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
+        "auto_patch_v2.classify.frontage_wall",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
@@ -689,6 +690,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
+        "auto_patch_v2.classify.frontage_wall",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
@@ -942,6 +944,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.terrain_edge",
         "auto_patch_v2.planar.underpass_mouth",
         "auto_patch_v2.planar.unframed_ramp",
+        "auto_patch_v2.planar.unit_levels_read",
         "auto_patch_v2.planar.viaduct_road",
         "auto_patch_v2.planar.wall_corridor_ramps",
         "auto_patch_v2.planar.wall_slope",
@@ -1705,6 +1708,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.floor_yard",
         "auto_patch_v2.classify.frontage_road",
+        "auto_patch_v2.classify.frontage_wall",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_band",
         "auto_patch_v2.classify.gap_mint",
@@ -2550,7 +2554,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
-    airport.frontage_face
+    airport.frontage_face classify.frontage_wall
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -2823,7 +2827,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
-    airport.frontage_face
+    airport.frontage_face classify.frontage_wall planar.unit_levels_read
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -3035,7 +3039,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
-    airport.frontage_face
+    airport.frontage_face classify.frontage_wall planar.unit_levels_read
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -3267,7 +3271,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.lens geom.many_buffers
     classify.gap_apron classify.fence_division
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
-    airport.frontage_face
+    airport.frontage_face classify.frontage_wall
     airport.user_roles
     classify.car_lot
     classify.gap_band
@@ -3334,7 +3338,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
     pipeline.storey_publication
     pipeline.upper_pad_publication
-    pipeline.frontage_publication airport.frontage_face
+    pipeline.frontage_publication airport.frontage_face classify.frontage_wall
     airport.shell_ground
     model.free_bridge
     airport.bridge_span constraints.bridge_span_release
@@ -3439,7 +3443,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
-    airport.frontage_face
+    airport.frontage_face classify.frontage_wall
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens geom.many_buffers
     classify.car_lot
@@ -3499,7 +3503,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.deck_flush
     constraints.taxi_route_yield
     pipeline.storey_publication pipeline.upper_pad_publication
-    pipeline.frontage_publication airport.frontage_face
+    pipeline.frontage_publication airport.frontage_face classify.frontage_wall
     airport.shell_ground
     model.free_bridge
     constraints.bridge_span_release

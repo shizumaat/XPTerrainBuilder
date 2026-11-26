@@ -21,7 +21,8 @@ touch, carry or post-mesh re-seat: U15-U17's bypass) -- and their records
 (seat :data:`SEAT`, ``terrain_shaped.row_seats`` writes them) into
 ``authored_seats``.  S2: a row of no map (a footless roof, a canopy) whose
 plan box stands half or more inside the unit's ground-contact plan rides
-it, at ``z0`` plus its lift over the unit's own.
+it, at ``z0`` plus its lift over the unit's own; for a COMPOSITE, so does
+any other row of its origin set (25l: the set is one group).
 
 DOUBT KEEPS TODAY'S SEAT (13r; S3, S5): a coherent unit (nothing to
 change), a unit off every pad, a row another seat already holds
@@ -220,7 +221,10 @@ def _riders(m: _t.Any, objects: _t.Sequence[_t.Any], free: _t.AbstractSet[str],
     out = []
     for o in objects:
         b = getattr(o, "plan_bbox", None)
-        if str(o.id) not in free or b is None or b.area <= 0.0:
+        if str(o.id) not in free or b is None or b.area <= 0.0 \
+                or str(getattr(o, "deck_kind", "") or "") in _DECK_KINDS \
+                or getattr(o, "walled_plate", None) is not None \
+                or float(getattr(o, "zero_y", 0.0) or 0.0) != 0.0:
             continue
         if plan is None:
             plan = _plan_polygon(m, widen_m)
@@ -259,6 +263,14 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
     mapped = {u for m in maps for u in str(m.unit).split("+")}
     in_maps = {str(r) for m in maps for r in m.key if not str(r).startswith("@")}
     free = {k for k in by_id if k not in in_maps and k not in taken}
+    #: a composite's origin set: its other rows ride it too (25l: its sheet
+    #: makes the set one group; a building of the set beside its sheet is
+    #: still of the author's one frame)
+    set_rows: dict[str, set[str]] = {}
+    for m in maps:
+        for c in str(m.unit).split("+"):
+            set_rows.setdefault(c.split("#", 1)[0], set()).update(
+                str(r) for r in m.key if not str(r).startswith("@"))
     held: set[str] = set()
     out: list[dict[str, _t.Any]] = []
     report: list[dict[str, _t.Any]] = []
@@ -277,7 +289,9 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
             continue
         z0 = round(_unit_zero(m, verdict, D), 3)
         lift = float(getattr(by_id[rows[0]], "agl_m", 0.0) or 0.0)
-        riders = _riders(m, objects, free - held, widen_m)
+        own_set = set().union(*(set_rows.get(c.split("#", 1)[0], set())
+                                for c in str(m.unit).split("+"))) if m.composite else set()
+        riders = _riders(m, objects, ((free | own_set) - taken) - held - set(rows), widen_m)
         rid = {str(o.id) for o in riders}
         for o in [by_id[r] for r in rows] + riders:
             own = float(getattr(o, "agl_m", 0.0) or 0.0)

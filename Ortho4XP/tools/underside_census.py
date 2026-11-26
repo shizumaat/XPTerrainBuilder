@@ -39,6 +39,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
@@ -113,8 +115,51 @@ def row_of(m, today: dict, many, to_ll, rsc: dict) -> dict:
     return row
 
 
-def census_of(icao: str, airport, law, cache, plan: "str | None") -> dict:
-    """The rows of one airport (module doc) and the derivation seconds."""
+def step2_of(airport, law, objects, plan: "str | None") -> list[dict]:
+    """STEP 2 (``airport/underside_seat.seat_records``, the seat the build
+    writes): one row per unit S3 admits -- written whole at ``z0`` (with
+    today's zero from the plan, ``z_today``, and the move) or refused and
+    why -- read on the graded surface beside ``plan``
+    (``<ICAO>.graded.json``) with the rows its rebake plan
+    (``o4_v2_rebake_<ICAO>.json``) seats by another rule taken; ``[]``
+    without a graded surface beside the plan."""
+    from auto_patch_v2.airport import underside_seat as _us
+    from auto_patch_v2.airport.open_frame_seat import TOUCH_M
+    from auto_patch_v2.airport.placement_read import pads_rims_from_graded_doc
+    if not plan or objects is None:
+        return []
+    icao = airport.icao
+    graded = Path(plan).with_name(f"{icao}.graded.json")
+    if not graded.is_file():
+        return []
+    rb = Path(plan).with_name(f"o4_v2_rebake_{icao}.json")
+    taken = set()
+    if rb.is_file():
+        taken = {str(r.get("id")) for r in json.loads(rb.read_text()).get("authored_seats", ())
+                 if r.get("seat") != _us.SEAT}
+    pads = pads_rims_from_graded_doc(json.loads(graded.read_text()))[0]
+    _recs, rep = _us.seat_records(airport, pads, objects, taken, TOUCH_M, float(
+        law.tables.structures.building_pad.low_level_min_step_m))
+    today = today_of(plan)
+    to_ll = airport.frame.transformers()[1]
+    maps = {m.unit: m for m in airport.undersides.values()}
+    for r in rep:
+        zs = [z for z, _p in today.get(r["row"], ())]
+        r["z_today"] = _mode(zs)
+        if "refused" not in r and r["z_today"] is not None:
+            r["move"] = round(r["z0"] - r["z_today"], 3)
+        m = maps.get(r["unit"])
+        if m is not None and len(m.e):
+            c = to_ll(float(np.mean(m.e)), float(np.mean(m.n)))
+            r["lat"], r["lon"] = round(c[0], 6), round(c[1], 6)
+    return rep
+
+
+def census_of(icao: str, airport, law, cache, plan: "str | None",
+              objects=None) -> dict:
+    """The rows of one airport (module doc) and the derivation seconds;
+    with ``objects`` (the pack's placements) the step-2 rows
+    (:func:`step2_of`) too."""
     import dataclasses as _dc
 
     from auto_patch_v2.airport.underside_composite import dem_many
@@ -133,7 +178,8 @@ def census_of(icao: str, airport, law, cache, plan: "str | None") -> dict:
     many, to_ll = dem_many(airport.dem), airport.frame.transformers()[1]
     rows = [row_of(m, today, many, to_ll, rsc) for m in airport.undersides.values()]
     return {"icao": icao, "plan": plan, "seconds": round(warm, 2),
-            "seconds_with_parse": round(cold, 2), "rows": rows}
+            "seconds_with_parse": round(cold, 2), "rows": rows,
+            "step2": step2_of(airport, law, objects, plan)}
 
 
 def from_capture(path: str, plan: "str | None") -> dict:
@@ -147,7 +193,9 @@ def from_capture(path: str, plan: "str | None") -> dict:
     del cap
     law = Law.for_airport(icao)
     cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
-    return census_of(icao, airport, law, cache, plan or plan_path(icao))
+    from auto_patch_v2.planar.basins import read_objects
+    objects = read_objects(airport, law, cache)[0]
+    return census_of(icao, airport, law, cache, plan or plan_path(icao), objects)
 
 
 def from_pack(icao: str, plan: "str | None") -> dict:
@@ -161,7 +209,8 @@ def from_pack(icao: str, plan: "str | None") -> dict:
     inputs = default_inputs()
     airport, lrep = load_with_report(icao, inputs, law)
     ps = pack_stage(icao, airport, law, inputs, lrep, out=lambda _m: None, write_cache=False)
-    return census_of(icao, ps["airport"], law, ps["ocache"], plan or plan_path(icao))
+    return census_of(icao, ps["airport"], law, ps["ocache"], plan or plan_path(icao),
+                     ps["objects"])
 
 
 def table(results: list[dict]) -> list[str]:
@@ -218,6 +267,13 @@ def main(argv=None) -> int:
         for x in res["rows"]:
             if x["composite"] or any(u in " ".join(x["res"]) for u in a.unit):
                 print(_fmt(x))
+        for r in res.get("step2", ()):
+            print(f"  STEP2 {r['verdict']:<10} {str(r['unit'])[:28]:<28} {r['row']:<13} "
+                  f"rows {r['rows']:>3} pad {r['pad']} D {r['D']} t {r['t']} base {r['base']} "
+                  + (f"REFUSED ({r['refused']})" if "refused" in r else
+                     f"z0 {r['z0']} today {r.get('z_today')} move {r.get('move')} "
+                     f"riders {r.get('riders')}")
+                  + f" @{r.get('lat')},{r.get('lon')}", flush=True)
         results.append(res)
         if a.json:
             Path(a.json).write_text(json.dumps(results, indent=1))

@@ -22,8 +22,10 @@ def test_a_row_off_its_road_is_seated_and_one_on_it_is_not():
     assert not off_road(_pin(218.36, floor_z=211.0), 211.94, LAW)   # a stated floor
     assert not off_road(_pin(218.36, opening=0.0), 211.94, LAW)     # no opening read
     assert not off_road(None, 211.94, LAW)
-    # a portal under the author's ground keeps today's seat (RJTT, LFPG)
-    assert not off_road(_pin(218.36, at_grade=False), 211.94, LAW)
+    # #2225: a floorless portal under the author's ground is seated alike
+    # (RJTT ``tunnel6.obj``: its walls stand on the road its roof states)
+    assert off_road(_pin(218.36, at_grade=False), 211.94, LAW)
+    assert not off_road(_pin(212.10, at_grade=False), 211.94, LAW)
 
 
 def test_an_at_grade_mouth_states_no_floor_of_its_own(tmp_path):

@@ -27,12 +27,30 @@ def _read(ends, by_ll) -> list:
     """``(key, z, shape, top)`` of every station of one object, each once."""
     read, seen = [], set()
     for r in ends:
-        for lat, lon in r.get("stations") or ():
-            k = _key(lat, lon)
+        for k, top in _station_tops(r):
             if k in by_ll and k not in seen:
                 seen.add(k)
-                read.append((k, *by_ll[k], float(r.get("top_y") or 0.0)))
+                read.append((k, *by_ll[k], top))
     return read
+
+
+def _station_tops(r) -> list:
+    """``(key, top)`` per station of one end line's record: its own top
+    where the slab falls along the line (#2241, ``station_tops``), else
+    the line's ``top_y``."""
+    top = float(r.get("top_y") or 0.0)
+    st = list(r.get("station_tops") or ())
+    pts = list(r.get("stations") or ())
+    own = st if len(st) == len(pts) else [top] * len(pts)
+    return [(_key(lat, lon), float(t)) for (lat, lon), t in zip(pts, own, strict=True)]
+
+
+def _held_want(r) -> float:
+    """A held anchor's level at its pinned vertex ``at`` (#2241: moved by
+    that station's own top off the line's)."""
+    k = _key(*r["at"])
+    own = dict(_station_tops(r))
+    return float(r["z_m"]) + own.get(k, float(r.get("top_y") or 0.0)) - float(r.get("top_y") or 0.0)
 
 
 def deck_edge_vertices(p: Patch) -> set[int]:
@@ -81,7 +99,7 @@ def deck_end_flush(p: Patch) -> list[Row]:
         for r in ends:
             if r.get("pinned") and not r.get("yielding") and r.get("at"):
                 k = _key(*r["at"])
-                if k in by_ll and abs(by_ll[k][0] - float(r["z_m"])) > flush:
-                    add(k, by_ll[k][0], float(r["z_m"]), by_ll[k][1])
+                if k in by_ll and abs(by_ll[k][0] - _held_want(r)) > flush:
+                    add(k, by_ll[k][0], _held_want(r), by_ll[k][1])
     out.sort(key=lambda q: -float(q["magnitude_m"]))
     return out

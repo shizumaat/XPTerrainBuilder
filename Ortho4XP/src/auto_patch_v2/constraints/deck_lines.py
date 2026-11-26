@@ -31,6 +31,10 @@ class EndLine(_t.NamedTuple):
     line: tuple[XY, ...]
     terms: tuple[tuple[int, float], ...]
     depth: float
+    #: #2241: ``((vertex, depth there), ...)`` where the slab's top differs
+    #: along the line (``DeckBridge.station_tops``): each seat vertex's own
+    #: depth, ``depth`` their weighted mean; ``()`` reads ``depth`` at every one
+    tops: tuple[tuple[int, float], ...] = ()
 
 
 def end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
@@ -55,10 +59,32 @@ def end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
             if not line or (db.object_id, line) in seen:
                 continue
             seen.add((db.object_id, line))
-            vs = moved[k] if moved is not None and moved[k] else \
-                [near(x, y) for x, y in line]
+            pairs = moved[k] if moved is not None and moved[k] else \
+                [(i, near(x, y)) for i, (x, y) in enumerate(line)]
+            vs = [v for _i, v in pairs]
+            tops = _vertex_depths(db, k, pairs)
+            if tops:
+                # the seat mean's own depth: every station once (``_mean_terms``)
+                tk = db.station_tops[k]
+                depth = sum(float(tk[i]) for i, _v in pairs) / len(pairs) - float(db.bottom_y)
             out.setdefault(db.object_id, []).append(EndLine(
-                db, line, _mean_terms(vs), float(depth)))
+                db, line, _mean_terms(vs), float(depth), tops))
+    return out
+
+
+def _vertex_depths(db: DeckBridge, k: int, pairs) -> tuple[tuple[int, float], ...]:
+    """#2241: each seat vertex's depth -- the mean of its stations' slab tops
+    (``DeckBridge.station_tops[k]``) less the frame's bottom; ``()`` where
+    the deck reads one top per end line, or the tops are one level."""
+    st = getattr(db, "station_tops", ()) or ()
+    if len(st) != 2 or not st[k] or len(st[k]) != len((db.seats_a, db.seats_b)[k]):
+        return ()
+    acc: dict[int, list[float]] = {}
+    for i, v in pairs:
+        acc.setdefault(v, []).append(float(st[k][i]) - float(db.bottom_y))
+    out = tuple(sorted((v, sum(d) / len(d)) for v, d in acc.items()))
+    if max(d for _v, d in out) - min(d for _v, d in out) < 1e-9:
+        return ()
     return out
 
 
@@ -90,8 +116,9 @@ def _rim_seats(planar: PlanarMap, law: Law, decks) -> dict[int, tuple[list, list
         return {}
     reach2 = exact.sq(2.0 * step)
 
-    def seats(st) -> list[int]:
-        return [v for x, y in st if (v := near(x, y)) is not None
+    def seats(st) -> list[tuple[int, int]]:
+        # ``(station index, vertex)``: a station seats nowhere off the cut
+        return [(i, v) for i, (x, y) in enumerate(st) if (v := near(x, y)) is not None
                 and exact.sq(planar.vertices[v].xy[0] - x)
                 + exact.sq(planar.vertices[v].xy[1] - y) <= reach2]
     return {k: (seats(a), seats(b)) for k, (a, b) in got.items()}

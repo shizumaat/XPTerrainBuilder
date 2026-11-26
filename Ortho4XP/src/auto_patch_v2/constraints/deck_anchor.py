@@ -275,7 +275,9 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
         return ()
     full = full_map()
     if full is not None and full is not pm:
-        return _from_full(pm, by_obj, full)
+        from .deck_lines import end_lines
+        tops = {v: d for es in end_lines(pm, law).values() for e in es for v, d in e.tops}
+        return _from_full(pm, by_obj, full, tops)
     from .runway_profile import ridge_chains, threshold_pins
     vw = view(pm, law)
     chains = ridge_chains(vw)
@@ -291,6 +293,9 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
                      for r in _crossing_pins(pm, law, airport)})
     senior.update({v: k for v, (k, _z) in yielding.items()})
     rws = {rw.id: rw for rw in airport.runways}
+    # #2241: each seat's own depth where a slab falls along its end line
+    from .deck_lines import end_lines
+    vt = {v: d for es in end_lines(pm, law).values() for e in es for v, d in e.tops}
     out: list[DeckAnchor] = []
     for oid, plate, ends, tag in _by_plate(pm, law, by_obj):
         cut = {tuple(e[0]): e[3].cut for e in ends}
@@ -316,6 +321,9 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
                            family, rwid, round(p, 6), note=gov[1] if gov else "",
                            cut=cut.get(line, "none"), line=line, plate=plate,
                            graded=graded)
+            if vt and any(q in vt for q in seats):
+                a = _dc.replace(a, station_tops=tuple(round(vt.get(q, depth), 6)
+                                                      for q in seats))
             a = _judge(a, rows, vw, law, rws.get(rwid), senior, yielding)
             # a taxi deck's level is the airside solve's; a GENERATED deck's
             # is stage 1's no-bridge pavement (RULINGS 2026-11-19s (1)): it
@@ -374,14 +382,15 @@ def settle(pm: PlanarMap, z) -> PlanarMap:
     for a in anchors:
         if _solved(a):
             for s in a.stations:
-                acc.setdefault(key(a), {}).setdefault(s, float(z[s]) - float(a.top_y))
+                acc.setdefault(key(a), {}).setdefault(s, float(z[s]) - _station_top(a, s))
     zero = {k: sum(d.values()) / len(d) for k, d in acc.items() if d}
     out = [a if not _solved(a) or key(a) not in zero else _dc.replace(
         a, z_m=round(zero[key(a)] + float(a.top_y), 6)) for a in anchors]
     return _dc.replace(pm, deck_anchors=tuple(out))
 
 
-def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap) -> tuple[DeckAnchor, ...]:
+def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap,
+               vt: "dict[int, float] | None" = None) -> tuple[DeckAnchor, ...]:
     """STAGE 1'S ANCHORS ARE THE FULL MAP'S (deck redesign §1, one
     derivation for both maps; ``model/stage_one.from_full``): each end
     line of this map takes the full map's anchor of the same line — its
@@ -399,7 +408,10 @@ def _from_full(pm: PlanarMap, by_obj: dict, full: PlanarMap) -> tuple[DeckAnchor
         v = at.get(xy)
         if v is None:
             v = min(st, key=lambda q: exact.dist(pm.vertices[q].xy, xy))
-        out.append(_dc.replace(a, v=v, stations=tuple(st)))
+        # #2241: this map's seats take their own tops (``vt``)
+        tops = tuple(round(vt.get(q, a.top_y), 6) for q in st) \
+            if a.station_tops and vt and any(q in vt for q in st) else ()
+        out.append(_dc.replace(a, v=v, stations=tuple(st), station_tops=tops))
     return tuple(_one_per_vertex(out))
 
 
@@ -507,9 +519,24 @@ def _crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list:
 
 def deck_anchor_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """One hard ``Pin`` per anchored end line (module doc)."""
-    return [Pin(a.v, float(a.z_m), Source(GEN, YIELD_RULING if a.yielding else RULING,
-                                          (a.object_id, f"end:{a.end}", a.family)))
+    return [Pin(a.v, _level_at(a, a.v), Source(GEN, YIELD_RULING if a.yielding else RULING,
+                                              (a.object_id, f"end:{a.end}", a.family)))
             for a in getattr(planar, "deck_anchors", ()) or () if a.pinned]
+
+
+def _station_top(a: DeckAnchor, s: int) -> float:
+    """The end line's top at its station ``s`` (#2241: its own, where the
+    slab falls along the line; ``top_y`` otherwise)."""
+    st = tuple(getattr(a, "station_tops", ()) or ())
+    if st and s in a.stations:
+        return float(st[a.stations.index(s)])
+    return float(a.top_y)
+
+
+def _level_at(a: DeckAnchor, v: int) -> float:
+    """The anchor's level at vertex ``v``: ``z_m`` (the end line's level at
+    its top ``top_y``) moved by ``v``'s own top off it (#2241)."""
+    return float(a.z_m) + _station_top(a, v) - float(a.top_y)
 
 
 def sidecar_records(planar: PlanarMap) -> list[dict]:
@@ -529,5 +556,7 @@ def sidecar_records(planar: PlanarMap) -> list[dict]:
              "ref": a.ref, "yielding": a.yielding, "pinned": a.pinned, "note": a.note,
              "cut": a.cut, "witness": witness.get(a.object_id, ""), "plate": a.plate,
              **({"graded": True} if a.graded else {}),
+             **({"station_tops": [round(float(t), 3) for t in a.station_tops]}
+                if a.station_tops else {}),
              "stations": [ll(v) for v in a.stations]}
             for a in getattr(planar, "deck_anchors", ()) or ()]

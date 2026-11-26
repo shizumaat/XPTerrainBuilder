@@ -1990,7 +1990,8 @@ class ParallelBuildRun:
             return False
         arguments = dict(self._tile_arguments[child.tile],
                          boundary_batch=self._boundary_batch_locked(
-                             child.tile))
+                             child.tile),
+                         mesh_pending=self._mesh_pending_locked(child.tile))
         opens_job = (step_key == "vector"
                      and "imagery" in self._programs.get(child.tile, ()))
         prefetch = (opens_job and not getattr(child, "prefetch_token", False)
@@ -2039,6 +2040,28 @@ class ParallelBuildRun:
                 {(int(t[0]), int(t[1])) for t in self._queue}
                 | {(int(c.tile[0]), int(c.tile[1])) for c in self._children
                    if c.tile is not None})
+
+    def _mesh_pending_locked(self, tile):
+        """``[[lat, lon], ...]``: the OTHER tiles of this run in the 3×3
+        block around ``tile`` still owed their mesh step — queued, or
+        building a step up to the mesh (#2290): a re-seat of such a
+        tile's airport waits for that tile's own object stage
+        (``guest_stage.note_mesh_pending``).  A failed or finished tile
+        has left ``_next_step_index`` and the queue."""
+        (lat, lon) = (int(tile[0]), int(tile[1]))
+        queued = set(self._queue)
+        out = []
+        for dlat in (-1, 0, 1):
+            for dlon in (-1, 0, 1):
+                cell = (lat + dlat, lon + dlon)
+                program = self._programs.get(cell) or ()
+                if (dlat, dlon) == (0, 0) or "mesh" not in program:
+                    continue
+                at = self._next_step_index.get(cell)
+                if cell in queued or (at is not None
+                                      and at <= program.index("mesh")):
+                    out.append([cell[0], cell[1]])
+        return out
 
     def _boundary_batch_locked(self, tile):
         """``[[lat, lon], ...]`` the child's boundary check counts as built

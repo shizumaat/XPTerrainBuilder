@@ -18,16 +18,50 @@ origin's (#1884), now on this mesh — in this build's pack journal.
 
 The reuse key (#879) carries the neighbour grounds (:func:`neighbour_marks`),
 so an origin build never serves a placement seated on a ground that moved.
+
+A RE-SEAT WAITS FOR THE ORIGIN'S OWN BUILD IN THE SAME RUN (#2290): when
+the origin tile is still owed its mesh step in this run
+(:func:`note_mesh_pending`) and its ground is not built yet, its own object
+stage — later, over this tile's new mesh — places the airport, guests and
+all; the re-seat is skipped without a not-fitted row.  LOWS, app 1.0.585:
+``+47+013`` finished first, re-ran ``+47+012``'s plan over ``+47+012``'s
+stale ground ("STALE MESH") and warned "Build the tile again" while
+``+47+012`` was still building.
 """
 from __future__ import annotations
 
 import os
 import traceback
 
-__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests", "own_ground"]
+__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests", "own_ground",
+           "note_mesh_pending"]
 
 #: (path, size, mtime_ns) -> sha256 of a mesh: one read per process
 _DIGESTS: dict = {}
+
+#: (lat, lon) of a tile this process builds -> the tiles of the same run
+#: (its 3x3 block) still owed their mesh step (#2290)
+_MESH_PENDING: dict = {}
+
+
+def note_mesh_pending(here, cells) -> None:
+    """Record that the run building tile ``here`` still owes the mesh step
+    of the tiles ``cells`` (``[[lat, lon], ...]``): the parallel parent
+    sends it with every step (``parallel._mesh_pending_locked``), the
+    in-process run lands it per tile from its queue."""
+    _MESH_PENDING[(int(here[0]), int(here[1]))] = frozenset(
+        (int(c[0]), int(c[1])) for c in cells or ())
+
+
+def _waits_for(here, origin, other) -> bool:
+    """Is ``origin`` (its tile ``other``) still to build its mesh in the
+    run building ``here``, its ground not ready — so its own object stage
+    places the airport over ``here``'s new mesh (module docstring)?"""
+    if tuple(origin) not in _MESH_PENDING.get(tuple(here), ()):
+        return False
+    from .post_mesh import _mesh_is_newer_than_alt
+    mesh = _tile_mesh_path(other, origin)
+    return not (os.path.isfile(mesh) and _mesh_is_newer_than_alt(other, mesh))
 
 
 def _mesh_digest(path: str) -> str:
@@ -201,7 +235,7 @@ def reseat_guests(tile, mesh_path: str, failed: "list | None" = None) -> dict:
         here = (int(tile.lat), int(tile.lon))
         stale = _stale(here, _route.mesh_mark(_mesh_digest(mesh_path)))
         for origin, keys in sorted(stale.items()):
-            counts_one = _reseat_from(tile, origin, keys, UI, failed)
+            counts_one = _reseat_from(tile, here, origin, keys, UI, failed)
             for k, v in counts_one.items():
                 counts[k] = counts.get(k, 0) + v
     except Exception as exc:
@@ -214,18 +248,24 @@ def reseat_guests(tile, mesh_path: str, failed: "list | None" = None) -> dict:
     return counts
 
 
-def _reseat_from(tile, origin, keys, UI, failed: list) -> dict:
-    """Run ``origin``'s placement of the airports ``keys`` again."""
+def _reseat_from(tile, here, origin, keys, UI, failed: list) -> dict:
+    """Run ``origin``'s placement of the airports ``keys`` again, unless
+    ``origin``'s own build in this run will (:func:`_waits_for`)."""
     import O4_Config_Utils as CFG
     import O4_File_Names as FNAMES
 
     from . import object_stage
     name = FNAMES.short_latlon(*origin)
+    other = CFG.Tile(origin[0], origin[1], getattr(tile, "custom_build_dir", "") or "")
+    other.read_from_config()
+    if _waits_for(here, origin, other):
+        UI.vprint(0, f"  [v2 rebake] {', '.join(sorted(keys))}: the objects tile "
+                     f"{name} placed on this tile wait for {name}'s build in "
+                     f"this run, whose plan seats them on this mesh")
+        return {"guests_deferred": len(keys)}
     UI.vprint(0, f"  [v2 rebake] {', '.join(sorted(keys))}: the objects tile "
                  f"{name} placed on this tile stand on another ground than "
                  f"this mesh — re-seated by {name}'s plan")
-    other = CFG.Tile(origin[0], origin[1], getattr(tile, "custom_build_dir", "") or "")
-    other.read_from_config()
     got = object_stage._object_stage(other, only=frozenset(keys),
                                      failed=failed)
     return {"guests_reseated": len(keys),

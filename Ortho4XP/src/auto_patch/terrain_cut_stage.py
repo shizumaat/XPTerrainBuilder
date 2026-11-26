@@ -330,7 +330,11 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
 def _bound(members) -> _t.Callable:
     """``cap(lons, lats)``: the cut bound of the composites ``members`` at
     postings (``inf`` off their plans).  A run-out fill's (``rim_only``,
-    :func:`_run_out_cap`) is its rock's own top at its seat."""
+    :func:`_run_out_cap`) is its rock's own top at its seat.  THE BOX'S
+    GAPS (RULINGS 2026-11-26b (2), every terrain shell): a posting inside
+    a plan's box that its plan does not cover is bounded by no member --
+    ``inf``, never ``nan`` (which ``np.minimum`` would carry into the rim
+    fill, and no posting is raised past ``nan``)."""
     from auto_patch_v2.airport import terrain_cut as _tc
 
     def cap(lons, lats):
@@ -340,7 +344,7 @@ def _bound(members) -> _t.Callable:
                 z = _run_out_cap(c.rec, lons, lats)
             else:
                 z = _tc.cut_heights(c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
-            out = np.minimum(out, z)
+            out = np.minimum(out, np.where(np.isnan(z), np.inf, z))
         return out
     return cap
 

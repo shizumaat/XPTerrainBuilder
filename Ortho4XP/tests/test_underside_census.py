@@ -17,7 +17,7 @@ def test_today_reads_each_body_zero_and_its_pad(tmp_path):
     plan.write_text(json.dumps({"splits": [{"placement": {"index": 7}, "bodies": [
         {"surface_z": 366.70, "y_zero": 0.36,
          "anchor_reason": "§16g unit fu:1:2 of 4 member(s) on pad building21 at 366.34"},
-        {"surface_z": 374.0, "y_zero": 0.0, "anchor_reason": "own ground"}]}]}))
+        {"surface_z": 374.0, "y_zero": 0.0, "anchor_reason": "own ground"}]}]}), encoding="utf-8", newline="\n")
     got = uc.today_of(str(plan))
     assert got["dsf:obj7"][0] == (366.70 - 0.36, 366.34)
     assert got["dsf:obj7"][1] == (374.0, None)
@@ -34,5 +34,5 @@ def test_the_table_counts_verdicts_no_pad_and_gaps():
 
 
 def test_the_index_row():
-    index = (ROOT.parent / "tools" / "INDEX.md").read_text()
+    index = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "`Ortho4XP/tools/underside_census.py`" in index

@@ -13,7 +13,8 @@ geometry only (RULINGS 05e: no names, no textures) and hands it to
 ``terrain_shell``'s one path (one rigid frame, never split, the skirt seat
 ``shell_seat``, the hide offer ``terrain_model.quality``).  An
 ``OBJECT_MSL`` row is never a rock: it keeps ``terrain_shell.small_shape``
-/ ``small_match`` (TFFJ, TNCS do not move).
+/ ``small_match`` (TFFJ, TNCS do not move), and a rock's ``OBJECT_MSL``
+row is matched by ``small_match`` at its datum too (#2285).
 
 THE CANDIDATE (:func:`rock_verdict`): its static solid spans
 ``terrain_shell.SHELL_MIN_PLAN_M`` or more and less than

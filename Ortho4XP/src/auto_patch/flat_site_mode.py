@@ -664,10 +664,83 @@ def _tile_water(tile):
         return None, None
 
 
-def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water):
+#: Set while DEM prep composes an airport's ORIGIN tile to read its
+#: decision (:func:`_origin_tile_decision`): that composition decides
+#: every airport on its own raster, as the origin's own build does, and
+#: never reaches across a seam again.
+_COMPOSING_ORIGIN = False
+
+
+def _origin_cell(site) -> tuple[int, int]:
+    lat, lon = site.frame.origin
+    return int(math.floor(lat)), int(math.floor(lon))
+
+
+def _origin_tile_decision(icao, site, tile_lat, tile_lon, xplane_root,
+                          cache):
+    """ONE DECISION PER AIRPORT, ACROSS ITS TILES (#2219).  The build reads
+    the decision of the tile its frame ORIGIN lies in
+    (``ProductionDem.flat_site_decision``); a neighbour tile the site
+    reaches decided on its own part of the raster, where the origin's
+    inset source reads ``unknown`` (``no_data``) or the part's relief
+    reads otherwise — so the plateau ended at the seam (TFFF on FABDEM:
+    Z0 3.658 m west of -61, the raw 0.92 m east, a 2.74 m runway step
+    the verify rejected).  On a NON-origin tile the origin's record is
+    the decision: the origin tile composed from disk (never a fetch,
+    never a write — ``compose_tile_dem_from_disk(write_alt_file=False)``)
+    decides it exactly as its own build does.  ``None`` on the origin
+    tile itself, inside that composition, or when the origin cannot be
+    composed (no base raster: today's per-tile decision stands).
+    ``cache`` holds each origin's decisions for one tile's pass."""
+    global _COMPOSING_ORIGIN
+    cell = _origin_cell(site)
+    if _COMPOSING_ORIGIN or cell == (int(tile_lat), int(tile_lon)):
+        return None
+    if cell not in cache:
+        cache[cell] = None
+        try:
+            import O4_Config_Utils as CFG
+            import O4_File_Names as FNAMES
+            import O4_Vector_Map as VMAP
+            from elevation_access import base_fallback
+
+            origin = CFG.Tile(cell[0], cell[1], "")
+            origin.read_from_config()
+            origin.auto_patch_xplane_root = xplane_root
+            from auto_patch_v2.airport.dem_production import frame_state
+
+            state, _problems = frame_state(FNAMES.Elevation_dir, FNAMES.OSM_dir,
+                                           cell[0], cell[1], icao)
+            if not (state.get("base_raster_present")
+                    and state.get("airports_layer_present")):
+                raise FileNotFoundError("its base raster or airports layer "
+                                        "is not on disk")
+            _COMPOSING_ORIGIN = True
+            try:
+                with base_fallback.cached_reads_only():
+                    odem = VMAP.compose_tile_dem_from_disk(
+                        origin, _dico_airports_from_cache(origin),
+                        write_alt_file=False)
+            finally:
+                _COMPOSING_ORIGIN = False
+            cache[cell] = dict(getattr(odem, "flat_site_decisions", None) or {})
+        except Exception as error:
+            UI.vprint(1, "   [flat-site] origin tile %+03d%+04d not composed "
+                         "(%s: %s) — each tile decides its own part."
+                      % (cell[0], cell[1], type(error).__name__, error))
+    rec = (cache[cell] or {}).get(icao)
+    return dict(rec) if isinstance(rec, dict) else None
+
+
+def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water,
+                    origin_decisions=None):
     """``(record, inputs)`` for one airport — the v2 detector on DEM prep's
-    raw raster (``auto_patch_v2/airport/flat_site_prep.py``); ``(None,
-    None)`` when the airport has no apt.dat this install can read."""
+    raw raster (``auto_patch_v2/airport/flat_site_prep.py``), or the
+    decision of the airport's origin tile when that is another tile
+    (:func:`_origin_tile_decision`); ``(None, None)`` when the airport has
+    no apt.dat this install can read."""
+    if origin_decisions is None:
+        origin_decisions = {}
     from auto_patch_v2.airport import flat_site as _v2flat
     from auto_patch_v2.airport import flat_site_prep as _prep
     from auto_patch_v2.law import Law
@@ -701,8 +774,20 @@ def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water):
                           mod_cache_root=FNAMES.airport_mod_cache_root(),
                           xplane_root=xplane_root, make_pages_dump=_pages_dump)
     UI.vprint(1, _v2flat.log_line(icao, _v2flat.from_record(record)))
+    if (record.get("signals") or {}).get("s1_pass") is False:
+        # S1 (the CIFP thresholds' spread) reads no raster: it fails on
+        # every tile alike, so no tile substitutes — nothing to compose.
+        return record, site
+    origin = _origin_tile_decision(icao, site, tile_lat, tile_lon,
+                                   xplane_root, origin_decisions)
+    if origin is not None:
+        UI.vprint(1, "   [flat-site] %s: decided on its origin tile %+03d%+04d "
+                     "(read from disk) — %s, applied here unchanged (this "
+                     "tile's own part read %s)"
+                  % (icao, *_origin_cell(site), origin.get("verdict"),
+                     record.get("verdict")))
+        return origin, site
     return record, site
-
 
 def _region_bounds_deg(record, tile_lat: int, tile_lon: int):
     """The region's bounding box as tile-relative degrees ``(x0, y0, x1,
@@ -798,9 +883,10 @@ def flat_site_substitutions(tile, dico_airports=None,
     # for the claimed-object-placement clustering after the loop.
     anchor_by_icao: dict = {}
     extent_by_icao: dict = {}
+    origin_decisions: dict = {}         # #2219: one composition per origin
     for icao in icaos:
         record, _site = _decide_airport(icao, xplane_root, dem, tile_lat,
-                                        tile_lon, water)
+                                        tile_lon, water, origin_decisions)
         if record is None:
             continue
         if decisions_out is not None:

@@ -602,3 +602,59 @@ def test_provenance_without_a_substitution_reads_exactly_as_before():
     assert meta["synthetic_flat_site"] is None
     assert meta["raw"] is True
     assert provenance.dem_label(meta) == "base RAW (no inset baked)"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# #2219: ONE decision per airport across its tiles
+def test_a_non_origin_tile_applies_the_origin_tiles_decision(monkeypatch):
+    """The build reads the decision of the tile the frame ORIGIN lies in.
+    A neighbour tile the site reaches decided on its own part of the
+    raster — TFFF on FABDEM: the origin substituted Z0 3.658 m, the
+    neighbour (``no_data`` there) kept the raw 0.92 m, a 2.74 m runway
+    step at the seam.  On a non-origin tile the record is the origin
+    tile's, composed from disk once per origin, never inside that
+    composition, and the substitution carries it unchanged."""
+    import O4_Config_Utils as CFG
+    import O4_Vector_Map as VMAP
+    from auto_patch_v2.airport import dem_production
+
+    wire_airport(monkeypatch)
+    origin_rec = substitutions(make_tile(flat_dem()))[0]["record"]
+    calls = []
+
+    def compose(tile, dico, write_alt_file=True):
+        assert write_alt_file is False and flat_site_mode._COMPOSING_ORIGIN
+        calls.append((tile.lat, tile.lon))
+        return types.SimpleNamespace(flat_site_decisions={"TEST": origin_rec})
+
+    class _Tile:
+        def __init__(self, lat, lon, _dir):
+            self.lat, self.lon = lat, lon
+
+        def read_from_config(self):
+            return None
+
+    monkeypatch.setattr(VMAP, "compose_tile_dem_from_disk", compose)
+    monkeypatch.setattr(CFG, "Tile", _Tile)
+    monkeypatch.setattr(flat_site_mode, "_dico_airports_from_cache",
+                        lambda tile: {})
+    monkeypatch.setattr(dem_production, "frame_state", lambda *a, **k: (
+        {"base_raster_present": True, "airports_layer_present": True}, []))
+    # the neighbour tile (0, 1) holds a 2 % ramp: on its own part it would
+    # decide not_flat
+    host = make_tile(sloped_dem())
+    host.lat, host.lon = 0, 1
+    got = flat_site_mode.flat_site_substitutions(
+        host, dico_airports=dico(), xplane_root="/synthetic/X-Plane")
+    assert calls == [(0, 0)]
+    assert len(got) == 1 and got[0]["verdict"] == V2FLAT.FLAT_CANDIDATE
+    assert got[0]["z0_m"] == pytest.approx(origin_rec["z0_m"])
+    # the origin tile itself, and the origin's own composition, decide
+    # locally (no composition)
+    site = PREP.site_inputs("TEST", "", None, None)
+    assert flat_site_mode._origin_tile_decision(
+        "TEST", site, 0, 0, "/x", {}) is None
+    monkeypatch.setattr(flat_site_mode, "_COMPOSING_ORIGIN", True)
+    assert flat_site_mode._origin_tile_decision(
+        "TEST", site, 0, 1, "/x", {}) is None
+    assert calls == [(0, 0)]

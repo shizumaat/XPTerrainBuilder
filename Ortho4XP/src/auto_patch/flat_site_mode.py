@@ -769,20 +769,25 @@ def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water,
         if site.pack_root:
             from .engine_v2 import fresh_dumps
             fresh_dumps([site.pack_root], tile_lat, tile_lon)
-    record = _origin_tile_decision(icao, site, tile_lat, tile_lon,
-                                   xplane_root, origin_decisions)
-    if record is not None:
-        UI.vprint(1, "   [flat-site] %s: decided on its origin tile %+03d%+04d "
-                     "(read from disk) — %s, applied here unchanged"
-                  % (icao, *_origin_cell(site), record.get("verdict")))
-        return record, site
     record = _prep.decide(site, dem, tile_lat, tile_lon, water, law,
                           out=lambda line: UI.vprint(1, line),
                           mod_cache_root=FNAMES.airport_mod_cache_root(),
                           xplane_root=xplane_root, make_pages_dump=_pages_dump)
     UI.vprint(1, _v2flat.log_line(icao, _v2flat.from_record(record)))
+    if (record.get("signals") or {}).get("s1_pass") is False:
+        # S1 (the CIFP thresholds' spread) reads no raster: it fails on
+        # every tile alike, so no tile substitutes — nothing to compose.
+        return record, site
+    origin = _origin_tile_decision(icao, site, tile_lat, tile_lon,
+                                   xplane_root, origin_decisions)
+    if origin is not None:
+        UI.vprint(1, "   [flat-site] %s: decided on its origin tile %+03d%+04d "
+                     "(read from disk) — %s, applied here unchanged (this "
+                     "tile's own part read %s)"
+                  % (icao, *_origin_cell(site), origin.get("verdict"),
+                     record.get("verdict")))
+        return origin, site
     return record, site
-
 
 def _region_bounds_deg(record, tile_lat: int, tile_lon: int):
     """The region's bounding box as tile-relative degrees ``(x0, y0, x1,

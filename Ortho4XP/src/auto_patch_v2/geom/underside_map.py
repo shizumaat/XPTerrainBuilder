@@ -70,6 +70,9 @@ __all__ = ["CELL_M", "MAX_CELLS", "SKIN_M", "SHEET_STEP_M", "BEHIND_M", "WALL_M"
 #: the plan grid (m); a grid that would exceed :data:`MAX_CELLS` coarsens
 CELL_M = 1.0
 MAX_CELLS = 1_000_000
+#: the most cell samples one plan's triangles read before the grid coarsens
+#: (RJTT's ground plates: 27 s at 1 m); ``None`` reads every cell
+MAX_SAMPLES = 6_000_000
 #: a SKIN cell stands no thicker than this, top to lowest surface (m)
 SKIN_M = 0.5
 #: the most two joined cells of ``P`` differ in contact height (m)
@@ -176,6 +179,7 @@ def _grid(lo: np.ndarray, hi: np.ndarray, step: float, max_cells: int
 
 def rasterise_layers(p: np.ndarray, floor_ok: np.ndarray, foot_max: np.ndarray,
                      step: float = CELL_M, max_cells: int = MAX_CELLS,
+                     max_samples: "float | None" = MAX_SAMPLES,
                      chunk: int = 4_000_000) -> "Layers | None":
     """THE LAYERS (module doc) of the triangles ``p`` ``(n, 3, 3)`` as
     ``(east, north, y)``, binned at cell centres: ``floor_ok`` per triangle
@@ -186,7 +190,15 @@ def rasterise_layers(p: np.ndarray, floor_ok: np.ndarray, foot_max: np.ndarray,
     if not len(p):
         return None
     xy = p[:, :, :2].reshape(-1, 2)
-    e0, n0, step, ncol, nrow = _grid(xy.min(0), xy.max(0), step, max_cells)
+    lo, hi = xy.min(0), xy.max(0)
+    e0, n0, step, ncol, nrow = _grid(lo, hi, step, max_cells)
+    # THE SAMPLE BUDGET: each triangle samples its box's cells, so a plan of
+    # wide ground plates coarsens until :data:`MAX_SAMPLES` cells are read
+    ext = p[:, :, :2].max(1) - p[:, :, :2].min(1)
+    need = float(np.sum((ext[:, 0] / step + 1.0) * (ext[:, 1] / step + 1.0)))
+    if max_samples is not None and need > max_samples:
+        e0, n0, step, ncol, nrow = _grid(lo, hi, step * math.sqrt(need / max_samples),
+                                         max_cells)
     size = nrow * ncol
     top = np.full(size, -np.inf)
     low = np.full(size, np.inf)

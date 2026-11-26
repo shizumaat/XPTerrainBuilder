@@ -205,11 +205,12 @@ def _law(law) -> tuple[float, float, float, float]:
             float(law.tables.structures.placement.chain_min_height_m))
 
 
-def _layers(got: list) -> "_um.Layers | None":
+def _layers(got: list, max_samples: "float | None" = _um.MAX_SAMPLES) -> "_um.Layers | None":
     got = [g for g in got if g is not None]
     if not got:
         return None
-    return _um.rasterise_layers(*(np.concatenate([g[k] for g in got]) for k in range(3)))
+    return _um.rasterise_layers(*(np.concatenate([g[k] for g in got]) for k in range(3)),
+                                max_samples=max_samples)
 
 
 def _set_layers(part, maps: dict, unit_of: dict, placer: _Placer) -> dict:
@@ -228,15 +229,38 @@ def _set_layers(part, maps: dict, unit_of: dict, placer: _Placer) -> dict:
         b[:] = [min(b[0], g.e0), min(b[1], g.n0),
                 max(b[2], g.e0 + g.step * g.top.shape[1]),
                 max(b[3], g.n0 + g.step * g.top.shape[0])]
+    keys: dict[str, list] = {}
+    for k, m in maps.items():
+        keys.setdefault(unit_of.get(m.unit, ""), []).append(k)
     out = {}
     for u in part.units:
         b = box.get(str(u.id))
         if b is None or max(b[2] - b[0], b[3] - b[1]) < SHELL_MIN_PLAN_M:
             continue
-        g = _layers([placer.placed(m, None) for m in u.members])
+        if not _may_be_composite([maps[k].layers for k in keys.get(str(u.id), ())]):
+            continue
+        # at 1 m whatever it costs: the composite test reads the 1 m lattice
+        g = _layers([placer.placed(m, None) for m in u.members], max_samples=None)
         if g is not None:
             out[str(u.id)] = g
     return out
+
+
+def _may_be_composite(layers: list) -> bool:
+    """THE CHEAP PRE-TEST of a set's composite plan (DEM-free, on its
+    cluster maps): their skin cells span half ``terrain_shaped.MIN_RELIEF_M``
+    of relief beyond their plane.  A set that cannot model ground is never
+    rasterised whole (ELLX firestation 4.1 m here, 5.7 m whole)."""
+    from .terrain_shaped import MIN_RELIEF_M
+    g = _um.compose(layers)
+    if g is None:
+        return False
+    with np.errstate(invalid="ignore"):
+        skin = np.isfinite(g.top) & ((g.top - g.low) <= _um.SKIN_M)
+    if skin.sum() < 3:
+        return False
+    e, n = g.centres(*np.nonzero(skin))
+    return _um.relief(e, n, g.top[skin].astype(float)) >= 0.5 * MIN_RELIEF_M
 
 
 def _derive(airport, law, cache) -> dict:

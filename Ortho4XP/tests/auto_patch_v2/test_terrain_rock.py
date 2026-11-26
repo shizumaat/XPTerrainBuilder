@@ -173,7 +173,7 @@ def test_row_datum_is_the_ground_plus_the_lift_and_msl_rows_are_never_rocks(tmp_
     assert TR.row_datum("OBJECT_AGL", 2.0, (0.0, 0.0), dem, s) is None
 
 
-def test_a_plain_row_matches_where_its_rim_does_not_float_and_msl_is_not_read(tmp_path):
+def test_a_plain_row_matches_where_its_rim_does_not_float_and_msl_is_a_shell(tmp_path):
     path = _write(tmp_path)
     rows = [("dsf:obj1", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT"),
             ("dsf:obj2", "m.obj", (900.0, 0.0), 0.0, None, "OBJECT"),
@@ -185,13 +185,26 @@ def test_a_plain_row_matches_where_its_rim_does_not_float_and_msl_is_not_read(tm
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
         return 10.0 + np.where((np.abs(xs - 900.0) < 5.0) & (np.abs(ys) < 5.0), 20.0, 0.0)
     found = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path), dem)
-    assert set(found) == {"dsf:obj1"}
+    # #2285 (TNCS's hard tide-pool shell): the OBJECT_MSL row of a rock is
+    # a small shell at its author's datum, never left to the 11d conversion
+    assert set(found) == {"dsf:obj1", "dsf:obj3"}
     m = found["dsf:obj1"]
     assert m.small and m.datum is None and m.z0 == pytest.approx(10.0) and m.fill_z0 is None
+    s = found["dsf:obj3"]
+    assert s.small and s.datum == pytest.approx(10.0) and s.z0 == pytest.approx(10.0)
+    assert s.fill_z0 is None and not s.hideable
     rec = TR.rock_match(TM.shape_of(path), (0.0, 0.0), 0.0, _flat(10.0), 10.0)
     assert rec["level_m"] == pytest.approx(0.0, abs=0.01) and not rec["hideable"]
     # a buried rim is the skirt's business: our ground 3 m over it matches
     assert TR.rock_match(TM.shape_of(path), (0.0, 0.0), 0.0, _flat(13.0), 10.0) is not None
+
+
+def test_an_msl_rock_row_off_our_ground_is_not_a_shell(tmp_path):
+    """#2285: the shell law's level test still holds on a rock's
+    OBJECT_MSL row -- authored 30 m over our ground, it is not read."""
+    s = TM.shape_of(_write(tmp_path))
+    assert TM.match(s, (0.0, 0.0), 0.0, _flat(10.0), datum=10.0) is not None
+    assert TM.match(s, (0.0, 0.0), 0.0, _flat(10.0), datum=40.0) is None
 
 
 def _slope(xs, ys):

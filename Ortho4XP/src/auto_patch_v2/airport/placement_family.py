@@ -321,6 +321,11 @@ class PlanCluster:
     #: the same discipline ``cluster_no_height`` keeps for a plan carrying
     #: no solid heights.
     evidence: _t.Any = None
+    #: THE PART IDS of the cluster's bodies (RULINGS 2026-11-25m: the
+    #: underside map reads a cluster's own parts, ``airport/unit_underside``)
+    #: -- the canonical join to the plan's parts.  Empty in a cluster
+    #: derived before the field.
+    pids: frozenset[int] = frozenset()
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -787,6 +792,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     bridges=tuple(tuple(r) for i in grp
                                   for r in shims[i].bridges),
                     bodies=len(grp),
+                    pids=frozenset().union(*(shims[i].pids for i in grp)),
                     footed=sum(1 for i in grp if shims[i].footed),
                     walled=sum(1 for i in grp if shims[i].walled),
                     # §16g (10) (12), issue #101: v1's two pad-admission

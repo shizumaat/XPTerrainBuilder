@@ -135,6 +135,10 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # RULINGS 2026-11-25g/h: each terminal-sized unit's airside and
     # groundside floors -- a REPORT key (``pipeline/frontage_publication``)
     "terminal_frontages",
+    # RULINGS 2026-11-25m: each footprint unit's underside map and the
+    # perimeter stations our ground does not reach -- REPORT keys
+    # (``pipeline/underside_publication``)
+    "unit_undersides", "perimeter_unserved",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest
     # law, which the two §45 C14 families judge the emitted surface

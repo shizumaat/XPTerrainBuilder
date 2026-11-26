@@ -3867,3 +3867,10 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
 for _stage, _mods_of in list(CODE_MODULES.items()):
     if {"auto_patch_v2.model.frame", "auto_patch_v2.geom.pad_base_slope"} & set(_mods_of):
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.deg_metres")}))
+
+# lund1 (2026-11-25, RULINGS 25m step 1): the underside maps published on
+# the sidecar (pipeline/underside_publication)
+_GROWN_UNDER = ("airport.underside_admission airport.underside_composite "
+                "airport.unit_underside geom.underside_map pipeline.underside_publication")
+for _stage in ("emit", "verify"):
+    CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_GROWN_UNDER)}))

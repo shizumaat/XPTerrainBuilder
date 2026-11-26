@@ -326,14 +326,28 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _say(f"  [connectors] {len(_verdicts)} connector(s): "
              f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
              f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
+        # RULINGS 2026-11-25m: THE UNDERSIDE MAPS, one per footprint unit,
+        # cached beside the partition (held BEFORE its write so a MISS
+        # writes them with it; ``airport/unit_underside``)
+        from ..airport import unit_underside as _under
+
+        def _undersides(clusters):
+            _t = time.perf_counter()
+            got, (_s, st) = _under.attach_undersides(
+                _dc.replace(airport, partition=_part, clusters=clusters), law, ocache,
+                write_cache=write_cache)
+            _sub["undersides"] = time.perf_counter() - _t
+            return got.undersides, st
         if _cached_clusters is not None:
             _clusters = _cached_clusters
+            _maps = _undersides(_clusters)
         else:
             _t = time.perf_counter()
             _pulse.tick("deriving the terminal clusters")
             _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law,
                                          pool=_wpool)
             _sub["clusters"] = time.perf_counter() - _t
+            _maps = _undersides(_clusters)
             if write_cache and _pcache.write(_cpath, _fp,
                              (pack_objects, pack_report, _part, _clusters,
                               ocache.derived_state())):
@@ -345,7 +359,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     finally:
         _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
-                          clusters=_clusters)
+                          clusters=_clusters, undersides=_maps[0])
+    _say("  " + _under.log_line(icao, _maps[0], _sub.get("undersides", 0.0), _maps[1]), out)
     # owner RULINGS 2026-10-27t/u (#1201): the walled plates the pack reading
     # recognised travel on the airport to the end area, the ground and the seat
     from ..airport import walled_plate as _walled_plate

@@ -585,6 +585,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.trench_objects",
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",
+    "auto_patch_v2.airport.underside_admission auto_patch_v2.airport.underside_composite auto_patch_v2.airport.unit_underside auto_patch_v2.geom.underside_map auto_patch_v2.pipeline.underside_publication",
     "auto_patch_v2.airport.unit_fence",
     "auto_patch_v2.airport.unit_storey",
     "auto_patch_v2.airport.user_roles",

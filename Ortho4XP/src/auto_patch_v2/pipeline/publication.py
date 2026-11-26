@@ -92,6 +92,7 @@ import typing as _t
 from ..airport import dsf as _dsf
 from ..constraints import runway_end_report as _end_report
 from .frontage_publication import terminal_frontage_records
+from .underside_publication import underside_records
 from .storey_publication import storey_shell_records
 from .upper_pad_publication import upper_pad_records
 from ..constraints.contiguity import road_station_caps
@@ -808,6 +809,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # (``pipeline/frontage_publication``): each terminal-sized
             # unit's airside and groundside floors -- a REPORT key (step 1)
             "terminal_frontages": terminal_frontage_records(planar, law, airport, z=z),
+            # RULINGS 2026-11-25m THE UNDERSIDE MAPS
+            # (``pipeline/underside_publication``): each footprint unit's
+            # underside, pad level and S3 verdict -- REPORT keys (step 1)
+            **underside_records(planar, airport, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],
             # ...``.  Published because the pad's flatness READER

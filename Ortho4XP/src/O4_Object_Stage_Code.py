@@ -360,6 +360,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.torn_pack",
     "auto_patch_v2.airport.touch_graph",
     "auto_patch_v2.airport.touch_seat",
+    "auto_patch_v2.airport.underside_admission auto_patch_v2.airport.underside_composite auto_patch_v2.airport.unit_underside auto_patch_v2.geom.underside_map auto_patch_v2.pipeline.underside_publication",
     "auto_patch_v2.airport.unpatched_pack",
     "auto_patch_v2.airport.user_roles",
     "auto_patch_v2.airport.user_seats",

@@ -25,9 +25,10 @@ its plan in pieces each spanning ``SHELL_MIN_PLAN_M`` or more
 (:func:`_big_piece_share`).
 
 THE WITNESS (``rock_witness``): one top sheet standing on its own ground
-zero, no storey walls, no right-angle creases, not axis-aligned.  A
-candidate it refuses is not a rock (the census lists it with its failing
-gates).  A composite of terrain and built parts is not a rock (RULINGS
+zero, no storey walls, no right-angle creases, not axis-aligned, and a
+natural surface -- no large smooth continuous curve (RULINGS 2026-11-26b
+(1)).  A candidate it refuses is not a rock (the census lists it with
+its failing gates).  A composite of terrain and built parts is not a rock (RULINGS
 2026-11-25l (1): it is an ELLX-like partial shell).
 
 ONE RIGID FRAME OF ITS OWN (:func:`own_frame`): every other row sharing

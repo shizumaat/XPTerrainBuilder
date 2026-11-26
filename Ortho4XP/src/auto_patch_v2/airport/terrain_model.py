@@ -28,7 +28,10 @@ THE CANDIDATE (no DEM; one verdict per file version, :func:`shape_of`):
   so the plan-weighted 10th-90th percentile spread of log10(texture area
   / plan area) is at most :data:`MAX_PHOTO_SPREAD` (a factor of about
   2.2).  A building or a bridge packs facades, roofs and details into an
-  atlas at many densities.
+  atlas at many densities;
+* ONE SHEET -- its upward faces are one connected sheet
+  (``rock_witness``'s ``one_sheet``, #2250): a hillside town under one
+  photo atlas passes the density, never this.
 
 THE MATCH (the DEM under the placement, :func:`match`): the top surface
 sampled over its covered cells follows the ground --
@@ -296,7 +299,7 @@ def _shape(path: str) -> "Shape | None":
     g = parse_obj8(path)
     plan = _plan_m(g)
     if plan >= MIN_PLAN_M:
-        return _gated(path, g, plan, MAX_PHOTO_SPREAD, MIN_RELIEF_M)
+        return _one_sheet(path, g, _gated(path, g, plan, MAX_PHOTO_SPREAD, MIN_RELIEF_M))
     from .terrain_rock import rock_shape
     from .terrain_shell import small_shape
     shell, rock = small_shape(path, g), rock_shape(path, g)
@@ -320,6 +323,21 @@ def _gated(path: str, g: _t.Any, plan: float, max_spread: float, min_relief: flo
     if hi - lo < min_relief:
         return None
     return Shape(grid, plan, float(hi - lo), spread, post_m(g.vertices, tris), small)
+
+
+def _one_sheet(path: str, g: _t.Any, shape: "Shape | None") -> "Shape | None":
+    """THE ONE-SHEET GATE of a terrain model (#2250; the rock witness's
+    ``one_sheet``, ``rock_witness.ROCK_MIN_SHEET``): the top of a modelled
+    terrain is one connected sheet (SBRJ Sugarloaf, KHAF ``mesh01``, LOWS
+    ``land_lows``, TNCS's coast shells: 1.00), a roofscape is many (FlyTampa
+    LGKR's island building tiles 0.003-0.15, SBRJ's city groups 0.15) --
+    photo-textured roofs over a hillside town correlate with the ground, and
+    fitting their tops to it sank the town by its storeys."""
+    if shape is None:
+        return None
+    from . import rock_witness as _rw
+    f = _rw.features(g, _vt_rows(path), shape.grid)
+    return shape if f["sheet"] >= _rw.ROCK_MIN_SHEET else None
 
 
 def plan_grid(path: str) -> "DeckGrid | None":

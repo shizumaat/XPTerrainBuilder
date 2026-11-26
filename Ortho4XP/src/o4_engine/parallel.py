@@ -1990,7 +1990,8 @@ class ParallelBuildRun:
             return False
         arguments = dict(self._tile_arguments[child.tile],
                          boundary_batch=self._boundary_batch_locked(
-                             child.tile))
+                             child.tile),
+                         run_meshes=self._run_meshes_locked(child.tile))
         opens_job = (step_key == "vector"
                      and "imagery" in self._programs.get(child.tile, ()))
         prefetch = (opens_job and not getattr(child, "prefetch_token", False)
@@ -2039,6 +2040,18 @@ class ParallelBuildRun:
                 {(int(t[0]), int(t[1])) for t in self._queue}
                 | {(int(c.tile[0]), int(c.tile[1])) for c in self._children
                    if c.tile is not None})
+
+    def _run_meshes_locked(self, tile):
+        """``[[lat, lon], ...]``: the OTHER tiles of this run in the 3×3
+        block around ``tile`` whose program builds a mesh (#2290): a
+        re-seat of such a tile's airport while its ground is not built
+        yet waits for that tile's own object stage (``guest_stage.
+        note_run_meshes``).  The run's cells, as ``boundary_batch`` reads
+        them — never its live progress, so a worker is asked the same
+        work however the steps interleave."""
+        return [cell for cell in self._boundary_batch_locked(tile)
+                if tuple(cell) != (int(tile[0]), int(tile[1]))
+                and "mesh" in (self._programs.get(tuple(cell)) or ())]
 
     def _boundary_batch_locked(self, tile):
         """``[[lat, lon], ...]`` the child's boundary check counts as built

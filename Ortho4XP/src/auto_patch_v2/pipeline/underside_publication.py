@@ -21,31 +21,17 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["SAMPLES_MAX", "underside_records"]
-
-#: the most ground contacts a unit's pad lookup reads
-SAMPLES_MAX = 64
-
-
-def _samples(m) -> tuple[np.ndarray, np.ndarray]:
-    """Up to :data:`SAMPLES_MAX` frame points of ``m``'s ground contacts,
-    its airside stations first."""
-    g = m.layers
-    ii, jj = np.nonzero(m.plan & np.isfinite(g.foot))
-    e, n = g.centres(ii, jj)
-    air = np.asarray(m.airside, dtype=bool)
-    if air.any():
-        e, n = m.e[air], m.n[air]
-    k = max(1, -(-len(e) // SAMPLES_MAX))
-    return e[::k], n[::k]
+__all__ = ["underside_records"]
 
 
 def _pad_levels(planar, maps: _t.Sequence, z) -> list[tuple["str | None", "float | None"]]:
     """``(pad ref, level)`` per map: the ``building`` face holding most of
-    its sampled contacts (:func:`_samples`) and the median solved height of
+    its sampled contacts (``airport/underside_seat.contact_samples``) and the median solved height of
     its vertices; ``(None, None)`` off every pad or without ``z``."""
     import shapely
     from shapely.geometry import Polygon
+
+    from ..airport.underside_seat import contact_samples
     faces = [(f.ref, planar.ring_vertices(f.ring)) for f in planar.faces.values()
              if f.role == "building"]
     polys = [Polygon([planar.vertices[v].xy for v in vs]).buffer(0.0) for _r, vs in faces]
@@ -54,7 +40,7 @@ def _pad_levels(planar, maps: _t.Sequence, z) -> list[tuple["str | None", "float
     tree = shapely.STRtree(polys)
     out = []
     for m in maps:
-        e, n = _samples(m)
+        e, n = contact_samples(m)
         if not len(e):
             out.append((None, None))
             continue

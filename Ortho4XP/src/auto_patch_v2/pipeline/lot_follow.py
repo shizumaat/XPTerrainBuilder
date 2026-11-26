@@ -29,9 +29,10 @@ constant here, so the row only ever moves the lot: no loop, no leader to
 lose (stage 2's two-way coupling sank ``building8`` 1.13 m at HECA).
 
 THE LOT THAT FOLLOWS ITS GROUND (owner RULINGS 2026-11-25e, #2283 EKVG) is
-a follower too: every lot vertex with no level target
-(``model/lot_ground.lot_datum_vertices``) is freed here, carries the weak
-``z = DEM`` row (``solve/design_assemble`` 9', ``lot_datum``) and its road
+a follower too: every vertex of the lot and of the roads in it with no
+pad level (``model/lot_ground.lot_follower_vertices``) is freed here,
+carries the weak ``z = DEM`` row (``solve/design_assemble`` 9',
+``lot_datum``) or its road profile's own ``road_fit`` row, and its road
 leaving the lot at a neck is priced under the road law
 (``pipeline/lot_neck.neck_release``, applied to this pass's rows only).
 Stage 2 solved the lot at its body's plane, so the airside, the pads and
@@ -44,7 +45,7 @@ import heapq
 import typing as _t
 
 from ..model.constraints import ConstraintSet, Linear, Source
-from ..model.lot_ground import lot_datum_vertices
+from ..model.lot_ground import lot_follower_vertices
 from ..model.planar import PlanarMap, face_vertex_set
 
 __all__ = ["LOT_FOLLOW_RULING", "lot_follow_rewrite"]
@@ -125,7 +126,7 @@ def lot_follow_rewrite(pm: PlanarMap, cs: ConstraintSet, z: _t.Sequence[float],
     levelled = _followers(pm)
     pairs = _record(pm).get("pairs") or {}
     level = {v: q for v, q in pairs.items() if v in levelled and q not in levelled}
-    ground = lot_datum_vertices(pm) - levelled
+    ground = lot_follower_vertices(pm, law) - levelled
     free = (levelled if level else set()) | ground
     if not free:
         return None

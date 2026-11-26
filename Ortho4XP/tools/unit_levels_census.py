@@ -150,6 +150,19 @@ def census_of(cap: dict, path: str) -> dict:
     )
     icao, airport, pm = cap["icao"], cap["airport"], cap["pm"]
     law = Law.for_airport(icao)
+    if getattr(airport, "undersides", None) is None:
+        # a capture older than the underside maps (RULINGS 2026-11-25m): rung
+        # L0 reads them, derived as the build's pack stage derives them
+        from auto_patch_v2.airport import frame_entry as _fe
+        from auto_patch_v2.airport.obj8 import ResourceCache
+        from auto_patch_v2.airport.unit_underside import attach_undersides
+        if not any(getattr(c, "pids", None) for c in airport.clusters or ()):
+            import dataclasses as _dc
+
+            from auto_patch_v2.planar.cluster import clusters
+            airport = _dc.replace(airport, clusters=tuple(clusters(airport, law)))
+        airport, _w = attach_undersides(airport, law, ResourceCache(
+            law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law)), cached=False)
     levels = frontage_levels(pm, law, airport)
     recs = terminal_frontage_records(pm, law, airport, levels)
     to_ll = airport.frame.transformers()[1]
@@ -203,7 +216,8 @@ def _fmt(icao: str, r: dict) -> str:
             f"air {r['air_y']:+6.2f} "
             f"land {'   -  ' if r['land_y'] is None else format(r['land_y'], '+6.2f')} "
             f"rise {r['rise']:+6.2f} {str(r['witness'] or '-'):12s} "
-            f"g {r['g_air']}/{r['g_land']} {r['verdict']:11s} face {r['face_m']:6.0f} m "
+            f"L0 {r.get('l0')} g {r['g_air']}/{r['g_land']} {r['verdict']:11s} "
+            f"face {r['face_m']:6.0f} m "
             f"band {r['band_vertices']:4d} lv {[lv['rise'] for lv in r['levels']]} "
             f"clues {_clues(r['clues'])}  today R1={'y' if r['r1'] else 'n'} "
             f"minted {r['minted']}  law {'TAKES' if r.get('frontage') else '-'}  "

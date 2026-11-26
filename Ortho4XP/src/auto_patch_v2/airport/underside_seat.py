@@ -41,8 +41,7 @@ import numpy as np
 from .terrain_shaped import UNDERSIDE_SEAT as SEAT
 from .underside_admission import COHERENT_M, admit
 
-__all__ = ["SEAT", "ADMITTED", "contact_samples", "unit_pad", "whole_refusal",
-           "unit_zero", "seat_records", "log_line"]
+__all__ = ["SEAT", "ADMITTED", "contact_samples", "seat_records", "log_line"]
 
 #: the verdicts written whole (S3 (b), (c)); (a) coherent stays on today's
 #: path: its zero is today's by definition
@@ -68,7 +67,7 @@ def contact_samples(m: _t.Any) -> tuple[np.ndarray, np.ndarray]:
     return e[::k], n[::k]
 
 
-def unit_pad(m: _t.Any, pads: _t.Sequence[_t.Any], to_ll: _t.Callable
+def _unit_pad(m: _t.Any, pads: _t.Sequence[_t.Any], to_ll: _t.Callable
              ) -> tuple["str | None", "float | None"]:
     """``(pad ref, D)``: the pad holding the plurality of ``m``'s sampled
     contacts (:func:`contact_samples`; ``placement_family.pad_plurality``,
@@ -102,7 +101,7 @@ def _clusters_of_rows(airport) -> dict[str, set[str]]:
     return out
 
 
-def whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.Any],
+def _whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.Any],
                   taken: _t.AbstractSet[str], clusters_of: _t.Mapping[str, set],
                   mapped: _t.AbstractSet[str]) -> "str | None":
     """Why ``m``'s rows cannot be written whole (module doc, DOUBT), or
@@ -130,7 +129,7 @@ def whole_refusal(m: _t.Any, rows: _t.Sequence[str], by_id: _t.Mapping[str, _t.A
     return None
 
 
-def unit_zero(m: _t.Any, verdict: str, D: float) -> float:
+def _unit_zero(m: _t.Any, verdict: str, D: float) -> float:
     """``z0`` of an admitted map (module doc): ``D - t``; a composite whose
     ``t`` agrees with today's base keeps today's zero ``D - base``."""
     base = float(m.base or 0.0)
@@ -202,18 +201,18 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
     report: list[dict[str, _t.Any]] = []
     for m in sorted(maps, key=lambda q: q.key):
         rows = [str(r) for r in m.key if not str(r).startswith("@")]
-        pad, D = unit_pad(m, pads, to_ll)
+        pad, D = _unit_pad(m, pads, to_ll)
         verdict, det = admit(m, D, np.asarray(many(m.e, m.n), dtype=float))
         if verdict not in ADMITTED or D is None:
             continue
         rep = {"unit": m.unit, "row": rows[0], "rows": len(rows), "pad": pad,
                "D": round(D, 3), "t": round(float(m.t), 3),
                "base": round(float(m.base or 0.0), 3), "verdict": verdict, **det}
-        why = whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped)
+        why = _whole_refusal(m, rows, by_id, taken | held, clusters_of, mapped)
         if why is not None:
             report.append({**rep, "refused": why})
             continue
-        z0 = round(unit_zero(m, verdict, D), 3)
+        z0 = round(_unit_zero(m, verdict, D), 3)
         lift = float(getattr(by_id[rows[0]], "agl_m", 0.0) or 0.0)
         riders = _riders(m, objects, free - held, widen_m)
         rid = {str(o.id) for o in riders}

@@ -2376,6 +2376,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.airport import frame_entry as _fe0
         from auto_patch_v2.airport import unit_underside as _under0
         from auto_patch_v2.airport.obj8 import ResourceCache as _RC0
+        if not any(getattr(c, "pids", None) for c in airport.clusters or ()):
+            # a capture's clusters predate their part sets (``Cluster.pids``)
+            from auto_patch_v2.planar.cluster import clusters as _cl0
+            airport = _dc.replace(airport, clusters=tuple(_cl0(airport, law)))
         airport, (_us0, _st0) = _under0.attach_undersides(
             airport, law, _RC0(law.tables.structures.basin.min_solid_thickness_m,
                                _fe0.quantum(law)), cached=False)

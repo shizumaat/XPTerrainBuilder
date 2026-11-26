@@ -139,6 +139,8 @@ def terminal_frontage_records(planar, law, airport, levels=None,
             "levels": [{"y": lv.y, "rise": round(lv.y - r.air_y, 2), "area_m2": lv.area_m2,
                         "parts": lv.parts, "dist_m": lv.dist_m} for lv in r.levels],
             "witness": r.witness, "g_air": r.ground[0], "g_land": r.ground[1],
+            # RULINGS 2026-11-25m rung L0: the underside contacts' level (a twin)
+            "l0": r.l0,
             "verdict": r.verdict,
             "face_m": round(float(r.face.length), 1),
             "face_ll": [ll(g.coords) for g in getattr(r.face, "geoms", ())],

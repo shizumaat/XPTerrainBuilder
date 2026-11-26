@@ -26,8 +26,8 @@ __all__ = ["underside_records"]
 
 def _pad_levels(planar, maps: _t.Sequence, z) -> list[tuple["str | None", "float | None"]]:
     """``(pad ref, level)`` per map: the ``building`` face holding most of
-    its sampled contacts (``airport/underside_seat.contact_samples``) and the median solved height of
-    its vertices; ``(None, None)`` off every pad or without ``z``."""
+    its sampled contacts (``airport/underside_seat.contact_samples``) and
+    the median solved height of its vertices; ``(None, None)`` off every pad or without ``z``."""
     import shapely
     from shapely.geometry import Polygon
 

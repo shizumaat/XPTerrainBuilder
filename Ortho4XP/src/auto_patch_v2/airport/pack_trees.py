@@ -54,6 +54,7 @@ import typing as _t
 
 import numpy as np
 
+from .dsf_additions import def_insert_at
 from .obj8 import _to_frame, parse_obj8, resolve_resource
 from .pack_art import MissingDef, declared_definitions, omit_definitions
 from .pack_climate import Climate, g8_forest, regional_family
@@ -429,8 +430,13 @@ def convert_objects(edited: str, pristine: str, families: _t.Mapping[str, str],
                 blocks.extend(f"POLYGON_POINT {lon:.9f} {lat:.9f}\n" for lon, lat in pts)
                 blocks.append("END_WINDING\nEND_POLYGON\n")
                 placed += len(pts)
-    at = _after_definitions(lines)
-    return "".join(lines[:at] + new_defs + blocks + lines[at:]), len(trees), placed
+    # the new definitions after the dump's last POLYGON_DEF (DSFTool's
+    # order, never after a NETWORK_DEF -- #2291), the polygons after
+    # every definition
+    at_def = def_insert_at(lines, "POLYGON_DEF")
+    at = max(_after_definitions(lines), at_def)
+    return ("".join(lines[:at_def] + new_defs + lines[at_def:at] + blocks + lines[at:]),
+            len(trees), placed)
 
 
 def _after_definitions(lines: _t.Sequence[str]) -> int:

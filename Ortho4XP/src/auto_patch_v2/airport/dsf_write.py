@@ -138,6 +138,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS,
 from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf as _dsf
+from . import dsf_additions as _add
 from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
@@ -271,14 +272,15 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
 
 def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
     """The ``OBJECT_DEF`` paths in order and the line index AFTER the
-    last one (where new defs are appended)."""
+    last one (where new defs are appended; a dump declaring none gets
+    them where DSFTool lists them, ``dsf_additions.def_insert_at``)."""
     defs: list[str] = []
     last = -1
     for i, raw in enumerate(lines):
         if raw.startswith("OBJECT_DEF"):
             defs.append(raw[len("OBJECT_DEF"):].strip())
             last = i
-    return defs, last + 1
+    return defs, (last + 1 if defs else _add.def_insert_at(lines, "OBJECT_DEF"))
 
 
 def _facade_rows(lines: _t.Sequence[str], plan: PlacementPlan
@@ -1058,6 +1060,52 @@ def _ang(a: float, b: float) -> float:
     return min(d, 360.0 - d)
 
 
+#: The dump keyword of the point pools' subdivision (``DIVISIONS n``).
+DIVISIONS_KEYWORD = "DIVISIONS"
+
+
+def _divisions(rows: list[list[str]]) -> int | None:
+    for r in rows:
+        if r[:1] == [DIVISIONS_KEYWORD] and len(r) > 1:
+            try:
+                return int(r[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _divisions_reconciled(sa: list[list[str]], sb: list[list[str]]
+                          ) -> tuple[list[list[str]], list[list[str]]]:
+    """``(expected rows, actual rows)`` with the ``DIVISIONS`` operand
+    dropped when the written file's is NO FINER than the text's.
+
+    ``DIVISIONS n`` in a text is the encoder's CAP on how finely it cuts
+    the point pools; the reader does not store the row, it prints the
+    finest cut the pools carry, which follows where the geometry lies
+    (#2291, DSFTool 2.4.0-b1, 2026-11-26):
+
+    * a copy of TNCM_1_Apt's ``+17-063.dsf`` with its 8 draped photos
+      hidden has no pool at all and dumps the default ``DIVISIONS 2``;
+    * one 3-point polygon encodes to ONE byte-identical DSF under
+      ``DIVISIONS 8``, ``16`` or ``32`` and dumps ``DIVISIONS 8`` each
+      time;
+    * TNCM's own text encodes identically under 16 and 64, differently
+      under 2 -- the cap is real, and an edit that removes or adds
+      geometry moves the printed value.
+
+    The geometry the pools carry is compared row by row (placements,
+    polygons, segments, inside the tolerances), so a printed cut at or
+    below the cap is not a loss.  One ABOVE the cap is not something the
+    text could have encoded and stays a refusal, as does a missing row."""
+    want, got = _divisions(sa), _divisions(sb)
+    if want is None or got is None or got > want:
+        return sa, sb
+
+    def keyword_only(rows: list[list[str]]) -> list[list[str]]:
+        return [r[:1] if r[:1] == [DIVISIONS_KEYWORD] else r for r in rows]
+    return keyword_only(sa), keyword_only(sb)
+
+
 def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     """The pinned comparison of two dump texts (the module docstring's
     rules).  Order-insensitive wherever the encoder reorders."""
@@ -1065,6 +1113,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     sa, pa, ga, na = _split_rows(expected)
     sb, pb, gb, nb = _split_rows(actual)
     sa, sb, heights_repool = _heights_reconciled(sa, sb, pa, expected, actual)
+    sa, sb = _divisions_reconciled(sa, sb)
     # #60: the tolerances follow the pools of BOTH texts (the encoder
     # re-pools), floored at the pinned values
     tol_deg, tol_heading = pool_tolerances(expected, actual)

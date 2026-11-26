@@ -219,3 +219,20 @@ def test_trees_off_the_tile_are_not_placed(tmp_path):
 def test_no_upgrade_is_the_text_unchanged(tmp_path):
     pack, _index, _ds = _install(tmp_path)
     assert PF.apply_upgrade(DUMP, DUMP, {}, str(pack)) == (DUMP, 0)
+
+
+def test_the_new_forest_defs_go_ahead_of_the_network(tmp_path):
+    """#2291 (CYYZ): a dump declaring a road network gets its new tree
+    POLYGON_DEFs after its last POLYGON_DEF, where DSFTool lists them --
+    never after the NETWORK_DEF, which the round trip refused."""
+    pack, index, ds = _install(tmp_path)
+    dump = DUMP.replace("POLYGON_DEF vegetation/local.for\n",
+                        "POLYGON_DEF vegetation/local.for\n"
+                        "NETWORK_DEF lib/g10/roads.net\n")
+    renames = {"Veg/Pack_Veg_Fir_01.obj": FIR}
+    out, _n = PF.apply_upgrade(dump, dump, renames, str(pack))
+    rows = out.splitlines()
+    defs = [r.split()[0] for r in rows if r.split()[0].endswith("_DEF")]
+    assert defs[-1] == "NETWORK_DEF" and defs.count("POLYGON_DEF") == 3
+    first_poly = next(k for k, r in enumerate(rows) if r.startswith("BEGIN_POLYGON"))
+    assert rows.index("NETWORK_DEF lib/g10/roads.net") < first_poly

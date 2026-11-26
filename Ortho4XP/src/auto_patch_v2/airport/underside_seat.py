@@ -212,6 +212,14 @@ def _plan_polygon(m: _t.Any, widen_m: float):
     return unary_union(cells).buffer(float(widen_m)) if cells else None
 
 
+def _rides(o: _t.Any) -> bool:
+    """Whether row ``o`` may ride a unit written whole: no deck of a deck
+    family, no walled plate, no converted ``OBJECT_MSL`` zero."""
+    return not (str(getattr(o, "deck_kind", "") or "") in _DECK_KINDS
+                or getattr(o, "walled_plate", None) is not None
+                or float(getattr(o, "zero_y", 0.0) or 0.0) != 0.0)
+
+
 def _riders(m: _t.Any, objects: _t.Sequence[_t.Any], free: _t.AbstractSet[str],
             widen_m: float) -> list:
     """S2: the rows of ``free`` (no map, not taken) whose plan box stands
@@ -221,10 +229,7 @@ def _riders(m: _t.Any, objects: _t.Sequence[_t.Any], free: _t.AbstractSet[str],
     out = []
     for o in objects:
         b = getattr(o, "plan_bbox", None)
-        if str(o.id) not in free or b is None or b.area <= 0.0 \
-                or str(getattr(o, "deck_kind", "") or "") in _DECK_KINDS \
-                or getattr(o, "walled_plate", None) is not None \
-                or float(getattr(o, "zero_y", 0.0) or 0.0) != 0.0:
+        if str(o.id) not in free or b is None or b.area <= 0.0 or not _rides(o):
             continue
         if plan is None:
             plan = _plan_polygon(m, widen_m)
@@ -263,14 +268,12 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
     mapped = {u for m in maps for u in str(m.unit).split("+")}
     in_maps = {str(r) for m in maps for r in m.key if not str(r).startswith("@")}
     free = {k for k in by_id if k not in in_maps and k not in taken}
-    #: a composite's origin set: its other rows ride it too (25l: its sheet
-    #: makes the set one group; a building of the set beside its sheet is
-    #: still of the author's one frame)
-    set_rows: dict[str, set[str]] = {}
-    for m in maps:
-        for c in str(m.unit).split("+"):
-            set_rows.setdefault(c.split("#", 1)[0], set()).update(
-                str(r) for r in m.key if not str(r).startswith("@"))
+    #: a composite's origin set (a pack ``Unit``): its every row rides it
+    #: (25l: its sheet makes the set one group; a roof over its edge or a
+    #: building beside its sheet is still of the author's one frame)
+    part = getattr(airport, "partition", None)
+    set_rows = {str(u.id): {str(mm.id) for mm in u.members}
+                for u in (getattr(part, "units", ()) or ())}
     held: set[str] = set()
     out: list[dict[str, _t.Any]] = []
     report: list[dict[str, _t.Any]] = []
@@ -289,9 +292,11 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
             continue
         z0 = round(_unit_zero(m, verdict, D), 3)
         lift = float(getattr(by_id[rows[0]], "agl_m", 0.0) or 0.0)
-        own_set = set().union(*(set_rows.get(c.split("#", 1)[0], set())
-                                for c in str(m.unit).split("+"))) if m.composite else set()
-        riders = _riders(m, objects, ((free | own_set) - taken) - held - set(rows), widen_m)
+        own_set = (set().union(*(set_rows.get(c.split("#", 1)[0], set())
+                                 for c in str(m.unit).split("+"))) - taken - held - set(rows)
+                   if m.composite else set())
+        riders = [by_id[r] for r in sorted(own_set) if r in by_id
+                  and _rides(by_id[r])] + _riders(m, objects, free - held - own_set, widen_m)
         rid = {str(o.id) for o in riders}
         for o in [by_id[r] for r in rows] + riders:
             own = float(getattr(o, "agl_m", 0.0) or 0.0)

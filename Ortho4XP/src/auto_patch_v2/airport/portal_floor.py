@@ -35,7 +35,7 @@ import numpy as np
 import shapely
 from shapely.ops import unary_union
 
-from ..geom.lowest_face import floor_z_at
+from ..geom.lowest_face import every_z_at, floor_z_at
 from .below_grade_witness import placed_all
 from .hanging_objects import _co_placed
 from .object_cut import _base, _face_normals_y, valid_polygon
@@ -51,6 +51,26 @@ def _lowest(F: np.ndarray, tol: float) -> np.ndarray:
     c = F.mean(axis=1)
     low = floor_z_at(F, c[:, 0], c[:, 1])
     return F[~(c[:, 2] > low + tol)]
+
+
+def _carries_passage(faces: np.ndarray, F: np.ndarray, headroom: float) -> np.ndarray:
+    """Per face of ``faces``, whether it is a FLOOR rather than a SOFFIT
+    (#2225): the object stands open at least ``headroom`` over it
+    somewhere under its own top at the face's centroid, or nothing of the
+    object (``F``) stands over it at all (the ramp out to its open end).
+    An arch's soffit is the underside of the lintel: every gap between the
+    levels over it (deduplicated to the millimetre -- a two-sided face is
+    one level) is that material's thickness (RJTT ``tunnel6.obj``: the
+    soffit at y 5, the roof top at 6, no floor plate).  A floor plate's
+    own underside is a floor still: its road's headroom stands over its
+    top (``faces`` keep today's lowest reading, never gain one)."""
+    c = faces.mean(axis=1)
+    keep = np.ones(len(faces), bool)
+    for k, zs in enumerate(every_z_at(F, c[:, 0], c[:, 1])):
+        lv = np.unique(np.round(zs[zs > c[k, 2] + 1e-3], 3))
+        if len(lv):
+            keep[k] = bool((np.diff(np.concatenate(([c[k, 2]], lv))) >= headroom).any())
+    return keep
 
 
 def _road_zero(p, ground) -> float:
@@ -147,6 +167,10 @@ def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, g
         # the terrain) states none, and its bore's mouth ramp stays the cut
         faces = _lowest(F, tol)
         faces = faces[faces[:, :, 2].mean(axis=1) < zero + float(p.depth_m) - tol]
+        # ...and never an arch's soffit (#2225): a floor carries its road's
+        # headroom (``[cutout.wall_corridor] min_headroom_m``) under the roof
+        faces = faces[_carries_passage(
+            faces, F, float(law.tables.structures.cutout.wall_corridor.min_headroom_m))]
         tris = shapely.polygons(faces[:, :, :2]) if len(faces) else np.zeros(0, object)
         foot = valid_polygon(unary_union(tris[shapely.area(tris) > 1e-6])) if len(tris) \
             else None

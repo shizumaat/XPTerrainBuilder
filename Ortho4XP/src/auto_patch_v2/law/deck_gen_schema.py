@@ -79,7 +79,9 @@ class DeckGenLaw:
     #: owner 2026-11-20T22:39Z (KDFW: "make sure we're not hiding half the
     #: airport pack"; ``planar/deck_takeover._rides``): a pack bridge's mate
     #: is hidden with it only when this share of its plan lies within the
-    #: deck's footprint over the crossing (never a building)
+    #: deck's footprint over the crossing (never a building); a placement
+    #: under this share on our decks -- the bridge body itself too (#2203,
+    #: KDFW 220.obj) -- is hidden only piece-wise, part by part (20u)
     hide_inside_share: float = 0.5
     #: ... and one build's hides take at most this share of the pack's
     #: placements; past it only the bridge bodies are hidden

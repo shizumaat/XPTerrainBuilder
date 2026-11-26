@@ -325,21 +325,33 @@ def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
 
 def _bound(members) -> _t.Callable:
     """``cap(lons, lats)``: the cut bound of the composites ``members`` at
-    postings (``inf`` off their plans).  A run-out fill's (``rim_only``)
-    is ``inf`` over its plan grid's uncovered cells too -- there the bound
-    reads ``nan``, which no posting is ever raised past; the terrain
-    models' fills keep that reading (their builds do not move)."""
+    postings (``inf`` off their plans).  A run-out fill's (``rim_only``,
+    :func:`_run_out_cap`) is its rock's own top at its seat."""
     from auto_patch_v2.airport import terrain_cut as _tc
 
     def cap(lons, lats):
         out = np.full(len(lons), np.inf)
         for c in members:
-            z = _tc.cut_heights(c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
             if c.rec["cut"].get("rim_only"):
-                z = np.where(np.isnan(z), np.inf, z)
+                z = _run_out_cap(c.rec, lons, lats)
+            else:
+                z = _tc.cut_heights(c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
             out = np.minimum(out, z)
         return out
     return cap
+
+
+def _run_out_cap(rec, lons, lats) -> np.ndarray:
+    """A run-out fill's bound (RULINGS 2026-11-25a (1): the edge band may be
+    buried): our ground is raised to its rock's TOP at the seat it will
+    take (``elevation``) and never over it -- not its cut bound, which
+    holds a model's ground under its rim's bottom; ``inf`` off its plan."""
+    from auto_patch_v2.airport import shell_seat as _ss
+    pl = _ss.placed(dict(rec, shell=rec["cut"]))
+    if pl is None:
+        return np.full(len(lons), np.inf)
+    top = pl.top_at(np.asarray(lons, float), np.asarray(lats, float))
+    return np.where(np.isfinite(top), float(rec["elevation"]) + top, np.inf)
 
 
 def run_out_fill(raster, rec: _t.Mapping[str, _t.Any]) -> dict[str, int]:

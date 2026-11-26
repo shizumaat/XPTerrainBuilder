@@ -34,6 +34,18 @@ rim) -- with ``water_rim`` (the share of its outer rim over the tile's
 cached water layers, ``O4_Vector_Map.cached_tile_water``; ``None`` where
 none is cached) and the hide offer of the new quality test.  An
 ``OBJECT_MSL`` row is read like any other (llows), its datum beside it.
+
+ROCKS (RULINGS 2026-11-25j/l, ``auto_patch_v2/airport/terrain_rock``):
+gate count ``rock`` (its witness passes) and ``refused`` (a candidate in a
+rock's plan and relief range the candidate gates or the witness refuse);
+per plain / ``OBJECT_AGL`` row of a rock, verdict ``rock`` with its
+``witness`` values (``rock_witness.features``: sheet, base, top, wall,
+right, axis) and ``fill_z0`` (``terrain_rock.fill_seat``: the run-out fill
+the build would make, ``None`` for none).  Listed beside the rows, not in
+them: ``refused`` (per file: the gates failed, the values, its rows),
+``rock_unmatched`` (a rock row off its ground or whose rim floats) and
+``msl_rock_rows`` (a rock with no small shell on an ``OBJECT_MSL`` row:
+never read).
 """
 from __future__ import annotations
 
@@ -181,7 +193,8 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
                 gates["refused"] += 1
                 shapes[("refused", rel)] = got
             if small is not None:
-                gates["rock" if small.rock else "shell"] += 1
+                gates["shell"] += int(not small.rock_only)
+                gates["rock"] += int(small.rock)
                 shapes[rel] = small
             continue
         gates["plan"] += 1

@@ -76,16 +76,21 @@ class _Placed:
     to_xy: _t.Callable
     to_ll: _t.Callable
 
-    def covers(self, lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
-        """True where the shell's plan covers ``(lon, lat)``."""
+    def top_at(self, lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+        """The shell's top over its frame zero at ``(lon, lat)`` (``nan``
+        off its plan)."""
         x, y = self.to_xy(lons, lats)
         r = self.raster
-        j = np.floor((x - r.e0) / r.step).astype(int)
-        i = np.floor((y - r.n0) / r.step).astype(int)
+        j = np.floor((np.asarray(x, float) - r.e0) / r.step).astype(int)
+        i = np.floor((np.asarray(y, float) - r.n0) / r.step).astype(int)
         ok = (i >= 0) & (j >= 0) & (i < r.top.shape[0]) & (j < r.top.shape[1])
-        out = np.zeros(len(x), bool)
-        out[ok] = np.isfinite(r.top[i[ok], j[ok]])
+        out = np.full(len(i), np.nan)
+        out[ok] = r.top[i[ok], j[ok]]
         return out
+
+    def covers(self, lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+        """True where the shell's plan covers ``(lon, lat)``."""
+        return np.isfinite(self.top_at(lons, lats))
 
 
 def placed(rec: _t.Mapping[str, _t.Any]) -> "_Placed | None":

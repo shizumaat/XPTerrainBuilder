@@ -120,7 +120,10 @@ def test_placement_models_marks_the_small_shell(tmp_path):
             ("dsf:obj8", "m.obj", (500.0, 0.0), 0.0, None, "OBJECT")]
     found = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path),
                                 TTM._dem(_rock, 2.0), _seeing)
-    assert set(found) == {"dsf:obj7"}
+    # RULINGS 2026-11-25l: the shell's plain row is read as a ROCK (the
+    # witness passes; ``terrain_rock``), at its anchor's ground
+    assert set(found) == {"dsf:obj7", "dsf:obj8"}
+    assert found["dsf:obj8"].small and found["dsf:obj8"].datum is None
     m = found["dsf:obj7"]
     assert m.small and m.fill and m.datum == 2.0 and m.z0 == pytest.approx(2.0)
     assert "its author's datum, a small shell" in TM.log_line("TEST", found.values())

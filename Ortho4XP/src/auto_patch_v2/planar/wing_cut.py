@@ -425,7 +425,9 @@ def _ramp_cut(rid: str, floor_y: float, delta: float, o, mplan, airport, cache, 
     got = _cut(rid, lines, face, 0.0, env, floor_y=floor_y + delta, facing=True, **seat)
     if got is None:
         return None
-    return _dc.replace(got[0], walls=walls), got[1]
+    # its back is its own walled ramp's (G4 W): no fill behind it (#2240:
+    # the lot grown there met the ramp's floor rows and fell 0.7-1.1 m)
+    return _dc.replace(got[0], walls=walls, fill=()), got[1]
 
 
 def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: float,

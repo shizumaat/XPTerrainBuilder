@@ -18,6 +18,13 @@ as a blast pad.  An end a taxiway reaches keeps #1332's blast pad
 (MEASURED: KPHX's and KBNA's FAA blast pads, 8,400 / 3,800 m2 each, stay).
 TNCS 12's end area holds 55 m on level ground, 30's 30 m to its drop.
 
+A WIDENED face at such an end is a turn pad WHOLE (owner #2282, "widened
+areas at one or both runway ends are turn pads"; #2286 sim read on
+1.0.585, "TNCS looks unchanged"): it stands out past a side line of the
+runway (:func:`widened`), and aircraft turn on all of it, so none of it
+follows the DEM past the end area's crest -- TNCS 30's turnaround ran 17 m
+past its 30 m end area and fell 4.6 m with the slope there.
+
 Nothing here names an airport; build-time impact: one end-area read per
 airport (cached by the caller) and a box clip per blast-pad face.
 """
@@ -29,14 +36,31 @@ from shapely.geometry import LineString, Polygon
 
 from .evidence import polygon_parts
 
-__all__ = ["end_pad_split", "taxi_reaches_end"]
+__all__ = ["end_pad_split", "taxi_reaches_end", "widened"]
+
+
+def widened(face: Polygon, rw, tol_m: float) -> bool:
+    """Does ``face`` stand out more than ``tol_m`` past a side line of
+    ``rw`` (half its width off its axis; module doc)?"""
+    a, b = rw.ends[0].xy, rw.ends[1].xy
+    L = math.hypot(b[0] - a[0], b[1] - a[1])
+    if L <= 0.0 or face.is_empty:
+        return False
+    ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+    half = 0.5 * float(rw.width_m)
+    return any(abs((y - a[1]) * ux - (x - a[0]) * uy) > half + tol_m
+               for p in polygon_parts(face) for x, y in p.exterior.coords)
 
 
 def end_pad_split(face: Polygon, rw, end_name: str, length_m: float,
-                  floor_m2: float) -> tuple[list[Polygon], list[Polygon]]:
+                  floor_m2: float, whole: bool = False
+                  ) -> tuple[list[Polygon], list[Polygon]]:
     """``(turn pad parts, blast pad parts)`` of ``face``, a blast pad past
     ``rw``'s end ``end_name`` whose end area runs ``length_m`` from the end
-    (module doc); parts under ``floor_m2`` are dropped."""
+    (module doc); ``whole``: a widened face at a turn end, the turn pad's
+    all of it.  Parts under ``floor_m2`` are dropped."""
+    if whole:
+        return [p for p in polygon_parts(face) if p.area >= floor_m2], []
     a, b = rw.ends[0].xy, rw.ends[1].xy
     L = math.hypot(b[0] - a[0], b[1] - a[1])
     if L <= 0.0 or length_m <= 0.0:

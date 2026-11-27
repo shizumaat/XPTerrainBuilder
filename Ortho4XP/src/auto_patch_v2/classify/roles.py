@@ -107,7 +107,7 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
-from .end_pad import end_pad_split, taxi_reaches_end
+from .end_pad import end_pad_split, taxi_reaches_end, widened
 from .wrap_page import wide_on_wrapping_page
 from .gap_stands import holds_stand as _holds_startup   # the one 1300-containment read
 from .island_spurs import island_spurs
@@ -392,7 +392,8 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
                 rw = next(r for r in airport.runways if r.id == bp[0])
                 turn = not taxi_reaches_end(rw, bp[1], [c.line for c in ev.taxi_chains])
                 pads, rest = end_pad_split(face, rw, bp[1], _end_len(bp) if turn else 0.0,
-                                           rules.cells.min_area_m2)
+                                           rules.cells.min_area_m2,
+                                           turn and widened(face, rw, rules.cells.on_tol_m))
                 shoulders += [(p, rw, 0.0, _ref_for(p, pav_tree, ev)) for p in pads]
                 stats["end_pads"] = stats.get("end_pads", 0) + len(pads)
                 if rest:

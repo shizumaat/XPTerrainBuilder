@@ -345,6 +345,7 @@ class RoadProfiles:
         state = dict(self.__dict__)
         state.pop("_line_memo", None)      # rebuilt on use, never stored
         state.pop("_table_memo", None)
+        state.pop("_box_memo", None)
         return state
 
     def _line(self, way: Way) -> LineString:
@@ -436,17 +437,29 @@ class RoadProfiles:
         from .wall_sides import crosses_wall
         far = float(np.max(lat_all[ok]))
         x, y = float(pt[0]), float(pt[1])
-        near = [w for w in self.walls
-                if w.core is not None and w.core.bounds[0] - far <= x <= w.core.bounds[2] + far
-                and w.core.bounds[1] - far <= y <= w.core.bounds[3] + far]
-        if not near:
+        B = self._wall_boxes()
+        at = np.flatnonzero((B[:, 0] - far <= x) & (x <= B[:, 2] + far)
+                            & (B[:, 1] - far <= y) & (y <= B[:, 3] + far))
+        if not at.size:
             return ok
+        near, boxes = [self.walls[i] for i in at.tolist()], B[at].tolist()
         ok = ok.copy()
         for k in np.flatnonzero(ok):
             q = self._line(cands[k][0]).interpolate(float(s_all[k]))
-            if crosses_wall((x, y), (q.x, q.y), near):
+            if crosses_wall((x, y), (q.x, q.y), near, boxes):
                 ok[k] = False
         return ok
+
+    def _wall_boxes(self) -> np.ndarray:
+        """:attr:`walls`' core bounds ``(n, 4)``, ``nan`` for a wall with no
+        core, read once per wall set (#2176: asked per vertex and per wall)."""
+        memo = self.__dict__.get("_box_memo")
+        if memo is None or memo[0] is not self.walls:
+            nan = (math.nan,) * 4
+            memo = self.__dict__["_box_memo"] = (self.walls, np.array(
+                [nan if w.core is None else tuple(w.core.bounds) for w in self.walls],
+                dtype=float).reshape(-1, 4))
+        return memo[1]
 
     def _table(self, ways: _t.Sequence[Way]) -> StationTable:
         """The station table of ``ways`` in order, built once per

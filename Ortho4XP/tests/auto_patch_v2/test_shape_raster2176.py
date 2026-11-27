@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from auto_patch_v2.geom import shape_class as sc
 
 

@@ -296,15 +296,24 @@ ENTRY_MODULES: tuple[str, ...] = (
 #: whole pack reading on every pool edit: 1.0.574 -> 1.0.575 changed ONE
 #: module of this closure, ``pool_memory``'s ``ps`` call (5 lines), and
 #: MMUN re-read and re-partitioned its pack (215 s).
+#: THE PER-FILE READINGS' STORE is the same class (#2176): ``file_readings``
+#: (with its code key and ``law.witness``, which digests the law values it
+#: is keyed on) and ``part_readings`` decide whether a reading a previous
+#: build kept is SERVED, never what it is — the reading's own modules are
+#: keyed here, and the store keys each reading on them itself.
 PLUMBING_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.extension_cache",
+    "auto_patch_v2.airport.file_readings",
+    "auto_patch_v2.airport.file_readings_code",
+    "auto_patch_v2.airport.part_readings",
     "auto_patch_v2.airport.partition_cache",
     "auto_patch_v2.airport.partition_code",
     "auto_patch_v2.airport.pool",
     "auto_patch_v2.airport.pool_memory",
     "auto_patch_v2.airport.pool_slots",
     "auto_patch_v2.airport.topology_cache",
+    "auto_patch_v2.law.witness",
 )
 
 

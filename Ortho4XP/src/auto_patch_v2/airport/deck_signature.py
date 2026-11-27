@@ -772,6 +772,7 @@ def elevated_deck(cache: _obj8.ResourceCache, path: str, law) -> PierReading:
 
     def _done(r: PierReading) -> PierReading:
         memo[path] = r
+        _obj8.keep_reading(cache, "deck", path, r)
         return r
 
     ahead = _obj8.read_ahead(cache, "deck", path)     # a work pool read it (#362)

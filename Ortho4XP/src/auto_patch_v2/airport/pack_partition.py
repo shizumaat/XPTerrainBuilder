@@ -621,6 +621,13 @@ def _stamp_deck_shades(units: list[Unit],
     return out
 
 
+def _part_book(cache: _obj8.ResourceCache):
+    """The build's view of the kept part readings (``part_readings.
+    PartBook``, #2176), over its per-file store."""
+    from .part_readings import PartBook
+    return PartBook(getattr(cache, "files", None))
+
+
 def _inside(path: str, root: str) -> bool:
     try:
         return os.path.commonpath([os.path.abspath(path), os.path.abspath(root)]) \
@@ -821,9 +828,16 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     anchor_of_member = [anchor_ix.setdefault(key, len(anchor_ix))
                         for key, _path, _oid in member_ref]
     _basin_band = law.tables.structures.basin.contact_band_m
-    part_attrs = _work.part_attrs_ahead(
-        pool, placed, line_members, scatter_members, _basin_band,
-        rb.foot_samples_max, rb.body_feet_span_m, rb.line_object_stations_max)
+    # #2176: the parts' readings a previous build kept for these files
+    # and placements (``part_readings``), served whole; the rest derived
+    _params = (_basin_band, rb.foot_samples_max, rb.body_feet_span_m,
+               rb.line_object_stations_max)
+    book = _part_book(cache)
+    held = book.held(placed, line_members, scatter_members, _params)
+    ahead = _work.part_attrs_ahead(pool, placed, line_members, scatter_members,
+                                   *_params, held=held)
+    part_attrs = [h if h is not None else (None if ahead is None else ahead[mi])
+                  for mi, h in enumerate(held)]
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
                               rb.contact_batch_rows,
@@ -839,6 +853,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               piece_touch_m=float(
                                   law.tables.structures.placement.footprint_touch_m),
                               attrs=part_attrs, pool=pool)
+    book.take(placed, line_members, scatter_members, _params, part.parts, held)
+    book.commit()
     counts["scatter_parts"] = sum(1 for q in part.parts if q.scatter)
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):

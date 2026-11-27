@@ -139,7 +139,7 @@ def _say(msg: str, out: _t.Callable[[str], None]) -> None:
 
 def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
                out: _t.Callable[[str], None] = print, *,
-               write_cache: bool = True) -> dict:
+               write_cache: bool = True, partition_cache: bool = True) -> dict:
     """THE PACK STAGE — read the pack, partition it (or revive the cached
     partition), derive the groups and the clusters — exactly as ``build``
     runs it; ``build`` and ``tools/pack_stage_profile.py`` call THIS (one
@@ -154,7 +154,10 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     ``pool`` is the stage's work pool's own account (``airport/pool.py``
     ``WorkPool.report``: workers, parallel, fell_back, reason, wall_s,
     tasks) — said on the ``[pool]`` line too, so a stage that ran on one
-    core cannot read as a pooled one."""
+    core cannot read as a pooled one.  ``partition_cache=False`` neither
+    reads nor writes the partition cache (the per-file readings still are:
+    ``tools/pack_stage_profile.py --cache files``, the build after a
+    pack-code change)."""
     wall: dict[str, float] = {}
     _sub: dict[str, float] = {}
     t = time.perf_counter()
@@ -179,6 +182,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     from ..airport.obj8 import ResourceCache as _RCache
     ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                      _fe.quantum(law))
+    # #2176: THE PER-FILE READINGS, kept across builds in the pack's
+    # mod-cache folder (``airport/file_readings``) — warm after a pack-code
+    # edit that makes the partition cache below miss
+    from ..airport.file_readings import FileReadings as _Files, folder_for as _ffolder
+    ocache.files = _Files(_ffolder(airport, inputs.mod_cache_root), law, write=write_cache)
     # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
     # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
     # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack
@@ -213,7 +221,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
                               radius_deg=inputs.radius_deg,
                               pristine=getattr(inputs, "pack_pristine", None),
                               more_dumps=tuple(_dumps[1:]))
-    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, _dumps[0])
+    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root if partition_cache
+                                else None, _dumps[0])
     _hit = _pcache.read(_cpath, _fp)
     # spec §B.4: the ``[partition] cache HIT|MISS|WROTE`` line is REQUIRED
     # on every build — its absence is how a cache that never hit went
@@ -488,6 +497,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
              + ", ".join(f"{q['resource']} {q['ratio']}" for q in _ds["members"])
              + ")", out)
     _say("  " + _wpool.line(), out)
+    _nf = ocache.files.flush()
+    _say(f"  {ocache.files.line()}" + (f"; WROTE {_nf}" if _nf else ""), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
@@ -1066,6 +1077,9 @@ def _build(icao: str, inputs: Inputs, out_dir: str | Path, config: Config | None
     # the budget or the size rule (a small airport), or verify did not run
     report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache),
                       "verify": _vpool[-1] if _vpool else None}
+    # #2176: the per-file readings the later stages took (classify's skirts)
+    if getattr(ocache, "files", None) is not None and ocache.files.flush():
+        _say(f"[{icao}] {ocache.files.line()} (after the stages)", out)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

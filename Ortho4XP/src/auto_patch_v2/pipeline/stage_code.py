@@ -4029,3 +4029,15 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
                                              *_mods("airport.road_answer model.map_memo")}))
     if "auto_patch_v2.airport.unit_storey" in _have:
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("model.map_memo")}))
+# #2176 lane lfilecache: the per-file readings kept across builds
+# (airport/file_readings, its code key airport/file_readings_code, the law
+# key's law/witness) behind every obj8 reading site, and the kept part
+# readings (airport/part_readings) behind the pack partition
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    _have = set(_mods_of)
+    if "auto_patch_v2.airport.obj8" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(
+            "airport.file_readings airport.file_readings_code law.witness")}))
+    if "auto_patch_v2.airport.pack_partition" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("airport.part_readings")}))

@@ -114,6 +114,15 @@ def read_trench_objects(objects: _t.Sequence[_obj8.PlacedObject],
         vmin, vmax = cache.y_range(o.resolved)[:2]
         if vmin > -float(ob.shell_floor_min_m) or vmax > top_max:
             continue
+        if vmax - vmin <= _fe.quantum(law):
+            # A PLANE IS NO TRENCH (#2302): a trench is its walls and floor,
+            # and a resource with no vertical extent has neither -- a region
+            # sheet (RULINGS 2026-08-26 §2.1's "LEMD VOR quads at -50 m").
+            # MEASURED LEMD: five one-quad sheets 50 m under their zero,
+            # 2.0-2.6 km2 each, read as trench objects at 76 of the
+            # airport's 78 tunnel ends; ``entrance_shade`` took their plans
+            # out of every cluster pad they covered (pads 50 -> 86 here).
+            continue
         if o.path not in outlines:
             g = cache.geometry(o.resolved)
             outlines[o.path] = None if g is None else _outline(g, _fe.quantum(law))

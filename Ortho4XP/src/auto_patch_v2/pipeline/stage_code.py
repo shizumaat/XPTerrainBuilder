@@ -1432,6 +1432,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.pads",
         "auto_patch_v2.constraints.platform",
         "auto_patch_v2.constraints.precedence",
+        "auto_patch_v2.constraints.route_work",
         "auto_patch_v2.constraints.routes",
         "auto_patch_v2.constraints.runway_chord",
         "auto_patch_v2.constraints.runway_junctions",
@@ -1818,6 +1819,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.road_bridge_ceiling",
         "auto_patch_v2.constraints.road_ramp",
         "auto_patch_v2.constraints.roads",
+        "auto_patch_v2.constraints.route_work",
         "auto_patch_v2.constraints.routes",
         "auto_patch_v2.constraints.runway_chord",
         "auto_patch_v2.constraints.runway_junctions",
@@ -2066,7 +2068,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.geometry constraints.precedence model.airport
         constraints.cluster_pad constraints.face_index constraints.group_level
         constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.slope_pad
         geom.triangulate geom.union_find model.islands model.map_memo model.platform
     """),
@@ -2117,7 +2121,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.apron constraints.cluster_pad constraints.eat constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.routes
+        constraints.platform constraints.precedence constraints.route_work constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.runway_junctions
         constraints.threshold_seam
@@ -2166,7 +2171,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         geom.foot_planes model.wall_reach
         constraints.face_index constraints.group_level
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "groundside": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2185,7 +2192,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "door_pad": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2194,7 +2203,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.stage_one
         constraints.cluster_pad constraints.face_index constraints.group_level
         constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.islands model.map_memo model.platform
     """),
@@ -2202,7 +2213,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.junction_mesh constraints.pad_relief constraints.pad_warning
-        constraints.pads constraints.platform constraints.precedence constraints.routes
+        constraints.pads constraints.platform constraints.precedence constraints.route_work
+        constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.stretches constraints.taxi geom.base_slab geom.cluster_outline
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
@@ -2218,7 +2231,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.groundside constraints.no_step constraints.pad_frontage_gs
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.roads constraints.routes
+        constraints.platform constraints.precedence constraints.roads constraints.route_work
+        constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.runway_profile constraints.shoulder_crossing constraints.stretches
         constraints.threshold_seam
         constraints.strips constraints.transverse geom.trend
@@ -2240,7 +2255,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "pad_fronting": _mods(_GENERATOR_CORE + """
         geom.exact geom.parts model.wall_reach
@@ -2251,7 +2268,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.union_find model.airport model.islands model.map_memo model.platform
         geom.slope_pad model.wall_reach
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "pads": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2262,7 +2281,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "platform": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2273,7 +2294,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "proximity": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2297,7 +2320,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
     constraints.strips model.end_area law.inset_class model.threshold_datum
     """),
@@ -2313,7 +2338,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.islands model.map_memo model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
     constraints.strips model.end_area law.inset_class model.threshold_datum
     """),
@@ -2342,7 +2369,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.routes
+        constraints.platform constraints.precedence constraints.route_work constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.runway_junctions
         constraints.threshold_seam
@@ -2364,7 +2392,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.routes
+        constraints.platform constraints.precedence constraints.route_work constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.runway_junctions
         constraints.threshold_seam
@@ -2386,7 +2415,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         law.inset_class
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.routes
+        constraints.platform constraints.precedence constraints.route_work constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.runway_chord constraints.runway_mean_slope
         constraints.runway_profile constraints.threshold_seam constraints.runway_yield
         constraints.runway_junctions
@@ -2442,7 +2472,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "shell_datum": _mods(_GENERATOR_CORE + """
     constraints.airside_top
@@ -2459,13 +2491,16 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.platform
         geom.slope_pad
         constraints.group_level constraints.face_index
+        constraints.route_work
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     """),
     "taxi": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.routes
+        constraints.platform constraints.precedence constraints.route_work constraints.routes
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         constraints.stretches constraints.taxi geom.base_slab geom.cluster_outline
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
@@ -2482,7 +2517,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.threshold_datum
         constraints.apron constraints.cluster_pad constraints.face_index constraints.group_level
         constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
+        constraints.route_work
         constraints.routes constraints.taxi constraints.taxi_route_yield geom.base_slab
+        airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
         geom.cluster_outline geom.pad_evidence geom.slope_pad geom.triangulate geom.union_find
     """),
     "terrain_shaped": _mods(_GENERATOR_CORE + """
@@ -2618,7 +2655,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.public_road_release
     constraints.proximity constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp
-    constraints.roads constraints.routes constraints.runway_chord
+    constraints.roads constraints.route_work constraints.routes constraints.runway_chord
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
@@ -2741,7 +2779,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.end_lip constraints.geometry constraints.groundside
     constraints.jetway_strip constraints.no_step constraints.pad_frontage_gs
     constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
-    constraints.precedence constraints.roads constraints.routes
+    constraints.precedence constraints.roads constraints.route_work constraints.routes
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_profile constraints.shoulder_crossing constraints.stretches
     constraints.threshold_seam
     constraints.strips constraints.transverse geom.trend constraints.weld_floor
@@ -2890,7 +2929,8 @@ CODE_MODULES["solve"] = _mods("""
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
     constraints.pads constraints.platform constraints.precedence constraints.road_ramp
-    constraints.roads constraints.routes constraints.runway_chord
+    constraints.roads constraints.route_work constraints.routes constraints.runway_chord
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_profile constraints.runway_yield constraints.runway_junctions
     constraints.shoulder_crossing
     constraints.threshold_seam
@@ -3117,7 +3157,9 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.public_road_release model.lot_ground
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.shell_datum
-    constraints.riser constraints.road_ramp constraints.roads constraints.routes
+    constraints.riser constraints.road_ramp constraints.roads constraints.route_work
+    constraints.routes
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.threshold_seam
     constraints.runway_step
@@ -3341,7 +3383,8 @@ CODE_MODULES["emit"] = _mods("""
     constraints.groundside constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
     constraints.pads constraints.platform constraints.precedence constraints.road_ramp
-    constraints.roads constraints.routes constraints.runway_chord
+    constraints.roads constraints.route_work constraints.routes constraints.runway_chord
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_mean_slope constraints.runway_profile constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -3516,7 +3559,8 @@ CODE_MODULES["verify"] = _mods("""
     constraints.geometry constraints.groundside constraints.junction_mesh
     constraints.no_step constraints.pad_frontage_gs constraints.pad_relief
     constraints.pad_warning constraints.pads constraints.platform constraints.precedence
-    constraints.roads constraints.routes constraints.runway_chord
+    constraints.roads constraints.route_work constraints.routes constraints.runway_chord
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.runway_mean_slope constraints.runway_profile constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -3587,7 +3631,9 @@ _GENERATOR_CLOSURES["kerb_frontage"] = _mods(_GENERATOR_CORE + """
     constraints.geometry constraints.groundside constraints.group_level constraints.kerb_frontage
     constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
     constraints.precedence constraints.public_road_release constraints.road_ramp
-    constraints.roads constraints.routes constraints.stretches constraints.strips
+    constraints.roads constraints.route_work
+    constraints.routes constraints.stretches constraints.strips
+    airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots model.pulse
     constraints.taxi constraints.taxi_route_yield constraints.wall_zone geom.base_slab
     geom.cluster_outline geom.containment geom.deck_ground geom.deg_metres geom.exact
     geom.pad_base_slope geom.pad_evidence geom.place_matrix geom.plate_bands geom.ramp_grade

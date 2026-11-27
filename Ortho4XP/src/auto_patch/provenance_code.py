@@ -823,6 +823,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.road_bridge_ceiling",
     "auto_patch_v2.constraints.road_ramp",
     "auto_patch_v2.constraints.roads",
+    "auto_patch_v2.constraints.route_work",
     "auto_patch_v2.constraints.routes",
     "auto_patch_v2.constraints.runway_chord",
     "auto_patch_v2.constraints.runway_end_report",

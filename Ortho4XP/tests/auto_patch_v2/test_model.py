@@ -293,8 +293,9 @@ def test_dependency_direction():
             # THE WORK POOL is the one thing of ``airport`` the verify stage
             # may take (issue #412, ``verify/chord_work.py``: one pool for
             # every stage, never a second) — ``airport/pool.py`` and nothing
-            # else of the package.
-            if pkg == "verify" and "airport" in imports:
+            # else of the package.  ``constraints/route_work.py`` takes the
+            # same pool for the route pricing's walks (#2206).
+            if pkg in ("verify", "constraints") and "airport" in imports:
                 assert set(re.findall(r"from \.\.airport(\.\w+)? import",
                                       py.read_text(encoding="utf-8"))) == {".pool"}, py
                 allowed = allowed | {"airport"}

@@ -512,13 +512,55 @@ def format_provenance_line(icao: str, *, sha: str, law_sha256: str | None,
             f"ruleset={ruleset} solve={status}{flat} dem={_dem_label(dem_prov)}")
 
 
-def _phase_seconds(report: dict) -> dict:
+def _phase_seconds(report: dict, worker: dict | None = None) -> dict:
     """The v2 report's stage clocks (``wall_s``) and the last stage's own
-    split (``late_cut`` / ``late_derive`` / ``late_solve``) — #2206."""
+    split (``late_cut`` / ``late_derive`` / ``late_solve``) — #2206 — with
+    the worker's clocks around the build (``worker``: ``wait_slot``,
+    ``worker_start``, ``prepare``, ``place``, ``verify_log``; a ``None``
+    clock was not taken) and the stage cache's answers (``stage_cache``,
+    :func:`_stage_cache_answers`; ``airport_time_model.note_phases`` files
+    it beside the phases, never among them)."""
     clocks = dict(report.get("wall_s") or {})
     late = dict((report.get("late_stage") or {}).get("wall_s") or {})
     clocks.update({f"late_{k}": v for k, v in late.items()})
+    clocks.update({k: round(float(v), 2) for k, v in (worker or {}).items()
+                   if v is not None})
+    cache = _stage_cache_answers(report.get("cache"))
+    if cache:
+        clocks["stage_cache"] = cache
     return clocks
+
+
+def _stage_cache_answers(cache) -> dict:
+    """The stage cache's block (``FrontCache.finish``) as ``{"state": on |
+    bypass: …, "hit": [stage …], "miss": [stage …], "other": {stage:
+    state}}`` — which stages were served and which were computed."""
+    if not isinstance(cache, dict):
+        return {}
+    out = {"state": str(cache.get("state", "")), "hit": [], "miss": [], "other": {}}
+    for stage, rep in sorted((cache.get("stages") or {}).items()):
+        state = str((rep or {}).get("state", "")) if isinstance(rep, dict) else str(rep)
+        if state == "hit":
+            out["hit"].append(stage)
+        elif state.startswith("miss"):
+            out["miss"].append(stage)
+        else:
+            out["other"][stage] = state
+    return out
+
+
+def _worker_clocks(task: dict, t0: float, t_build: float | None,
+                   place_s: float | None, verify_s: float | None) -> dict:
+    """The worker's clocks around the build, from the parent's stamps
+    (``queued_at``: the airport joined the slot queue; ``granted_at``: its
+    slot was granted and its worker started, ``driver``) and this
+    worker's own: queue wait, process start, input preparation (pack
+    dumps, hand-set roles), patch placement, verify log."""
+    queued, granted = task.get("queued_at"), task.get("granted_at")
+    return {"wait_slot": (granted - queued) if queued and granted else None,
+            "worker_start": max(0.0, t0 - granted) if granted else None,
+            "prepare": (t_build - t0) if t_build else None,
+            "place": place_s, "verify_log": verify_s}
 
 
 def _iis_text(report: dict, log_lines: list[str]) -> str:
@@ -632,6 +674,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         cfg = Config(header_extra=_stamp_header(task),
                      xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")),
                      xplat_quantise_m=_xq, stage_cache=stage_cache_enabled())
+        t_build = time.time()
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         from auto_patch_v2.pipeline.raised_at import raised_at
@@ -711,6 +754,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                 "traceback": text + "\n--- v2 build log ---\n" + "\n".join(log_lines)}
 
     # ── PLACE the current tile's patch where the mesh reads it ────────
+    t_place = time.time()
     try:
         pieces = res.pieces or {}
         src = pieces.get((lat, lon)) if pieces else res.paths
@@ -759,6 +803,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                 **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc()}
     build_s = time.time() - t0
+    place_s = time.time() - t_place
 
     # ── VERIFY: the v2 census rows into the per-airport log part ──────
     t_v = time.time()
@@ -791,7 +836,8 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             "build_s": build_s, "worker_pid": os.getpid(),
             # #2206: the build's own stage clocks, for the app's per-airport
             # record (``o4_engine.airport_time_model.note_phases``)
-            "phase_seconds": _phase_seconds(res.report),
+            "phase_seconds": _phase_seconds(res.report, _worker_clocks(
+                task, t0, t_build, place_s, time.time() - t_v)),
             "verify_s": time.time() - t_v, "verify_err": verify_err,
             "verify_log_path": task["verify_log_path"],
             "object_pad_records": [], "provenance_log": line,

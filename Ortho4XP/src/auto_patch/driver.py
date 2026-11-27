@@ -1142,6 +1142,8 @@ def _one_flight_build(task: dict) -> dict:
         for hb in beat:
             hb.stop()
     result["flight_wait_s"] = round(waited, 1)
+    if isinstance(result.get("phase_seconds"), dict):
+        result["phase_seconds"]["wait_flight"] = round(waited, 1)
     if beat:
         result.setdefault("log_lines", []).insert(0, (
             "%s: waited %.0f s for another tile's build of this airport "
@@ -1184,8 +1186,11 @@ def _build_write_verify_one(task: dict) -> dict:
         _SLOTS.name_process("airport %s" % icao)
         if _SLOT_HELD_BY_PARENT:
             return _one_flight_build(task)
+        import time as _time
+        queued_at = _time.time()
         with _SLOTS.take(1):
-            return _one_flight_build(task)
+            return _one_flight_build({**task, "queued_at": queued_at,
+                                      "granted_at": _time.time()})
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
@@ -1374,6 +1379,7 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
     from . import config as _cfg
     from . import slot_gated_pool as _GATED
     from o4_engine.airport_time_model import longest_first
+    import time as _time
     results: list[dict] = []
     if _cfg.PARALLEL_AIRPORTS and len(tasks) > 1:
         import concurrent.futures as _cf
@@ -1422,13 +1428,17 @@ def _run_airport_builds(tasks: list, dem, _report_terminal) -> list:
             # ``cores // n`` for the whole of a long pole's build
             live = ctx.Value("i", 0)
 
+            _queued_at = _time.time()
+
             def _start(t):
                 with live.get_lock():
                     live.value += 1
                 ex = _cf.ProcessPoolExecutor(
                     max_workers=1, mp_context=ctx, initializer=_init_worker,
                     initargs=(dem, pq, n, True, live))
-                return ex, ex.submit(_build_write_verify_one, t)
+                # the slot wait and the worker's start, in its phase clocks
+                return ex, ex.submit(_build_write_verify_one, {
+                    **t, "queued_at": _queued_at, "granted_at": _time.time()})
 
             def _done(t, fut):
                 with live.get_lock():

@@ -112,19 +112,27 @@ def _load(icao, store=None):
 #: the stage clocks a finished build handed over for its airport's next
 #: :func:`record` (``{ICAO: {stage: seconds}}``, :func:`note_phases`)
 _PENDING_PHASES: dict = {}
+#: and its stage cache's answers (``{ICAO: {"hit": [...], ...}}``)
+_PENDING_CACHE: dict = {}
 
 
 def note_phases(icao, wall_s):
     """Hand ``icao``'s v2 stage clocks (the build report's ``wall_s``,
-    ``auto_patch.engine_v2``) to its next :func:`record` as
-    ``phase_seconds`` (#2206: every app record since the v2 switch carried
-    ``{}``).  The report's ``total`` is the total, never a phase (the
-    ``check_build_time`` store rule).  Never raises."""
+    ``auto_patch.engine_v2``, with the worker's waits and clocks around
+    it) to its next :func:`record` as ``phase_seconds`` (#2206: every app
+    record since the v2 switch carried ``{}``).  The report's ``total`` is
+    the total, never a phase (the ``check_build_time`` store rule); the
+    ``stage_cache`` answers go beside the phases (``stage_cache``), so
+    ``phase_seconds`` stays seconds only.  Never raises."""
     try:
-        clocks = {str(k): round(float(v), 2) for k, v in dict(wall_s or {}).items()
+        given = dict(wall_s or {})
+        cache = given.pop("stage_cache", None)
+        clocks = {str(k): round(float(v), 2) for k, v in given.items()
                   if k != "total" and _finite(v)}
         if icao and clocks:
             _PENDING_PHASES[str(icao).upper()] = clocks
+        if icao and isinstance(cache, dict) and cache:
+            _PENDING_CACHE[str(icao).upper()] = cache
     except Exception:
         pass
 
@@ -140,6 +148,9 @@ def record(icao, seconds, size=None, store=None, now=None):
                  "engine": "v2", "source": "app",
                  "phase_seconds": _PENDING_PHASES.pop(str(icao).upper(), {}),
                  "total_seconds": round(float(seconds), 2)}
+        cache = _PENDING_CACHE.pop(str(icao).upper(), None)
+        if cache:
+            entry["stage_cache"] = cache
         if _finite(size):
             entry["features"] = {"size_km": round(float(size), 3)}
         records = (_load(icao, store) + [entry])[-RECORDS_KEPT:]

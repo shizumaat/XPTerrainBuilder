@@ -6504,8 +6504,9 @@ def airport_boundary_polygons(tile, dico_airports, only=None):
 AIRPORT_INSET_MIN_TARGET_RESOLUTION_M = 0.5
 
 
-def parse_airport_elevation_level(value):
-    """Parse an ``airport_elevation_level`` configuration value.
+def parse_airport_elevation_level(value, setting="airport_elevation_level"):
+    """Parse an ``airport_elevation_level`` configuration value (and its
+    twin ``coastline_elevation_level``; ``setting`` names it in the warning).
 
     Returns the target inset resolution in metres (a positive float) for
     a numeric level, or ``None`` for "auto" (the default), empty, or
@@ -6525,7 +6526,7 @@ def parse_airport_elevation_level(value):
     if resolution_m is None or resolution_m <= 0:
         UI.vprint(
             1,
-            "   WARNING: unrecognised airport_elevation_level",
+            "   WARNING: unrecognised " + setting,
             repr(value),
             "- using auto.",
         )

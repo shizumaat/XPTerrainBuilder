@@ -378,7 +378,8 @@ XPLANE_FRAME_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir")
 #: A divergence between the dev tree's config and the owner's app config
 #: means the lane is measuring a surface production never renders.
 DEM_FRAME_KEYS = (
-    "elevation_level", "elevation_coastline_band_km", "base_elevation_source",
+    "elevation_level", "elevation_coastline_band_km",
+    "coastline_elevation_level", "base_elevation_source",
     "custom_dem", "fill_nodata", "working_grid_arc_seconds",
     "apt_smoothing_pix", "apt_smoothing_auto",
     "airport_elevation_insets", "airport_elevation_level",

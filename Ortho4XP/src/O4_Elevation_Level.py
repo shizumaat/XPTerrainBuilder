@@ -259,30 +259,105 @@ def surround_rung_for_class(definition, class_m):
     source for that class, and the caller walks on to the next candidate
     (the collapse rule, unchanged).
     """
-    import O4_Airport_Elevation_Insets as INSETS
-
     if definition is None or class_m is None:
         return None
     limit_m = float(class_m)
     best = None
-    for label, rung_definition in INSETS._ladder_rung_definitions(definition):
-        if not INSETS._rung_can_be_surround(rung_definition):
+    for rung in _surround_rungs(definition):
+        if rung.native_resolution_m > limit_m:
             continue
-        native_m = INSETS._definition_resolution_m(rung_definition)
-        if native_m is None or native_m > limit_m:
-            continue
-        if best is not None and native_m <= best.native_resolution_m:
+        if best is not None and \
+                rung.native_resolution_m <= best.native_resolution_m:
             # Strictly coarser wins, so a tie keeps the FINEST-FIRST
             # ladder's own order (the file's rung before a cross-provider
             # rung of the same resolution).
             continue
-        best = SurroundRung(
-            label,
-            rung_definition,
-            native_m,
-            FNAMES.rung_path_token(label),
-        )
+        best = rung
     return best
+
+
+def _surround_rungs(definition):
+    """Every surround-capable rung of the provider's own ladder that
+    declares a native resolution, as :class:`SurroundRung`, ladder order."""
+    import O4_Airport_Elevation_Insets as INSETS
+
+    for label, rung_definition in INSETS._ladder_rung_definitions(definition):
+        if not INSETS._rung_can_be_surround(rung_definition):
+            continue
+        native_m = INSETS._definition_resolution_m(rung_definition)
+        if native_m is None:
+            continue
+        yield SurroundRung(
+            label, rung_definition, native_m, FNAMES.rung_path_token(label)
+        )
+
+
+# --- The coastline band's own detail level (coastline_elevation_level) --
+#: "auto" grades the band by the approach-visibility ladder above.
+COASTLINE_LEVEL_AUTO = "auto"
+#: The tier label of every cell under a pinned level: one rung, any reach.
+COASTLINE_FIXED_TIER = "fixed"
+
+
+def _coastline_band_level_m(tile):
+    """The band's pinned level in metres, or ``None`` for "auto".
+
+    Same values and parsing as ``airport_elevation_level`` (one parser).
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    return INSETS.parse_airport_elevation_level(
+        getattr(tile, "coastline_elevation_level", COASTLINE_LEVEL_AUTO),
+        setting="coastline_elevation_level",
+    )
+
+
+def _coastline_band_ladder(level_m):
+    """The ladder grading the band: the graded table for "auto", else one
+    rung of the pinned level reaching every cell."""
+    if level_m is None:
+        return coastline_rung_ladder()
+    return (ApproachRung(float("inf"), float(level_m), COASTLINE_FIXED_TIER),)
+
+
+def _coastline_cell_source(definition, rung, level_m):
+    """``(SurroundRung, warp resolution m)`` for one band cell, or
+    ``(None, None)`` when the provider has no surround rung for it.
+
+    "auto": the rung at or under the tier's class, warped at the class
+    (unchanged).  A pinned level follows ``airport_elevation_level``'s
+    rule: never warped finer than the source publishes -- a level finer
+    than every surround rung takes the finest one at its native posting.
+    """
+    source = surround_rung_for_class(definition, rung.resolution_m)
+    if level_m is None:
+        return (source, rung.resolution_m) if source else (None, None)
+    if source is None:
+        source = min(
+            _surround_rungs(definition) if definition else (),
+            key=lambda candidate: candidate.native_resolution_m,
+            default=None,
+        )
+    if source is None:
+        return None, None
+    return source, max(float(level_m), source.native_resolution_m)
+
+
+def _coastline_band_grid_factor(cells, level_m):
+    """Working-grid factor the band stamp records.
+
+    "auto": 3 when any near-tier cell exists, else 1 (unchanged).  A pinned
+    level densifies like the tile-wide level of the same detail, capped by
+    the finest cell actually fetched (:func:`grid_factor_for_level`).
+    """
+    if level_m is None:
+        return 3 if any(cell["tier"] == "near" for cell in cells) else 1
+    finest_m = min(cell["resolution_m"] for cell in cells)
+    level_key = min(
+        (key for key in LEVEL_GRID_FACTORS if key >= finest_m),
+        default=max(LEVEL_GRID_FACTORS),
+    )
+    return grid_factor_for_level(level_key, finest_m)
 
 
 def approach_class(distance_m, ladder):
@@ -824,7 +899,9 @@ def ensure_coastline_band(tile, dico_airports):
     # THE shared grading function (spec section 6 row 5): the band's own
     # ladder table, graded by :func:`approach_class` -- the same function
     # the approach rings use, values unchanged (section 9 Q2).
-    band_ladder = coastline_rung_ladder()
+    # A pinned coastline_elevation_level replaces the table with one rung.
+    band_level_m = _coastline_band_level_m(tile)
+    band_ladder = _coastline_band_ladder(band_level_m)
 
     def _nearest_airport_distance_m(cell_centre_lon, cell_centre_lat):
         """Metre distance to the nearest airport box (0 inside), inf if none.
@@ -879,13 +956,14 @@ def ensure_coastline_band(tile, dico_airports):
             )
             rung = approach_class(airport_distance_m, band_ladder)
             tier = rung.label
-            resolution_m = rung.resolution_m
             # THE SAME RULING AS THE RINGS (2026-10-02f): a band cell is a
             # SURROUND of its tier's class, so it is fetched from the
             # ladder rung whose native resolution is at most that class --
             # one derivation site, shared (the band took the ring's defect
             # through the very same no-ladder ``fetch_inset`` call).
-            source_rung = surround_rung_for_class(definition, resolution_m)
+            source_rung, resolution_m = _coastline_cell_source(
+                definition, rung, band_level_m
+            )
             if source_rung is None:
                 cells_without_a_rung += 1
                 continue
@@ -925,11 +1003,22 @@ def ensure_coastline_band(tile, dico_airports):
         )
         return None
 
+    if band_level_m is not None:
+        UI.vprint(
+            1,
+            "   Coastline elevation band from",
+            code,
+            "-",
+            len(cells),
+            "cell(s) at coastline_elevation_level",
+            band_level_m,
+            "m.",
+        )
     near_tier_cells = sum(1 for cell in cells if cell["tier"] == "near")
     mid_tier_cells = sum(1 for cell in cells if cell["tier"] == "mid")
     far_tier_cells = sum(1 for cell in cells if cell["tier"] == "far")
     UI.vprint(
-        1,
+        1 if band_level_m is None else 2,
         "   Coastline elevation band from",
         code,
         "-",
@@ -1062,9 +1151,7 @@ def ensure_coastline_band(tile, dico_airports):
     # Release the handle so the virtual mosaic is flushed to disk.
     mosaic = None
 
-    band_factor = (
-        3 if any(cell["tier"] == "near" for cell in existing_cells) else 1
-    )
+    band_factor = _coastline_band_grid_factor(existing_cells, band_level_m)
     stamp = {
         "provider": code,
         "factor": band_factor,

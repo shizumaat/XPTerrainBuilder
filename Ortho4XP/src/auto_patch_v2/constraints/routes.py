@@ -114,6 +114,7 @@ from ..model.map_memo import ContentSlots
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import cap_of, face_cap
+from .route_work import walk_rows
 from .stretches import edge_cap, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
@@ -960,13 +961,11 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
             got = [prior.read(labels, s, garr[k][j0:]) for k, j0 in above(s)]
             if all(r is not None for r in got):
                 read[s] = got
+    # the rest are walked, on the work pool when one answers (#2206,
+    # ``route_work``: the same rows, only the columns a source pairs with)
     walk = [s for s in srcs if s not in read]
-    for c0 in range(0, len(walk), chunk):
-        idx = walk[c0:c0 + chunk]
-        D = dijkstra(m, directed=True, indices=idx)
-        B = dijkstra(wb, directed=True, indices=idx)
-        for i, s in enumerate(idx):
-            read[s] = [(D[i, gcol[k][j0:]], B[i, gcol[k][j0:]]) for k, j0 in above(s)]
+    read.update(walk_rows(m, wb, walk, {s: [gcol[k][j0:] for k, j0 in above(s)]
+                                        for s in walk}, chunk))
     dropped: dict[tuple[int, int], tuple[float, float]] = {}
     for s in srcs:
         for (k, j0), (d, b) in zip(above(s), read.pop(s), strict=True):

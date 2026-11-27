@@ -71,24 +71,49 @@ def contact_samples(m: _t.Any, airside: bool = True) -> tuple[np.ndarray, np.nda
     return e[::k], n[::k]
 
 
+#: :func:`_pad_beside`'s projected pads, HOISTED (#2206): every call
+#: projected every pad's ring point by point (KATL 94-117 s of the seat and
+#: the perimeter population).  One slot, held against the pads object AND
+#: the projection (both held here, so neither ``id`` is reused while
+#: cached): the rings' frame boxes at once, each polygon the first time a
+#: call's window reaches it -- the same polygons, built the same way.
+_BESIDE: dict[str, _t.Any] = {"pads": None, "to_xy": None}
+
+
+def _projected(pads: _t.Sequence[_t.Any], to_xy: _t.Callable):
+    """``(rings, boxes, polys, refs)`` of ``pads`` in the frame: each ring's
+    projected points, an ``(n, 4)`` array of ``x_min, x_max, y_min,
+    y_max``, the polygon cache (index -> polygon) and each pad's ref -- :data:`_BESIDE`."""
+    slot = _BESIDE
+    if slot["pads"] is not pads or slot["to_xy"] is not to_xy:
+        rings = [[to_xy(lo, la) for la, lo in p.ring] for p in pads]
+        boxes = np.array([(min(q[0] for q in xy), max(q[0] for q in xy),
+                           min(q[1] for q in xy), max(q[1] for q in xy)) for xy in rings],
+                         dtype=float).reshape(-1, 4)
+        slot.update(pads=pads, to_xy=to_xy, rings=rings, boxes=boxes, polys={},
+                    refs=[str(p.ref) for p in pads])
+    return slot["rings"], slot["boxes"], slot["polys"], slot["refs"]
+
+
 def _pad_beside(e: np.ndarray, n: np.ndarray, pads: _t.Sequence[_t.Any],
                 to_xy: _t.Callable, reach_m: float) -> "str | None":
     """The pad ref most of the frame points ``(e, n)`` stand within
     ``reach_m`` of (each point counts for its nearest pad), or ``None``.
     A perimeter station stands on the unit's EDGE, a cell or so outside
-    the pad drawn under it."""
+    the pad drawn under it.  The pads' projection is held per pads object
+    (:func:`_projected`)."""
     import shapely
     from shapely.geometry import Polygon
-    refs, polys = [], []
+    rings, bx, cache, ref_of = _projected(pads, to_xy)
     x0, x1, y0, y1 = e.min() - reach_m, e.max() + reach_m, n.min() - reach_m, n.max() + reach_m
-    for p in pads:
-        xy = [to_xy(lo, la) for la, lo in p.ring]
-        xs, ys = [q[0] for q in xy], [q[1] for q in xy]
-        if max(xs) < x0 or min(xs) > x1 or max(ys) < y0 or min(ys) > y1:
-            continue
-        g = Polygon(xy).buffer(0.0)
+    near_box = ~((bx[:, 1] < x0) | (bx[:, 0] > x1) | (bx[:, 3] < y0) | (bx[:, 2] > y1))
+    refs, polys = [], []
+    for k in np.flatnonzero(near_box).tolist():
+        g = cache.get(k)
+        if g is None:
+            g = cache[k] = Polygon(rings[k]).buffer(0.0)
         if not g.is_empty:
-            refs.append(str(p.ref))
+            refs.append(ref_of[k])
             polys.append(g)
     if not polys:
         return None

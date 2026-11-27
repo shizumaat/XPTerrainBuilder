@@ -2,17 +2,21 @@
 
 ``O4_Cliff_Shade`` needs the luminance of the photo under and around each
 cliff region while the DSF is built, before the photos are converted.  This
-module gives one photo's pixels at a small size, from the first source on
-disk:
+module gives one photo's pixels at a small size, from ONE canonical source
+whatever the tile folder holds (#2308):
 
-1. the build's converted texture (``textures/<name>.dds``): one mip of
-   about ``SAMPLE_PX``, read alone (``O4_DDS_File.read_level``);
-2. the orthophoto JPEG the converter reads, decoded at 1/8 scale
+1. the orthophoto JPEG the converter reads, decoded at 1/8 scale
    (``Image.draft``);
-3. when the build downloads imagery, that JPEG fetched now through the
+2. when the build downloads imagery, that JPEG fetched now through the
    imagery step's own locked download (``O4_Imagery_Utils
    .build_jpeg_ortho``): the step finds it present and does not fetch it
    twice.  With ``skip_downloads`` nothing is fetched.
+
+The folder's converted ``textures/*.dds`` is never read: it is this
+build's own output (colour-harmonized, provider-blended, masked and DXT
+compressed), so it exists only on a rebuild and cannot decode to the
+JPEG's pixels; reading it made a fresh folder's first DSF differ from
+every later build of the same code and inputs.
 
 None when no source gives it: the photo is not sampled.
 """
@@ -22,8 +26,6 @@ import os
 import sys
 
 import numpy
-import O4_DDS_File as DDS
-import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 
 __all__ = ["SAMPLE_PX", "photo_lookup", "photo_reader"]
@@ -39,12 +41,6 @@ def photo_lookup(dico_customzl, mesh_zl):
         return [dico_customzl.get(GEO.wgs84_to_orthogrid(lat, lon, mesh_zl))
                 for lon, lat in lonlat]
     return photo_at
-
-
-def _from_dds(path):
-    from O4_DDS_Decode import decode_blocks
-    width, height, fmt, blocks = DDS.read_level(path, SAMPLE_PX)
-    return decode_blocks(blocks, width, height, fmt)[..., :3]
 
 
 def _from_jpeg(path):
@@ -73,17 +69,11 @@ def _downloads_on():
 
 def photo_reader(tile, fetch=None):
     """``read_photo(attrs)``: the photo's (s, s, 3) pixels or None.
-    ``fetch`` (default: the build downloads imagery) allows source 3."""
+    ``fetch`` (default: the build downloads imagery) allows source 2.
+    ``tile.build_dir`` is not read (#2308)."""
     fetch = _downloads_on() if fetch is None else fetch
 
     def read_photo(attrs):
-        dds = os.path.join(tile.build_dir, "textures",
-                           FNAMES.dds_file_name_from_attributes(*attrs))
-        try:
-            if DDS.is_whole(dds):
-                return _from_dds(dds)
-        except (OSError, ValueError):
-            pass
         jpeg = _jpeg_path(tile, attrs)
         if jpeg is None:
             return None

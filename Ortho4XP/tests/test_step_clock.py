@@ -146,6 +146,45 @@ def test_a_record_carries_the_builds_own_stage_clocks(stores):
     assert kept[1]["phase_seconds"] == {}
 
 
+def test_the_stage_cache_answers_go_beside_the_phases(stores):
+    """The worker's waits are phases; the stage cache's answers ride the
+    same hand-over but land in ``stage_cache``, so ``phase_seconds`` stays
+    seconds only (the ``check_build_time`` reader sums it)."""
+    cache = {"state": "on", "hit": ["classify"], "miss": ["planar"], "other": {}}
+    ATM.note_phases("KDEN", {"wait_slot": 12.5, "prepare": 3.0, "solve": 9.0,
+                             "stage_cache": cache})
+    ATM.record("KDEN", 30.0, now=1.0)
+    ATM.record("KDEN", 31.0, now=2.0)
+    kept = json.loads((stores / "airports" / "KDEN.json").read_text(encoding="utf-8"))
+    assert kept[0]["phase_seconds"] == {"wait_slot": 12.5, "prepare": 3.0, "solve": 9.0}
+    assert kept[0]["stage_cache"] == cache
+    assert "stage_cache" not in kept[1]
+
+
+def test_the_worker_clocks_and_cache_answers():
+    """``engine_v2._phase_seconds``: the report's stage clocks, the late
+    stage's split, the worker's clocks around the build (a clock not
+    taken is left out) and the cache's hit / miss lists."""
+    from auto_patch import engine_v2 as E
+    report = {"wall_s": {"classify": 5.0, "total": 9.0},
+              "late_stage": {"wall_s": {"derive": 2.0}},
+              "cache": {"state": "on", "stages": {
+                  "classify": {"state": "hit"}, "planar": {"state": "miss"},
+                  "shapes": {"state": "miss; not written: OSError"},
+                  "constraints": {"state": "refused: recipe"}}}}
+    worker = E._worker_clocks({"queued_at": 100.0, "granted_at": 160.0},
+                              t0=162.0, t_build=170.0, place_s=1.5, verify_s=None)
+    got = E._phase_seconds(report, worker)
+    assert got["wait_slot"] == 60.0 and got["worker_start"] == 2.0
+    assert got["prepare"] == 8.0 and got["place"] == 1.5 and "verify_log" not in got
+    assert got["classify"] == 5.0 and got["late_derive"] == 2.0
+    assert got["stage_cache"] == {"state": "on", "hit": ["classify"],
+                                  "miss": ["planar", "shapes"],
+                                  "other": {"constraints": "refused: recipe"}}
+    assert "wait_slot" not in E._phase_seconds(report, E._worker_clocks(
+        {}, t0=1.0, t_build=None, place_s=None, verify_s=None))
+
+
 def test_the_driver_hands_the_clocks_to_the_session(stores, monkeypatch):
     """``auto_patch.driver`` -> ``UI.airport_phases`` -> the session's
     ``airport_phases`` -> :func:`ATM.note_phases` (no ``o4_engine`` import

@@ -3875,10 +3875,9 @@ class MainWindow(QMainWindow):
             adjust.setAutoRaise(True)
             adjust.setText(QTADJ.ADJUST_BUTTON)
             adjust.setFixedHeight(18)
-            adjust.setEnabled(not busy)
-            adjust.setToolTip(
-                _PACK_ROW_WAIT if busy
-                else QTADJ.ADJUST_HELP)
+            # #2303: Adjust… opens the report (a read) during any run;
+            # only its Apply writes, refused by the engine with the reason
+            adjust.setToolTip(QTADJ.ADJUST_HELP)
             adjust.clicked.connect(
                 lambda _checked=False, p=pack: self._adjust_pack_from_row(p))
             rl.addWidget(adjust, 0, Qt.AlignRight)
@@ -5731,7 +5730,7 @@ class MainWindow(QMainWindow):
         report of the pack as it is on the active tile, which opens the
         question (``PackAdjust(state="adjust")``)."""
         tile = self.map.active_tile()
-        if tile is None or self._pack_row_busy(pack):
+        if tile is None:
             return
         self._pack_row_command(pack, lambda: self._session.pack_adjust(
             pack_root=pack["pack_path"], action="adjust",

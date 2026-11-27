@@ -137,3 +137,18 @@ Order I would migrate them in:
 3. Room before install: a flight that knows its length asks `storage_room` / `storage_floor` for those bytes before it installs, with `storage_priority` choosing what moves; the after-build `storage_offload` stays as the sweep.
 4. `needed_by` and `priority`: one queue of flights ordered by deadline, an active flight's page-ahead deadlines first, then the running builds by step; `O4_Imagery_Page_Ahead`, `imagery_follow` and the per-tile imagery job become producers of requests. The accuracy of first-build texture prediction (on water especially) is measured before this step, as #2258 asks.
 5. The remaining census rows as callers: approach-ring cells (13), bathymetry once #2265 has settled (14), shared catalogs (22, 23), the Geofabrik index (2).
+
+## Scope after lane ldlperf (2026-11-26)
+
+#2258's acceptance, one row each, against the code at this lane's base:
+
+| Acceptance | State | What is left |
+|---|---|---|
+| Each shared resource downloaded once (request count) | met for extracts, Overpass layers, base DEM cells, elevation insets (`request_counts`) | imagery (rows 5, 6), approach rings (13), bathymetry (14), catalogs (22, 23), Geofabrik index (2) |
+| A tile blocked on a download holds no slot | met (`O4_Step_Wait`) for every waiter on `fetch` and `hold_flight` | the same rows as above |
+| Total and per-server limits across processes | met for the migrated rows (`server_slot`, `download-total`) | no bandwidth budget (bytes/s); `download_meter` measures only |
+| Stop ends every transfer, no orphans | met for the migrated rows; stale extract partials swept once per process (#2294) | imagery temporaries still `hold_file_lock` |
+| Fetch the cheapest resource that decides | new (#2218 (2)): a box whose land is unknown fetches the witness elevation before it chooses a parent extract not yet stored | the same rule for other "which source" choices (base DEM tiers) |
+
+The next round is item 1 of the design note (imagery onto `fetch`); it is
+larger than a lane's side task, so it is not started here.

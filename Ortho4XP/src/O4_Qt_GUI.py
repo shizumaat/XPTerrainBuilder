@@ -5820,8 +5820,8 @@ class MainWindow(QMainWindow):
         .gatewayAirports``): ``state == "found"`` (or ``"ask"``, the
         report) with an airport to offer asks once per tile and airport
         set, every airport checked; Install (the airports kept checked) /
-        Never for these airports send ``gateway_airports`` with every
-        airport shown, Not now sends nothing.  An outcome asks nothing
+        Never for these airports / Not now (``"later"``, #2212) send
+        ``gateway_airports`` with every airport shown.  An outcome asks nothing
         (the engine's log line says what was installed or why not)."""
         state = getattr(event, "state", "found")
         key = QTGATE.question_key(event)

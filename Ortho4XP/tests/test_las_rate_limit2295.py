@@ -8,14 +8,13 @@ from __future__ import annotations
 import contextlib
 import types
 
-import pytest
-
 import O4_Http_Pushback as PUSHBACK
 import O4_UI_Utils as UI
+import pytest
 from elevation_access import base as ea_base
 from elevation_access import rate_limit as RATE
 from elevation_access.strategies import las_tile_index as ea_las_tile_index
-from tests.test_las_tile_index import _Response, _definition, _write_las
+from tests.test_las_tile_index import _definition, _Response, _write_las
 
 
 @pytest.fixture

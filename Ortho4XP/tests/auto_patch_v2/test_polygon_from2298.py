@@ -6,10 +6,9 @@ ring folded flat onto itself (two corners 1e-11 m apart) came back from
 zero-length line)."""
 from __future__ import annotations
 
+from auto_patch_v2.classify.evidence import polygon_from
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
-
-from auto_patch_v2.classify.evidence import polygon_from
 
 #: the LEMO footprint ring, verbatim (moved, it rounds valid)
 FOLDED = ((-24077.685, 26321.455), (-24083.3, 26321.419),

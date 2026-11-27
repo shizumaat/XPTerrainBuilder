@@ -2622,8 +2622,9 @@ final class BuildModel: ObservableObject {
     }
 
     /// The user's answer to the question on screen: "install" (the checked
-    /// airports) or "never" sends `gateway_airports` with every airport
-    /// shown; nil (Not now) sends nothing.
+    /// airports), "never" or "later" (Not now: a patch waiting on the answer
+    /// goes on, #2212) sends `gateway_airports` with every airport shown;
+    /// nil sends nothing.
     func answerGatewayAirportsPrompt(action: String?, icaos: [String] = []) {
         if let offer = gatewayAirportsPrompt, let action {
             client?.gatewayAirports(action: action, lat: offer.lat, lon: offer.lon,

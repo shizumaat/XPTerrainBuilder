@@ -23,7 +23,7 @@ def _pack(tmp_path, renames, *, sha=None):
     (tmp_path / ("+21-087.dsf" + BACKUP_SUFFIX)).write_bytes(b"pristine")
     pristine = sha or sha256_file(str(dsf) + BACKUP_SUFFIX)
     rec = {"dsfs": {dsf.name: {PF.RECORD_KEY: PF.record(pristine, renames, 1, "t")}}}
-    (tmp_path / PROVENANCE_FILENAME).write_text(json.dumps(rec))
+    (tmp_path / PROVENANCE_FILENAME).write_text(json.dumps(rec), encoding="utf-8", newline="\n")
     B.invalidate_memo()
     return str(dsf)
 

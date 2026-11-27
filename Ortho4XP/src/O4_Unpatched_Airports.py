@@ -354,12 +354,15 @@ def record_degraded(tile, source: str, rows) -> list:
 def _record_degraded(tile, source: str, rows) -> list:
     rows = [dict(row) for row in rows or () if isinstance(row, dict)]
     own = getattr(tile, "degraded_outputs", None)
-    if own is None:
-        own = {}
-        build_dir = getattr(tile, "build_dir", None)
-        if build_dir:
-            on_disk = _read_all(build_dir).get(DEGRADED_KEY)
-            own = dict(on_disk) if isinstance(on_disk, dict) else {}
+    own = {} if own is None else own
+    build_dir = getattr(tile, "build_dir", None)
+    if build_dir:
+        # the other parts' rows on disk, written since this tile last read
+        # them (a part running beside this one, #1264)
+        on_disk = _read_all(build_dir).get(DEGRADED_KEY)
+        if isinstance(on_disk, dict):
+            for part, part_rows in on_disk.items():
+                own.setdefault(part, part_rows)
     own[str(source)] = rows
     try:
         tile.degraded_outputs = own

@@ -45,8 +45,10 @@ def _obj(i, agl=0.0, bbox=None, **kw):
                            walled_plate=None, zero_y=kw.get("zero_y", 0.0))
 
 
-def _airport(maps):
-    dem = SimpleNamespace(z_many=lambda x, y: np.full(len(x), 100.0))
+def _airport(maps, ground=366.5):
+    """``ground``: our DEM everywhere (366.5: the composites' floor at
+    ``D - t + h`` on the ``low`` pad, so their ground is no FAR)."""
+    dem = SimpleNamespace(z_many=lambda x, y: np.full(len(x), float(ground)))
     frame = SimpleNamespace(transformers=lambda: (None, _ll))
     rows = sorted({r for m in maps for r in m.key} | {"dsf:obj3"})
     part = SimpleNamespace(units=(SimpleNamespace(
@@ -159,3 +161,14 @@ def test_rung_l0_reads_the_contacts_along_the_face():
     assert ust._contact_level(ap, 0, face, 0.0, 3.0, 3.0) == 4.1
     assert ust._contact_level(ap, 0, LineString([(0, 20), (5, 20)]), 0.0, 3.0, 3.0) is None
     assert ust._contact_level(ap, 0, face, 4.0, 3.0, 3.0) is None    # all within a storey
+
+
+def test_a_zero_leaving_its_ground_far_is_doubt():
+    """S0 (lane lellxpit; 25f): a composite whose zero leaves half or more
+    of its non-airside stations a storey off our ground is not written."""
+    pads = [_pad("low", -1, 10, -1, 11, 366.5)]
+    m = _map(-6.0, -6.6, key=("dsf:obj1", "dsf:obj2"))
+    recs, rep = us.seat_records(_airport([m], ground=382.0), pads,
+                                [_obj(1), _obj(2)], set(), 0.5)
+    assert recs == [] and rep == []
+

@@ -304,7 +304,7 @@ def seat_records(airport: _t.Any, pads: _t.Sequence[_t.Any],
     for m in sorted(maps, key=lambda q: q.key):
         rows = [str(r) for r in m.key if not str(r).startswith("@")]
         pad, D = _unit_pad(m, pads, to_ll, to_xy, AIRSIDE_NEAR_M)
-        verdict, det = admit(m, D, np.asarray(many(m.e, m.n), dtype=float))
+        verdict, det = admit(m, D, np.asarray(many(m.e, m.n), dtype=float), storey_m)
         if verdict not in ADMITTED or D is None:
             continue
         rep = {"unit": m.unit, "row": rows[0], "rows": len(rows), "pad": pad,

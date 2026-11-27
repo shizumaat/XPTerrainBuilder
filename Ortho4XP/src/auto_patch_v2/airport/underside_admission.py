@@ -17,7 +17,12 @@ walls' feet median, ``footprint_unit._wall_base``).  The verdict:
   GROUND CONFIRMS: the L1 misfit of our ground to the unit's non-airside
   stations (``median |g - (z0 + h)|``) falls by :data:`MIS_ZEROED_M` or
   more from today's zero to ``z0``;
-* ``doubt`` -- anything else: today's seat (13r).  A unit touching no
+* ``doubt`` -- anything else: today's seat (13r); and a COMPOSITE (the
+  one verdict our ground does not confirm) whose zero would leave half or
+  more of its non-airside stations our ground reads FAR (a storey or more
+  outside their interval, 25f: :func:`far_share`) -- lane lellxpit S0,
+  MEASURED ELLX ``Lux_Fuel_base``: a composite zero 15.5 m under its
+  ground at every station (its pad ``building49#s1`` read 360.54 m).  A unit touching no
   airside (``t`` read from its own feet) is never re-zeroed but on the
   ground's confirmation (25n (2): only airside welds a unit to ``D``),
   and its predicted ``z0`` is today's.
@@ -30,7 +35,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["COHERENT_M", "MIS_ZEROED_M", "VERDICTS", "admit"]
+__all__ = ["COHERENT_M", "MIS_ZEROED_M", "VERDICTS", "admit", "far_share"]
 
 #: two zeros this close are one (m)
 COHERENT_M = 0.05
@@ -49,10 +54,38 @@ def _misfit(m: _t.Any, z0: float, g: np.ndarray) -> float:
     return float(np.median(np.abs(g[ok] - (z0 + m.h[ok]))))
 
 
-def admit(m: _t.Any, D: "float | None", g: "np.ndarray | None" = None
-          ) -> tuple[str, dict[str, _t.Any]]:
+def far_share(m: _t.Any, z0: float, g: "np.ndarray | None", storey_m: float
+              ) -> "float | None":
+    """The share of ``m``'s non-airside stations our ground ``g`` reads
+    that stand ``storey_m`` or more outside their interval at zero ``z0``
+    (``unit_perimeter``'s FAR), or ``None`` when none is read."""
+    from .unit_perimeter import _interval, off_interval
+    if g is None:
+        return None
+    ok = np.isfinite(g) & ~np.asarray(m.airside, dtype=bool)
+    if not ok.any():
+        return None
+    lo, hi = _interval(m, z0)
+    far = np.abs(off_interval(g, lo, hi)) >= float(storey_m)
+    return float(far[ok].mean())
+
+
+def admit(m: _t.Any, D: "float | None", g: "np.ndarray | None" = None,
+          storey_m: float = 3.0) -> tuple[str, dict[str, _t.Any]]:
     """``(verdict, detail)`` of map ``m`` on a pad at ``D`` with our
-    ground ``g`` read at its stations (module doc)."""
+    ground ``g`` read at its stations (module doc); ``storey_m``: the FAR
+    step (``[building_pad] low_level_min_step_m``)."""
+    verdict, det = _verdict(m, D, g)
+    if verdict == "composite":
+        share = far_share(m, float(det["z0"]), g, storey_m)
+        if share is not None and share >= 0.5:
+            det["far_share"] = round(share, 3)
+            return "doubt", det
+    return verdict, det
+
+
+def _verdict(m: _t.Any, D: "float | None", g: "np.ndarray | None"
+             ) -> tuple[str, dict[str, _t.Any]]:
     if m.footless or m.t is None:
         return "exception", {"why": "footless"}
     if D is None:

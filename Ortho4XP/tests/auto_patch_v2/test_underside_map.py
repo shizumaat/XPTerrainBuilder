@@ -213,7 +213,8 @@ def test_a_paved_skirt_on_our_ground_is_a_composite():
 def _m(t, base, t_from="airside", composite=False, h=None):
     h = np.zeros(4) if h is None else np.asarray(h, float)
     return SimpleNamespace(t=t, base=base, t_from=t_from, composite=composite,
-                           footless=False, h=h, airside=np.array([1, 0, 0, 0], bool))
+                           footless=False, h=h, lo=h, hi=h,
+                           airside=np.array([1, 0, 0, 0], bool))
 
 
 def test_admission_verdicts():
@@ -226,6 +227,11 @@ def test_admission_verdicts():
     assert v == "mis-zeroed" and d["z0"] == 373.0
     v, d = adm.admit(_m(-7.0, 0.0, t_from="feet", composite=True), 366.0)
     assert v == "doubt" and d["z0"] == 366.0        # never welded but by airside
+    # S0 (25f): an admitted zero leaving its ground a storey off is doubt
+    v, d = adm.admit(_m(-7.0, 0.0, composite=True), 366.0, np.full(4, 380.0))
+    assert v == "doubt" and d["far_share"] == 1.0
+    assert adm.admit(_m(-7.0, 0.0, composite=True), 366.0, np.full(4, 373.2))[0] \
+        == "composite"
 
 
 # ── the sidecar records (U25) ────────────────────────────────────────────

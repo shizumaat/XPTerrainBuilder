@@ -189,11 +189,12 @@ def _near_base(m: _t.Any) -> bool:
     return abs(float(m.t) - float(m.base or 0.0)) < MIS_ZEROED_M
 
 
-def _zero(m: _t.Any, D: "float | None", g: np.ndarray) -> "tuple[float, str] | None":
+def _zero(m: _t.Any, D: "float | None", g: np.ndarray, storey_m: float = 3.0
+          ) -> "tuple[float, str] | None":
     """``(z0, why)`` of map ``m`` (module doc, THE POPULATION), or ``None``."""
     from .underside_admission import admit
     from .underside_seat import ADMITTED, _unit_zero
-    verdict, det = admit(m, D, g)
+    verdict, det = admit(m, D, g, storey_m)
     if verdict in ADMITTED and D is not None:
         return _unit_zero(m, verdict, D), "written whole"
     if verdict == "coherent":
@@ -237,7 +238,7 @@ def perimeters(airport: _t.Any, pads: _t.Sequence[_t.Any],
             continue
         g = np.asarray(many(m.e, m.n), dtype=float)
         _pad, D = _unit_pad(m, pads, to_ll, to_xy, AIRSIDE_NEAR_M)
-        got = _zero(m, D, g)
+        got = _zero(m, D, g, storey_m)
         if got is None or (got[1] == "no pad" and not no_pad):
             continue
         z0, why = got

@@ -160,3 +160,13 @@ def test_written_reapplied_and_undone(tmp_path, monkeypatch):
     assert rp.dsf.read_bytes() == DUMP.encode("utf-8")
     assert not any((rp.pack / f).exists() for f in made)
     assert (rp.pack / "o" / "bench.obj").read_text(encoding="utf-8") == BENCH
+
+
+def test_instances_with_no_roof_cell_read_no_roof():
+    """#2250: LGKR's Adjust… failed ("boolean index did not match") when
+    every instance's faces held no grid cell: they are no roof."""
+    import numpy as np
+    flat = RF.Instance(0, "decal.obj", np.zeros((0, 3, 3)), np.zeros(0, dtype=np.int64),
+                       np.zeros(0))
+    roof = RF.read_roof([flat, flat], 39.6, 19.9)
+    assert not len(roof.keys) and not len(roof.top) and not len(roof.second)

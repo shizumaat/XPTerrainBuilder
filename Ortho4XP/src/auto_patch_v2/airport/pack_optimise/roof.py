@@ -261,10 +261,13 @@ def read_roof(insts: _t.Sequence[Instance], lat0: float, lon0: float) -> Roof:
         ks.append(k)
         zs.append(z)
         os_.append(np.full(len(k), inst.ordinal, dtype=np.int64))
-    if not ks:
+    k = np.concatenate(ks) if ks else np.zeros(0, dtype=np.int64)
+    if not k.size:
+        # #2250: instances whose faces hold no cell (LGKR's ground decals)
+        # are no roof -- the first-row mark below would index nothing
         e = np.zeros(0, dtype=np.int64)
         return Roof(lat0, lon0, e, np.zeros(0), e, np.zeros(0))
-    k, z, o = np.concatenate(ks), np.concatenate(zs), np.concatenate(os_)
+    z, o = np.concatenate(zs), np.concatenate(os_)
     order = np.lexsort((-z, k))
     k, z, o = k[order], z[order], o[order]
     first = np.r_[True, k[1:] != k[:-1]]

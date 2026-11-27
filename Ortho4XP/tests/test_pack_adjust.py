@@ -138,8 +138,8 @@ def test_the_tile_scan_asks_with_no_airport_built(stage, tmp_path):
                   scenery_dirs=[str(tmp_path / "Custom Scenery")])
     [ev] = stage["adjust"]
     assert ev["pack"] == "Unbuilt Airport", "built or not (RULINGS 2026-11-09a (9))"
-    assert [r["key"] for r in ev["items"]] == ["drapes", "ground"], \
-        "the scan asks the drape rows only"
+    assert [r["key"] for r in ev["items"]] == ["trees", "drapes", "ground"], \
+        "the scan asks the pack's own 3D trees too (#2250: a companion's flat trees)"
 
 
 def test_the_flatten_flag_alone_asks_nothing(stage):

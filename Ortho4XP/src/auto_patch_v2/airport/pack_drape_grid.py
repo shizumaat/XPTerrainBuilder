@@ -92,6 +92,10 @@ _SUBTILE = re.compile(r"(\+\d+k)+$")
 #: quarters, ``_BL`` ``_BR`` ``_UL`` ``_UR``; issue #2115)
 _QUADRANT = re.compile(r"(?<=\d)[_-][A-Za-z]{1,2}$")
 _NUMBER = re.compile(r"\d+")
+#: a grid CELL code ending a name: one letter and its number after a
+#: separator (``lgkr_a1`` ... ``lgkr_f1``, ``x-obj_groundpoly_b3``: rows
+#: lettered, columns numbered; issue #2250)
+_CELL = re.compile(r"(?<=[_\-\s])[A-Za-z]\d{1,3}$")
 
 
 class Layer(_t.NamedTuple):
@@ -117,8 +121,9 @@ def _family_keys(path: str, texture: str, layer: float | None = None
     numbered tile AT ITS DRAW ORDER ``layer`` (``n1e215_BR`` and
     ``n1e216_UL`` are both ``n#e#``: a grid laid as cells of four quarters
     side by side; a suffixed layer drawn over its cell, ``KEYW_3_06_sw``,
-    is that cell's detail and keeps its own family, issue #2115), and the
-    length of a hash-like name (letters and digits, at least two of each:
+    is that cell's detail and keeps its own family, issue #2115), the
+    stem with a lettered grid cell taken off (``lgkr_a1`` and ``lgkr_f1``
+    are ``lgkr_@``, issue #2250), and the length of a hash-like name (letters and digits, at least two of each:
     ``7JF26B82``)."""
     folder = os.path.dirname(path.replace("\\", "/")).lower()
     keys: set[str] = set()
@@ -127,6 +132,8 @@ def _family_keys(path: str, texture: str, layer: float | None = None
         if not name:
             continue
         keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', name.lower())}")
+        if _CELL.search(name):
+            keys.add(f"{folder}|{tag}|{_CELL.sub('@', name.lower())}|cells")
         cell = _QUADRANT.sub("", name)
         if cell != name and layer is not None:
             keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', cell.lower())}"

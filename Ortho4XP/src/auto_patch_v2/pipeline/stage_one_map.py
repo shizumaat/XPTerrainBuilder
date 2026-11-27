@@ -92,15 +92,19 @@ def gap_free(cl):
     """``cl`` without its LAST-STAGE cells — the §53 gap pieces, the pad
     roads (issue #609: a mapped-road ribbon admitted for a pad, evidence
     ``pad_road``) and the #2114 car lots (``classify/car_lot``) — or
-    ``None`` when it has none: THE BASE MAP of the last stage (below)."""
+    ``None`` when it has none: THE BASE MAP of the last stage (below).  The
+    cells it leaves out stay on the base as ``late_cover`` (their ground is
+    patch; ``emit/road_join``)."""
     from ..classify.roles import is_pad_road_cell
     from ..model.planar import is_car_lot_ref, is_gap_ref
-    cells = tuple(c for c in cl.cells
-                  if not (is_gap_ref(getattr(c, "ref", "")) or is_pad_road_cell(c)
-                          or is_car_lot_ref(getattr(c, "ref", ""))))
+    def late(c) -> bool:
+        return (is_gap_ref(getattr(c, "ref", "")) or is_pad_road_cell(c)
+                or is_car_lot_ref(getattr(c, "ref", "")))
+    cells = tuple(c for c in cl.cells if not late(c))
     if len(cells) == len(cl.cells):
         return None
-    return _dc.replace(cl, cells=cells)
+    return _dc.replace(cl, cells=cells, late_cover=tuple(
+        (tuple(c.ring), tuple(tuple(h) for h in c.holes)) for c in cl.cells if late(c)))
 
 
 def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),

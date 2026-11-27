@@ -93,8 +93,11 @@ def test_gap_free_drops_the_pieces_only():
     @dc.dataclass
     class CL:
         cells: tuple
+        late_cover: tuple = ()
     got = som.gap_free(CL(cl.cells))
     assert [c.ref for c in got.cells] == ["pav1", "small_roads:-7"]
+    # the piece's ground stays on the base as patch (lane lpadweld)
+    assert got.late_cover == ((((0, 0), (1, 0), (1, 1)), ()),)
 
 
 def test_a_row_with_no_unknown_is_not_the_last_stages():

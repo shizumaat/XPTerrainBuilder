@@ -116,9 +116,10 @@ def _run(cache, law, stage: str, inputs: _t.Callable[[], dict], fn, view=None):
 
 
 def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_s: float,
-              lrep, out: _t.Callable[[str], None]) -> tuple[_t.Any, list]:
+              lrep, out: _t.Callable[[str], None], late_cover=()) -> tuple[_t.Any, list]:
     """THE TARGET CHANNELS in their order, and their lines: ``(pm, the §50.4
-    yielded-runway records)``; the reports go into ``lrep``."""
+    yielded-runway records)``; the reports go into ``lrep``.  ``late_cover``:
+    the classification's (``Classification.late_cover``)."""
     # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
     # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
     # two-pin runway takes the TARGET PROFILE at weight ``[design] chord`` —
@@ -240,7 +241,7 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
     # levels the road OUTSIDE the coverage and not inside it, so where a
     # way leaves, the patch takes the ribbon's own altitude there.
     join_rep: dict = {}
-    pm = with_road_coverage_join(pm, law_c, road_profiles, join_rep)
+    pm = with_road_coverage_join(pm, law_c, road_profiles, join_rep, late_cover=late_cover)
     ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
     lrep.road_ramp = dict(ramp_rep)
     rs = road_rep["profiles"]
@@ -369,7 +370,8 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
         pm, yield_records = targets(pm), []
     else:
         pm, yield_records = _channels(icao, pm, law, law_c, airport, road_profiles, road_rep,
-                                      wall["road_profile"], lrep, say)
+                                      wall["road_profile"], lrep, say,
+                                      late_cover=getattr(cl, "late_cover", ()))
     wall["channels"] = time.perf_counter() - t
     if after_channels is not None:
         t = time.perf_counter()

@@ -2677,7 +2677,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             except ImportError:
                 return m
             prof, per_face = core_profiles(airport, m, law)
-            return with_road_coverage_join(m, law, prof)
+            # the BASE's coverage takes in the last stage's cells, as the
+            # build's (``pipeline/prefix._channels``, lane lpadweld)
+            return with_road_coverage_join(m, law, prof,
+                                           late_cover=getattr(cl, "late_cover", ()))
 
         if chord_fill:
             print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "

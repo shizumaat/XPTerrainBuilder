@@ -136,13 +136,39 @@ def road_coverage_joins(pm: PlanarMap, law: Law, profiles,
     return out, rep
 
 
+def _late_coverage(pm: PlanarMap, late_cover):
+    """The base map's coverage with the last stage's cells taken in."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from ..geom.coverage import coverage_polygon
+    polys = [Polygon(r, [h for h in hs if len(h) >= 3]) for r, hs in late_cover
+             if len(r) >= 3]
+    cov = coverage_polygon(pm)
+    polys = [p if p.is_valid else p.buffer(0) for p in polys]
+    out = unary_union([*([cov] if cov is not None else []), *polys])
+    return None if out.is_empty else out
+
+
 def with_road_coverage_join(pm: PlanarMap, law: Law, profiles,
                             report: dict[str, _t.Any] | None = None,
-                            coverage=None) -> PlanarMap:
+                            coverage=None, late_cover=()) -> PlanarMap:
     """Publish §37 (9)'s join as ``PlanarMap.road_coverage_join``.  Runs
     AFTER ``with_road_ramp`` (it reads that pass's route frame) and before
     the constraints; the rows are ``constraints/road_ramp.road_join_rows``.
+
+    ``late_cover`` (``Classification.late_cover``, the BASE map of the last
+    stage): the ``(ring, holes)`` of the cells the last stage adds — a pad
+    road, a gap piece, a car lot.  They are the patch's too, so the base's
+    coverage takes them in (:func:`_late_coverage`): a way running on into
+    one does not leave the patch, and the core's ribbon (removed inside the
+    patch) is no level to pin it to.  MEASURED LEMD (lane lpadweld,
+    2026-11-27): 31 of the base's 510 join vertices stood at an exit into a
+    pad road, 21 of them yielded in the solve up to 1.73 m — way ``-1094``
+    pinned at the core's 605.00 m where it meets the pad road ``-1092``,
+    10 m on welded to ``building49`` at 607.92 m: a 1.15 m step at the pad.
     """
+    if coverage is None and late_cover:
+        coverage = _late_coverage(pm, late_cover)
     joins, rep = road_coverage_joins(pm, law, profiles, pm.road_route_frame,
                                      coverage)
     if report is not None:

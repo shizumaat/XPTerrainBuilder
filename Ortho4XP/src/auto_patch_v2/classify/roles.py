@@ -211,6 +211,12 @@ class Classification:
     #: THE JETWAY GROUND (#802, ``Evidence.jetway_ground``): exterior rings
     #: of the pavement a terminal pad took in over its jetways.
     jetway_ground: tuple[tuple[XY, ...], ...] = ()
+    #: THE LAST STAGE'S GROUND ON THE BASE (``pipeline/stage_one_map.
+    #: gap_free``): ``(ring, holes)`` of every cell the base map leaves to
+    #: the last stage — a pad road, a gap piece, a car lot.  Patch, though
+    #: not on the base map: a road continuing into one never leaves the
+    #: coverage (``emit/road_join``, §37 (9)).
+    late_cover: tuple[tuple[tuple[XY, ...], tuple[tuple[XY, ...], ...]], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,

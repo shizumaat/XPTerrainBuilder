@@ -1812,6 +1812,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_bridge_ceiling",
         "auto_patch_v2.constraints.road_ramp",
+        "auto_patch_v2.constraints.road_weld",
         "auto_patch_v2.constraints.roads",
         "auto_patch_v2.constraints.routes",
         "auto_patch_v2.constraints.runway_chord",
@@ -1997,6 +1998,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "no_step_rate": "no_step",
     "cross_shape_pairs": "proximity",
     "airside_sliver_pairs": "proximity",
+    "road_airside_weld": "road_weld",
     "reach_bands": "no_step",
     "zone_bands": "zones",
     "strip_transverse": "zones",
@@ -2272,6 +2274,14 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.proximity constraints.roads
+        constraints.strips geom.containment model.airport model.end_area law.inset_class
+        model.islands
+        model.map_memo model.platform model.threshold_datum
+    """),
+    "road_weld": _mods(_GENERATOR_CORE + """
+        geom.exact
+        constraints.contiguity constraints.end_lip constraints.geometry
+        constraints.precedence constraints.proximity constraints.road_weld constraints.roads
         constraints.strips geom.containment model.airport model.end_area law.inset_class
         model.islands
         model.map_memo model.platform model.threshold_datum
@@ -2608,7 +2618,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pavement_cap constraints.platform constraints.precedence
     constraints.public_road_release
     constraints.proximity constraints.ramp_runout constraints.shell_datum
-    constraints.riser constraints.road_ramp
+    constraints.riser constraints.road_ramp constraints.road_weld
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
     constraints.threshold_seam
@@ -3106,7 +3116,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.public_road_release model.lot_ground
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.shell_datum
-    constraints.riser constraints.road_ramp constraints.roads constraints.routes
+    constraints.riser constraints.road_ramp constraints.road_weld constraints.roads
+    constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.threshold_seam
     constraints.runway_step

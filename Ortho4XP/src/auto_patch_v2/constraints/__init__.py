@@ -21,7 +21,7 @@ from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_
                deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting,
                pad_sunk_level, pads,
                platform,
-               proximity, ramp_runout, road_bridge_ceiling, road_ramp, roads, routes,
+               proximity, ramp_runout, road_bridge_ceiling, road_ramp, road_weld, roads, routes,
                runway_chord, runway_mean_slope,
                runway_profile, runway_step,
                seams, shell_datum, steep_apron, strips,
@@ -106,6 +106,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # owner RULINGS 2026-10-19an (#328): two airside pavements within the
     # weld spacing across a non-pavement gap are one surface
     ("airside_sliver_pairs", proximity.airside_sliver_pairs),
+    # owner RULINGS 2026-11-27a (#2281): a road meeting airside welds to it
+    # -- a road vertex within the weld spacing of a pavement edge (one-way)
+    ("road_airside_weld", road_weld.road_airside_weld),
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),

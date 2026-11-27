@@ -40,6 +40,7 @@ strip — so the step stood at 0.35-0.54 m.
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from ..geom import exact
 from ..law import Law
@@ -50,7 +51,8 @@ from ..model.planar import PlanarMap
 from .precedence import view
 from .roads import road_family_roles
 
-__all__ = ["cross_shape_pairs", "airside_sliver_pairs"]
+__all__ = ["cross_shape_pairs", "airside_sliver_pairs", "PavementEdges",
+           "pavement_edges", "nearest_foot", "foot_row"]
 
 GEN = "proximity"
 
@@ -136,26 +138,34 @@ def _sliver_faces(planar: PlanarMap, law: Law, caps) -> list[int]:
             and is_value_role(law, f.role) and not is_rigid_role(law, f.role)]
 
 
-def airside_sliver_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """One row per airside pavement vertex whose NEAREST edge of another
-    airside pavement face lies within the weld spacing across a
-    non-pavement gap: ``|z_v − z_foot| ≤ cap · d`` at the stricter cap,
-    ``z_foot`` the edge's level at the perpendicular foot (module
-    docstring, THE AIRSIDE SLIVER)."""
-    from shapely.geometry import LineString, Point, Polygon
+class PavementEdges(_t.NamedTuple):
+    """The airside pavement faces' ring edges, indexed for a vertex-to-edge
+    reading at the weld spacing (:func:`pavement_edges`): ``faces_of`` maps
+    every ring vertex to its pavement faces, ``edges`` is ``(face, a, b)``
+    per ring edge under ``seg_tree``, ``polys`` the faces under
+    ``pave_tree``."""
+
+    vw: _t.Any
+    caps: dict[int, float | None]
+    faces_of: dict[int, list[int]]
+    edges: list[tuple[int, int, int]]
+    seg_tree: _t.Any
+    polys: list[_t.Any]
+    pave_tree: _t.Any
+
+
+def pavement_edges(planar: PlanarMap, law: Law) -> PavementEdges | None:
+    """The index of :func:`_sliver_faces`' ring edges; ``None`` when the map
+    has no airside pavement face."""
+    from shapely.geometry import LineString, Polygon
     from shapely.strtree import STRtree
 
     vw = view(planar, law)
-    weld = float(law.tables.emit.identity.weld_spacing_m)
-    min_d = float(law.tables.emit.identity.min_distinct_spacing_m)
     caps = {fid: (c[0] if c is not None else None) for fid, c in vw.caps.items()}
-    faces = _sliver_faces(planar, law, caps)
-    if len(faces) < 2 or weld <= 0.0:
-        return []
     faces_of: dict[int, list[int]] = {}
     edges: list[tuple[int, int, int]] = []          # (face, a, b)
     polys: list[Polygon] = []
-    for fid in faces:
+    for fid in _sliver_faces(planar, law, caps):
         rings = [r for r in (vw.rings[fid], *vw.holes[fid]) if len(r) >= 3]
         if not rings:
             continue
@@ -165,39 +175,78 @@ def airside_sliver_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[
             for i, v in enumerate(r):
                 faces_of.setdefault(v, []).append(fid)
                 edges.append((fid, v, r[(i + 1) % len(r)]))
-    seg_tree = STRtree([LineString([vw.xy[a], vw.xy[b]]) for _f, a, b in edges])
-    pave_tree = STRtree(polys)
-    rows: list[Row] = []
-    for v, fa in faces_of.items():
-        x, y = vw.xy[v]
-        best = None
-        for i in seg_tree.query(Point(x, y).buffer(weld)):
-            fb, a, b = edges[int(i)]
-            if fb in fa or v in (a, b):
-                continue
-            (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
-            dx, dy = bx - ax, by - ay
-            seg2 = dx * dx + dy * dy
-            if seg2 <= 0.0:
-                continue
-            t = min(1.0, max(0.0, ((x - ax) * dx + (y - ay) * dy) / seg2))
-            d = exact.hypot(x - (ax + t * dx), y - (ay + t * dy))
-            if best is None or d < best[0]:
-                best = (d, t, fb, a, b)
-        if best is None or best[0] > weld or best[0] <= 0.0:
+    if not edges:
+        return None
+    return PavementEdges(vw, caps, faces_of, edges,
+                         STRtree([LineString([vw.xy[a], vw.xy[b]]) for _f, a, b in edges]),
+                         polys, STRtree(polys))
+
+
+def nearest_foot(ix: PavementEdges, v: int, skip: _t.Collection[int], radius: float
+                 ) -> tuple[float, float, int, int, int] | None:
+    """The NEAREST pavement edge to vertex ``v`` within ``radius`` that is
+    no edge of a face in ``skip`` and does not end at ``v``: ``(d, t, face,
+    a, b)``, ``t`` the perpendicular foot's parameter along ``a -> b``;
+    ``None`` when there is none, or when PAVEMENT lies between ``v`` and
+    the foot (the two are one surface already)."""
+    from shapely.geometry import Point
+
+    x, y = ix.vw.xy[v]
+    best = None
+    for i in ix.seg_tree.query(Point(x, y).buffer(radius)):
+        fb, a, b = ix.edges[int(i)]
+        if fb in skip or v in (a, b):
             continue
-        d, t, fb, a, b = best
-        (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
-        mid = Point((x + ax + t * (bx - ax)) / 2.0, (y + ay + t * (by - ay)) / 2.0)
-        if any(polys[int(j)].contains(mid) for j in pave_tree.query(mid)):
-            continue                     # pavement between them: one face already
-        cap = min(min(caps[f] for f in fa), caps[fb])
-        bound = cap * max(d, min_d)
-        src = Source(GEN, SLIVER_RULING,
-                     (planar.faces[fa[0]].ref, planar.faces[fb].ref))
-        if t <= 1e-9 or t >= 1.0 - 1e-9:
-            rows.append(Diff(v, a if t <= 0.5 else b, cap, max(d, min_d), src))
-        else:
-            rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
-                               -bound, bound, src))
+        (ax, ay), (bx, by) = ix.vw.xy[a], ix.vw.xy[b]
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        if seg2 <= 0.0:
+            continue
+        t = min(1.0, max(0.0, ((x - ax) * dx + (y - ay) * dy) / seg2))
+        d = exact.hypot(x - (ax + t * dx), y - (ay + t * dy))
+        if best is None or d < best[0]:
+            best = (d, t, fb, a, b)
+    if best is None or best[0] > radius or best[0] <= 0.0:
+        return None
+    d, t, fb, a, b = best
+    (ax, ay), (bx, by) = ix.vw.xy[a], ix.vw.xy[b]
+    mid = Point((x + ax + t * (bx - ax)) / 2.0, (y + ay + t * (by - ay)) / 2.0)
+    if any(ix.polys[int(j)].contains(mid) for j in ix.pave_tree.query(mid)):
+        return None                      # pavement between them: one face already
+    return best
+
+
+def foot_row(v: int, foot: tuple[float, float, int, int, int], cap: float, min_d: float,
+             src: Source, follows: tuple[int, ...] | None = None) -> Row:
+    """``|z_v - z_foot| <= cap * max(d, min_d)``, ``z_foot`` the edge's
+    level at the perpendicular foot: a ``Diff`` to the edge's end vertex
+    when the foot is one, else the three-term ``Linear``."""
+    d, t, _fb, a, b = foot
+    bound = cap * max(d, min_d)
+    if t <= 1e-9 or t >= 1.0 - 1e-9:
+        return Diff(v, a if t <= 0.5 else b, cap, max(d, min_d), src, follows=follows)
+    return Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)), -bound, bound, src,
+                  follows=follows)
+
+
+def airside_sliver_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """One row per airside pavement vertex whose NEAREST edge of another
+    airside pavement face lies within the weld spacing across a
+    non-pavement gap: ``|z_v − z_foot| ≤ cap · d`` at the stricter cap,
+    ``z_foot`` the edge's level at the perpendicular foot (module
+    docstring, THE AIRSIDE SLIVER)."""
+    weld = float(law.tables.emit.identity.weld_spacing_m)
+    min_d = float(law.tables.emit.identity.min_distinct_spacing_m)
+    ix = pavement_edges(planar, law) if weld > 0.0 else None
+    if ix is None or len({f for f, _a, _b in ix.edges}) < 2:
+        return []
+    rows: list[Row] = []
+    for v, fa in ix.faces_of.items():
+        foot = nearest_foot(ix, v, fa, weld)
+        if foot is None:
+            continue
+        fb = foot[2]
+        cap = min(min(ix.caps[f] for f in fa), ix.caps[fb])
+        rows.append(foot_row(v, foot, cap, min_d, Source(
+            GEN, SLIVER_RULING, (planar.faces[fa[0]].ref, planar.faces[fb].ref))))
     return rows

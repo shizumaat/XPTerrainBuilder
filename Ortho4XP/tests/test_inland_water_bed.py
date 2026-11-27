@@ -190,7 +190,8 @@ def test_dsf_build_sets_the_bed_before_the_ratios():
     source = inspect.getsource(DSF._build_dsf_body)
     bed = source.index("inland_bed(")
     assert source.index("set_depth_ratio", bed) > bed
-    assert source.count("node_bathy, tile, node_scale") == 4
+    # 5: the four emit paths plus the full_ortho array land pass (#850)
+    assert source.count("node_bathy, tile, node_scale") == 5
 
 
 def test_dsf_build_keeps_the_rasters_it_read_early():

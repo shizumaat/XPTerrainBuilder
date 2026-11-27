@@ -12,6 +12,8 @@ A tile that never fills a pool gets exactly the pools it always had.
 """
 import array
 
+import numpy
+
 __all__ = ["DsfPointPools"]
 
 
@@ -52,6 +54,31 @@ class DsfPointPools:
         position = self.length[pool]
         self.length[pool] += 1
         return (pool, position)
+
+    def slots(self, bases):
+        """``(pools, positions)``: :meth:`slot` of each band pool of
+        ``bases`` in turn, as int64 arrays -- the same answers.  When no
+        band pool fills up, one count per band pool stands for the calls
+        (#850); otherwise each point takes :meth:`slot` in order."""
+        bases = numpy.asarray(bases, dtype=numpy.int64)
+        (band, inverse, counts) = numpy.unique(
+            bases, return_inverse=True, return_counts=True)
+        current = [self._current.get(base, base) for base in band.tolist()]
+        start = [self.length[pool] for pool in current]
+        if any(first + count > self.max_points
+               for (first, count) in zip(start, counts.tolist(), strict=True)):
+            answers = numpy.array([self.slot(base) for base in bases.tolist()],
+                                  dtype=numpy.int64).reshape(-1, 2)
+            return (answers[:, 0], answers[:, 1])
+        order = numpy.argsort(inverse, kind="stable")
+        rank = numpy.empty(len(bases), dtype=numpy.int64)
+        rank[order] = (numpy.arange(len(bases))
+                       - numpy.repeat(numpy.cumsum(counts) - counts, counts))
+        for (pool, first, count) in zip(current, start, counts.tolist(),
+                                       strict=True):
+            self.length[pool] = first + count
+        return (numpy.asarray(current, dtype=numpy.int64)[inverse],
+                numpy.asarray(start, dtype=numpy.int64)[inverse] + rank)
 
     def _open_overflow(self, full):
         if len(self.points) >= self.MAX_POINTS:

@@ -1398,6 +1398,12 @@ class EngineSession:
         the following steps, and the imagery step adopts it.  A failed or
         stopped step ends it."""
         _recall_from_tier(tile)
+        if key == "vector":
+            import functools
+
+            from auto_patch import gateway_wait as GATEWAY_WAIT
+            tile.gateway_before_patches = functools.partial(
+                GATEWAY_WAIT.before_patches, tile.lat, tile.lon)
         import O4_Imagery_Prefetch as PREFETCH
         if key == "imagery":
             PREFETCH.adopt_job(tile)
@@ -2712,9 +2718,10 @@ class EngineSession:
         """THE USER'S ANSWER (capability ``gateway_airports``, #1989):
         ``action`` is ``"install"`` (the ICAOs of ``items`` installed from
         the Gateway without their flatten flag, the ones of ``shown`` left
-        out remembered as never), ``"never"``, ``"undo"`` or ``"ask"`` (the
-        tile's report).  Replies ``{"status": "started"}`` at once — the
-        download runs on a worker thread — and completes with a
+        out remembered as never), ``"never"``, ``"later"`` (Not now, #2212),
+        ``"undo"`` or ``"ask"`` (the tile's report).  Replies
+        ``{"status": "started"}`` at once — the download runs on a worker
+        thread — and completes with a
         ``GatewayAirports`` event (``gateway_stage.gateway_choice``)."""
         from auto_patch import gateway_stage as _GW
 

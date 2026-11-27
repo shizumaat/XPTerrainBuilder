@@ -1,5 +1,15 @@
 [
  {
+  "path": "Ortho4XP/src/auto_patch/gateway_wait.py",
+  "name": "wait_for_answers",
+  "reason": "the wait half of the Gateway wait (#2212): before_patches returns it in-module; public as the seam test_gateway_wait_2212 pins"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch/gateway_wait.py",
+  "name": "ask_tile",
+  "reason": "the ask half of the Gateway wait (#2212): before_patches calls it in-module; public as the seam test_gateway_wait_2212 pins"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/geom/walled_trench.py",
   "name": "ring_polygon",
   "reason": "moved down from planar.deck_bridge for the layering gate (Beta 8 landing); the old home re-exports it and its readers import it there"

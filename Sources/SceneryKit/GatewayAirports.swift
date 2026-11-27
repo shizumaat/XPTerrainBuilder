@@ -38,7 +38,8 @@ public struct O4GatewayAirport: Sendable, Equatable, Identifiable {
 /// capability `gateway_airports`, issue #1989). `state` "found" (a build)
 /// or "ask" (the report): Install sends `gateway_airports` "install" with
 /// the checked ICAOs and every ICAO shown, Never for these airports
-/// "never", Not now nothing. The other states are a command's outcome.
+/// "never", Not now "later" (a patch waiting on the answer goes on, #2212).
+/// The other states are a command's outcome.
 public struct O4GatewayAirports: Sendable, Equatable, Identifiable {
     public let lat: Int
     public let lon: Int

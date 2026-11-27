@@ -38,7 +38,7 @@ struct GatewayAirportsSheet: View {
             HStack {
                 Button(O4GatewayAirportsCopy.neverButton) { answer("never", []) }
                 Spacer()
-                Button(O4GatewayAirportsCopy.notNowButton, role: .cancel) { answer(nil, []) }
+                Button(O4GatewayAirportsCopy.notNowButton, role: .cancel) { answer("later", []) }
                     .keyboardShortcut(.cancelAction)
                 Button(O4GatewayAirportsCopy.installButton) {
                     answer("install", offer.offers.map(\.icao).filter(checked.contains))

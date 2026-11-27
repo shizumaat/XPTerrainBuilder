@@ -449,6 +449,12 @@ class RebakePlan:
     #: (``airport/dsf.row_of``).  ``None`` in an older plan: its bare ids
     #: are the rows of whichever tile's DSF the object stage writes.
     origin_tile: tuple[int, int] | None = None
+    #: THE PERIMETERS OUR GROUND IS GRADED TO (owner RULINGS 2026-11-25m
+    #: (2)/(3); ``airport/unit_perimeter``): one record per seated group --
+    #: its zero, its stations' intervals, its plan and its interiors' cells
+    #: -- read by the tile build's raster grade (``auto_patch/
+    #: terrain_cut_stage``).  Empty in an older plan: nothing is graded.
+    perimeters: tuple[_t.Mapping[str, _t.Any], ...] = ()
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -484,6 +490,8 @@ class RebakePlan:
                if self.adapted_frame_pids else {}),
             **({"origin_tile": list(self.origin_tile)}
                if self.origin_tile is not None else {}),
+            **({"perimeters": [dict(r) for r in self.perimeters]}
+               if self.perimeters else {}),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
@@ -666,7 +674,8 @@ class RebakePlan:
                                             d.get("adapted_frame_pids", ()) or ()),
                    origin_tile=(None if d.get("origin_tile") is None
                                 else (int(d["origin_tile"][0]),
-                                      int(d["origin_tile"][1]))))
+                                      int(d["origin_tile"][1]))),
+                   perimeters=tuple(dict(r) for r in d.get("perimeters", ()) or ()))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":

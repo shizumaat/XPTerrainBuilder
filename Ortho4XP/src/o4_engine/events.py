@@ -1038,7 +1038,8 @@ class GatewayAirports(EngineEvent):
       checked: **Install** sends ``gateway_airports`` with
       ``action="install"``, ``items`` the ICAOs left checked and
       ``shown`` every ICAO shown; **Never for these airports**
-      ``action="never"`` with ``shown``; **Not now** sends nothing.
+      ``action="never"`` with ``shown``; **Not now** ``action="later"``
+      with ``shown`` (a patch waiting on the answer goes on, #2212).
     * ``"ask"`` — (command ``action="ask"``) the report: the same rows.
     * ``"installed"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``

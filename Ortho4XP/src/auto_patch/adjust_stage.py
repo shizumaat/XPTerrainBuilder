@@ -237,7 +237,8 @@ configured_dirs = _configured_dirs
 def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
                scenery_dirs: _t.Iterable[str] | None = None) -> None:
     """THE TILE'S SCAN, once per tile build after the placements
-    (RULINGS 2026-11-09a (9)): the drape rows of every pack on the tile
+    (RULINGS 2026-11-09a (9)): the drape rows (and the 3D trees row,
+    #2250) of every pack on the tile
     not in ``asked`` (``drape_stage.scanned`` — an airport pack this build
     did not place, a companion overlay, an overlay draping generic ground),
     each asked as that pack's own question.  ``scenery_dirs``: the Custom Scenery folders to scan
@@ -271,12 +272,25 @@ def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
         # #2174: a read-only pack the build did not place is only read
         # (its question belongs to a build that places it)
         w = writes and not _readonly_folders(root)
-        items = [_drapes_row(pd, key) for key, (state, pd)
-                 in _drape_stages(plan_, tile, w).items()
-                 if state == "found" and pd is not None]
+        items = _scanned_trees(plan_, tile, w) + [
+            _drapes_row(pd, key) for key, (state, pd)
+            in _drape_stages(plan_, tile, w).items()
+            if state == "found" and pd is not None]
         if items:
             _announce(os.path.basename(os.path.normpath(root)), root,
                       tile.lat, tile.lon, "found", items)
+
+
+def _scanned_trees(plan_, tile, writes: bool) -> list[dict]:
+    """The 3D trees row of a pack the tile's scan names (#2250: FlyTampa's
+    Corfu objects pack, a companion of the airport's, lays 1.9 million
+    flat X-Plane 11 tree polygons over the island; only the placed
+    airport pack was asked): the pack's own trees step, as
+    :func:`adjust_stage` runs it for the airport's pack."""
+    from . import forest_stage as _FS
+    found: list = []
+    _FS.forest_stage(plan_, tile, writes=writes, found=found.append)
+    return [_trees_row(pf) for pf in found[:1]]
 
 
 def _readonly_folders(pack_root: str) -> list[str]:

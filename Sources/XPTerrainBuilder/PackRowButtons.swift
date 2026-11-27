@@ -2,7 +2,8 @@ import SwiftUI
 import SceneryKit
 
 extension BuildModel {
-    /// #2168: a "Modified airports" row's buttons wait only while the run
+    /// #2168: a "Modified airports" row's writing buttons (trees, Optimise,
+    /// Revert; Adjust… opens at any time, #2303) wait only while the run
     /// builds a tile that writes the pack — the active tile or one the
     /// pack's records name. A run on other tiles, a World pack drape, an
     /// imagery-on-demand or storage job never holds them; the engine
@@ -109,8 +110,10 @@ struct PackRowButtons: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .disabled(busy || waiting)
-            .help(busy ? Self.waitHelp : O4PackAdjustCopy.adjustHelp)
+            // #2303: it opens the report (a read) during any run; only its
+            // Apply writes, and the engine refuses that with the reason
+            .disabled(waiting)
+            .help(O4PackAdjustCopy.adjustHelp)
         }
         Button(action: revert) {
             Image(systemName: "arrow.uturn.backward.circle")

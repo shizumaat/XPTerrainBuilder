@@ -19,6 +19,7 @@ import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Default_Terrain_Map as DEFTER
 import O4_DEM_Utils as DEM
+import O4_DSF_Land_Pass as LANDPASS
 import O4_DSF_Pools as POOLS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
@@ -504,20 +505,32 @@ def _triangle_rows(node_coords, tri_idx, tri_types, nbr_tris, zoomlevel,
     times a list's, and the square one call per triangle (#850).  The
     values are the same (``O4_Geo_Arrays``), and a chunk bounds the lists
     held at once."""
-    lons = node_coords[0::5]
-    lats = node_coords[1::5]
     for start in range(0, nbr_tris, chunk):
         stop = min(start + chunk, nbr_tris)
         corners = tri_idx[3 * start:3 * stop].reshape(-1, 3)
-        lon = lons[corners]
-        lat = lats[corners]
-        (til_x, til_y) = GEO_ARRAYS.wgs84_to_orthogrid(
-            (lat[:, 0] + lat[:, 1] + lat[:, 2]) / 3,
-            (lon[:, 0] + lon[:, 1] + lon[:, 2]) / 3, zoomlevel)
+        (til_x, til_y) = _triangle_squares(node_coords, corners, zoomlevel)
         yield from zip(corners[:, 0].tolist(), corners[:, 1].tolist(),
                        corners[:, 2].tolist(), tri_types[start:stop].tolist(),
                        zip(til_x.tolist(), til_y.tolist(), strict=True),
                        strict=True)
+
+
+def _triangle_squares(node_coords, corners, zoomlevel, chunk=1 << 16):
+    """``(til_x, til_y)``: the ``GEO.wgs84_to_orthogrid`` square of each
+    ``corners`` row's barycentre at ``zoomlevel``, int64 arrays."""
+    lons = node_coords[0::5]
+    lats = node_coords[1::5]
+    squares = []
+    for start in range(0, len(corners), chunk):
+        rows = corners[start:start + chunk]
+        lon = lons[rows]
+        lat = lats[rows]
+        squares.append(GEO_ARRAYS.wgs84_to_orthogrid(
+            (lat[:, 0] + lat[:, 1] + lat[:, 2]) / 3,
+            (lon[:, 0] + lon[:, 1] + lon[:, 2]) / 3, zoomlevel))
+    if not squares:
+        return (numpy.zeros(0, dtype=numpy.int64),) * 2
+    return tuple(numpy.concatenate(part) for part in zip(*squares, strict=True))
 
 
 def _land_terrain_indices(terrain_map, node_coords, tri_idx, tri_types,
@@ -1484,6 +1497,106 @@ def _build_dsf_body(tile, download_queue):
             total_cross_pool += 1
             textured_tris[terrain_idx]["cross-pool"].extend(tri_p)
 
+    def land_terrain_of(texture_attributes, tri_type):
+        """``(terrain_idx, is_overlay)`` of a land (``tri_type`` 0) or
+        inland-water (1) triangle in ``texture_attributes``, the terrain
+        made -- its ``.ter``, mask and download -- when it is new."""
+        nonlocal bTERT
+        # The entries for the terrain and texture main dictionnaries
+        terrain_attributes = (texture_attributes, tri_type)
+        is_overlay = False
+
+        # Do we need to build new terrain file(s) ?
+        if terrain_attributes in dico_terrains:
+            terrain_idx = dico_terrains[terrain_attributes]
+            is_overlay = terrain_idx in overlay_terrains
+        else:
+            terrain_idx = len(dico_terrains)
+            textured_tris[terrain_idx] = defaultdict(lambda: array.array("H"))
+            dico_terrains[terrain_attributes] = terrain_idx
+            is_overlay = tri_type == 1
+            if is_overlay:
+                overlay_terrains.add(terrain_idx)
+            # Inland shore feather: when the masks step built a mask for
+            # this texture (any square holding an inland shore, #1981),
+            # the inland overlay blends through it — soft shorelines,
+            # floored at the ratio_water grey by the mask itself.
+            # Squares without one keep the constant blend.
+            inland_mask_border = False
+            if (
+                tri_type == 1
+                and not tile.imprint_masks_to_dds
+            ):
+                inland_mask_image = MASK.needs_mask(
+                    tile, *texture_attributes)
+                if inland_mask_image:
+                    inland_mask_image.save(os.path.join(
+                        tile.build_dir,
+                        "textures",
+                        FNAMES.mask_file(*texture_attributes),
+                    ))
+                    inland_mask_border = True
+                    masked_inland_terrains.add(terrain_idx)
+            texture_file_name = FNAMES.dds_file_name_from_attributes(
+                *texture_attributes
+            )
+            # do we need to download a new texture ?
+            if texture_attributes not in treated_textures:
+                target_tex = os.path.join(
+                            tile.build_dir, "textures", texture_file_name
+                            )
+                rebuild = False
+                if PLACEHOLDER.needs_build(tile, target_tex):
+                    rebuild = True
+                if (rebuild):
+                    download_queue.put(texture_attributes)
+                    textures_queued_count[0] += 1
+                else:
+                    UI.vprint(
+                        2,
+                        "   Texture file "
+                        + texture_file_name
+                        + " already present.",
+                    )
+                treated_textures.add(texture_attributes)
+            terrain_file_name = create_terrain_file(
+                tile,
+                texture_file_name,
+                *texture_attributes,
+                tri_type,
+                is_overlay,
+                mask_border=inland_mask_border,
+            )
+            bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
+        return (terrain_idx, is_overlay)
+
+    def land_pass():
+        """The land and inland-water pass of full_ortho on arrays."""
+        def terrain_for(square, tri_type):
+            texture_attributes = dico_customzl[square]
+            (terrain_idx, _) = land_terrain_of(texture_attributes, tri_type)
+            kind = (LANDPASS.LAND if not tri_type
+                    else LANDPASS.MASKED
+                    if terrain_idx in masked_inland_terrains
+                    else LANDPASS.CONSTANT)
+            return (terrain_idx, texture_attributes, kind)
+        corners = numpy.asarray(tri_idx[:3 * nbr_tris]).reshape(-1, 3)
+        pool_of_node = numpy.empty(nbr_nodes, dtype=numpy.int64)
+        pool_of_node[numpy.fromiter(idx_node_to_idx_pool.keys(),
+                                    dtype=numpy.int64)] = numpy.fromiter(
+            idx_node_to_idx_pool.values(), dtype=numpy.int64)
+        mesh = (corners, tri_types[:nbr_tris],
+                numpy.frombuffer(node_icoords, dtype=numpy.uint16
+                                 ).reshape(-1, 5),
+                pool_of_node, lons, lats)
+        state = (point_pools, pool_nbr, textured_tris, textured_nodes,
+                 lambda n: BATHY.set_depth_ratio(
+                     n, node_is_coast, node_bathy, tile, node_scale),
+                 tile.ratio_water)
+        return LANDPASS.emit_land_and_inland_water(
+            mesh, _triangle_squares(node_coords, corners, tile.mesh_zl),
+            terrain_for, state)
+
     # Next, we build DSF mesh points (these take into accound texture
     # as well), point pools, etc.
 
@@ -1734,8 +1847,19 @@ def _build_dsf_body(tile, download_queue):
         _land_terrain_indices(default_terrain_map, node_coords, tri_idx,
                               tri_types, nbr_tris).tolist()
         if default_terrain_map is not None else None)
-    for (row, (n1, n2, n3, tri_type, square)) in enumerate(_triangle_rows(
-            node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl)):
+    # full_ortho: the whole pass on arrays (O4_DSF_Land_Pass, #850); the
+    # other texture modes walk it below.
+    if texture_mode == "full_ortho":
+        (new_points, cross) = land_pass()
+        len_textured_nodes += new_points
+        total_cross_pool += cross
+        UI.progress_bar(1, 90)
+        if UI.red_flag:
+            UI.vprint(1, "DSF construction interrupted.")
+            return 0
+    walked = (() if texture_mode == "full_ortho" else _triangle_rows(
+        node_coords, tri_idx, tri_types, nbr_tris, tile.mesh_zl))
+    for (row, (n1, n2, n3, tri_type, square)) in enumerate(walked):
         if (tri_type == 2):
             continue
         
@@ -1777,72 +1901,7 @@ def _build_dsf_body(tile, download_queue):
                 emit_plain_water(n1, n2, n3)
                 continue
         texture_attributes = dico_customzl[square]
-        # The entries for the terrain and texture main dictionnaries
-        terrain_attributes = (texture_attributes, tri_type)
-        is_overlay = False
-
-        # Do we need to build new terrain file(s) ?
-        if terrain_attributes in dico_terrains:
-            terrain_idx = dico_terrains[terrain_attributes]
-            is_overlay = terrain_idx in overlay_terrains
-        else:
-            terrain_idx = len(dico_terrains)
-            textured_tris[terrain_idx] = defaultdict(lambda: array.array("H"))
-            dico_terrains[terrain_attributes] = terrain_idx
-            is_overlay = tri_type == 1
-            if is_overlay:
-                overlay_terrains.add(terrain_idx)
-            # Inland shore feather: when the masks step built a mask for
-            # this texture (any square holding an inland shore, #1981),
-            # the inland overlay blends through it — soft shorelines,
-            # floored at the ratio_water grey by the mask itself.
-            # Squares without one keep the constant blend.
-            inland_mask_border = False
-            if (
-                tri_type == 1
-                and not tile.imprint_masks_to_dds
-            ):
-                inland_mask_image = MASK.needs_mask(
-                    tile, *texture_attributes)
-                if inland_mask_image:
-                    inland_mask_image.save(os.path.join(
-                        tile.build_dir,
-                        "textures",
-                        FNAMES.mask_file(*texture_attributes),
-                    ))
-                    inland_mask_border = True
-                    masked_inland_terrains.add(terrain_idx)
-            texture_file_name = FNAMES.dds_file_name_from_attributes(
-                *texture_attributes
-            )
-            # do we need to download a new texture ?
-            if texture_attributes not in treated_textures:
-                target_tex = os.path.join(
-                            tile.build_dir, "textures", texture_file_name
-                            )
-                rebuild = False
-                if PLACEHOLDER.needs_build(tile, target_tex):
-                    rebuild = True
-                if (rebuild):
-                    download_queue.put(texture_attributes)
-                    textures_queued_count[0] += 1
-                else:
-                    UI.vprint(
-                        2,
-                        "   Texture file "
-                        + texture_file_name
-                        + " already present.",
-                    )
-                treated_textures.add(texture_attributes)
-            terrain_file_name = create_terrain_file(
-                tile,
-                texture_file_name,
-                *texture_attributes,
-                tri_type,
-                is_overlay,
-                mask_border=inland_mask_border,
-            )
-            bTERT += bytes("terrain/" + terrain_file_name + "\0", "ascii")
+        (terrain_idx, is_overlay) = land_terrain_of(texture_attributes, tri_type)
         # We put the tri in the right terrain
         # First the ones associated to the dico_customzl
         # Each corner's (dsf pool, position): tuples, compared and

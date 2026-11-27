@@ -369,6 +369,12 @@ class Face:
     #: ``road_by_proportions``) — still the LOT at a wall's foot
     #: (``airport.road_ramp.wall_terraces``, 10-03c)
     road_by_proportions: bool = False
+    #: a ROAD BY DEFAULT (owner 2026-11-26T23:48Z, ``classify/lot_evidence``):
+    #: groundside pavement the old lot default would have made a lot, with
+    #: no lot witness.  It grades as a road and follows its ground
+    #: (``model/lot_ground``); where pavement STANDS (a landing's cut, a
+    #: mouth's host edge) it is still read as the plate it is
+    default_road: bool = False
 
 
 def face_edge_ids(face) -> set[int]:

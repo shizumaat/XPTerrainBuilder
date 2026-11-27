@@ -462,7 +462,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
                      cifp_dir: str | None = None,
                      data_overlay: str | None = None, stage_cache: str = "off",
                      why_miss: bool = False, no_imagery: bool = False,
-            allow_degraded_dem: bool = False) -> dict:
+            allow_degraded_dem: bool = False, imagery_paths: str = "") -> dict:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -482,7 +482,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
     try:
         return capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
                        data_overlay, stage_cache, why_miss, no_imagery,
-                       allow_degraded_dem)
+                       allow_degraded_dem, imagery_paths)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -537,7 +537,7 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
             cifp_dir: str | None = None,
             data_overlay: str | None = None, stage_cache: str = "off",
             why_miss: bool = False, no_imagery: bool = False,
-            allow_degraded_dem: bool = False) -> dict:
+            allow_degraded_dem: bool = False, imagery_paths: str = "") -> dict:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -597,6 +597,14 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
         # #1359 the witness's OFF arm: no airport photos, every imagery vote
         # abstains (today's law at every question the imagery decides)
         inputs = _dc.replace(inputs, imagery_paths=(), imagery_scenery_dir="")
+    elif imagery_paths:
+        # THE APP'S PHOTOS: the airport orthophotos an app build passes as
+        # ``Inputs.imagery_paths`` (``O4_Imagery_Prefetch.cached_airport_
+        # imagery``), a JSON list — a classify read the imagery decides is
+        # reproduced only with the photos the failing build read
+        _paths = tuple(json.loads(Path(imagery_paths).read_text(encoding="utf-8")))
+        inputs = _dc.replace(inputs, imagery_paths=_paths)
+        print(f"[{icao}] CAPTURE ARM {len(_paths)} airport photo(s) from {imagery_paths}")
     # THE LANE-LOCAL DATA OVERLAY (issue #156), BEFORE any other input
     # override: the corpus dirs the overlay provides are read from it,
     # every other input stays on the shared corpus, and the frame is
@@ -1291,7 +1299,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                         below_grade=got["below_grade"], tunnel_objects=got["tunnel_objects"],
                         partition=getattr(airport, "partition", None),
                         authored_seats=got.get("authored_seats", ()),
-                        free_decks=got.get("free_decks"))
+                        free_decks=got.get("free_decks"),
+                        perimeters=got.get("perimeters", ()))
             _out = emit_dir / PLAN_FILENAME.format(icao=icao)
             _out.write_text(_p.to_json(), encoding="utf-8")
             print(f"    rebake plan -> {_out}")
@@ -1323,7 +1332,8 @@ def _under_seat_line(icao, law, surf, airport, objects, got) -> None:
 def reclassify(pkl: Path, rule: dict[str, object],
                json_out: Path | None, top: int = 12,
                roles_out: Path | None = None, roles_against: Path | None = None,
-               protect: "tuple[str, ...] | list[str]" = ()) -> int:
+               protect: "tuple[str, ...] | list[str]" = (),
+               flip_role: str = "apron") -> int:
     """THE §40 SHOULDER-BAND READING, DRY, OFF A REGISTERED CAPTURE
     (lane ``v2shoulderband`` r2; promoted on its second use per RULINGS
     ``7e90032`` — r1 hand-rolled it in a scratchpad for the HECA control
@@ -1383,7 +1393,7 @@ def reclassify(pkl: Path, rule: dict[str, object],
         if roles_against:
             print(f"[{icao}] ROLE FLIPS against {roles_against}")
             flips = role_flips.report(roles_against, cl.cells, _to_ll,
-                                      protect=protect)
+                                      role=flip_role, protect=protect)
 
     rw_of = {rw.id: rw for rw in airport.runways}
     def _lat_off(ring, rw) -> float:
@@ -3409,6 +3419,10 @@ def main() -> int:
                          "apron area that left apron, by new role and by base "
                          "minting rule, the largest flips with lat, lon, the "
                          "cells that became apron (tools/role_flips.py)")
+    ap.add_argument("--flip-role", default="apron", metavar="ROLE",
+                    help="with --roles-against: the role whose flips are "
+                         "tabled (default apron; parking_lot for the lot-"
+                         "evidence census, #2283)")
     ap.add_argument("--protect", action="append", default=[], metavar="REF",
                     help="with --roles-against: a ref that must stay apron "
                          "(an owner-ruled apron); any flip of it is printed")
@@ -3533,6 +3547,9 @@ def main() -> int:
     ap.add_argument("--no-imagery", action="store_true",
                     help="--capture: the #1359 witness's OFF arm — no airport photos "
                          "(every imagery vote abstains)")
+    ap.add_argument("--imagery-paths", default="", metavar="PATHS.json",
+                    help="--capture: the airport photos (a JSON list of paths) an "
+                         "app build passed, so an imagery-decided read reproduces")
     ap.add_argument("--witness", action="store_true",
                     help="#1359: the terrain witness on a --replay capture (dry read): every "
                          "Q1/Q4/Q5 vote, scored with --witness-labels (tools/v2_witness.py)")
@@ -3680,12 +3697,14 @@ def _dispatch(a, ap) -> int:
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
                          a.cifp_dir, a.data_overlay,
                          "write" if a.stage_cache else "off", a.why_miss,
-                         a.no_imagery, allow_degraded_dem=a.allow_degraded_dem)
+                         a.no_imagery, allow_degraded_dem=a.allow_degraded_dem,
+                         imagery_paths=a.imagery_paths)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)
         return reclassify(a.reclassify, rl, a.json, roles_out=a.roles_out,
-                          roles_against=a.roles_against, protect=a.protect)
+                          roles_against=a.roles_against, protect=a.protect,
+                          flip_role=a.flip_role)
     if a.why_from:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:

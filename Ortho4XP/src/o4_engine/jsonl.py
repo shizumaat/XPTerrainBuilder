@@ -757,7 +757,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     Reads one command object per input line and writes events and replies to
     ``stdout``.  Commands are answered one at a time in arrival order, except
     the view lane's (``o4_engine.view_lane``, #2061): the map's patch reads
-    are answered beside the loop, never behind a slow command.  Returns when
+    and the pack questions (#2303) are answered beside the loop, never
+    behind a slow command.  Returns when
     the input stream reaches end-of-file or a
     ``{"cmd": "shutdown"}`` command is received (its reply is written first).
 

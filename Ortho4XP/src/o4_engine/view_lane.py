@@ -25,13 +25,17 @@ import queue
 import threading
 import typing as _t
 
-__all__ = ["VIEW_COMMANDS", "OWN_THREAD_COMMANDS", "ViewLane"]
+__all__ = ["VIEW_COMMANDS", "OWN_THREAD_COMMANDS", "PACK_COMMANDS", "ViewLane"]
 
 #: Commands answered on the view worker, never behind the read loop.
 VIEW_COMMANDS = frozenset({"patch_list", "patch_load", "pack_outlines"})
 
 #: Commands answered each on its own thread (slow, read-only).
 OWN_THREAD_COMMANDS = frozenset({"patch_staleness"})
+
+#: Commands answered on the pack worker, never behind the read loop.
+PACK_COMMANDS = frozenset({"pack_overlaps", "pack_adjust", "pack_forests",
+                           "pack_optimise", "pack_readonly"})
 
 Run = _t.Callable[[], None]
 
@@ -40,15 +44,16 @@ class ViewLane:
     """Runs view commands off the read loop; :meth:`drain` waits for them."""
 
     def __init__(self) -> None:
-        self._queue: "queue.Queue[Run | None]" = queue.Queue()
-        self._worker: threading.Thread | None = None
+        # one FIFO worker per serial lane ("view", "pack"): name -> queue
+        self._workers: dict[str, tuple[threading.Thread, queue.Queue]] = {}
         self._lock = threading.Lock()
         self._threads: list[threading.Thread] = []
 
     @staticmethod
     def takes(command: _t.Any) -> bool:
         """Whether ``command`` is answered here instead of on the loop."""
-        return command in VIEW_COMMANDS or command in OWN_THREAD_COMMANDS
+        return (command in VIEW_COMMANDS or command in OWN_THREAD_COMMANDS
+                or command in PACK_COMMANDS)
 
     def submit(self, command: str, run: Run) -> None:
         """Answer ``command`` by calling ``run`` (which writes its reply)."""
@@ -60,16 +65,21 @@ class ViewLane:
                 self._threads.append(thread)
             thread.start()
             return
+        name = "pack" if command in PACK_COMMANDS else "view"
         with self._lock:
-            if self._worker is None:
-                self._worker = threading.Thread(
-                    target=self._serve, daemon=True, name="o4-engine-view")
-                self._worker.start()
-            self._queue.put(run)
+            if name not in self._workers:
+                inbox: "queue.Queue[Run | None]" = queue.Queue()
+                worker = threading.Thread(
+                    target=self._serve, args=(inbox,), daemon=True,
+                    name="o4-engine-" + name)
+                self._workers[name] = (worker, inbox)
+                worker.start()
+            self._workers[name][1].put(run)
 
-    def _serve(self) -> None:
+    @staticmethod
+    def _serve(inbox: "queue.Queue[Run | None]") -> None:
         while True:
-            run = self._queue.get()
+            run = inbox.get()
             if run is None:
                 return
             run()
@@ -77,11 +87,11 @@ class ViewLane:
     def drain(self, timeout: float = 30.0) -> None:
         """Let every submitted command reply (the transport's end of input)."""
         with self._lock:
-            worker, self._worker = self._worker, None
+            workers, self._workers = list(self._workers.values()), {}
             threads, self._threads = self._threads, []
-            if worker is not None:
-                self._queue.put(None)
-        if worker is not None:
+            for _worker, inbox in workers:
+                inbox.put(None)
+        for worker, _inbox in workers:
             worker.join(timeout)
         for thread in threads:
             thread.join(timeout)

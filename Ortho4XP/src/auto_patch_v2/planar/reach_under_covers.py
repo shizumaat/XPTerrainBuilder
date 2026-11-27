@@ -150,7 +150,11 @@ def split_beyond(regions: list, lost: dict, law, key: str,
     a minted piece stands back from (the pads' set-back knife,
     ``reach_after_pads._beyond_passages``) -- the part inside it is cut out
     of the page and minted as nothing: bare ground between the two."""
-    from ..classify.open_default import unclassified_groundside_role
+    from ..classify.open_default import (
+        DEFAULT_ROAD_KEY,
+        DEFAULT_ROAD_PLATE,
+        unclassified_groundside_role,
+    )
     from ..classify.rules import load_rules
     from .reach_after_pads import BEYOND
     rules = load_rules()
@@ -171,7 +175,7 @@ def split_beyond(regions: list, lost: dict, law, key: str,
         out.extend(_dc.replace(r, polygon=q) for q in kept if not q.is_empty)
         k = 1
         for q in lost[i]:
-            role, _evid = unclassified_groundside_role(q, rules, road_reached=False)
+            role, evid = unclassified_groundside_role(q, rules, road_reached=False)
             parts = ([q] if keep_off is None else
                      [g for g in nonempty_polygon_parts(q.difference(keep_off))
                       if g.area >= rules.cells.min_area_m2])
@@ -182,8 +186,10 @@ def split_beyond(regions: list, lost: dict, law, key: str,
                     k += 1
                 ref = f"{r.ref}{BEYOND}{k}"
                 taken.add(ref)
-                out.append(_dc.replace(r, role=role, ref=ref, polygon=g,
-                                       side=role_side(law, role)))
+                by_default = bool(evid.get(DEFAULT_ROAD_KEY))
+                out.append(_dc.replace(r, role=DEFAULT_ROAD_PLATE if by_default else role,
+                                       ref=ref, polygon=g, side=role_side(law, role),
+                                       default_road=by_default))
                 n += 1
                 m2 += float(g.area)
     return out, {key: n, f"{key}_m2": round(m2, 1)}

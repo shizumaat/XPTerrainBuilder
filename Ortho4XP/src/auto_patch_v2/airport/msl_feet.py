@@ -58,6 +58,20 @@ THE RULE'S LIMITS, each a witness in the geometry, none an airport:
   and the drape at the anchor says nothing about them (+17.6 m at the town
   north of the field), so the author's own height stands, as a kept
   terrain shell's does (RULINGS 2026-11-24k (3)).
+* ...UNLESS ITS MEMBERS AGREE (#2250 round 3).  A set or a frame at
+  terrain scale whose members' own votes (each the median of its feet's
+  needs, less its row's elevation) number at least
+  :data:`CONSENSUS_MIN_MEMBERS` and lie within :data:`CONSENSUS_IQR_M`
+  of each other (interquartile) was authored on a ground ours replaced by
+  one offset -- an airport laid at one anchor over the author's own mesh,
+  regraded flat (LGKR: 83 members over 2.8 km agree on -1.40 m, spread
+  0.16 m; the author's apron at 3.0 m, our flat site at 1.68 m).  It is
+  seated at its authored row plus their median.  The frame's highest
+  vote was one member's: approach-light poles driven 3.4 m into the
+  author's ground voted +4.71 m and lifted the terminal, its apron and
+  every vehicle 6 m.  A town's members disagree (their geometry carries
+  the heights of the hills under it: spreads of 1-40 m), and it keeps its
+  authored row as above.
 * A set at a footprint unit's pad (the surface at its origin IS the
   unit's datum) or in a DECK unit is the unit's to seat.
 * No graded face under its feet: the rows stay converted, X-Plane drapes
@@ -79,7 +93,8 @@ from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "static_triangles", "lowest_feet", "origin_set_lifts",
            "origin_key", "origin_of_row", "feet_seats",
-           "lifted_feet_seats", "LIFTED_FEET", "AUTHORED_DATUM"]
+           "lifted_feet_seats", "LIFTED_FEET", "AUTHORED_DATUM", "DATUM_AGREED",
+           "CONSENSUS_IQR_M", "CONSENSUS_MIN_MEMBERS"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -87,6 +102,15 @@ Surface = _t.Callable[[float, float], "float | None"]
 LIFTED_FEET = "lifted_feet"
 #: the ``MslSeat.why`` of a set on a datum kept at its row (:func:`_on_datum`)
 AUTHORED_DATUM = "authored_datum"
+#: the ``MslSeat.why`` of a terrain-scale set or frame seated at the offset
+#: its members agree on (:func:`_consensus`)
+DATUM_AGREED = "datum_agreed"
+#: THE MEMBERS AGREE (#2250 round 3): the widest interquartile spread of a
+#: terrain-scale set's member votes that is one offset -- the owner's
+#: ground bar (RULINGS 2026-10-15, "judge by visibility bars": 0.5 m)
+CONSENSUS_IQR_M = 0.5
+#: ...and the fewest votes that agree: two votes can only differ
+CONSENSUS_MIN_MEMBERS = 3
 #: one origin, to the DSF's own precision (1e-8° ≈ 1 mm; 1 mm of elevation)
 _ORIGIN_DP = 8
 
@@ -329,6 +353,11 @@ def _seat_set(members: list, res: list, ctx: _SeatContext) -> list:
     elevation centring its feet's needs on the surface — or none; a set
     at terrain scale at its authored row (:func:`_on_datum`)."""
     if _on_datum(res):
+        shift = _consensus([(members, res)], ctx)
+        if shift is not None:
+            _bump(ctx.counts, "msl_datum_sets_agreed")
+            return _written(members, _elevation(members[0], ctx) + shift, ctx,
+                            DATUM_AGREED)
         _bump(ctx.counts, "msl_datum_sets_kept")
         _bump(ctx.counts, "msl_datum_rows_kept", len(members))
         return _authored(members, ctx)
@@ -366,9 +395,10 @@ def _set_vote(members: list, res: list, ctx: _SeatContext, *,
 
 
 def _on_datum(res: _t.Sequence[_Resource]) -> bool:
-    """A LONE SET AT TERRAIN SCALE (module doc, #2250): every member
-    readable and the resolved members' static solid spanning at least
-    ``terrain_model.MIN_PLAN_M`` on its longer plan side."""
+    """A SET AT TERRAIN SCALE (module doc, #2250): every member readable
+    and the resolved members' static solid spanning at least
+    ``terrain_model.MIN_PLAN_M`` on its longer plan side (``res``: one
+    set's resources, or a frame's)."""
     from .terrain_model import MIN_PLAN_M
     solid = [r for r in res if r.state == RESOLVED and r.box]
     if not solid or any(r.state == UNRESOLVED for r in res):
@@ -376,6 +406,30 @@ def _on_datum(res: _t.Sequence[_Resource]) -> bool:
     x0, x1 = min(r.box[0] for r in solid), max(r.box[1] for r in solid)
     z0, z1 = min(r.box[2] for r in solid), max(r.box[3] for r in solid)
     return max(x1 - x0, z1 - z0) >= MIN_PLAN_M
+
+
+def _elevation(member: _t.Any, ctx: _SeatContext) -> float:
+    return float(ctx.rows[member.index].elevation or 0.0)
+
+
+def _consensus(groups: _t.Sequence[tuple], ctx: _SeatContext) -> "float | None":
+    """THE OFFSET A TERRAIN-SCALE SET'S MEMBERS AGREE ON (module doc, #2250
+    round 3), or ``None``: ``groups`` are ``(members, resources)`` per
+    set.  Each resolved member votes the median of its own feet's needs
+    less its row's elevation; at least :data:`CONSENSUS_MIN_MEMBERS` votes
+    within :data:`CONSENSUS_IQR_M` (interquartile) agree on their median."""
+    votes = []
+    for members, res in groups:
+        for m, r in zip(members, res, strict=True):
+            if r.state != RESOLVED or r.feet is None:
+                continue
+            needs = _foot_needs(ctx.rows[m.index], r.feet, ctx.surface)
+            if needs:
+                votes.append(float(np.median(needs)) - _elevation(m, ctx))
+    if len(votes) < CONSENSUS_MIN_MEMBERS:
+        return None
+    q25, q50, q75 = np.percentile(votes, [25.0, 50.0, 75.0])
+    return float(q50) if q75 - q25 <= CONSENSUS_IQR_M else None
 
 
 def _authored(members: list, ctx: _SeatContext) -> list:
@@ -388,7 +442,8 @@ def _authored(members: list, ctx: _SeatContext) -> list:
             for m in members]
 
 
-def _written(members: list, elev: float, ctx: _SeatContext) -> list:
+def _written(members: list, elev: float, ctx: _SeatContext,
+             why: str = "geometry_feet") -> list:
     """Every member of one set at ``elev`` — or none, where that is the
     drape at the origin within ``drape_tol_m``."""
     from ..model.placement import MslSeat
@@ -401,7 +456,7 @@ def _written(members: list, elev: float, ctx: _SeatContext) -> list:
     _bump(ctx.counts, "msl_feet_sets")
     return [MslSeat(m.index, m.resource, float(rows[m.index].lon),
                     float(rows[m.index].lat), float(rows[m.index].heading_deg),
-                    elev, "geometry_feet") for m in members]
+                    elev, why) for m in members]
 
 
 def _seat_frame(groups: list, ctx: _SeatContext) -> list:
@@ -422,6 +477,11 @@ def _seat_frame(groups: list, ctx: _SeatContext) -> list:
         if len(comp) == 1:
             out += _seat_set(groups[comp[0]][0], groups[comp[0]][1], ctx)
             continue
+        shift = _agreed_frame([groups[i] for i in comp], ctx)
+        if shift is not None:
+            for i in comp:
+                out += _written(groups[i][0], z[i] + shift, ctx, DATUM_AGREED)
+            continue
         votes = {i: _set_vote(*groups[i], ctx, in_frame=True) for i in comp}
         deltas = [v - z[i] for i, v in votes.items() if v is not None]
         if not deltas:
@@ -431,6 +491,18 @@ def _seat_frame(groups: list, ctx: _SeatContext) -> list:
         for i in comp:
             out += _written(groups[i][0], z[i] + max(deltas), ctx)
     return out
+
+
+def _agreed_frame(groups: list, ctx: _SeatContext) -> "float | None":
+    """A FRAME AT TERRAIN SCALE whose members agree (module doc, #2250
+    round 3): the offset they agree on, else ``None`` (the highest vote)."""
+    if not _on_datum([r for _m, res in groups for r in res]):
+        return None
+    shift = _consensus(groups, ctx)
+    if shift is not None:
+        _bump(ctx.counts, "msl_datum_frames_agreed")
+        _bump(ctx.counts, "msl_frame_sets", len(groups))
+    return shift
 
 
 def _meeting(groups: list, z: list, free: list, tol_m: float) -> list[list[int]]:

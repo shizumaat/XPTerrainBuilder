@@ -17,8 +17,10 @@ Pavement with ROAD PROPORTIONS (:func:`road_ribbon`: at most
 ``service.free_max_width_m`` wide and at least
 ``groundside.road_ribbon_min_aspect`` times as long as it is wide) is a
 road RIBBON, ``service_road``; everything else is
-``groundside.unclassified_role`` — a parking LOT, a flat plate under the
-universal cap — whether or not a road reaches it
+``groundside.unclassified_role`` — since owner 2026-11-26T23:48Z the
+DEFAULT ROAD's plate (``groundside_pavement``, the road law), a parking
+LOT only on a lot witness (``classify/lot_evidence``) — whether or not a
+road reaches it
 (``roles._road_evidence``: a route / OSM road within ``cells.on_tol_m``
 or a touching road / lot face, now recorded as evidence only).  Before
 #110 a face no road touched shipped ``groundside.default_open_role``,
@@ -45,7 +47,17 @@ from .evidence import apron_named, is_library_path
 from .rules import Rules
 from .sources import SourceRecord
 
-__all__ = ["A1", "A2", "A3", "apron_witness", "has_lobe",
+#: the role a face with lot evidence takes (``classify/lot_evidence``)
+LOT_ROLE = "parking_lot"
+#: the evidence key of a ROAD BY DEFAULT: a face the old lot default made a
+#: lot, with no lot witness (``Face.default_road``)
+DEFAULT_ROAD_KEY = "default_road"
+#: the role a ROAD BY DEFAULT stands as in the planar ARRANGEMENT -- the lot
+#: it was: only its grade (the map face's role) is the road's
+DEFAULT_ROAD_PLATE = LOT_ROLE
+
+__all__ = ["A1", "A2", "A3", "DEFAULT_ROAD_KEY", "DEFAULT_ROAD_PLATE", "LOT_ROLE",
+           "apron_witness", "has_lobe",
            "narrow_road", "open_pavement_role", "road_ribbon",
            "unclassified_groundside_role"]
 
@@ -159,7 +171,8 @@ def narrow_road(face: Polygon, rules: Rules) -> float | None:
 
 
 def unclassified_groundside_role(face: Polygon, rules: Rules, *,
-                                 road_reached: bool, taxi_named: bool = False
+                                 road_reached: bool, taxi_named: bool = False,
+                                 lot_evidence: str = "", shape: bool = True
                                  ) -> tuple[str, dict[str, float | str]]:
     """``(role, evidence)`` for GROUNDSIDE pavement the evidence did not
     classify — §110 (owner remark RULINGS 2026-09-30b, issue #110).
@@ -174,13 +187,23 @@ def unclassified_groundside_role(face: Polygon, rules: Rules, *,
 
     * pavement with ROAD PROPORTIONS (:func:`road_ribbon`) is a road
       RIBBON — ``service_road``, at the road cap;
-    * everything else is ``groundside.unclassified_role`` — a parking LOT,
-      a flat plate under the universal cap — whether or not a road reaches
-      it.  A road reaching a face was never what made it a car park.
+    * everything else is ``groundside.unclassified_role`` — the default
+      road's plate (below) — whether or not a road reaches it.  A road
+      reaching a face was never what made it a car park.
 
     ``taxi_named`` is the 04z-1 VETO and outranks both: a demoted face on
     a TAXIWAY-NAMED source is ``groundside.default_open_role``, never a
     lot and never a road.
+
+    A LOT ONLY ON EVIDENCE (owner 2026-11-26T23:48Z, #2283 EKVG: "default
+    to road, and only go to the more strict lot grading when we have more
+    evidence"; ``classify/lot_evidence``): ``lot_evidence`` names the
+    witness (E1 OSM car park, E2 parking aisle, E3 parked cars) and makes
+    the face ``parking_lot``; without one ``groundside.unclassified_role``
+    is the DEFAULT ROAD, the road-law plate ``groundside_pavement``.
+    ``shape=False`` (a source PAGE the lot ladder read, whose strip-or-lot
+    question ``sources`` already answered) skips the ribbon test: a page
+    is never re-kinded a road by its proportions here.
     """
     if taxi_named:
         return rules.groundside.default_open_role, {
@@ -190,7 +213,10 @@ def unclassified_groundside_role(face: Polygon, rules: Rules, *,
     evid: dict[str, float | str] = {"road_evidence": float(road_reached),
                                     "ribbon_aspect": aspect,
                                     "ribbon_width_m": width_m}
-    if is_ribbon:
+    if lot_evidence:
+        return LOT_ROLE, dict(evid, lot_evidence=lot_evidence,
+                              unclassified_default=f"lot on evidence ({lot_evidence})")
+    if is_ribbon and shape:
         # ``road_by_proportions``: a road by its SHAPE, never by evidence —
         # §27 judges it as the lot it would otherwise be (no MOUTH, no
         # §37 (2) share; ``airside_edge.airside_edge_flip``, HECA
@@ -200,18 +226,21 @@ def unclassified_groundside_role(face: Polygon, rules: Rules, *,
                                         f">= {rules.groundside.road_ribbon_min_aspect:g}, "
                                         f"width {width_m:.1f} m"))
     return rules.groundside.unclassified_role, dict(
-        evid, unclassified_default=(f"§110: unclassified groundside pavement, aspect "
-                                    f"{aspect:.1f}, width {width_m:.1f} m"))
+        evid, **{DEFAULT_ROAD_KEY: 1.0},
+        unclassified_default=(f"default road (no lot evidence): aspect "
+                              f"{aspect:.1f}, width {width_m:.1f} m"))
 
 
 def open_pavement_role(face: Polygon, road_reached: bool, rules: Rules,
-                       evid: _t.Mapping[str, float | str], why: str
+                       evid: _t.Mapping[str, float | str], why: str,
+                       lot_evidence: str = ""
                        ) -> tuple[str, dict[str, float | str]]:
     """``(role, evidence)`` for a face the slice scored apron that may not
     be apron (``apron_gate``) and touches no taxiway: §110's groundside
     verdict, then §27 judges its edges.  ``why`` is what the witness
     ladder found (or ``"none"``)."""
     role, why_role = unclassified_groundside_role(face, rules,
-                                                  road_reached=road_reached)
+                                                  road_reached=road_reached,
+                                                  lot_evidence=lot_evidence)
     return role, dict(evid, open_default=1.0, **why_role,
                       apron_evidence=f"{why} (04u / #2134: not an apron witness)")

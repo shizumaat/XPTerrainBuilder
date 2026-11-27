@@ -1561,6 +1561,13 @@ frame_tilt_max_deg  = 1.0
 # and a placement is not split when every body would land within this of its
 # authored seat.  The owner's figure; 0 disarms both.
 authored_keep_tol_m = 0.05
+# A SINK THAT BURIES ITS BUILDING ON EVERY SIDE (#2293, airport/buried_sink): an
+# OBJECT_AGL building row sunk by at least this, whose floor stands more than
+# this under our surface at every outline station with the hill it was sunk
+# for beside it, converts and is seated on our ground (TFFJ's hangar: AGL -3.5
+# into a lidar pad level within 1 m).  The 1 m visibility bar of a buried
+# door; 0 disarms.
+sink_buried_m       = 1.0
 
 # A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p (3), #709):
 # inside one placement, a leaf ground group (no part chain_min_height_m tall)

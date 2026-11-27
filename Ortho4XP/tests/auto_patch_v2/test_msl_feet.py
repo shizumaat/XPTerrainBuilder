@@ -440,3 +440,43 @@ def test_a_lone_set_at_terrain_scale_keeps_its_authored_row(tmp_path):
                                              _row(big, elevation=0.0)])
     _c, msl, _r, n = _rows(dump, tmp_path)
     assert {m.why for m in msl} == {"geometry_feet"} and "msl_datum_sets_kept" not in n
+
+
+def test_a_terrain_scale_frame_whose_members_agree_takes_their_offset(tmp_path):
+    """#2250 round 3 (FlyTampa LGKR): an airport laid at one anchor over the
+    author's own mesh, its apron 3.0 m there and 1.7 m on ours.  Vans stand
+    on the author's apron, the terminal (a set 3.0 m up) beside them, and
+    the approach-light poles 600 m off reach 3.4 m into the author's ground.
+    The highest vote was the poles' (+5.1 m: the whole frame floated 6.4 m);
+    the members agree on -1.3 m and the frame takes it."""
+    vans = [_slab(tmp_path, f"van{k}.obj", x, x + 5.0, 3.0, 5.0)
+            for k, x in enumerate((0.0, 100.0, 200.0))]
+    poles = _slab(tmp_path, "poles.obj", 600.0, 601.0, -3.4, 8.0)
+    terminal = _slab(tmp_path, "terminal.obj", 5.0, 60.0, 0.0, 20.0)   # meets van0
+    rows = [_row(v, elevation=0.0) for v in vans] + [_row(poles, elevation=0.0),
+                                                     _row(terminal, elevation=3.0)]
+    dump = types.SimpleNamespace(placements=rows)
+    conv, msl, _r, n = _rows(dump, tmp_path, surface=lambda la, lo: 1.7)
+    by = {m.index: m for m in msl}
+    # the terminal's seat (1.7 m) is the drape at its origin: left to it
+    assert [c.index for c in conv] == [4] and sorted(by) == [0, 1, 2, 3]
+    assert all(abs(by[i].elevation - (-1.3)) < 1e-6 for i in range(4))
+    assert {m.why for m in msl} == {MF.DATUM_AGREED}
+    assert n["msl_datum_frames_agreed"] == 1 and "msl_frames" not in n
+
+
+def test_a_terrain_scale_set_whose_members_disagree_keeps_its_row(tmp_path):
+    """A town: three tiles whose geometry carries the heights of the hills
+    under it vote metres apart; the authored row stands (#2250).  Three
+    tiles that agree are one offset, and take it."""
+    tiles = [_slab(tmp_path, f"t{k}.obj", x, x + 300.0, y, y + 10.0)
+             for k, (x, y) in enumerate(((0.0, 0.0), (300.0, 8.0), (600.0, 30.0)))]
+    dump = types.SimpleNamespace(placements=[_row(t, elevation=0.0) for t in tiles])
+    _c, msl, _r, n = _rows(dump, tmp_path, surface=lambda la, lo: 2.0)
+    assert {m.why for m in msl} == {MF.AUTHORED_DATUM} and n["msl_datum_sets_kept"] == 1
+    flat = [_slab(tmp_path, f"f{k}.obj", x, x + 300.0, 4.0, 14.0)
+            for k, x in enumerate((0.0, 300.0, 600.0))]
+    dump = types.SimpleNamespace(placements=[_row(t, elevation=0.0) for t in flat])
+    _c, msl, _r, n = _rows(dump, tmp_path, surface=lambda la, lo: 2.0)
+    assert {m.why for m in msl} == {MF.DATUM_AGREED} and n["msl_datum_sets_agreed"] == 1
+    assert all(abs(m.elevation - (-2.0)) < 1e-6 for m in msl)

@@ -43,9 +43,9 @@ per plain / ``OBJECT_AGL`` row of a rock, verdict ``rock`` with its
 right, axis, smooth) and ``fill_z0`` (``terrain_rock.fill_seat``: the
 run-out fill the build would make, ``None`` for none).  Listed beside the rows, not in
 them: ``refused`` (per file: the gates failed, the values, its rows),
-``rock_unmatched`` (a rock row off its ground or whose rim floats) and
-``msl_rock_rows`` (a rock with no small shell on an ``OBJECT_MSL`` row:
-never read).
+``rock_unmatched`` (a rock row off its ground or whose rim floats).  A
+rock with no small shell on an ``OBJECT_MSL`` row is read as a small
+shell at its datum (#2285), like the build.
 """
 from __future__ import annotations
 
@@ -318,7 +318,7 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
            "refused": [{"resource": k[1], "failed": v[1], "witness": _rounded(v[0]), "rows": 0}
                        for k, v in sorted(shapes.items(), key=lambda kv: str(kv[0]))
                        if isinstance(k, tuple) and k[0] == "refused"]}
-    out["msl_rock_rows"], out["rock_unmatched"] = [], []
+    out["rock_unmatched"] = []
     refused = {r["resource"]: r for r in out["refused"]}
     for dsf in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))):
         src = dsf + ".anchor_bak" if os.path.isfile(dsf + ".anchor_bak") else dsf
@@ -369,9 +369,6 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
             dem = sampler(dems, lo, la)
             datum = elev if kind == "OBJECT_MSL" else None
             rock = shape.rock and kind != "OBJECT_MSL"
-            if shape.rock_only and not rock:
-                out["msl_rock_rows"].append(rec)     # never read (RULINGS 25l)
-                continue
             if rock:
                 rec["witness"] = _rounded(dict(shape.witness))
                 sibs = [_geometry(pack_root, defs[j]) for kk, j in
@@ -447,9 +444,6 @@ def main(argv=None) -> int:
         for row in r["rock_unmatched"]:
             print(f"   {row['verdict']}: {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f"; witness {_witness_text(row['witness'])}")
-        for row in r["msl_rock_rows"]:
-            print(f"   rock on an OBJECT_MSL row, not read: {row['resource']} "
-                  f"@({row['lat']:.5f},{row['lon']:.5f})")
         for ref in r["refused"]:
             print(f"   refused rock {ref['resource']} ({ref['rows']} row(s)): "
                   f"fails {', '.join(ref['failed'])}; {_witness_text(ref['witness'])}")

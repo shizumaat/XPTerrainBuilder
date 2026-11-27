@@ -29,28 +29,23 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
     # Fill node types using a boolean or on a bit field.
     # Coastline nodes are those that will have both a land and water bits set. 
     # Assumes that tri_types[n] is already in the range {0, 1, 2}
+    # (one bitwise-or per corner column over the whole mesh: the same
+    # bits the per-triangle loop set, #850)
+    corners = numpy.asarray(tri_idx).reshape(-1, 3)
     node_types = numpy.zeros(nbr_nodes, dtype = numpy.uint8)
-    for i in range(nbr_tris):
-        t = 1 << tri_types[i]
-        node_types[tri_idx[3 * i + 0]] |= t 
-        node_types[tri_idx[3 * i + 1]] |= t 
-        node_types[tri_idx[3 * i + 2]] |= t
+    bits = numpy.left_shift(1, numpy.asarray(tri_types)).astype(numpy.uint8)
+    for column in range(3):
+        numpy.bitwise_or.at(node_types, corners[:, column], bits)
     node_is_coast = ((node_types & 1) != 0) & ((node_types & 6) != 0)
 
     # Count the number of coastline tris (i.e. with at least one coastline vtx)
     # The latter are the only ones with a potential recut).
-    tri_is_coast = numpy.zeros(nbr_tris, dtype = bool)
-    for i in range(nbr_tris):
-        tri_is_coast[i] |= node_is_coast[tri_idx[3 * i + 0]]
-        tri_is_coast[i] |= node_is_coast[tri_idx[3 * i + 1]]
-        tri_is_coast[i] |= node_is_coast[tri_idx[3 * i + 2]]
+    tri_is_coast = node_is_coast[corners].any(axis=1)
     coast_tri_count = numpy.sum(tri_is_coast)
 
     # Classify edges of coastline tris
     edge_type = {}
-    for i in range(nbr_tris):
-        if not tri_is_coast[i]:
-            continue
+    for i in numpy.flatnonzero(tri_is_coast).tolist():
         t = 1 << tri_types[i]
         (a,b,c) = tri_idx[3 * i: 3 * i + 3]
         for (m,n) in ((a,b), (b,c), (c,a)):
@@ -96,9 +91,11 @@ def recut_water_tris(node_coords, tri_idx, tri_types):
     # Cut the tris that need to.
     # When cutting a tri, its place in tri_idx is taken by one of the 
     # newly created ones, and the other ones are appended at the end.
-    for i in range(nbr_tris):
-        if not tri_types[i] or not tri_is_coast[i]:
-            continue
+    # (the rows are listed before the loop: it rewrites only row i and
+    # rows past nbr_tris)
+    cut_rows = numpy.flatnonzero(
+        tri_is_coast & (numpy.asarray(tri_types[:nbr_tris]) != 0))
+    for i in cut_rows.tolist():
         (a,b,c) = tri_idx[3 * i: 3 * i + 3]
         C = (a,b) in edge_cut
         A = (b,c) in edge_cut

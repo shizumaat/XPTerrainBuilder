@@ -539,6 +539,13 @@ final class BuildModel: ObservableObject {
                            uniquingKeysWith: { _, new in new })
         installed = Set(cached.installed.filter { $0.count == 2 }
             .map { TileCoord(lat: $0[0], lon: $0[1]) })
+        // The World states too (#2301): a built tile draws by its World
+        // state, so without them every tile read Full until the scan's
+        // last phase and the World borders filled in tile by tile.
+        if worldTiles.isEmpty {
+            worldTiles = Dictionary(cached.world.map { (TileCoord(lat: $0.lat, lon: $0.lon), $0.tile) },
+                                    uniquingKeysWith: { _, new in new })
+        }
         refreshConflictTiles()
     }
 
@@ -821,8 +828,15 @@ final class BuildModel: ObservableObject {
             return
         }
         // Sources arrive from the engine session (loadImagerySources);
-        // until then the map keeps what it has, at the current data root.
+        // until then the map draws last session's list for this engine
+        // (#2301: its imagery waited for the engine to boot), at the
+        // current data root.
+        if imagerySources.isEmpty,
+           let cached = ImagerySourcesCache.load(engineVersion: located.version) {
+            imagerySources = cached
+        }
         imagery.configure(sources: imagerySources, dataRoot: dataRootURL)
+        imagery.setProvider(mapPreviewProvider)
         engine = located
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
         reloadGlobalConfig()
@@ -904,6 +918,9 @@ final class BuildModel: ObservableObject {
             let sources = await client.imagerySources()
             guard let self, self.client === client else { return }
             self.imagerySources = sources
+            if let version = self.engine?.version {
+                ImagerySourcesCache.save(sources, engineVersion: version)
+            }
             self.imagery.configure(sources: sources, dataRoot: self.dataRootURL)
             self.imagery.setProvider(self.mapPreviewProvider)
             if !self.imageryStatusChecked, !sources.isEmpty {
@@ -1145,10 +1162,17 @@ final class BuildModel: ObservableObject {
             scanPhase = ""
             syncConsoleView()
             if let base = tileBaseFolder {
-                TileScanCache.save(
+                // Encoded off the main thread: a World install is ~18,000 rows.
+                let contents = TileScanCache.Contents(
                     built: Array(built.values),
                     installed: installed.map { [$0.lat, $0.lon] },
-                    workingDir: base.path, customSceneryDir: customSceneryPath)
+                    world: worldTiles.map { .init(lat: $0.key.lat, lon: $0.key.lon,
+                                                  tile: $0.value) })
+                let (workingDir, sceneryDir) = (base.path, customSceneryPath)
+                Task.detached(priority: .utility) {
+                    TileScanCache.save(contents, workingDir: workingDir,
+                                       customSceneryDir: sceneryDir)
+                }
             }
             refreshConflictTiles()
             refreshCustomizedTiles()

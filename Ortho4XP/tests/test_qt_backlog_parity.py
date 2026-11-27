@@ -51,7 +51,7 @@ def test_scan_cache_round_trip(tmp_path):
     GUI.save_scan_cache(built, {TILE, OTHER}, "/w", "/cs", path=path)
     restored = GUI.load_scan_cache("/w", "/cs", path=path)
     assert restored is not None
-    (restored_built, restored_installed) = restored
+    (restored_built, restored_installed, _world) = restored
     assert restored_installed == {TILE, OTHER}
     assert set(restored_built) == {TILE}
     info = restored_built[TILE]
@@ -97,7 +97,7 @@ def test_scan_cache_drops_malformed_entries_silently():
     }
     restored = GUI.scan_cache_restore(payload, "/w", "/cs")
     assert restored is not None
-    (built, installed) = restored
+    (built, installed, _world) = restored
     assert set(built) == {TILE}
     assert installed == {TILE}
 
@@ -108,8 +108,22 @@ def test_scan_cache_normalizes_the_provider():
     built = {TILE: _tile_info(*TILE, build_dir="/w/t", provider="'Arc'")}
     payload = GUI.scan_cache_payload(built, set(), "/w", "/cs")
     assert payload["built"][0]["provider"] == "Arc"
-    (restored, _installed) = GUI.scan_cache_restore(payload, "/w", "/cs")
+    (restored, _installed, _world) = GUI.scan_cache_restore(payload, "/w", "/cs")
     assert restored[TILE].provider == "Arc"
+
+
+def test_scan_cache_keeps_the_world_states(tmp_path):
+    """#2301: a built tile draws by its World state, so the launch
+    overlay carries them (the mac app's TileScanCache v7)."""
+    import O4_Qt_Map_World as QTWORLD
+    world = QTWORLD.from_wire([[48, -6, "mesh_lowres", "xptb", 0.5, "lean",
+                                "", "/p/x.dsf", "BI"], [49, -6, "off", "",
+                                                         0.0, "", ""]])
+    path = str(tmp_path / "cache.json")
+    GUI.save_scan_cache({TILE: _tile_info(*TILE, build_dir="/w/t")}, set(),
+                        "/w", "/cs", path=path, world=world)
+    (_built, _installed, restored) = GUI.load_scan_cache("/w", "/cs", path=path)
+    assert restored == world
 
 
 def test_scan_cache_absent_file_is_not_an_error(tmp_path):

@@ -185,8 +185,8 @@ public enum O4WorldStateText {
 /// provider draws it. Arrives as `ScanBatch.world` rows `[lat, lon, state,
 /// origin, sharp, source, volume, dsf, provider]` and as a Library row's
 /// `world` dict.
-public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
-    public enum State: String, Sendable, CaseIterable, Decodable {
+public struct O4WorldTile: Sendable, Equatable, Hashable, Codable {
+    public enum State: String, Sendable, CaseIterable, Codable {
         case full
         case meshLowRes = "mesh_lowres"
         case drape, placeholder, off, nothing

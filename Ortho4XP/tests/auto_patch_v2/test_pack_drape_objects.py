@@ -87,7 +87,7 @@ def test_a_photo_grid_laid_as_draped_objects_is_hidden_whole(tmp_path):
 def test_an_object_drawn_partly_undraped_is_no_photo(tmp_path):
     root = _pack(tmp_path)
     path = _obj(root, "pad_a1.obj", "pad.dds", (51.0, 25.0, 51.004, 25.004), draped=False)
-    assert PO.photo_object(str(root / path)) is None
+    assert PO._photo_object(str(root / path)) is None
 
 
 def test_lettered_grid_cells_are_one_family():

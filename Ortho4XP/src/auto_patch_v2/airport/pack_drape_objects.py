@@ -9,7 +9,7 @@ triangle under ``ATTR_draped``.  ``pack_drapes`` read ``POLYGON_DEF``
 ``.pol`` files only, so the photo was never offered for hiding.
 
 THE WITNESS for an ``OBJECT_DEF`` is ``pack_drapes``'s, read from the
-OBJ8 (:func:`photo_object`):
+OBJ8 (:func:`_photo_object`):
 
 1. the PACK'S OWN file (resolved under the pack folder);
 2. ALL its geometry DRAPED: a ``TEXTURE_DRAPED`` image, no 3-D
@@ -23,7 +23,7 @@ OBJ8 (:func:`photo_object`):
    (``pack_drapes.MIN_OPAQUE``).
 
 A passing definition is a ``pack_drape_grid.Layer`` like a ``.pol``'s,
-keyed :func:`layer_index` (negative: object definitions count apart from
+keyed :func:`_layer_index` (negative: object definitions count apart from
 polygon ones), one box per row placing it; the grid rule then decides
 (RULINGS 2026-11-07a (3)) and the omission takes ``MissingDef("object",
 …)`` (``pack_art.OMITTABLE``).
@@ -36,7 +36,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["ObjPhoto", "photo_object", "layer_index", "def_index", "object_layers"]
+__all__ = ["def_index", "object_layers"]
 
 Box = tuple[float, float, float, float]          # lon0, lat0, lon1, lat1
 _M_PER_DEG_LAT = 110_540.0
@@ -45,7 +45,7 @@ _M_PER_DEG_LON = 111_320.0
 _ROWS = ("OBJECT", "OBJECT_AGL", "OBJECT_MSL")
 
 
-class ObjPhoto(_t.NamedTuple):
+class _ObjPhoto(_t.NamedTuple):
     """One draped-photo OBJ8: its image, its vertices ``(x, z, u)`` and
     its draw order (``deck_author_art.layer_order``)."""
     texture: str
@@ -53,7 +53,7 @@ class ObjPhoto(_t.NamedTuple):
     layer: float
 
 
-def layer_index(i: int) -> int:
+def _layer_index(i: int) -> int:
     """The ``Layer.index`` of object definition ``i`` (negative)."""
     return -(i + 1)
 
@@ -63,7 +63,7 @@ def def_index(index: int) -> int:
     return -index - 1
 
 
-def photo_object(path: str) -> ObjPhoto | None:
+def _photo_object(path: str) -> _ObjPhoto | None:
     """Witness (2) on the OBJ8 at ``path``: its draped image and vertices,
     or ``None`` when it is not a wholly draped, unpaved image."""
     from .deck_author_art import layer_order
@@ -94,11 +94,11 @@ def photo_object(path: str) -> ObjPhoto | None:
         return None
     if not (texture and flat and xzu):
         return None
-    return ObjPhoto(texture, np.asarray(xzu, float),
+    return _ObjPhoto(texture, np.asarray(xzu, float),
                     layer_order({"LAYER_GROUP": group} if group else {}))
 
 
-def _placed(ph: ObjPhoto, lon: float, lat: float, heading: float
+def _placed(ph: _ObjPhoto, lon: float, lat: float, heading: float
             ) -> tuple[Box, float]:
     """The lon/lat box of the photo placed at a row, and how far its
     image's ``u`` axis turns off the parallels (``pack_drapes._turn_deg``)."""
@@ -136,7 +136,7 @@ def object_layers(pack_root: str, lines: _t.Sequence[str],
         if not path.lower().endswith(".obj"):
             continue
         local = resolve_resource(path.replace("\\", "/"), pack_root, {})
-        ph = photo_object(local) if local else None          # (1), (2)
+        ph = _photo_object(local) if local else None          # (1), (2)
         if ph is None:
             continue
         got = [_placed(ph, *p) for p in placed]
@@ -150,6 +150,6 @@ def object_layers(pack_root: str, lines: _t.Sequence[str],
             img = image_file(os.path.dirname(local), ph.texture)
             frac = opaque_fraction(img) if img else None
             over = frac is None or frac >= MIN_OPAQUE        # (4)
-        layers.append(Layer(layer_index(i), path, ph.texture, boxes, over, ph.layer))
-        uses[layer_index(i)] = len(placed)
+        layers.append(Layer(_layer_index(i), path, ph.texture, boxes, over, ph.layer))
+        uses[_layer_index(i)] = len(placed)
     return layers, uses, defs

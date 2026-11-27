@@ -173,3 +173,110 @@ def test_a_level_finer_than_a_coarse_only_provider_takes_its_native():
         {"code": "NORES"}, near, None) == (None, None)
     assert ELEVATION_LEVEL._coastline_cell_source(
         {"code": "NORES"}, rung, 1.0) == (None, None)
+
+
+# --- THE ONE LADDER (owner RULINGS 2026-11-27e) ------------------------
+import O4_Elevation_Ladder as LADDER  # noqa: E402
+import test_elevation_level_providers as PROVIDERS  # noqa: E402
+
+#: The synthetic tile's west half (columns 0-4) -- a regional service.
+WEST_HALF = (COAST.TILE_LON, COAST.TILE_LAT,
+             COAST.TILE_LON + 0.5, COAST.TILE_LAT + 1.0)
+
+
+def _ladder_registry(monkeypatch, tmp_path):
+    """A regional 1 m service over the west half (priority 90) above a
+    national 1 m one over the whole tile (80), a coarser national 10 m
+    product (70), a tile-download national service (95) that may never
+    serve a cell, and a global 30 m fallback opted into ring 2."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "ladder"))
+    whole = (COAST.TILE_LON - 1, COAST.TILE_LAT - 1,
+             COAST.TILE_LON + 2, COAST.TILE_LAT + 2)
+    definitions = [
+        PROVIDERS._definition("REGIONAL", resolution_m=1.0, priority=90.0,
+                              coverage_bbox=WEST_HALF),
+        PROVIDERS._definition("NATIONAL", resolution_m=1.0, priority=80.0,
+                              coverage_bbox=whole),
+        PROVIDERS._definition("COARSENAT", resolution_m=10.0, priority=70.0,
+                              coverage_bbox=whole),
+        PROVIDERS._definition("TILEDOWNLOAD", access_strategy="narrow",
+                              resolution_m=0.5, priority=95.0,
+                              coverage_bbox=whole),
+        dict(PROVIDERS._definition("GLOBAL30", access_strategy="narrow",
+                                   resolution_m=30.0, priority=1.0,
+                                   coverage_bbox=(-180, -90, 180, 90)),
+             approach_ring_class="ring2"),
+    ]
+    PROVIDERS._install_registry(monkeypatch, definitions)
+    return {definition["code"]: definition for definition in definitions}
+
+
+def test_every_consumer_reads_the_inset_list(monkeypatch, tmp_path):
+    _ladder_registry(monkeypatch, tmp_path)
+    assert [d["code"] for d in LADDER.ranked_providers()] == [
+        d["code"] for d in INSETS.select_provider_definitions("auto")]
+    tile = [d["code"] for d in LADDER.providers_for_tile(
+        COAST.TILE_LAT, COAST.TILE_LON)]
+    # Whole tile: windowed readers only, in the inset order.
+    assert tile == ["REGIONAL", "NATIONAL", "COARSENAT"]
+    assert ELEVATION_LEVEL.select_tile_overlay_definition(
+        COAST.TILE_LAT, COAST.TILE_LON, 1)["code"] == "REGIONAL"
+    east_cell = ELEVATION_LEVEL.approach_ring_cell_box(
+        COAST.TILE_LAT, COAST.TILE_LON, 8, 3)
+    # A cell: the regional service does not reach it; the tile-download
+    # reader is never asked for a cell; the global fallback only at its
+    # opted ring-2 class or coarser.
+    assert [d["code"] for d in LADDER.providers_for_cell(east_cell, 1.0)] \
+        == ["NATIONAL", "COARSENAT"]
+    assert [d["code"] for d in LADDER.providers_for_cell(east_cell, 31.0)] \
+        == ["NATIONAL", "COARSENAT", "GLOBAL30"]
+    # The rings walk the same order (priority, not the finest source).
+    (ring1, _ring2) = ELEVATION_LEVEL.approach_rung_ladder()
+    assert [d["code"] for d in ELEVATION_LEVEL._approach_ring_candidates(
+        COAST.TILE_LAT, COAST.TILE_LON, "auto", ring1.resolution_m,
+        rung_label=ring1.label)] == ["REGIONAL", "NATIONAL", "COARSENAT"]
+
+
+@needs_gdal
+def test_a_regional_service_serves_its_cells_and_the_rest_fall_through(
+        monkeypatch, tmp_path):
+    """At "1" the regional 1 m service answers the cells it covers; a cell
+    it does not reach goes to the national one, as an airport's ranking
+    does; a cell it reaches but answers no coverage for falls through at
+    fetch time."""
+    _ladder_registry(monkeypatch, tmp_path)
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "band"))
+    # Two coasts: down column 1 (west half) and down column 7 (east).
+    from shapely import geometry
+    COAST._install_coastline(monkeypatch, geometry.MultiLineString(
+        [[(0.15, 0.0), (0.15, 1.0)], [(0.75, 0.0), (0.75, 1.0)]]))
+    records = []
+    writing = COAST._writing_fetch(records)
+
+    def fetch(definition, box, resolution_m, destination):
+        column, row = COAST._bbox_to_cell(box)
+        if definition["code"] == "REGIONAL" and row == 0:
+            records.append({"cell": (column, row), "definition": definition,
+                            "resolution_m": resolution_m,
+                            "path": destination, "bbox": box})
+            return None                       # a clean no-coverage
+        return writing(definition, box, resolution_m, destination)
+
+    monkeypatch.setattr(INSETS, "fetch_inset", fetch)
+    tile = COAST._coastline_tile(coastline_elevation_level="1")
+    assert ELEVATION_LEVEL.ensure_coastline_band(tile, None)
+    by_cell = {}
+    for record in records:
+        by_cell.setdefault(record["cell"], []).append(
+            record["definition"]["code"])
+    assert by_cell[(1, 5)] == ["REGIONAL"]
+    assert by_cell[(1, 0)] == ["REGIONAL", "NATIONAL"]
+    assert by_cell[(7, 5)] == ["NATIONAL"]
+    assert all(r["resolution_m"] == 1.0 for r in records)
+    assert "TILEDOWNLOAD" not in {code for codes in by_cell.values()
+                                  for code in codes}
+    stamp = json.load(open(FNAMES.coastline_band_index(
+        COAST.TILE_LAT, COAST.TILE_LON), encoding="utf-8"))
+    assert stamp["cells"][os.path.splitext(os.path.basename(
+        [r for r in records if r["cell"] == (1, 0)][0]["path"]))[0]] \
+        == INSETS.NO_COVERAGE

@@ -208,6 +208,7 @@ _SHARED: tuple[str, ...] = (
     "O4_DSF_Binary",
     "O4_DSF_Header",
     "O4_Download_Manager",
+    "O4_Elevation_Ladder",
     "O4_Elevation_Level",
     "O4_External_Writes",
     "O4_File_Lock",

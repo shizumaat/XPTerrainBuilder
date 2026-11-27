@@ -103,12 +103,18 @@ def _install_provider(monkeypatch, code="TESTLIDAR"):
         "native_resolution_m": LIDAR_NATIVE_M,
         "ladder_label": LIDAR_RUNG_LABEL,
     }
+    _install_band_providers(monkeypatch, [definition])
+    return definition
+
+
+def _install_band_providers(monkeypatch, definitions):
+    """Make THE ONE LADDER (RULINGS 2026-11-27e) offer ``definitions`` to
+    every band cell, in that order."""
     monkeypatch.setattr(
         ELEVATION_LEVEL,
-        "select_tile_overlay_definition",
-        lambda lat, lon, level, providers_config="auto": definition,
+        "_band_cell_providers",
+        lambda box, class_m, providers_config: list(definitions),
     )
-    return definition
 
 
 def _write_cell_geotiff(
@@ -215,11 +221,7 @@ def test_ensure_returns_none_with_custom_dem(monkeypatch):
 
 def test_ensure_returns_none_without_provider(monkeypatch):
     monkeypatch.setattr(ELEVATION_LEVEL, "has_gdal", True)
-    monkeypatch.setattr(
-        ELEVATION_LEVEL,
-        "select_tile_overlay_definition",
-        lambda *args, **kwargs: None,
-    )
+    _install_band_providers(monkeypatch, [])
     tile = _coastline_tile()
     assert ELEVATION_LEVEL.ensure_coastline_band(tile, {}) is None
 
@@ -917,11 +919,7 @@ def _install_laddered_provider(monkeypatch, code="LADDERLIDAR"):
             },
         ],
     }
-    monkeypatch.setattr(
-        ELEVATION_LEVEL,
-        "select_tile_overlay_definition",
-        lambda lat, lon, level, providers_config="auto": definition,
-    )
+    _install_band_providers(monkeypatch, [definition])
     return definition
 
 
@@ -982,11 +980,7 @@ def test_a_provider_declaring_no_resolution_yields_no_band(
     is fetched and the base elevation source stands (it is never fetched
     at an unknown class instead)."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(
-        ELEVATION_LEVEL,
-        "select_tile_overlay_definition",
-        lambda lat, lon, level, providers_config="auto": {"code": "NORES"},
-    )
+    _install_band_providers(monkeypatch, [{"code": "NORES"}])
     _install_coastline(monkeypatch, SHORT_COASTLINE)
 
     def fail_if_called(*args, **kwargs):

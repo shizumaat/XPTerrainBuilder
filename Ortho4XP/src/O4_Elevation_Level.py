@@ -30,6 +30,7 @@ try:
 except Exception:
     has_gdal = False
 
+import O4_Elevation_Ladder as LADDER
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
@@ -428,158 +429,37 @@ def grid_factor_for_level(level_m, finest_source_resolution_m):
 def select_tile_overlay_definition(lat, lon, level_m, providers_config="auto"):
     """Pick the provider definition serving the tile-wide overlay.
 
-    Candidates are the enabled ``.elv`` definitions (any role) whose
-    coverage reaches the tile AND whose access strategy declares
-    ``supports_wide_area = True`` (the windowed ``/vsicurl``/overview
-    readers -- fetching a whole tile through a tile-download strategy
-    would pull an entire national campaign at native resolution).
-    ``providers_config`` follows the ``airport_elevation_providers``
-    convention ("auto" or an explicit comma list of codes).
-
-    Ranking: finest native resolution first, then priority (descending),
-    then code.  Returns the winning definition dict or ``None``.
+    THE ONE LADDER (owner RULINGS 2026-11-27e): the first provider of
+    :func:`O4_Elevation_Ladder.providers_for_tile` -- the airport inset
+    ranking (``airport_elevation_providers``), the providers whose coverage
+    reaches the tile and whose reader reads windows (fetching a whole tile
+    through a tile-download strategy would pull an entire national
+    campaign at native resolution).  So a tile built at 1 m takes the
+    source its airports take.  ``level_m`` chooses only the resolution.
+    Returns the winning definition dict or ``None``.
     """
-    import O4_Airport_Elevation_Insets as INSETS
-
-    candidates = _wide_area_candidate_definitions(
-        lat, lon, providers_config
-    )
-    if not candidates:
-        return None
-
-    def _ranking_key(definition):
-        resolution_m = INSETS._definition_resolution_m(definition)
-        if resolution_m is None:
-            # A wide-area source that does not declare its resolution ranks
-            # last (finite resolutions are always preferred as finer).
-            resolution_m = float("inf")
-        return (
-            resolution_m,
-            -float(definition.get("priority", 0.0)),
-            definition["code"],
-        )
-
-    return min(candidates, key=_ranking_key)
+    candidates = _wide_area_candidate_definitions(lat, lon, providers_config)
+    return candidates[0] if candidates else None
 
 
 def _wide_area_candidate_definitions(lat, lon, providers_config="auto"):
-    """Enabled wide-area definitions (any role) whose coverage reaches a tile.
-
-    Shared candidate set for :func:`select_tile_overlay_definition` and
-    :func:`finest_wide_area_resolution_m`.  Mirrors the filtering conventions
-    of :func:`O4_Airport_Elevation_Insets.select_provider_definitions`:
-    ``providers_config`` "auto" admits every enabled definition, while an
-    explicit comma-separated list of codes restricts the set to those codes
-    (the list ORDER is irrelevant here -- the resolution ranking of the
-    caller decides the winner, so the config only filters).  A definition
-    qualifies only when its access strategy class declares a truthy
-    ``supports_wide_area`` attribute (the windowed readers) and its coverage
-    reaches the tile: role=base definitions use the full
-    :func:`elevation_access.base_tiles.base_definition_covers_tile` test,
-    all others the cheap coverage-box intersection.  Bathymetry providers
-    (role=bathymetry) are excluded outright -- their tidal-datum depths are
-    never terrain (spec section 2.1).
-    """
-    return _registry_definitions_reaching_tile(
-        lat, lon, providers_config, require_wide_area=True
-    )
-
-
-def _registry_definitions_reaching_tile(
-    lat, lon, providers_config="auto", require_wide_area=True
-):
-    """The registry walk behind :func:`_wide_area_candidate_definitions`.
-
-    ``require_wide_area=False`` drops ONLY the access-strategy class test
-    (the per-definition ``supports_wide_area=False`` opt-out still holds)
-    -- the approach-ring opt-in reads the registry through it so the ring
-    source set and the wide-area set can never disagree on enablement,
-    the providers config, bathymetry exclusion or tile coverage.
-    """
-    import O4_Airport_Elevation_Insets as INSETS
-    from elevation_access import base_tiles as ea_base_tiles
-    from elevation_access import definitions as ea_definitions
-    from elevation_access import footprints as ea_footprints
-    from elevation_access import registry as ea_registry
-
-    if not INSETS.elevation_providers_dict:
-        INSETS.initialize_elevation_providers_dict()
-
-    config_value = (providers_config or "auto").strip()
-    if config_value.lower() == "auto":
-        allowed_codes = None
-    else:
-        allowed_codes = {
-            token.strip()
-            for token in config_value.split(",")
-            if token.strip()
-        }
-
-    tile_bounding_box = (lon, lat, lon + 1, lat + 1)
-    candidates = []
-    for definition in INSETS.elevation_providers_dict.values():
-        if not definition.get("enabled", True):
-            continue
-        if (
-            allowed_codes is not None
-            and definition["code"] not in allowed_codes
-        ):
-            continue
-        strategy_factory = ea_registry.ACCESS_STRATEGIES.get(
-            definition.get("access_strategy")
-        )
-        if strategy_factory is None:
-            continue
-        if require_wide_area and not getattr(
-            strategy_factory, "supports_wide_area", False
-        ):
-            continue
-        if str(definition.get("supports_wide_area", "")).strip().lower() \
-                in ("false", "0", "no"):
-            # A DEFINITION may opt out where its class reads windows: the
-            # USGS Original Product Resolution tiles (#153) are ~1 km
-            # GeoTIFFs, often stripped -- a whole-tile overlay would read
-            # thousands of them in full.
-            continue
-        role = definition.get("role", ea_definitions.ROLE_AIRPORT_INSET)
-        if role == ea_definitions.ROLE_BATHYMETRY:
-            # Bathymetry providers deliver tidal-datum seabed depth and are
-            # never terrain sources (spec section 2.1); they must never feed
-            # the elevation_level wide-area overlay even if a future one uses
-            # a wide-area access strategy.
-            continue
-        if role == ea_definitions.ROLE_BASE:
-            if not ea_base_tiles.base_definition_covers_tile(definition, lat, lon):
-                continue
-        elif not ea_footprints.covers_box(definition, tile_bounding_box):
-            # The declared box AND, when known, the real footprint (#1466).
-            continue
-        candidates.append(definition)
-    return candidates
+    """The ladder's providers that may serve a whole tile, ladder order."""
+    return LADDER.providers_for_tile(lat, lon, providers_config)
 
 
 def finest_wide_area_resolution_m(lat, lon, providers_config="auto"):
-    """Finest resolution (metres) among wide-area sources covering the tile.
-
-    Same candidate set as :func:`select_tile_overlay_definition`; used by
-    the working-grid data cap.  Returns ``None`` when nothing covers.
+    """Native resolution (metres) of the source the tile-wide overlay is
+    fetched from (:func:`select_tile_overlay_definition`); used by the
+    working-grid data cap.  Returns ``None`` when nothing covers.
     """
     import O4_Airport_Elevation_Insets as INSETS
 
-    resolutions = [
-        INSETS._definition_resolution_m(definition)
-        for definition in _wide_area_candidate_definitions(
-            lat, lon, providers_config
-        )
-    ]
-    resolutions = [
-        resolution_m
-        for resolution_m in resolutions
-        if resolution_m is not None
-    ]
-    if not resolutions:
+    definition = select_tile_overlay_definition(
+        lat, lon, None, providers_config
+    )
+    if definition is None:
         return None
-    return min(resolutions)
+    return INSETS._definition_resolution_m(definition)
 
 
 def resolve_tile_overlay_plan(tile):
@@ -812,17 +692,19 @@ def ensure_coastline_band(tile, dico_airports):
     lat = tile.lat
     lon = tile.lon
     providers_config = getattr(tile, "airport_elevation_providers", "auto")
-    definition = select_tile_overlay_definition(
-        lat, lon, None, providers_config
-    )
-    if definition is None:
+    # THE ONE LADDER (RULINGS 2026-11-27e): every cell walks the airport
+    # inset list; nothing in it that may serve a cell reaches the tile ->
+    # nothing to fetch (checked before the coastline download).
+    if not _band_cell_providers(
+        (lon, lat, lon + 1, lat + 1), float("inf"), providers_config
+    ):
         UI.vprint(
             1,
-            "   INFO: no wide-area elevation source covers this tile; the"
-            " coastline elevation band has no effect.",
+            "   INFO: no elevation source that can serve a 0.1 degree cell"
+            " covers this tile; the coastline elevation band has no"
+            " effect.",
         )
         return None
-    code = definition["code"]
 
     # Coastline geometry through the pipeline's shared cache (the vector
     # step prefetches the very same query, so no extra download here).
@@ -961,28 +843,21 @@ def ensure_coastline_band(tile, dico_airports):
             # ladder rung whose native resolution is at most that class --
             # one derivation site, shared (the band took the ring's defect
             # through the very same no-ladder ``fetch_inset`` call).
-            source_rung, resolution_m = _coastline_cell_source(
-                definition, rung, band_level_m
+            sources = _band_cell_sources(
+                lat, lon, cell_column, cell_row, rung, band_level_m,
+                providers_config,
             )
-            if source_rung is None:
+            if not sources:
                 cells_without_a_rung += 1
                 continue
-            cell_path = FNAMES.coastline_band_cell_dem(
-                lat, lon, cell_column, cell_row, code, resolution_m,
-                source_rung.token,
-            )
             cells.append(
-                {
-                    "column": cell_column,
-                    "row": cell_row,
-                    "tier": tier,
-                    "resolution_m": resolution_m,
-                    "source_rung": source_rung,
-                    "path": cell_path,
-                    "stem": os.path.splitext(
-                        os.path.basename(cell_path)
-                    )[0],
-                }
+                dict(
+                    sources[0],
+                    column=cell_column,
+                    row=cell_row,
+                    tier=tier,
+                    sources=sources,
+                )
             )
 
     if cells_without_a_rung:
@@ -990,10 +865,10 @@ def ensure_coastline_band(tile, dico_airports):
             1,
             "   INFO:",
             cells_without_a_rung,
-            "coastline band cell(s) have no",
-            code,
-            "ladder rung at or under their class (owner ruling"
-            " 2026-10-02f); the base elevation source stands there.",
+            "coastline band cell(s) have no provider of the elevation"
+            " ladder with a rung at or under their class (owner rulings"
+            " 2026-10-02f, 2026-11-27e); the base elevation source stands"
+            " there.",
         )
     if not cells:
         UI.vprint(
@@ -1003,6 +878,7 @@ def ensure_coastline_band(tile, dico_airports):
         )
         return None
 
+    code = _band_provider_code(cells)
     if band_level_m is not None:
         UI.vprint(
             1,
@@ -1067,61 +943,21 @@ def ensure_coastline_band(tile, dico_airports):
         )
 
     for cell in cells:
-        cell_path = cell["path"]
-        stem = cell["stem"]
-        if os.path.isfile(cell_path):
-            # A cached cell is recycled, but only after the same
-            # plausibility probe a fresh fetch gets: caches poisoned
-            # before the guard existed heal here.
-            # The fetch's provider-fill mask re-judges it too (#1340).
-            INSETS.mask_fetched_provider_fill(
-                cell_path, cell["source_rung"].definition, label=stem)
-            if INSETS.geotiff_is_constant_value(cell_path):
-                _discard_implausible_cell(cell_path, stem)
-            else:
-                cell_outcomes[stem] = "ok"
-            continue
-        if cell_outcomes.get(stem) == INSETS.NO_COVERAGE:
-            # A durable no-coverage negative from a previous run: honour it
-            # without re-querying the discovery service.
-            continue
-        try:
-            provenance = INSETS.fetch_inset(
-                cell["source_rung"].definition,
-                (
-                    lon + cell["column"] * COASTLINE_CELL_DEGREES,
-                    lat + cell["row"] * COASTLINE_CELL_DEGREES,
-                    lon
-                    + (cell["column"] + 1) * COASTLINE_CELL_DEGREES,
-                    lat + (cell["row"] + 1) * COASTLINE_CELL_DEGREES,
-                ),
-                cell["resolution_m"],
-                cell_path,
-            )
-        except Exception as error:
-            # A raised failure (network/GDAL) is skipped and NOT recorded as
-            # a durable negative -- it may be a transient outage.
-            UI.vprint(
-                2,
-                "   Coastline band cell fetch error at",
-                stem,
-                ":",
-                str(error),
-            )
-            continue
-        if provenance is None:
-            # A clean "no usable coverage" answer is durable; record it.
-            cell_outcomes[stem] = INSETS.NO_COVERAGE
-        elif INSETS.geotiff_is_constant_value(cell_path):
-            # Fetched, but implausible: a constant raster is a fill served
-            # beyond the provider's true extent, never genuine lidar.
-            _discard_implausible_cell(cell_path, stem)
-        else:
-            cell_outcomes[stem] = "ok"
+        # THE LADDER'S FALL-THROUGH (RULINGS 2026-11-27e): a provider
+        # answering no coverage, a fill or a failure gives the cell to the
+        # next one, as an airport inset's ranking does.
+        for source in cell["sources"]:
+            if _band_cell_answered(
+                source, cell, lat, lon, cell_outcomes,
+                _discard_implausible_cell,
+            ):
+                cell.update(source)
+                cell["answered"] = True
+                break
 
-    existing_cells = [
-        cell for cell in cells if os.path.isfile(cell["path"])
-    ]
+    existing_cells = [cell for cell in cells if cell.get("answered")]
+    if existing_cells:
+        code = _band_provider_code(existing_cells)
     if not existing_cells:
         stamp = {
             "provider": code,
@@ -1164,6 +1000,94 @@ def ensure_coastline_band(tile, dico_airports):
     }
     _write_coastline_band_stamp(stamp_path, stamp)
     return vrt_path
+
+
+def _band_cell_providers(box, class_m, providers_config):
+    """The elevation ladder's providers that may serve a band cell."""
+    return LADDER.providers_for_cell(box, class_m, providers_config)
+
+
+def _band_cell_sources(lat, lon, column, row, rung, level_m,
+                       providers_config):
+    """Every ladder provider that can serve one band cell of ``rung``, in
+    ladder order: ``{code, source_rung, resolution_m, path, stem}``."""
+    box = approach_ring_cell_box(lat, lon, column, row)
+    sources = []
+    for definition in _band_cell_providers(
+        box, rung.resolution_m, providers_config
+    ):
+        source_rung, resolution_m = _coastline_cell_source(
+            definition, rung, level_m
+        )
+        if source_rung is None:
+            continue
+        path = FNAMES.coastline_band_cell_dem(
+            lat, lon, column, row, definition["code"], resolution_m,
+            source_rung.token,
+        )
+        sources.append({
+            "code": definition["code"],
+            "source_rung": source_rung,
+            "resolution_m": resolution_m,
+            "path": path,
+            "stem": os.path.splitext(os.path.basename(path))[0],
+        })
+    return sources
+
+
+def _band_provider_code(cells):
+    """The provider most band cells come from (ladder order breaks a
+    tie): it names the band's mosaic and stamp."""
+    counts = collections.Counter(cell["code"] for cell in cells)
+    best = max(counts.values())
+    return next(cell["code"] for cell in cells if counts[cell["code"]] == best)
+
+
+def _band_cell_answered(source, cell, lat, lon, cell_outcomes, discard):
+    """Ask one provider for one band cell; True when it holds data.
+
+    A cached raster is recycled after the same plausibility probes a
+    fresh fetch gets (#1340 provider fill, the constant-value fill); a
+    durable no-coverage negative is honoured without a query; a clean
+    "no usable coverage" answer is recorded durable; a raised failure is
+    NOT (it may be a transient outage) -- every one of them hands the
+    cell to the next provider of the ladder.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    path = source["path"]
+    stem = source["stem"]
+    definition = source["source_rung"].definition
+    if os.path.isfile(path):
+        INSETS.mask_fetched_provider_fill(path, definition, label=stem)
+        if INSETS.geotiff_is_constant_value(path):
+            discard(path, stem)
+            return False
+        cell_outcomes[stem] = "ok"
+        return True
+    if cell_outcomes.get(stem) == INSETS.NO_COVERAGE:
+        return False
+    try:
+        provenance = INSETS.fetch_inset(
+            definition,
+            approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
+            source["resolution_m"],
+            path,
+        )
+    except Exception as error:
+        UI.vprint(
+            2, "   Coastline band cell fetch error at", stem, ":",
+            str(error),
+        )
+        return False
+    if provenance is None:
+        cell_outcomes[stem] = INSETS.NO_COVERAGE
+        return False
+    if INSETS.geotiff_is_constant_value(path):
+        discard(path, stem)
+        return False
+    cell_outcomes[stem] = "ok"
+    return True
 
 
 def resolve_coastline_band_plan(tile):
@@ -1754,53 +1678,37 @@ def approach_rings_enabled(tile):
 def _approach_ring_candidates(
     lat, lon, providers_config, max_native_m, rung_label=None, ladder=None
 ):
-    """Wide-area definitions covering the tile whose NATIVE resolution is at
-    most ``max_native_m``, in :func:`select_tile_overlay_definition`'s own
-    ranking (finest first, then priority, then code) -- FOLLOWED BY the
-    ring opt-in definitions eligible for ``rung_label`` (RULINGS
-    2026-10-02c), ranked the same way among themselves.
-
-    Spec section 2: ring sources come through the EXISTING registry -- the
-    wide-area candidate set with ONE added native-resolution filter -- never
-    a second registry.  A definition that does not declare its resolution
-    is not a candidate: a ring's class is the whole point of the ring.
-    The opt-ins rank strictly AFTER every wide-area candidate: the surface
-    model serves a cell only where no wide-area source covers it (the
-    caller walks the list and takes the first that covers the cell).
+    """The ladder's providers covering the tile whose NATIVE resolution is
+    at most ``max_native_m``, in THE ONE LADDER's order (owner RULINGS
+    2026-11-27e: the airport inset ranking): those whose reader reads
+    windows (:func:`_wide_area_candidate_definitions`), FOLLOWED BY the
+    ring opt-ins eligible for ``rung_label`` (RULINGS 2026-10-02c: the
+    global fallbacks, which serve a cell only where no windowed source
+    covers it).  A definition that does not declare its resolution is not
+    a candidate: a ring's class is the whole point of the ring.  The
+    caller walks the list and takes the first that covers the cell.
     """
     import O4_Airport_Elevation_Insets as INSETS
 
-    def _ranked(definitions, seen):
-        rows = []
-        for definition in definitions:
-            if definition["code"] in seen:
-                continue
-            native_m = INSETS._definition_resolution_m(definition)
-            if native_m is None or native_m > max_native_m:
-                continue
-            rows.append(
-                (
-                    native_m,
-                    -float(definition.get("priority", 0.0)),
-                    definition["code"],
-                    definition,
-                )
-            )
-        rows.sort(key=lambda row: row[:3])
-        return [row[3] for row in rows]
+    def _fine_enough(definitions, seen):
+        return [
+            definition for definition in definitions
+            if definition["code"] not in seen
+            and INSETS._definition_resolution_m(definition) is not None
+            and INSETS._definition_resolution_m(definition) <= max_native_m
+        ]
 
-    wide_area = _ranked(
+    wide_area = _fine_enough(
         _wide_area_candidate_definitions(lat, lon, providers_config), set()
     )
     if rung_label is None:
         return wide_area
-    opt_ins = _ranked(
+    return wide_area + _fine_enough(
         _approach_ring_opt_in_definitions(
             lat, lon, providers_config, rung_label, ladder
         ),
         {definition["code"] for definition in wide_area},
     )
-    return wide_area + opt_ins
 
 
 def approach_ring_opt_in_rung(definition, ladder=None):
@@ -1821,26 +1729,20 @@ def approach_ring_opt_in_rung(definition, ladder=None):
 def _approach_ring_opt_in_definitions(
     lat, lon, providers_config, rung_label, ladder=None
 ):
-    """Registry definitions that opted into the ring ``rung_label``.
+    """The ladder's providers covering the tile that opted into the ring
+    ``rung_label``.  A definition opted into rung ``k`` serves rung ``k``
+    and every COARSER rung, never a finer one."""
 
-    A definition opted into rung ``k`` serves rung ``k`` and every
-    COARSER rung, never a finer one.  Read through
-    :func:`_registry_definitions_reaching_tile` WITHOUT the wide-area
-    strategy test -- the only filter dropped; everything else (enabled,
-    providers config, bathymetry, coverage) is the wide-area walk's own.
-    """
     labels = [rung.label for rung in (ladder or approach_rung_ladder())]
     if rung_label not in labels:
         return []
     rung_index = labels.index(rung_label)
     eligible = []
-    for definition in _registry_definitions_reaching_tile(
-        lat, lon, providers_config, require_wide_area=False
+    for definition in LADDER.providers_for_box(
+        (lon, lat, lon + 1, lat + 1), providers_config
     ):
         opted = approach_ring_opt_in_rung(definition, ladder)
-        if opted is None:
-            continue
-        if labels.index(opted) <= rung_index:
+        if opted is not None and labels.index(opted) <= rung_index:
             eligible.append(definition)
     return eligible
 

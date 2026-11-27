@@ -118,7 +118,10 @@ FAR_AWAY_BBOX = (10.0, 10.0, 11.0, 11.0)
 # =====================================================================
 # select_tile_overlay_definition
 # =====================================================================
-def test_selection_ranks_finest_resolution_first(monkeypatch):
+def test_selection_follows_the_one_ladder(monkeypatch):
+    """THE ONE LADDER (owner RULINGS 2026-11-27e): the overlay takes the
+    airport inset ranking -- priority, then code -- not the finest
+    source, so a tile built at a level takes its airports' source."""
     _install_registry(
         monkeypatch,
         [
@@ -130,7 +133,8 @@ def test_selection_ranks_finest_resolution_first(monkeypatch):
     winner = ELEVATION_LEVEL.select_tile_overlay_definition(
         TILE_LAT, TILE_LON, 10
     )
-    assert winner is not None and winner["code"] == "FINE"
+    assert winner is not None and winner["code"] == "COARSE"
+    assert winner is INSETS.select_provider_definitions("auto")[0]
 
 
 def test_selection_breaks_ties_by_priority_then_code(monkeypatch):
@@ -195,7 +199,7 @@ def test_selection_filters_by_coverage_box(monkeypatch):
     assert winner["code"] == "HERE"
 
 
-def test_selection_considers_base_role_with_full_coverage_test(monkeypatch):
+def test_selection_never_takes_a_base_role_definition(monkeypatch):
     _install_registry(
         monkeypatch,
         [
@@ -214,9 +218,9 @@ def test_selection_considers_base_role_with_full_coverage_test(monkeypatch):
     winner = ELEVATION_LEVEL.select_tile_overlay_definition(
         TILE_LAT, TILE_LON, 10
     )
-    # Both roles are candidates; BASEHERE (3 m) out-resolves the inset and
-    # BASEELSEWHERE is filtered by its coverage test.
-    assert winner["code"] == "BASEHERE"
+    # The ladder is the inset list (RULINGS 2026-11-27e): a base-role
+    # definition is the base tier's, never an overlay source.
+    assert winner["code"] == "INSETHERE"
 
 
 def test_selection_providers_config_pins_and_only_filters(monkeypatch):
@@ -233,11 +237,11 @@ def test_selection_providers_config_pins_and_only_filters(monkeypatch):
         TILE_LAT, TILE_LON, 10, providers_config="COARSE"
     )
     assert winner["code"] == "COARSE"
-    # Listing COARSE first does NOT override the finest-first ranking.
+    # An explicit list ORDERS the ladder, as it orders the airport insets.
     winner = ELEVATION_LEVEL.select_tile_overlay_definition(
         TILE_LAT, TILE_LON, 10, providers_config="COARSE,FINE"
     )
-    assert winner["code"] == "FINE"
+    assert winner["code"] == "COARSE"
 
 
 def test_selection_empty_registry_returns_none(monkeypatch):

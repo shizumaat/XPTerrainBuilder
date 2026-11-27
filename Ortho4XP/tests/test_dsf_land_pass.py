@@ -16,12 +16,13 @@ import queue
 import random
 
 import numpy
-
 import O4_DSF_Land_Pass as LANDPASS
 import O4_DSF_Pools as POOLS
 import O4_DSF_Utils as DSF
 import O4_Geo_Utils as GEO
-import test_dsf_texture_modes as MODES
+
+__all__ = ()  # the sibling test module below is its own import block
+import test_dsf_texture_modes as MODES  # noqa: E402
 
 stub_elevation = MODES.stub_elevation
 

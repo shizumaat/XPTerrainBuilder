@@ -1114,6 +1114,10 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     sb, pb, gb, nb = _split_rows(actual)
     sa, sb, heights_repool = _heights_reconciled(sa, sb, pa, expected, actual)
     sa, sb = _divisions_reconciled(sa, sb)
+    # the first row is DSFTool's line-ending mark of the machine that
+    # dumped it ('A' on macOS, 'I' on Linux/Windows), not content
+    if sa[:1] and sb[:1] and sa[0] in (["A"], ["I"]) and sb[0] in (["A"], ["I"]):
+        sb = [sa[0]] + sb[1:]
     # #60: the tolerances follow the pools of BOTH texts (the encoder
     # re-pools), floored at the pinned values
     tol_deg, tol_heading = pool_tolerances(expected, actual)

@@ -101,3 +101,11 @@ def test_a_polygon_def_added_beside_a_network_round_trips(tmp_path):
         "NETWORK_DEF lib/g10/roads.net\n",
         "NETWORK_DEF lib/g10/roads.net\nPOLYGON_DEF q.for\n")
     assert not _round_trip(tmp_path, wrong).ok, "the old order is the refusal"
+
+
+def test_the_line_ending_mark_is_not_content():
+    """DSFTool prints 'A' on macOS and 'I' on Linux/Windows as the first
+    row (CI run 45919109708); the comparison never reads it as a change."""
+    other = "I" + HEAD[1:]
+    report = W.compare_dumps(HEAD, other)
+    assert not any("structural" in f for f in report.findings), report.findings

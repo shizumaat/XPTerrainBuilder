@@ -570,6 +570,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     seen_ids: dict[str, int] = {}
     group_of: dict[str, Group] = {}      # 2026-11-16h: each built tunnel's group
     pad_ends: dict[tuple[int, int], str] = {}   # 2026-11-16h: bore ends refused at a pad
+    stop_ends: dict[tuple[int, int], tuple[str, str]] = {}   # 16h: refused by a stop
     osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
     under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
     lone = lone_decks(groups, deck_of, edge_of)     # #2239 (``planar/deck_lone``)
@@ -1428,6 +1429,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 f"{s_top:.0f} m out, and its mapped road runs on past it -- no grade up to the "
                 f"cap {100.0 * cap_g:.0f} % reaches the ground short of the stop (#1028: a "
                 f"ramp never crosses a pavement edge or another road)")
+            stop_ends.update({bore_end(m): ("crossing road" if crossed else "airside pavement",
+                                            str(clipped_by)) for m in members})
             continue
         if c is None and g.climbs and road_end is not None and level_to is None \
                 and dead_cut is None \
@@ -1870,7 +1873,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # at the cap, and the road leaves that end at grade
         short = short_bore_refusal(t, group_of.get(t.id), law, airport.osm_ways, opened_ends,
                                    dropped, getattr(on_field, "no_portal", ()), stats.refused,
-                                   getattr(on_field, "under_ends", ()), pad_ends)
+                                   getattr(on_field, "under_ends", ()), pad_ends,
+                                   stop_ends=stop_ends)
         if short:
             keep[i] = False
             stats.refused.append(short)

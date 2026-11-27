@@ -326,6 +326,7 @@ def test_the_road_layer_fails_a_step_along_a_mapped_road(monkeypatch):
     row = rep["sites"][0]
     assert rep["verdict"] == "FAIL" and row["max_step_m"] == pytest.approx(2.0)
     assert abs((row["lat"] - lat0) * DR._M_PER_DEG - 20.0) <= 1.5 and row["roads"] == 1
+    assert [g["max_step_m"] for g in row["over_bar"]] == [row["max_step_m"]]   # every run over
     assert DR.road_layer([("s", lat0, lon0, 50.0)], smooth, "/nowhere")["verdict"] == "PASS"
     assert DR.road_layer([("x", lat0 + 1.0, lon0, 50.0)], smooth,
                          "/nowhere")["verdict"] == "NOT MEASURED"

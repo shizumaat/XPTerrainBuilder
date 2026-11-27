@@ -310,10 +310,14 @@ def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(),
     """The layer over ``sites`` (``(name, lat, lon, r)``); ``sample(lon,
     lat)`` is the drawn mesh height (nan off it); ``mouths``
     (:func:`claimed_mouths`), ``floors`` (:func:`floor_rings`) and
-    ``walls`` (:func:`wall_rings`) the faces never judged."""
+    ``walls`` (:func:`wall_rings`) the faces never judged.  A site row
+    names its worst step and, in ``over_bar``, every road run over the bar
+    (worst first): one defect never hides another behind it (LEMD
+    old terminal, 2026-11-27: a 3.33 m mouth face hid three 0.6-1.4 m pad
+    rims in the same circle)."""
     rows, failed = [], 0
     for name, lat, lon, r in sites:
-        worst, n, bridges, faces, wall_faces = None, 0, [], [], []
+        worst, n, bridges, faces, wall_faces, over = None, 0, [], [], [], []
         roads = road_lines(osm_root, lat, lon, r, bridges)
         under = _under_bridge(bridges, lat, lon)
         in_wall = _in_rings(walls, lat)
@@ -336,15 +340,22 @@ def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(),
                 d, at, za, zb = road_profile_step(run, drawn, face, got)
                 faces.extend(dict(way=wid, step_m=g[0], lat=g[1][0], lon=g[1][1])
                              for g in got if g[0] > bar)
-                if at is not None and (worst is None or d > worst["max_step_m"]):
-                    worst = {"max_step_m": round(d, 2), "way": wid, "highway": hw,
-                             "lat": at[0], "lon": at[1], "drawn": [za, zb]}
+                if at is None:
+                    continue
+                run_step = {"max_step_m": round(d, 2), "way": wid, "highway": hw,
+                            "lat": at[0], "lon": at[1], "drawn": [za, zb]}
+                if d > bar:
+                    over.append(run_step)
+                if worst is None or d > worst["max_step_m"]:
+                    worst = run_step
         bad = worst is not None and worst["max_step_m"] > bar
         failed += bad
         rows.append(dict({"site": name, "roads": n, "verdict": "FAIL" if bad else "PASS"
                           if n else "NOT MEASURED"}, **(worst or {}),
                          **({"mouth_faces": faces} if faces else {}),
-                         **({"wall_faces": wall_faces} if wall_faces else {})))
+                         **({"wall_faces": wall_faces} if wall_faces else {}),
+                         **({"over_bar": sorted(over, key=lambda g: -g["max_step_m"])}
+                            if over else {})))
     measured = any(r["verdict"] != "NOT MEASURED" for r in rows)
     return {"bar_m": bar, "step_m": step, "sites": rows, "failed": failed,
             "verdict": "FAIL" if failed else "PASS" if measured else "NOT MEASURED"}

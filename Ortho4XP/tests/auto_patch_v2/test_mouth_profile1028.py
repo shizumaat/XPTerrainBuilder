@@ -40,23 +40,30 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
-def _ways():
-    """One bore x in [-60, 60] at y = 0, a straight approach each way."""
+def _ways(half: float = 60.0):
+    """One bore x in [-half, half] at y = 0, a straight approach each way."""
     t = {"highway": "secondary", "tunnel": "yes", "lanes": "2", "layer": "-1"}
     r = {"highway": "secondary", "lanes": "2"}
-    return (OsmWay(-101, "big_roads", ((-60.0, 0.0), (60.0, 0.0)), False, t),
-            OsmWay(-201, "big_roads", ((60.0, 0.0), (900.0, 0.0)), False, r),
-            OsmWay(-202, "big_roads", ((-60.0, 0.0), (-900.0, 0.0)), False, r))
+    return (OsmWay(-101, "big_roads", ((-half, 0.0), (half, 0.0)), False, t),
+            OsmWay(-201, "big_roads", ((half, 0.0), (900.0, 0.0)), False, r),
+            OsmWay(-202, "big_roads", ((-half, 0.0), (-900.0, 0.0)), False, r))
 
 
-def _airport(law, dem):
+def _airport(law, dem, half: float = 60.0):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 822.5), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
             RunwayEnd("27", (600.0, 822.5), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
     rw = Runway("09/27", 45.0, 1, ends, 3, "D")
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     return Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
-                   (), (), (), _ways(), (), (), pack, dem, law.ruleset_key)
+                   (), (), (), _ways(half), (), (), pack, dem, law.ruleset_key)
+
+
+def _short_half(law) -> float:
+    """Half a bore too short to climb out of its mouth floor at the cap
+    (``length × ramp_max_grade < mouth depth``)."""
+    tn = law.tables.structures.tunnel
+    return 0.35 * tn.mouth_depth_m / tn.ramp_max_grade
 
 
 def _cells(twy_half: float, beside_half: float = 0.0):
@@ -215,7 +222,10 @@ def test_a_road_crossing_the_approach_short_of_the_top_refuses_the_mouth(law):
     mapped approach runs on past it at grade.  A ramp ending free there is
     a wall across its own road (MEASURED: 595.6 under the road's 601-602,
     a 5.30 m drawn step), so the mouth is refused; a crossing far enough
-    out leaves the ramp whole."""
+    out leaves the ramp whole.  The bore's other (west) mouth stands on a
+    bore long enough to climb out at the cap; on a shorter one it is a
+    ONE-MOUTHED SHORT BORE and neither end is built (2026-11-27, an
+    application of RULINGS 2026-11-16h)."""
     import dataclasses
     cells = Classification((
         Cell(0, "runway", "09/27", _rect(-600, 800, 600, 845), (), 3, "D", "airside",
@@ -223,19 +233,24 @@ def test_a_road_crossing_the_approach_short_of_the_top_refuses_the_mouth(law):
         Cell(1, "stub", "twy", _rect(-40, -40, 40, 40), (), None, "D", "airside", "taxiway",
              {})), (), {}, ())
 
-    def east(x):
+    def east(x, half=60.0):
         cross = OsmWay(-301, "small_roads", ((x, -80.0), (x, 80.0)), False,
                        {"highway": "tertiary", "lanes": "2"})
-        ap = _airport(law, _Dem())
+        ap = _airport(law, _Dem(), half)
         ap = dataclasses.replace(ap, osm_ways=ap.osm_ways + (cross,))
         _cl, tunnels, st = build_structures(ap, cells, law)
-        return [t for t in tunnels if t.axis[0][0] > 0], st.refused
-    near, refused = east(110.0)
-    assert not near
+        return ([t for t in tunnels if t.axis[0][0] > 0],
+                [t for t in tunnels if t.axis[0][0] < 0], st.refused)
+    near, west, refused = east(110.0)
+    assert not near and west, refused
     assert any("tunnel:-101@1" in r and "cannot top out before the crossing road osm:-301" in r
                for r in refused), refused
-    far, refused = east(400.0)
+    far, _w, refused = east(400.0)
     assert far, refused
+    near, west, refused = east(110.0, _short_half(law))
+    assert not near and not west, refused
+    assert any("tunnel:-101@0" in r and "ONE-MOUTHED SHORT BORE" in r
+               and "crossing road osm:-301" in r for r in refused), refused
 
 
 def test_a_pavement_stop_short_of_the_top_on_a_road_running_on_refuses_the_mouth(law):
@@ -245,18 +260,26 @@ def test_a_pavement_stop_short_of_the_top_on_a_road_running_on_refuses_the_mouth
     for a road that ends there; a ramp ending free under its own road
     running on is a wall across that road (MEASURED: top 596.4 under the
     road's 602.0, a 4.34 m drawn step), so the mouth is refused; pavement
-    far enough out leaves the ramp whole."""
+    far enough out leaves the ramp whole.  The west mouth stands on a bore
+    that can climb out at the cap; on a shorter one neither end is built
+    (LEMD -1501, a 29 m underpass; owner 2026-09-11ao "there should be no
+    tunnel"; RULINGS 2026-11-16h)."""
     base = _cells(40.0)
 
-    def east(x):
+    def east(x, half=60.0):
         apron = Cell(9, "apron", "pavX", _rect(x, -40, x + 60.0, 40), (), None, "D",
                      "airside", "apron", {})
         cl = Classification(base.cells + (apron,), (), {}, ())
-        _cl, tunnels, st = build_structures(_airport(law, _Dem()), cl, law)
-        return [t for t in tunnels if t.axis[0][0] > 0], st.refused
-    near, refused = east(110.0)
-    assert not near
+        _cl, tunnels, st = build_structures(_airport(law, _Dem(), half), cl, law)
+        return ([t for t in tunnels if t.axis[0][0] > 0],
+                [t for t in tunnels if t.axis[0][0] < 0], st.refused)
+    near, west, refused = east(110.0)
+    assert not near and west, refused
     assert any("tunnel:-101@1" in r and "cannot top out before the airside pavement pavX" in r
                for r in refused), refused
-    far, refused = east(400.0)
+    far, _w, refused = east(400.0)
     assert far, refused
+    near, west, refused = east(110.0, _short_half(law))
+    assert not near and not west, refused
+    assert any("tunnel:-101@0" in r and "ONE-MOUTHED SHORT BORE" in r
+               and "airside pavement pavX" in r for r in refused), refused

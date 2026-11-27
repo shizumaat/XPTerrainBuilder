@@ -125,3 +125,40 @@ def test_an_end_under_no_building_stands(law):
     assert short_bore_refusal(t, g, law, ways, opened) is None
     assert short_bore_refusal(t, g, law, ways, opened,
                               pad_ends={(id(g.members[0].bore), 0): "building69"}) is None
+
+
+def _stop(g, end=1):
+    """The far end refused because no ramp up to the cap tops out before
+    airside pavement pav92 (l588 / llemd2)."""
+    return {(id(g.members[0].bore), end): ("airside pavement", "pav92")}
+
+
+def test_a_stop_refused_far_end_withdraws_a_short_bore(law):
+    """2026-11-27, an application of 16h: a far end refused at a crossing
+    road or airside pavement is at grade; the bore is not built."""
+    cap = law.tables.structures.tunnel.ramp_max_grade
+    t, g, ways, opened = _case(law, 0.7 * 7.5 / cap, 7.5)
+    why = short_bore_refusal(t, g, law, ways, opened, stop_ends=_stop(g))
+    assert why and "ONE-MOUTHED SHORT BORE" in why and "2026-11-16h" in why
+    assert "airside pavement pav92" in why and "-340" in why
+    assert "under the building" not in why
+
+
+def test_a_stop_refused_far_end_of_a_long_bore_stands(law):
+    cap = law.tables.structures.tunnel.ramp_max_grade
+    t, g, ways, opened = _case(law, 1.2 * 7.5 / cap, 7.5)
+    assert short_bore_refusal(t, g, law, ways, opened, stop_ends=_stop(g)) is None
+
+
+def test_a_stop_at_the_near_end_does_nothing(law):
+    t, g, ways, opened = _case(law, 30.0, 7.5)
+    assert short_bore_refusal(t, g, law, ways, opened, stop_ends=_stop(g, end=0)) is None
+
+
+def test_the_pad_class_text_is_unchanged(law):
+    cap = law.tables.structures.tunnel.ramp_max_grade
+    t, g, ways, opened = _case(law, 0.7 * 7.5 / cap, 7.5)
+    why = short_bore_refusal(t, g, law, ways, opened, pad_ends=_pad(g))
+    assert why.endswith("under building pad building69, where road -340 leaves at grade"
+                        " — not built: no cut, no ramp, the road stays at grade under the "
+                        "building (owner RULINGS 2026-11-16h, #2079)")

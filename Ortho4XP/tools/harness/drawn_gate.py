@@ -589,6 +589,9 @@ def print_gate(rep, top=20):
                   f"{r.get('max_step_m', '-')} m" + (f" @{r['lat']},{r['lon']} way {r['way']} "
                                                     f"({r['highway']}) drawn {r['drawn']}"
                                                     if r.get("lat") is not None else ""))
+            for g in r.get("over_bar", [])[1:]:
+                print(f"       also over the bar: way {g['way']} ({g['highway']}) "
+                      f"{g['max_step_m']} m @{g['lat']},{g['lon']} drawn {g['drawn']}")
             for f in r.get("mouth_faces", [])[:3]:
                 print(f"       mouth face (not judged) way {f['way']} {f['step_m']} m "
                       f"@{f['lat']},{f['lon']}")

@@ -10,7 +10,7 @@ import O4_Console_Encoding as CONSOLE
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
-import O4_Object_Stage as OBJECT_STAGE
+import O4_Object_Stage_Beside as OBJECT_STAGE_BESIDE
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Rebuild_Cache as REBUILD
@@ -2530,8 +2530,9 @@ def _auto_patch_post_mesh_rebake(tile):
     # callers, so the GUI's per-step Mesh button and Shift-click sort are
     # covered too).  The stage is a step of its own (O4_Object_Stage,
     # #1699): a tile bundle's import runs it alone over the mesh it laid
-    # down.  Must NEVER fail the tile.
-    OBJECT_STAGE.run(tile)
+    # down.  Must NEVER fail the tile.  Beside the masks and imagery steps
+    # where the build goes on to them (#1264, O4_Object_Stage_Beside).
+    OBJECT_STAGE_BESIDE.run(tile)
 
 
 ################################################################################

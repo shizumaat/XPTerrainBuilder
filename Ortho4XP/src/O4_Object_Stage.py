@@ -34,15 +34,20 @@ __all__ = ["run", "SOURCE", "failed_last_run"]
 SOURCE = "object-stage"
 
 
-def run(tile) -> dict:
+def run(tile, beside: bool = False) -> dict:
     """The object stage for ``tile`` against the mesh in its build
     directory: ``rebake_after_mesh``'s counts, ``{}`` when it failed.
     What it did not fit is published as the tile's warnings (see the
-    module docstring).  Lazy import: the long-running GUI caches
-    ``auto_patch`` modules."""
+    module docstring).  ``beside``: run on a thread of its own beside
+    the tile's later steps (``O4_Object_Stage_Beside``), whose file
+    witness then records this thread's opens only.  Lazy import: the
+    long-running GUI caches ``auto_patch`` modules."""
     failed: list = []
     counts: dict = {}
     try:
+        if beside:
+            from auto_patch_v2.airport import file_witness
+            file_witness.confine_to_thread()
         from auto_patch import object_stage
         counts = object_stage.rebake_after_mesh(tile, failed=failed)
     except Exception as exception:

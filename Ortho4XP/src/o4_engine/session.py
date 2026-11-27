@@ -29,6 +29,7 @@ from typing import Callable, Optional
 import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
 import O4_Patch_Fast_Path as FASTPATH
+import O4_Object_Stage_Beside as OBJECT_STAGE_BESIDE
 import O4_Step_Reuse as REUSE
 import O4_Step_Wait as STEP_WAIT
 import O4_Tile_Build_Log as TILELOG
@@ -953,6 +954,7 @@ class EngineSession:
         # per-tile total line is the parent orchestrator's to print.
         self._stepwise_run = False
         self._prefetch_imagery = False     # see build(prefetch=...)
+        self._objects_beside = False       # see build(objects_beside=...)
         self._imagery_token_lent = True    # ... and its token came with it
         self._next_token_lent = True
         # Each tile build's own log and record row in its build folder
@@ -1196,7 +1198,7 @@ class EngineSession:
               slots=None, steps=None, boundary_policy=None,
               boundary_batch=None, missing_art=None, prefetch=None,
               overrides=None, deadline=None, klass=None, token_lent=None,
-              run_meshes=None):
+              run_meshes=None, objects_beside=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -1234,9 +1236,16 @@ class EngineSession:
         ``run_meshes`` (#2290): a worker child's run's neighbour tiles
         that build a mesh (``parallel._run_meshes_locked``), landed for
         the object stage's guest re-seat.
+
+        ``objects_beside`` (#1264): a worker child's mesh or masks step
+        whose tile goes on to the imagery step in this child — the mesh
+        step's object stage may run beside them
+        (``O4_Object_Stage_Beside``).  An in-process run decides from its
+        own plan.
         """
         if self._building:
             return False
+        self._objects_beside = bool(objects_beside)
         if steps is None:
             do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
@@ -1405,6 +1414,8 @@ class EngineSession:
             tile.gateway_before_patches = functools.partial(
                 GATEWAY_WAIT.before_patches, tile.lat, tile.lon)
         import O4_Imagery_Prefetch as PREFETCH
+        # an object stage this step may not run beside ends first (#1264)
+        OBJECT_STAGE_BESIDE.before_step(tile, key)
         if key == "imagery":
             PREFETCH.adopt_job(tile)
         elif key == "vector":
@@ -1414,7 +1425,10 @@ class EngineSession:
             result = function(tile)
         except BaseException:
             PREFETCH.end_job(tile)
+            OBJECT_STAGE_BESIDE.join()
             raise
+        if not result or UI.red_flag:      # the tile goes no further here
+            OBJECT_STAGE_BESIDE.join()
         if key == "imagery":
             PREFETCH.end_job(tile, used=(
                 getattr(tile, "imagery_textures_asked", None)
@@ -2025,6 +2039,13 @@ class EngineSession:
                 if any(k != "overlays" for k, _, _ in plan):
                     tile.make_dirs()
                 failed_step_keys = []
+                # #1264: the mesh step's object stage runs beside the
+                # masks and imagery steps where this build goes on to the
+                # imagery step (a worker child: when its parent says so).
+                OBJECT_STAGE_BESIDE.want(tile, self._objects_beside
+                                         if self._stepwise_run else any(
+                                             k == "imagery"
+                                             for k, _, _ in plan))
                 # Percent windows proportional to this tile's predicted
                 # step seconds (static weights are only the fallback).
                 tile_plan = plan
@@ -2088,6 +2109,13 @@ class EngineSession:
                         # STALE patch already on disk.  A tile whose
                         # inputs this build did not produce is not built.
                         break
+                # The tile's build ends in this process (or stops): its
+                # object stage first (#1264).  A worker child's mesh or
+                # masks step leaves it to the imagery step its parent
+                # sends next.
+                if UI.red_flag or not (self._stepwise_run
+                                       and self._objects_beside):
+                    OBJECT_STAGE_BESIDE.join()
                 if UI.red_flag:
                     if self._eta:
                         self._eta.tile_terminal((lat, lon))
@@ -2353,6 +2381,7 @@ class EngineSession:
         Stop: the record keeps the old code, so the next build runs it
         again).  Never raises (``O4_Object_Stage.run`` and
         ``O4_Step_Reuse.record`` do not)."""
+        OBJECT_STAGE_BESIDE.join()     # one stage at a time (#1264)
         why = REUSE.object_stage_stale(tile)
         if why is None:
             return

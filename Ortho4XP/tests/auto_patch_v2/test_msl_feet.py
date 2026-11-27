@@ -480,3 +480,20 @@ def test_a_terrain_scale_set_whose_members_disagree_keeps_its_row(tmp_path):
     _c, msl, _r, n = _rows(dump, tmp_path, surface=lambda la, lo: 2.0)
     assert {m.why for m in msl} == {MF.DATUM_AGREED} and n["msl_datum_sets_agreed"] == 1
     assert all(abs(m.elevation - (-2.0)) < 1e-6 for m in msl)
+
+
+def test_a_terrain_scale_set_is_guarded_only_at_its_origin(tmp_path):
+    """#2250 round 2 (LGKR ``tile_AP1``): a town tile anchored on its grid
+    corner, a harbour wall reaching 2 m under the datum 600 m away.  Its
+    box holds the origin, but no triangle stands over it: not guarded, the
+    partition reads (and splits) it.  The same wall at the origin guards."""
+    from auto_patch_v2.airport import obj8 as O
+    town = _slab(tmp_path, "town.obj", -700.0, -10.0, -2.0, 40.0, z0=-700.0, z1=-10.0)
+    far = _slab(tmp_path, "far.obj", 5.0, 15.0, 3.0, 9.0, z0=5.0, z1=15.0)
+    g = {p: O.parse_obj8(str(tmp_path / p)) for p in (town, far)}
+    key = MF.origin_key((0.0, 0.0), 0.0)
+    lifts = MF.origin_set_lifts([("a", key, g[town]), ("b", key, g[far])], 0.3)
+    assert lifts == {"a": 2.0, "b": -3.0}
+    at = _slab(tmp_path, "at.obj", -700.0, 10.0, -2.0, 40.0, z0=-700.0, z1=10.0)
+    lifts = MF.origin_set_lifts([("a", key, O.parse_obj8(str(tmp_path / at)))], 0.3)
+    assert lifts == {"a": None}

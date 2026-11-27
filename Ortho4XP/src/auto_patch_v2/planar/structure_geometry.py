@@ -750,6 +750,29 @@ def _under_cover(outer, inside, ramp, covered):
     return outer, inside, ramp
 
 
+def mouth_zone_of(c) -> tuple:
+    """The rings of corridor ``c``'s MOUTH ZONE (:func:`_under_cover`: the
+    square strip beyond its cover's mouths that its cut owns), ``()`` for a
+    corridor under no cover.  Its own reader, so the Tunnel record carries
+    the zone the ring took (owner 2026-11-27T04:08Z: the zone is exempt from
+    §33 (6) "the cut leaves its object")."""
+    from ..geom.deck_plan import plan
+    covered = getattr(c, "under_cover", ()) or ()
+    trench = _one_polygon(getattr(c, "trench", None)) if len(covered) > 2 else None
+    if trench is None:
+        return ()
+    cover, band, sides = covered[:3]
+    polys = [g for g in getattr(cover, "geoms", [cover]) if g.geom_type == "Polygon"]
+    dp = plan(list(max(polys, key=lambda g: g.area).exterior.coords)[:-1], sides[0],
+              sides[1], band) if polys and len(sides) == 2 else None
+    if dp is None:
+        return ()
+    zone = dp.mouth_zone(trench)
+    return tuple(tuple((float(x), float(y)) for x, y in g.exterior.coords[:-1])
+                 for g in getattr(zone, "geoms", [zone])
+                 if g.geom_type == "Polygon" and not g.is_empty)
+
+
 def _one_polygon(geom):
     """One valid Polygon, or ``None`` — the same repair the object reader
     makes (``airport/object_cut.valid_polygon``), never a second

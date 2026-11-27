@@ -304,7 +304,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     seat -- and runs on ``past`` metres beyond the ring's edges on the
     bridge's own ground (owner sim read 2026-11-17T19:42Z: "that embankment
     needs to extend about 1m past the bridge edges"); past that run-on the
-    blend is a one-sided ceiling (#2235), the ground's datum below it."""
+    blend is a one-sided ceiling (#2235), the ground's datum below it.
+    Past a PACK deck's end line, and over the run-on short of it, the
+    ground is flush (:func:`_past_end`)."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -397,6 +399,11 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             blended = not ring_in.contains(p) and not inside.contains(p)
             drop = _blend_drop(es, p, ring_past, bank, kerb, rim) if blended \
                 else _bank_drop(es, p, bank)
+            if not gen and _past_end(es, p, past):
+                # a PACK deck's roof is flush with the route it carries past
+                # its end lines, corners and the rim there included (owner
+                # 2026-11-27T04:06Z, #2238 :func:`_past_end`)
+                drop, blended = 0.0, False
             if gen and kerb is not None and not kerb.is_empty:
                 # the bank keeps off the airside beside the deck everywhere,
                 # as the blend beyond the run-on does: one field, no step
@@ -475,6 +482,36 @@ def _bank_drop(es, p, slope: float) -> float:
         if best is None or d < best[0]:
             best = (d, float(e.depth))
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
+
+
+def _past_end(es, p, slack: float = 0.0) -> bool:
+    """Whether ``p`` stands PAST an end line of its deck: outside the ring,
+    on the far side of that end LINE prolonged, or within ``slack``
+    (the bank's run-on, ``bank_past_m``) short of it -- the corner squared, so the
+    ground beside the deck's corner never pulls the route's edge down.  The
+    route a pack HARD DECK carries runs on there at its roof's level, so the
+    bank under the deck never reaches it (owner 2026-11-27T04:06Z, #2238
+    CYYZ FA: "If you can confirm the tunnel roof/top has a hard deck, then
+    it should be raised to be flush with the taxiway surface" -- MEASURED
+    lcyyz8: the deck's ground at its four corners held 0.29-0.75 m down the
+    bank, the tunnel rim there with it)."""
+    from shapely.geometry import Polygon
+    for e in es:
+        ring = getattr(getattr(e, "deck", None), "ring", ()) or ()
+        if len(e.line) < 2 or len(ring) < 3:
+            continue
+        poly = Polygon(ring)
+        if poly.contains(p):
+            return False
+        # the end LINE's own run (its edge may turn a corner of the ring)
+        (ax, ay), (bx, by) = e.line[0], e.line[-1]
+        nx, ny = by - ay, ax - bx
+        c = poly.centroid
+        L = dist((0.0, 0.0), (nx, ny)) or 1.0
+        side = 1.0 if (c.x - ax) * nx + (c.y - ay) * ny >= 0.0 else -1.0
+        if -side * ((p.x - ax) * nx + (p.y - ay) * ny) / L > -slack:
+            return True
+    return False
 
 
 def _blend_drop(es, p, ring_past, slope: float, kerb=None, rim=None) -> float:

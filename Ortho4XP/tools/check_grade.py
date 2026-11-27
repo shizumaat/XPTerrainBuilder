@@ -8409,6 +8409,23 @@ def _object_cut_regions(object_cuts_ll, ll_to_m):
     return out
 
 
+def _object_cut_mouth_zones(object_cuts_ll, ll_to_m) -> dict:
+    """``{cut id: polygon in metres}``: each published object cut's MOUTH
+    ZONE (``mouth_zone_ll``), out of ``object_cut_offset``'s scope (owner
+    2026-11-27T04:08Z; ``verify/keepout._mouth_zones`` is the census's
+    twin)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    out = {}
+    for rec in (object_cuts_ll or []):
+        parts = [Polygon([ll_to_m(float(la), float(lo)) for la, lo in ring])
+                 for ring in (rec.get("mouth_zone_ll") or ()) if len(ring) >= 3]
+        parts = [g if g.is_valid else g.buffer(0) for g in parts]
+        if parts:
+            out[str(rec.get("id") or "")] = unary_union(parts)
+    return out
+
+
 def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
                              ll_to_m) -> List[Violation]:
     """§33 (6) THE CUT NEVER LEAVES ITS OBJECT — the ``object_cut_offset``
@@ -8441,6 +8458,7 @@ def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
     if not regions:
         return []
     tol = max(SHARED_VERTEX_TOL_M, OBJECT_CUT_OFFSET_M)
+    zones = _object_cut_mouth_zones(object_cuts_ll, ll_to_m)
     out: List[Violation] = []
     for w in list(ways) + list(feature_ways):
         role = law_role(w) or str(getattr(w, "tags", {}).get("o4_feature", "") or "")
@@ -8450,11 +8468,12 @@ def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
         if not pts:
             continue
         P = [(nid, Point(ll_to_m(la, lo))) for nid, (la, lo) in pts]
-        for _cid, g, _floor, _refs in regions:
+        for cid, g, _floor, _refs in regions:
             if not any(g.contains(p) for _n, p in P):
                 continue                      # another corridor's face
+            zone = zones.get(cid)
             for nid, p in P:
-                if g.contains(p):
+                if g.contains(p) or (zone is not None and zone.distance(p) <= tol):
                     continue
                 d = p.distance(g)
                 if d <= tol:

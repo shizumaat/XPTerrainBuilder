@@ -10861,7 +10861,8 @@ _OC_LAT = 22.3030675
 _OC_LON = 113.9070568
 
 
-def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
+def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor,
+                      mouth_zone_m=None):
     """A 30 x 120 m object WALL LINE published in the sidecar, with a
     ``tunnel_ramp`` face inside it whose two far vertices stand
     ``ramp_out_m`` OUTSIDE the wall line (negative = inside), emitted at
@@ -10907,7 +10908,10 @@ def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
             "floor_m": authored_floor, "depth_m": 6.011,
             "outline_ll": [[la, lo] for la, lo in outline],
             "ramp_refs": ["tunnel_ramp:object-cut:t5@0"],
-            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}), encoding="utf-8", newline="")
+            "wall_ref": "tunnel_wall:object-cut:t5@0",
+            "mouth_zone_ll": [] if mouth_zone_m is None else [
+                [list(at(x, y)) for x, y in mouth_zone_m]]}]}),
+        encoding="utf-8", newline="")
     return osm
 
 
@@ -10934,6 +10938,22 @@ def test_a_cut_outside_its_object_is_a_defect(cg, tmp_path):
         f"the ramp's two far vertices stand 4 m outside the wall line; the "
         f"family priced {len(rows)} row(s)")
     assert all(abs(r.de_m - 4.0) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_mouth_zone_is_out_of_the_offset_scope(cg, tmp_path):
+    """Owner 2026-11-27T04:08Z (CYYZ T, #2239 R3): the square strip beyond a
+    covered shell's mouth its cut owns past the wall line is exempt from
+    §33 (6) -- a vertex in the published ``mouth_zone_ll`` prices nothing;
+    one past it still does."""
+    zone = [(10.0, 30.0), (110.0, 30.0), (110.0, 40.0), (10.0, 40.0)]
+    fo = _families(cg, _object_cut_patch(tmp_path, name="mouth", ramp_out_m=9.0,
+                                         floor_z=1.31, authored_floor=1.31,
+                                         mouth_zone_m=zone))
+    assert fo["object_cut_offset"] == []
+    fo2 = _families(cg, _object_cut_patch(tmp_path, name="pastmouth", ramp_out_m=20.0,
+                                          floor_z=1.31, authored_floor=1.31,
+                                          mouth_zone_m=zone))
+    assert len(fo2["object_cut_offset"]) == 2
 
 
 def test_the_offset_bar_is_the_spec_bar(cg, tmp_path):

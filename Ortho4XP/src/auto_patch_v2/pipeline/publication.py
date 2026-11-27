@@ -1591,6 +1591,11 @@ def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
                            (to_ll(x, y) for x, y in tn.footprint)],
             "ramp_refs": list(tn.ramp_refs),
             "wall_ref": tn.wall_ref,
+            # the square mouth zone the cut owns past the wall line, out of
+            # object_cut_offset's scope (owner 2026-11-27T04:08Z)
+            "mouth_zone_ll": [[[round(la, 8), round(lo, 8)] for la, lo in
+                               (to_ll(x, y) for x, y in ring)]
+                              for ring in getattr(tn, "mouth_zone", ()) or ()],
         })
     return out
 

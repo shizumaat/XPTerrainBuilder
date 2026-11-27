@@ -309,6 +309,12 @@ class Tunnel:
     #: stations stand outside it by the identity spacing, whichever side
     #: of the outer face the trench rim is on; empty for an OSM bore.
     footprint: tuple[XY, ...] = ()
+    #: THE MOUTH ZONE (#2239 R3, owner 2026-11-27T04:08Z): the square
+    #: strip beyond a covered shell's mouths, between its cover's prolonged
+    #: sides, that its cut owns past the object's wall line
+    #: (``planar/structure_geometry.mouth_zone_of``) -- rings in frame xy;
+    #: out of §33 (6)'s scope (``verify/keepout.object_cut_offset``)
+    mouth_zone: tuple[tuple[XY, ...], ...] = ()
     # ── THE RAMP LAWS (RULINGS 2026-09-08b/c; spec othh-terminal-ramps-spec.md) ──
     #: ``source`` is ``"door"`` (Law A: the well is the "walls" —
     #: ``wall_length_m`` its reach ⊕ overlaps, ``mouth_z`` the SILL,

@@ -75,6 +75,10 @@ class WingCut:
     #: the walls' own plans (rings), cut out of the ground and pavement
     #: drawn over them (#2099 G4 W, RULINGS 2026-11-16d): a ramp wing's
     walls: tuple[tuple[XY, ...], ...] = ()
+    #: the strip behind a wall seated under the ground it retains (#2240,
+    #: RULINGS 2026-11-20m: partly buried) -- the neighbouring ground's own,
+    #: never held at the wall's top (``planar/wing_cut._cells``)
+    fill: tuple[tuple[XY, ...], ...] = ()
 
     @property
     def back_ref(self) -> str:

@@ -164,7 +164,7 @@ def test_a_back_strip_stands_a_parapet_under_the_top_only_near_the_ground():
     parapet; a station whose level stands over frontage_step_max_m off the
     ground behind the wall gets none (the wall stands proud there)."""
     from auto_patch_v2.model.wing_cut import WallLine
-    from auto_patch_v2.planar.wing_cut import _parapet_ok
+    from auto_patch_v2.planar.wing_cut import _parapet_misfit
     line = WallLine("w", ((0.0, 0.0), (10.0, 0.0), (20.0, 0.0)),
                     ((0.0, -1.0), (10.0, -1.0), (20.0, -1.0)), (1.0, 1.0, 1.0), (6.0, 6.0, 6.0))
     ground = {0.0: 104.6, 10.0: 103.0, 20.0: 101.0}          # behind each station
@@ -172,7 +172,9 @@ def test_a_back_strip_stands_a_parapet_under_the_top_only_near_the_ground():
                                               .retaining_parapet_m),
                                 step_max=float(LAW.tables.emit.design.frontage_step_max_m),
                                 dem=types.SimpleNamespace(z=lambda x, y: ground[round(x, 1)]))
-    assert _parapet_ok(line, env, 0.0, {"floor_z": 100.0}) == [True, True, False]
+    got = _parapet_misfit(line, env, 0.0, {"floor_z": 100.0})
+    assert [abs(m) <= env.step_max for m in got] == [True, True, False]
+    assert got[2] == pytest.approx(106.0 - env.parapet - 101.0)    # far over: partly buried
 
 
 def test_the_back_rows_hold_the_top_less_its_drop():

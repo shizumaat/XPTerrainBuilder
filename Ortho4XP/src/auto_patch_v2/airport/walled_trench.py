@@ -90,7 +90,10 @@ def _deep_solids(o, g, law):
 
 def _between(xy, law):
     """The plan between the deep walls: their hull less their plan, the
-    largest part (``None`` where none)."""
+    largest part (``None`` where none), its ring simplified within a tenth
+    of the margin it keeps off the walls (#2237: the ring traced every wall
+    triangle's buffered corner -- MEASURED CYYZ ``Tx_A`` 179 points, 42 so,
+    1.2 m2 off its 4,587)."""
     tk = float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
     tris = shapely.polygons(xy)
     segs = shapely.linestrings(np.concatenate([xy, xy[:, :1]], axis=1))
@@ -99,7 +102,11 @@ def _between(xy, law):
     rest = walls.convex_hull.difference(walls)
     parts = [p for p in getattr(rest, "geoms", [rest])
              if p.geom_type == "Polygon" and not p.is_empty]
-    return max(parts, key=lambda p: p.area) if parts else None
+    if not parts:
+        return None
+    best = max(parts, key=lambda p: p.area)
+    thin = best.simplify(0.025 * tk)
+    return thin if thin.is_valid and thin.geom_type == "Polygon" and not thin.is_empty else best
 
 
 def _ring_samples(poly) -> np.ndarray:
@@ -162,23 +169,126 @@ def _floor_side(floor, st) -> float:
     return 1.0 if vote >= 0.0 else -1.0
 
 
-def _faces(poly, lines: list, zero: float, step: float) -> np.ndarray:
-    """The floor's triangulation (its ring densified every ``step``), each
-    corner at ``zero`` plus the foot along the wall line it faces
-    (``model/wing_cut.wing_floor_y``), within the walls' feet."""
+def _feet_z(lines: list, zero: float) -> "_t.Callable | None":
+    """``(x, y) -> zero + the foot`` along the wall line it faces
+    (``model/wing_cut.wing_floor_y``), within the walls' lowest and highest
+    foot; ``None`` with no wall line."""
     from ..model.wing_cut import WingCut, wing_floor_y
     feet = [f for ln in lines for f in ln.foot]
     if not feet:
-        return np.zeros((0, 3, 3))
+        return None
     lo, hi = min(feet), max(feet)
     cut = WingCut("", "", (), lines=tuple(lines))
+    return lambda x, y: zero + min(hi, max(lo, wing_floor_y(cut, (float(x), float(y)))))
+
+
+def _faces(poly, feet_z: "_t.Callable | None", step: float, ramps: _t.Sequence = ()
+           ) -> np.ndarray:
+    """The floor's triangulation (its ring densified every ``step``), each
+    corner at the walls' foot it faces (:func:`_feet_z`) -- or on the ramp
+    up to an open end (:func:`_ramps`), where that stands higher."""
+    if feet_z is None:
+        return np.zeros((0, 3, 3))
     tri = shapely.constrained_delaunay_triangles(shapely.segmentize(poly, step))
     out = []
     for q in getattr(tri, "geoms", [tri]):
         cs = np.asarray(q.exterior.coords)[:3]
-        out.append(np.c_[cs, [zero + min(hi, max(lo, wing_floor_y(cut, (float(x), float(y)))))
+        out.append(np.c_[cs, [max(feet_z(x, y), _ramp_z(ramps, float(x), float(y)))
                               for x, y in cs]])
     return np.asarray(out, float)
+
+
+def _ramp_z(ramps: _t.Sequence, x: float, y: float) -> float:
+    """The highest ramp level at ``(x, y)`` (``-inf`` with no ramp): each
+    ramp's top less its grade times the distance in from its opening's
+    line -- a plane per ramp."""
+    z = -math.inf
+    for (px, py), (nx, ny), top, grade in ramps:
+        z = max(z, top - grade * max(0.0, (x - px) * nx + (y - py) * ny))
+    return z
+
+
+def _runs(walled: np.ndarray) -> list[np.ndarray]:
+    """The cyclic runs of ring samples no wall lines (index arrays)."""
+    if walled.all() or not walled.any():
+        return []
+    k = int(np.flatnonzero(walled)[0])
+    order = np.roll(np.arange(len(walled)), -k)
+    out, cur = [], []
+    for i in order:
+        if walled[i]:
+            if cur:
+                out.append(np.asarray(cur))
+            cur = []
+        else:
+            cur.append(i)
+    if cur:
+        out.append(np.asarray(cur))
+    return out
+
+
+def _ramps(floor, samples: np.ndarray, walled: np.ndarray, tops: np.ndarray, zero: float,
+           faces_z, ways, law) -> tuple[list, list[str]]:
+    """THE RAMPS UP TO A WALLED TRENCH'S OPEN ENDS (#2237; RULINGS
+    2026-10-08c/d, the ramp law; structures ``ramp_end = "wall_end"``: the
+    ramp reaches ground at the far end of the wall): the walls state no floor
+    where a mapped road leaves the trench at grade -- they run on to their
+    ends at full depth, the road's own ground hiding their foot (MEASURED
+    CYYZ ``Tx_A``: walls 8.0 m deep along all 340 m, the floor cut flat at
+    their feet, and the service road through it stepped 8 m at both ends).
+    Each OPEN stretch of the floor's ring (no wall lines it) that an
+    at-grade mapped road crosses -- no bore (``deck_signature.is_tunnel_way``)
+    ends within ``wall_face_max_thickness_m`` of it -- is a ramp's top: the
+    plane through its chord at the walls' top beside it (the ground they
+    retain), falling in from it at ``ramp_grade``, steeper only where a bore's
+    end on the floor (the mouth, whose floor is the walls' feet) would stand
+    over that plane -- the smallest grade that reaches it, never over
+    ``ramp_max_grade``.  ``(ramps, notes)``: each ``(point, inward normal,
+    top, grade)``."""
+    from shapely.geometry import LineString, Point
+
+    from .deck_signature import is_tunnel_way
+    tn = law.tables.structures.tunnel
+    tk = float(tn.object.wall_face_max_thickness_m)
+    lines, bores = [], []
+    for w in ways or ():
+        tags = w.tags or {}
+        if len(w.points) < 2 or not (tags.get("highway") or tags.get("railway")):
+            continue
+        if is_tunnel_way(tags, tn.admitted_values):
+            bores += [Point(w.points[0]), Point(w.points[-1])]
+        else:
+            lines.append(LineString(w.points))
+    anchors = [(b, faces_z(q.x, q.y)) for b in bores if floor.distance(b) <= tk
+               for q in (floor.exterior.interpolate(floor.exterior.project(b)),)]
+    inner = floor.representative_point()
+    out, notes = [], []
+    for run in _runs(walled):
+        if len(run) < 2:
+            continue
+        chord = LineString(samples[run])
+        if any(b.distance(chord) <= tk for b, _z in anchors) or not any(
+                ln.intersects(chord.buffer(0.5 * tk)) for ln in lines):
+            continue
+        near = [i for i in (run[0] - 1, run[-1] + 1) if math.isfinite(tops[i % len(tops)])]
+        if not near:
+            continue
+        top = zero + float(np.median([tops[i % len(tops)] for i in near]))
+        (ax, ay), (bx, by) = samples[run[0]], samples[run[-1]]
+        L = math.hypot(bx - ax, by - ay) or 1.0
+        nx, ny = -(by - ay) / L, (bx - ax) / L
+        if (inner.x - ax) * nx + (inner.y - ay) * ny < 0.0:
+            nx, ny = -nx, -ny
+        grade = float(tn.ramp_grade)
+        for b, z in anchors:
+            run_m = (b.x - ax) * nx + (b.y - ay) * ny
+            if run_m > 0.0 and math.isfinite(z):
+                grade = max(grade, (top - z) / run_m)
+        grade = min(grade, float(tn.ramp_max_grade))
+        out.append(((float(ax), float(ay)), (nx, ny), top, grade))
+        notes.append(f"a ramp up to its open end at {0.5 * (ax + bx):.0f},{0.5 * (ay + by):.0f} "
+                     f"(top {top:.2f}, grade {grade:.3f})")
+    return out, notes
 
 
 def _reach_road_ends(floor, ends, tk: float):
@@ -222,11 +332,13 @@ def _longest_open(walled: np.ndarray, step: float) -> float:
 
 def walled_trench_floors(trenches: _t.Sequence, objects: _t.Sequence[_obj8.PlacedObject],
                          cache: _obj8.ResourceCache, law, misread: _t.AbstractSet[str], dem_z,
-                         taken: _t.AbstractSet[str] = frozenset()
+                         taken: _t.AbstractSet[str] = frozenset(), ways: _t.Sequence = ()
                          ) -> tuple[list, list[str]]:
     """``(ObjectFloor per walled trench, notes)`` (module doc) for the
     trench objects in ``misread`` (placement ids whose entrance opening was
-    a misread); ``taken`` the placements an earlier floor reader claimed."""
+    a misread); ``taken`` the placements an earlier floor reader claimed;
+    ``ways`` the mapped ways (``Airport.osm_ways``) whose at-grade roads
+    ramp its open ends (:func:`_ramps`)."""
     from .object_floor import FLOOR_REF, ObjectFloor
     ob = law.tables.structures.tunnel.object
     tk = float(ob.wall_face_max_thickness_m)
@@ -271,8 +383,10 @@ def walled_trench_floors(trenches: _t.Sequence, objects: _t.Sequence[_obj8.Place
             continue
         top, ground = float(np.median(tops[ok])), float(np.median(zs))
         zero = ground - top
-        faces = _faces(floor, _wall_lines(o, cache, law, floor), zero,
-                       float(ob.wall_sample_m))
+        feet_z = _feet_z(_wall_lines(o, cache, law, floor), zero)
+        ramps, r_notes = ([], []) if feet_z is None else _ramps(
+            floor, samples, walled, tops, zero, feet_z, ways, law)
+        faces = _faces(floor, feet_z, float(ob.wall_sample_m), ramps)
         if not len(faces):
             continue
         fz = float(faces[:, :, 2].min())
@@ -281,7 +395,7 @@ def walled_trench_floors(trenches: _t.Sequence, objects: _t.Sequence[_obj8.Place
                 f"ring, open {gap:.0f} m at most, {wide:.0f} m across); walls' top "
                 f"{top:+.2f} on the ground {ground:.2f} beside them -> zero {zero:.2f}, "
                 f"floor {fz:.2f}..{float(faces[:, :, 2].max()):.2f} (read zero "
-                f"{float(o.anchor_z + o.agl_m):.2f})")
+                f"{float(o.anchor_z + o.agl_m):.2f})" + "".join(f"; {n}" for n in r_notes))
         notes.append(f"object floor {note}")
         out.append(ObjectFloor(f"{FLOOR_REF}{os.path.basename(o.path)}@trench", o.id, o.path,
                                (), zero, fz, floor, faces, (note,), ((o.id, o.path, zero),),

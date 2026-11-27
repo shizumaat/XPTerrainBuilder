@@ -211,7 +211,8 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
                if getattr(p, "opening_misread", False)}
     more, w_notes = walled_trench_floors(getattr(tstats, "trench_objects", ()) or (), objects,
                                          cache, law, misread, airport.dem.z,
-                                         taken={pid for f in floors for pid, _r, _z in f.seats})
+                                         taken={pid for f in floors for pid, _r, _z in f.seats},
+                                         ways=getattr(airport, "osm_ways", ()) or ())
     floors = floors + more
     notes.extend(w_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}

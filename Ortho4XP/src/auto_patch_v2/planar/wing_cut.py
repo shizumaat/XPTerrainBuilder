@@ -28,8 +28,11 @@ R3 E):
   where airside pavement stands in it, minted as ``wing_back:<mouth>[#k]``,
   held ``retaining_parapet_m`` under the wall's top -- and only between
   stations where that level stands within ``[design] frontage_step_max_m``
-  of the DEM behind the wall (:func:`_parapet_ok`); a wall seated higher
-  stands proud over ground that follows its own law.
+  of the DEM behind the wall (:func:`_parapet_misfit`); a wall seated higher
+  stands proud over ground that follows its own law, and where it stands
+  far over that ground it is seated at the low side, partly buried (#2240,
+  RULINGS 2026-11-20m): the ground beside the strip takes it, running on to
+  the wall's back face at its own level (:func:`_grow_into`).
 
 The level is ``constraints/wing_cut``'s, off the record
 (``model/wing_cut.WingCut``).  A deck mouth's group walls also plan its ramp
@@ -297,12 +300,14 @@ def _parapet_drop(line: WallLine, env) -> tuple[float, ...]:
                  for b in line.back)
 
 
-def _parapet_ok(line: WallLine, env, floor_y: float, seat) -> "list[bool] | None":
-    """D5' (#2099 G4, RULINGS 2026-11-16l): per station, whether the level
+def _parapet_misfit(line: WallLine, env, floor_y: float, seat) -> "list | None":
+    """D5' (#2099 G4, RULINGS 2026-11-16l): per station, how far the level
     a back strip would take there -- the wall's top less its drop
-    (:func:`_parapet_drop`) -- stands within ``frontage_step_max_m`` of the
-    DEM 1.5 m behind the wall's back face; ``None`` (every station) with no
-    DEM to read."""
+    (:func:`_parapet_drop`) -- stands over the DEM 1.5 m behind the wall's
+    back face (``None`` where the DEM reads nothing); ``None`` (every
+    station) with no DEM to read.  Within ``frontage_step_max_m`` the strip
+    is held there; far over it the wall is seated under the ground it
+    retains (:func:`_cut`'s fill)."""
     floor = _floor_level(env, floor_y, seat)
     if floor is None:
         return None
@@ -312,7 +317,7 @@ def _parapet_ok(line: WallLine, env, floor_y: float, seat) -> "list[bool] | None
         dx, dy = bx - fx, by - fy
         L = math.hypot(dx, dy) or 1.0
         g = env.dem.z(bx + dx / L * 1.5, by + dy / L * 1.5)
-        out.append(math.isfinite(g) and abs(floor + top - d - g) <= env.step_max)
+        out.append(floor + top - d - g if math.isfinite(g) else None)
     return out
 
 
@@ -431,7 +436,7 @@ def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: fl
     region runs to the facing wall line where one stands within the
     separation (a walled ramp's corridor, :func:`_reach`)."""
     plans = [_section_plan(st) for _w, st in read_lines]
-    lines, parts, backs, votes = [], [], [], []
+    lines, parts, backs, fills, votes = [], [], [], [], []
     for k, (wid, st) in enumerate(read_lines):
         sense = _road_sense(road, st)
         votes.append(_side_vote(wid, road, st, sense))
@@ -443,9 +448,18 @@ def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: fl
         line = _dc.replace(line, drop=drop)
         lines.append(line)
         parts += _strip(line, ends, toward)
-        ok = _parapet_ok(line, env, floor_y, seat)
+        mis = _parapet_misfit(line, env, floor_y, seat)
+        ok = None if mis is None else [m is not None and abs(m) <= env.step_max for m in mis]
         backs += [q for q in _strip(line, ends, toward, env.skirt, ok)
                   if q.intersection(env.air).area <= 1e-6]
+        # #2240 (RULINGS 2026-11-20m): a wall whose top stands far over the
+        # ground behind it is seated at the low side, its upper side partly
+        # buried -- the ground behind runs on to its back face at its own
+        # level (the step hides in the wall's plan), never held at its top
+        if mis is not None:
+            fills += [q for q in _strip(line, ends, toward, env.skirt,
+                                        [m is not None and m > env.step_max for m in mis])
+                      if q.intersection(env.air).area <= 1e-6]
     if not parts:
         return None
     region = unary_union(parts).difference(unary_union([
@@ -457,8 +471,11 @@ def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: fl
         if backs else Polygon()
     if facing and getattr(env, "held", None) is not None and not env.held.is_empty:
         back = back.difference(env.held.buffer(env.skirt, join_style="mitre"))
+    fill = unary_union(fills).difference(unary_union([region, back, env.keep_out, *plans])) \
+        if fills else Polygon()
     cut = WingCut(mouth, f"{WING_CUT_REF}:{mouth}", rings, tuple(lines),
-                  _rings(back, env.spacing), floor_y=floor_y, reach=env.sep, **seat)
+                  _rings(back, env.spacing), floor_y=floor_y, reach=env.sep,
+                  fill=_rings(fill, env.spacing), **seat)
     feet = [f for ln in lines for f in ln.foot]
     return cut, (f"{len(lines)} wall line(s), {sum(Polygon(q).area for q in rings):.0f} m2 on "
                  f"the road side, feet {min(feet):+.2f}..{max(feet):+.2f} over its floor; road "
@@ -533,11 +550,51 @@ def _cells(classification, cuts: _t.Sequence[WingCut], law, spacing: float
                             tuple(tuple(h.coords)[:-1] for h in part.interiors),
                             None, None, role_side(law, "graded_strip"), "structure",
                             {what: 1.0, "area_m2": part.area}) for k, part in enumerate(parts)]
+        taken = canonical_union([taken, *free])
+        carved, grown = _grow_into(carved, cut.fill, taken, law, roads, spacing)
         cells = carved
         notes.append(f"{cut.mouth}: {len(mine)} wing-cut face(s) "
                      f"{sum(q.area for q in mine):.0f} m2 ({n_cut} cell(s) carved), "
                      f"{len(free)} back face(s) {sum(q.area for q in free):.0f} m2 of free ground"
                      + (f", {len(plans)} wall plan(s) {sum(q.area for q in plans):.0f} m2"
-                        if plans else ""))
+                        if plans else "")
+                     + (f", {grown:.0f} m2 behind a partly buried wall taken by the ground "
+                        "beside it (#2240)" if grown else ""))
     merged = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     return _dc.replace(classification, cells=tuple(merged)), notes
+
+
+def _grow_into(cells: list, fill, taken, law, roads: _t.AbstractSet[str], spacing: float
+               ) -> tuple[list, float]:
+    """``(cells, m2)``: each part of ``fill`` (rings: the strip behind a
+    partly buried wall, :func:`_cut`) no cell takes joins the groundside
+    cell it shares the longest edge with -- a lot, a verge (#2240, CYYZ
+    ``pol88``: the lot stopped 1.6 m short of the wall, the ground there
+    falling 4.4 m across the wall's plan to its road side; "it should grade
+    right up to the wall").  Never airside, a structure, a building or a
+    road: a part none of those meets stays out of the map."""
+    if not fill:
+        return cells, 0.0
+    free = [q for q in polygon_parts_with_area(fixed_difference(
+        unary_union([Polygon(q).buffer(0.0) for q in fill]), taken))
+        if not is_hairline(q, spacing)]
+    grown = 0.0
+    for part in free:
+        edge = part.buffer(spacing * 0.1)
+        best = None
+        for k, c in enumerate(cells):
+            if c.side == "airside" or _kept(c, law, roads):
+                continue
+            n = Polygon(c.ring, c.holes).boundary.intersection(edge).length
+            if n > spacing and (best is None or n > best[0]):
+                best = (n, k)
+        if best is None:
+            continue
+        c = cells[best[1]]
+        got = canonical_union([Polygon(c.ring, c.holes), part])
+        if got.geom_type != "Polygon":
+            continue
+        cells[best[1]] = _dc.replace(c, ring=tuple(got.exterior.coords)[:-1],
+                                     holes=tuple(tuple(h.coords)[:-1] for h in got.interiors))
+        grown += part.area
+    return cells, grown

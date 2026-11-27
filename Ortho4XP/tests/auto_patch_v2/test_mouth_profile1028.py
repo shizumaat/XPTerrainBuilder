@@ -207,3 +207,32 @@ def test_a_bore_end_where_the_road_goes_on_underground_is_no_portal(law):
     west = approach((-100.0, 0.0), (1.0, 0.0), ways, 400.0, tn.admitted_values,
                     tn.approach_turn_max_deg)
     assert continues_underground(bore, (1.0, 0.0), west, ends, law, 400.0) is None
+
+
+def test_a_road_crossing_the_approach_short_of_the_top_refuses_the_mouth(law):
+    """l588 (LEMD tunnel -4927 / road -1510): a road crossing the approach
+    stops the ramp (Q32) where no grade up to the cap tops out, while the
+    mapped approach runs on past it at grade.  A ramp ending free there is
+    a wall across its own road (MEASURED: 595.6 under the road's 601-602,
+    a 5.30 m drawn step), so the mouth is refused; a crossing far enough
+    out leaves the ramp whole."""
+    import dataclasses
+    cells = Classification((
+        Cell(0, "runway", "09/27", _rect(-600, 800, 600, 845), (), 3, "D", "airside",
+             "runway", {}),
+        Cell(1, "stub", "twy", _rect(-40, -40, 40, 40), (), None, "D", "airside", "taxiway",
+             {})), (), {}, ())
+
+    def east(x):
+        cross = OsmWay(-301, "small_roads", ((x, -80.0), (x, 80.0)), False,
+                       {"highway": "tertiary", "lanes": "2"})
+        ap = _airport(law, _Dem())
+        ap = dataclasses.replace(ap, osm_ways=ap.osm_ways + (cross,))
+        _cl, tunnels, st = build_structures(ap, cells, law)
+        return [t for t in tunnels if t.axis[0][0] > 0], st.refused
+    near, refused = east(110.0)
+    assert not near
+    assert any("tunnel:-101@1" in r and "cannot top out before the crossing road osm:-301" in r
+               for r in refused), refused
+    far, refused = east(400.0)
+    assert far, refused

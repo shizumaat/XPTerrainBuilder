@@ -767,6 +767,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         decked_by = road_over_mouth([m.bore.line for m in members], g.mouth, cells, polys,
                                     half + 2.0 * rim_off + gap) \
             if c is None and pin is None and edge is None else ""
+        crossing = () if c is not None else crossing_roads(   # #1028 Q32: never through a road
+            axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")])
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -775,9 +777,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 deck_witness_for(airport, law, [
                     w for m in members for w in m.bore.ways]), plates)]
             + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)],
-            airport=airport, crossing=crossing_roads(       # #1028 Q32: never through a road
-                axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
-            pinned=pin is not None, road_floor=road_f,
+            airport=airport, crossing=crossing, pinned=pin is not None, road_floor=road_f,
             road_extra=0.0 if road_rd is None else road_rd.extra,
             cutting=cutting_of(airport, law, road_rd, width),      # #1939
             skew=k_sk, entrance=pin is not None and is_entrance_face(pin),
@@ -828,10 +828,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # (#1028: where the axis leaves the mapped road, not its straight extension)
         # (a bore whose approach walked no mapped way at all follows its own line),
         # read from the MAPPED portal (#1337: a slid mouth stays on its road)
+        on_road = c is None and any(walked_m(m.approach, m.inward, reach) > 0.0
+                                    for m in members if hasattr(m, "approach"))
         road_end, past_end = road_end_after_slide(
-            portal_axis, axis_ln, roads_ix, half, spacing_g) if c is None and any(
-            walked_m(m.approach, m.inward, reach) > 0.0 for m in members
-            if hasattr(m, "approach")) else (None, "")
+            portal_axis, axis_ln, roads_ix, half, spacing_g) if on_road else (None, "")
         if past_end:
             stats.refused.append(f"{tid}: {past_end}")
             continue
@@ -1405,6 +1405,25 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             steepen_note = (f"#2072 A: {stop_kind} {dead_end[0]} stops the run-out and no "
                             f"ramp up to the cap tops out before it -- level at the floor to "
                             f"{s_top:.1f} m, a wall on its edge")
+        if clipped_by and c is None and g.climbs and k_sk is None and not walled \
+                and deck is None and level_to is None and on_road \
+                and clipped_by in {ref for _p, ref in crossing} \
+                and (road_end is None or road_end > s_top + gap):
+            # l588 (LEMD tunnel -4927, #1028 Q32's other half): a ramp
+            # nothing frames that a ROAD CROSSING its approach clips short of
+            # its top -- no grade up to the cap tops out before it (the fit
+            # above) -- while its mapped road runs on past the clip at grade
+            # would end free under both roads: a wall across them (MEASURED:
+            # road -1510 clipped it at 72 m, top 595.6 under the roads'
+            # 601-602, the drawn service road stepped 5.30 m).  The mouth is
+            # not opened.  (A pavement or pad stop keeps #971's rim.)
+            stats.refused.append(
+                f"{tid}: the ramp cannot top out before the crossing road {clipped_by} stops "
+                f"it {s_top:.0f} m "
+                f"out, and its mapped road runs on past it -- no grade up to the "
+                f"cap {100.0 * cap_g:.0f} % reaches the ground short of the stop (#1028: a "
+                f"ramp never crosses a pavement edge or another road)")
+            continue
         if c is None and g.climbs and road_end is not None and level_to is None \
                 and dead_cut is None \
                 and s_top - spacing_g > road_end + gap:   # ramp_top's one station of slack

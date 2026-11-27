@@ -22,8 +22,8 @@ every tunnel mouth of the sidecar (its floor = the patch z at the nearest
 point of a ``tunnel_ramp`` ring edge within R, else the drawn mesh there).
 Per site, the claimed placements (written rows
 whose resource -- split bodies ``<stem>__b<N>_<hash>`` folded to their
-stem -- a reader claimed) with OBJ vertices within R, and their lowest
-drawn vertex.  Bars (#1903 brief):
+stem -- a reader claimed) with OBJ geometry within R, and their lowest
+drawn point there (a vertex, or a triangle edge where it crosses R).  Bars (#1903 brief):
 
 - CUT role (portal / tunnel_object / object_cut not also a deck_anchor):
   |drawn object bottom - cut floor| <= --tol (0.3 m); an OBJECT FLOOR's
@@ -347,6 +347,27 @@ def stem(def_path):
 
 # ── placing what X-Plane draws ──────────────────────────────────────────
 
+def edge_low_in_circle(x, y, z, edges, radius_m):
+    """The lower end's z of each edge's stretch inside the circle of
+    ``radius_m`` round the origin (plan metres; z linear along an edge, so
+    its lowest point there is one end of that stretch); edges missing it
+    drop out."""
+    a, b = edges[:, 0], edges[:, 1]
+    ax, ay, dx, dy = x[a], y[a], x[b] - x[a], y[b] - y[a]
+    qa = dx * dx + dy * dy
+    qb = 2.0 * (ax * dx + ay * dy)
+    qc = ax * ax + ay * ay - radius_m * radius_m
+    disc = qb * qb - 4.0 * qa * qc
+    ok = (qa > 0.0) & (disc >= 0.0)
+    root = numpy.sqrt(numpy.where(ok, disc, 0.0))
+    den = numpy.where(ok, 2.0 * qa, 1.0)
+    r0, r1 = (-qb - root) / den, (-qb + root) / den
+    ok &= (r0 <= 1.0) & (r1 >= 0.0)
+    t0, t1 = numpy.clip(r0, 0.0, 1.0), numpy.clip(r1, 0.0, 1.0)
+    za, dz = z[a], z[b] - z[a]
+    return numpy.minimum(za + t0 * dz, za + t1 * dz)[ok]
+
+
 class Drawn:
     """The written rows, each placed on the drawn mesh, vertices cached."""
 
@@ -354,7 +375,28 @@ class Drawn:
         self.rows = list(placements)
         self.root, self.mesh = pack_root, mesh
         self.anchors = numpy.array([[p.lon, p.lat] for p in self.rows]).reshape(-1, 2)
-        self._geom, self._placed = {}, {}
+        self._geom, self._placed, self._edges = {}, {}, {}
+
+    def _load(self, path):
+        if path in self._geom:
+            return
+        v, e = None, None
+        if path.lower().endswith(".obj") and os.path.isfile(path):
+            g = load_object_file(path)
+            v = numpy.array(g.vertices, dtype=float) if g.vertices else None
+            tris = numpy.array(list(g.solid_triangles) + list(g.draped_triangles),
+                               dtype=numpy.int64).reshape(-1, 3)
+            if v is not None and len(tris):
+                e = numpy.sort(numpy.concatenate([tris[:, [0, 1]], tris[:, [1, 2]],
+                                                  tris[:, [2, 0]]]), axis=1)
+                e = numpy.unique(e, axis=0)
+        self._geom[path], self._edges[path] = v, e
+
+    def edges(self, i):
+        """``(m, 2)`` vertex index pairs of row ``i``'s triangle edges, or None."""
+        path = os.path.join(self.root, self.rows[i].def_path)
+        self._load(path)
+        return self._edges[path]
 
     def vertices(self, i):
         """(lon, lat, z_abs) arrays of row ``i``'s OBJ vertices, or None."""
@@ -362,12 +404,7 @@ class Drawn:
             return self._placed[i]
         p, out = self.rows[i], None
         path = os.path.join(self.root, p.def_path)
-        if path not in self._geom:
-            v = None
-            if path.lower().endswith(".obj") and os.path.isfile(path):
-                g = load_object_file(path).vertices
-                v = numpy.array(g, dtype=float) if g else None
-            self._geom[path] = v
+        self._load(path)
         v = self._geom[path]
         if v is not None:
             h = math.radians(p.heading_deg)
@@ -384,7 +421,12 @@ class Drawn:
         return out
 
     def bottoms_near(self, lon, lat, radius_m, reach_m=6000.0):
-        """{row: lowest drawn z of its vertices within radius_m}."""
+        """{row: lowest drawn z of its geometry within radius_m}: its
+        vertices there and every triangle edge's stretch inside the circle
+        (:func:`edge_low_in_circle`) -- a wall drawn as one long quad has no
+        vertex near a site its foot edge passes (MEASURED CYYZ ``Tx_A``:
+        corners 20-40 m apart, the site 1 m off its foot at the floor read
+        the quad's upper vertex 5.9 m over it)."""
         kx = M_PER_DEG * math.cos(math.radians(lat))
         if not len(self.anchors):
             return {}
@@ -395,9 +437,15 @@ class Drawn:
             v = self.vertices(int(i))
             if v is None:
                 continue
-            near = numpy.hypot((v[0] - lon) * kx, (v[1] - lat) * M_PER_DEG) <= radius_m
-            if near.any() and not numpy.isnan(v[2][near]).all():
-                out[int(i)] = float(numpy.nanmin(v[2][near]))
+            x, y = (v[0] - lon) * kx, (v[1] - lat) * M_PER_DEG
+            near = numpy.hypot(x, y) <= radius_m
+            lows = [v[2][near]] if near.any() else []
+            e = self.edges(int(i))
+            if e is not None:
+                lows.append(edge_low_in_circle(x, y, v[2], e, radius_m))
+            got = numpy.concatenate(lows) if lows else numpy.zeros(0)
+            if len(got) and not numpy.isnan(got).all():
+                out[int(i)] = float(numpy.nanmin(got))
         return out
 
 

@@ -646,3 +646,39 @@ def test_a_portal_seat_is_judged_zero_to_floor_never_by_a_lintel(tmp_path):
     rows = _seat_world(tmp_path / "c", 95.0, 2.0)
     assert any("frame floats +2.00" in f for f in rows[0]["fails"])
     assert not any("zero" in f for f in rows[0]["fails"])
+
+
+def test_a_long_wall_quad_reads_its_foot_edge_not_its_far_corners(tmp_path):
+    """CYYZ ``Tx_A`` (l588): a wall drawn as ONE quad 60 m long and 8 m deep
+    has no vertex within 15 m of a site 1 m off its foot's middle; its
+    bottom there is the foot edge (92.0), never the corner vertices' 100 m
+    nor nothing at all."""
+    root = tmp_path / "pack"
+    (root / "objects").mkdir(parents=True)
+    quad = ((-30, -8, 0), (30, -8, 0), (30, 0, 0), (-30, 0, 0))
+    (root / "objects" / "wall.obj").write_text(
+        "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 6\n"
+        + "".join(f"VT {x} {y} {z} 0 0 1 0 0\n" for x, y, z in quad)
+        + "IDX 0\nIDX 1\nIDX 2\nIDX 0\nIDX 2\nIDX 3\nTRIS 0 6\n",
+        encoding="utf-8", newline="\n")
+    dump = tmp_path / "pack.txt"
+    dump.write_text(f"OBJECT_DEF objects/wall.obj\nOBJECT_MSL 0 {LON} {LAT} 100.0 0.0\n",
+                    encoding="utf-8", newline="\n")
+    written = dsf_text.read_dump(str(dump), accept_polygon=lambda _p: False)
+    drawn = DC.Drawn(written.placements, str(root), None)
+    north = 1.0 / DC.M_PER_DEG
+    assert drawn.bottoms_near(LON, LAT + north, 15.0)[0] == pytest.approx(92.0)
+    # past every edge's reach: nothing drawn there
+    assert drawn.bottoms_near(LON, LAT + 20.0 * north, 15.0) == {}
+
+
+def test_edge_low_in_circle_clips_each_edge_to_the_circle():
+    import numpy
+    x = numpy.array([-10.0, 10.0, 20.0, 30.0])
+    y = numpy.array([0.0, 0.0, 0.0, 0.0])
+    z = numpy.array([0.0, 20.0, 0.0, 0.0])
+    edges = numpy.array([[0, 1], [2, 3]])
+    # edge 0 crosses x in [-5, 5]: its low end at x = -5 reads z 5; edge 1
+    # lies past the circle (its clipped interval would land on an end outside)
+    got = DC.edge_low_in_circle(x, y, z, edges, 5.0)
+    assert got.tolist() == pytest.approx([5.0])

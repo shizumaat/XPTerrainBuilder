@@ -76,11 +76,11 @@ from shapely.strtree import STRtree
 
 from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import Cell
+from ..geom.deck_plan import wall_inset
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..geom.wall_lines import project_span, stretch_pair
 from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim_end_stations
-from ..geom.deck_plan import wall_inset
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach

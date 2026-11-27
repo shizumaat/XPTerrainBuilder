@@ -87,23 +87,3 @@ def test_the_reader_marks_the_set_and_reads_nothing(tmp_path):
                   ("c", guns, (900.0, 0.0), 2.0, 0.0, "OBJECT_MSL")]
     got = TF.feature_ids(placements, lambda d: cache.geometry(str(tmp_path / d)))
     assert got == frozenset({"a", "b"})
-
-
-def test_a_town_over_its_hills_is_no_terrain_feature(tmp_path):
-    """#2250 round 2 (LGKR ``tile_HD4_09``): houses authored in absolute
-    heights up a 1.5 km slope pass area, underside and floor, but they
-    cover a few percent of their box: buildings, seated on our ground."""
-    vt, idx = [], []
-    for i in range(0, 1560, 60):
-        for j in range(0, 1560, 60):
-            y0 = 0.25 * i
-            base = len(vt)
-            vt += [(i + dx, y0 + dy, j + dz)
-                   for dy in (0, 6) for dx, dz in ((0, 0), (12, 0), (0, 12), (12, 12))]
-            idx += [base + k for k in (0, 1, 2, 1, 3, 2, 4, 6, 5, 5, 6, 7)]
-    town = O.parse_obj8(str(tmp_path / _write(tmp_path, "town.obj", vt, idx)))
-    area, span, floor = TF.underside(town)
-    assert area >= TF.MIN_AREA_M2 and span >= TF.MIN_UNDERSIDE_SPAN_M
-    assert floor <= TF.MAX_FLOOR_SHARE
-    assert not TF.is_terrain_feature(town)
-    assert TF.is_terrain_feature(O.parse_obj8(str(tmp_path / _mountain(tmp_path))))

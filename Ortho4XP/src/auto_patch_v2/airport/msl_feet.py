@@ -152,45 +152,19 @@ def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
     it keeps the on-ground conversion and is never split.  Every other
     member reads at the lift ``−y_min`` that stands its own lowest static
     feet on the ground at its origin, so the partition finds its feet and
-    the split anchors each body on them.
-
-    A SET AT TERRAIN SCALE (its static solid spanning ``terrain_model.
-    MIN_PLAN_M``; #2250 round 2) is guarded only by geometry AT its origin
-    -- under one of its static triangles (:func:`_guards_origin`, the
-    frame reading of RULINGS 2026-11-20l): an origin on a town tile's grid
-    corner is a datum, its box holds it, and a harbour wall under the
-    datum a kilometre away kept the whole town authored, over ground ours
-    lays metres lower (LGKR ``tile_AP1``)."""
+    the split anchors each body on them."""
     sets: dict[tuple, list] = {}
     for oid, key, g in items:
         v = static_vertices(g) if g is not None else None
         sets.setdefault(key, []).append(
             (oid, None if v is None else float(v[:, 1].min()),
-             v is not None and _built_around_origin(v, tol_m), g))
+             v is not None and _built_around_origin(v, tol_m)))
     out: dict[str, "float | None"] = {}
     for members in sets.values():
-        if any(y is None for _i, y, _b, _g in members):
-            guarded = True
-        elif _terrain_scale([g for _i, _y, _b, g in members]):
-            guarded = any(_guards_origin(static_triangles(g), tol_m)
-                          for _i, _y, _b, g in members)
-        else:
-            guarded = any(below for _i, _y, below, _g in members)
-        for oid, y, _b, _g in members:
+        guarded = any(y is None or below for _i, y, below in members)
+        for oid, y, _b in members:
             out[oid] = None if guarded else -_t.cast(float, y)
     return out
-
-
-def _terrain_scale(geoms: _t.Sequence[_t.Any]) -> bool:
-    """The static solids of ``geoms`` span ``terrain_model.MIN_PLAN_M`` on
-    their longer plan side (:func:`_on_datum`'s scale, read on geometry)."""
-    from .terrain_model import MIN_PLAN_M
-    vs = [static_vertices(g) for g in geoms]
-    vs = [v for v in vs if v is not None]
-    if not vs:
-        return False
-    v = np.concatenate(vs)
-    return max(float(np.ptp(v[:, 0])), float(np.ptp(v[:, 2]))) >= MIN_PLAN_M
 
 
 def _built_around_origin(v: np.ndarray, tol_m: float) -> bool:

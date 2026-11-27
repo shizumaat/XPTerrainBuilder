@@ -13,17 +13,7 @@ grid in its own plan frame, shows all three:
 * an underside that follows a slope — the lowest point per cell spans
   at least ``MIN_UNDERSIDE_SPAN_M`` (5th to 95th percentile);
 * no floor plane — at most ``MAX_FLOOR_SHARE`` of the cells have their
-  lowest point within ``FLOOR_BAND_M`` of the underside's 5th percentile;
-* it COVERS its ground (#2250 round 2): its occupied cells are at least
-  ``MIN_COVER`` of its plan box.  A town authored in absolute heights
-  over its hills (FlyTampa LGKR's ``tile_HD3..HD6`` files: 0.3-0.6 km2 of
-  buildings, undersides spanning 57-241 m) passed the three above and was
-  kept as authored, metres over our ground; its buildings occupy
-  0.039-0.075 of their box.  MEASURED over every terrain feature of the
-  shared Patches rebake plans (13 airports) and LXGB: rock, coast and
-  tree-cover meshes cover 0.19-0.67 (LXGB rock detail 0.19, KSEZ rock
-  0.385, TNCS coast 0.40-0.67); KOAK ``Terminal_Map.obj`` (0.001, a map
-  whose vertices reach far off its plan) is no longer one.
+  lowest point within ``FLOOR_BAND_M`` of the underside's 5th percentile.
 
 The dry census (#1169) over six big packs: LXGB's rock, its detail mesh
 and its tree cover (0.87–3.8 km2, underside 319–396 m, floor 0.05–0.06)
@@ -43,7 +33,7 @@ import typing as _t
 import numpy as np
 
 __all__ = ["CELL_M", "MIN_AREA_M2", "MIN_UNDERSIDE_SPAN_M", "MAX_FLOOR_SHARE",
-           "FLOOR_BAND_M", "MIN_COVER", "underside", "is_terrain_feature",
+           "FLOOR_BAND_M", "underside", "is_terrain_feature",
            "file_is_terrain_feature", "feature_rows", "feature_ids"]
 
 CELL_M = 10.0
@@ -51,9 +41,6 @@ MIN_AREA_M2 = 250_000.0
 MIN_UNDERSIDE_SPAN_M = 50.0
 MAX_FLOOR_SHARE = 0.25
 FLOOR_BAND_M = 1.0
-#: the share of its plan box a terrain feature's occupied cells cover (the
-#: module doc's census: features 0.19 and up, towns 0.075 and under)
-MIN_COVER = 0.15
 
 
 def underside(g: _t.Any) -> "tuple[float, float, float] | None":
@@ -79,15 +66,7 @@ def is_terrain_feature(g: _t.Any) -> bool:
     """The module rule on one parsed geometry."""
     u = underside(g)
     return u is not None and (u[0] >= MIN_AREA_M2 and u[1] >= MIN_UNDERSIDE_SPAN_M
-                              and u[2] <= MAX_FLOOR_SHARE and _cover(g, u[0]) >= MIN_COVER)
-
-
-def _cover(g: _t.Any, occupied_m2: float) -> float:
-    """The share of the static solid's plan box its occupied cells cover."""
-    from .msl_feet import static_vertices
-    v = static_vertices(g)
-    box = float(np.ptp(v[:, 0])) * float(np.ptp(v[:, 2])) if v is not None else 0.0
-    return occupied_m2 / box if box > 0.0 else 0.0
+                              and u[2] <= MAX_FLOOR_SHARE)
 
 
 @functools.lru_cache(maxsize=4096)

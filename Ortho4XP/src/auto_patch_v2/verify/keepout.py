@@ -386,6 +386,27 @@ def _object_cut_regions(p: Patch):
     return out
 
 
+def _mouth_zones(p: Patch) -> dict:
+    """``{cut id: polygon}``: each published object cut's MOUTH ZONE
+    (``object_cuts[].mouth_zone_ll``) in the census frame -- the square
+    strip beyond a covered shell's mouths its cut owns past the wall line,
+    out of §33 (6)'s scope (owner 2026-11-27T04:08Z, CYYZ T: "OK, make your
+    suggested change and I'll have to confirm in the sim")."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    out = {}
+    for rec in (p.publication.get("object_cuts") or ()):
+        if not isinstance(rec, dict):
+            continue
+        parts = [Polygon([p.to_m(float(la), float(lo)) for la, lo in ring])
+                 for ring in (rec.get("mouth_zone_ll") or ()) if len(ring) >= 3]
+        parts = [g if g.is_valid else g.buffer(0) for g in parts]
+        if parts:
+            out[str(rec.get("id") or "")] = unary_union(parts)
+    return out
+
+
 def _cut_faces(p: Patch):
     """The faces and features an object cut's own geometry wears: the ramp
     faces and the corridor RIM (``structure_rim``)."""
@@ -419,17 +440,19 @@ def object_cut_offset(p: Patch) -> list[Row]:
     if not regions:
         return []
     tol = max(weld_tol_m(p), OBJECT_CUT_OFFSET_M)
+    zones = _mouth_zones(p)
     out: list[Row] = []
     for sh in _cut_faces(p):
         pts = [(int(v), Point(p.xy[v])) for v in dict.fromkeys(sh.ids)
                if v in p.xy]
         if not pts:
             continue
-        for _cid, g, _floor in regions:
+        for cid, g, _floor in regions:
             if not any(g.contains(pt) for _v, pt in pts):
                 continue                      # another corridor's face
+            zone = zones.get(cid)
             for vid, pt in pts:
-                if g.contains(pt):
+                if g.contains(pt) or (zone is not None and zone.distance(pt) <= tol):
                     continue
                 d = pt.distance(g)
                 if d <= tol:

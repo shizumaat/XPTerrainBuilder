@@ -164,7 +164,7 @@ from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_statio
 from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
-from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
+from .structure_geometry import (beyond_strip, mouth_zone_of, collapse_for_ramp, corner_distance,
                                  pad_hit as _pad_hit, pad_knife,
                                  ramp_targets, reseat_expect as _reseat_expect,
                                  authored_crest as _authored_crest, seed_wall_stations)
@@ -1764,7 +1764,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          trench_outside_max_m=outside, level_floor=g.level_floor,
                          footprint=tuple((float(x), float(y)) for x, y in
                                          c.footprint.exterior.coords[:-1])
-                         if c.footprint.geom_type == "Polygon" else ())
+                         if c.footprint.geom_type == "Polygon" else (),
+                         mouth_zone=mouth_zone_of(c))
         tunnels.append(Tunnel(tid, tuple(i for m in members for i in m.ways),
                               tuple(axis), half, mouth_dem, mouth_z, s_top, climb_from,
                               tuple(ramp_refs), wall_ref, tuple(wall_path), tuple(decks),

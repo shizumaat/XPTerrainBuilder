@@ -36,7 +36,10 @@ class _Dem:
 
 
 def _airport(dem):
-    return types.SimpleNamespace(frame=FRAME, dem=dem, dsf_objects=())
+    # the road under the deck (owner 2026-11-27, ``planar/deck_under``)
+    road = types.SimpleNamespace(id=-9, points=((0.0, -60.0), (0.0, 60.0)),
+                                 tags={"highway": "primary"})
+    return types.SimpleNamespace(frame=FRAME, dem=dem, dsf_objects=(), osm_ways=(road,))
 
 
 def _garage(tmp_path, roof=12.3):

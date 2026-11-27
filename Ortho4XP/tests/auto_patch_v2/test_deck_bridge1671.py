@@ -93,7 +93,11 @@ def _classification(both_ends=True, dy=0.0):
     return types.SimpleNamespace(cells=tuple(cells))
 
 
-AIRPORT = types.SimpleNamespace(frame=FRAME)
+#: the road the decks span, N-S under them (owner 2026-11-27: a hard deck
+#: is a bridge only where something passes under it, ``planar/deck_under``)
+UNDER_ROAD = types.SimpleNamespace(id=-9, points=((0.0, -60.0), (0.0, 60.0)),
+                                   tags={"highway": "primary"})
+AIRPORT = types.SimpleNamespace(frame=FRAME, osm_ways=(UNDER_ROAD,))
 
 
 def _read(tmp_path, objs=None, cl=None, trenches=(), walls=True):

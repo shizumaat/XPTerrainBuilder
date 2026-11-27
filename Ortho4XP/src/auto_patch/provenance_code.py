@@ -1079,6 +1079,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.deck_span_cut",
     "auto_patch_v2.planar.deck_stack_attach",
     "auto_patch_v2.planar.deck_takeover",
+    "auto_patch_v2.planar.deck_under",
     "auto_patch_v2.planar.deck_walls",
     "auto_patch_v2.planar.deck_width",
     "auto_patch_v2.planar.door_ramps",

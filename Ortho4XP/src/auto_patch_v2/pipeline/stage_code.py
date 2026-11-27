@@ -3883,6 +3883,15 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
     if "auto_patch_v2.planar.low_level" in _mods_of:
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
                                              *_mods("planar.frontage_roads planar.past_wall")}))
+    if {"auto_patch_v2.planar.deck_bridge",
+            "auto_patch_v2.planar.overpass_deck"} & set(CODE_MODULES[_stage]):
+        # a hard deck needs something passing under it (lfront3 round 3)
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("planar.deck_under")}))
+    if "auto_patch_v2.constraints.kerb_frontage" in CODE_MODULES[_stage]:
+        # the frontage level's riser wall reads the landings (frontage_ramp)
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("constraints.frontage_ramp")}))
     if "auto_patch_v2.airport.road_ways" in _mods_of:
         # its carriageway corridors (``road_corridors``) read valid areas
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.valid_area")}))

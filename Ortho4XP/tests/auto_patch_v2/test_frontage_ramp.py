@@ -255,3 +255,20 @@ def test_a_hard_deck_needs_something_passing_under_it():
     assert passes_under(piece, NS(osm_ways=[across, corner])) == [(1, 40.0)]
     assert passes_under(piece, NS(osm_ways=[river])) == [(3, 100.0)]
     assert passes_under(piece, NS(osm_ways=[corner, apron])) == []
+
+
+def test_the_frontage_levels_riser_is_a_wall(monkeypatch):
+    """RULINGS 2026-11-26c: a pairwise row across the frontage level's
+    riser (a landing vertex to a wall vertex off it) is withdrawn; the
+    landing's own plane row to its datum stays."""
+    import auto_patch_v2.constraints.frontage_ramp as frm
+    import auto_patch_v2.constraints.kerb_frontage as kf
+    from auto_patch_v2.model.constraints import Diff
+    monkeypatch.setattr(kf, "kerb_vertices", lambda pm, law: ({1: ("b", 4.1)}, {7, 8, 9}))
+    monkeypatch.setattr(frm, "_landing_vertices", lambda pm: {8: ("b", 4.1)})
+    src = Source("pads", "structures.building_pad flat")
+    across = Diff(8, 9, 0.0, 1.4, src)                  # landing -> the block across the riser
+    within = Diff(8, 5, 0.0, 6.0, src)                  # landing -> its own lot
+    plane = Linear(((8, 1.0), (7, -1.0)), 4.1, 4.1, Source("platform_collar", "plane"))
+    kept, n = kf.kerb_wall_exempt([across, within, plane], NS(), LAW)
+    assert n == 1 and kept == [within, plane]

@@ -636,9 +636,14 @@ def _light_box(path: str) -> tuple[float, float, float, float]:
 
 
 def share_lift(floors: list, notes: list[str]) -> list:
-    """Every floor read in a lifted frame (one sharing a seat with a floor
-    whose ``lift`` is not 0) moves with it: its faces, zero and seats by the
-    same lift — the frame is one rigid world."""
+    """Every floor read in a lifted frame moves with it: its faces, zero and
+    seats by the same lift — the frame is one rigid world.  A floor is read
+    in that frame when its OWN placements (its floor object and covers)
+    move with the lifted pit -- stand among its seats.  Sharing a mere
+    co-placed mate is no such evidence: a shared-datum pack co-places a
+    whole airport, and one cargo pit's -22.62 m lift carried a tunnel floor
+    4 km away and its 205-placement frame under the ground with it (LEMD
+    ``Ground-FSX-LEMD85`` read in ``Cargo-tej2``'s frame, #2302)."""
     lifted = [f for f in floors if getattr(f, "lift", 0.0)]
     if not lifted:
         return floors
@@ -647,8 +652,8 @@ def share_lift(floors: list, notes: list[str]) -> list:
         if f.lift:
             out.append(f)
             continue
-        ids = {pid for pid, _r, _z in f.seats}
-        src = next((h for h in lifted if ids & {pid for pid, _r, _z in h.seats}), None)
+        own = {f.object_id, *f.covers}
+        src = next((h for h in lifted if own & {pid for pid, _r, _z in h.seats}), None)
         if src is None:
             out.append(f)
             continue

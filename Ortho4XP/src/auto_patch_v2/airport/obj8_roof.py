@@ -43,8 +43,7 @@ def roofed_fraction(v: np.ndarray, comps: _t.Sequence["Component"], ci: int,
     y_max = np.maximum(np.maximum(p0[:, 1], p1[:, 1]), p2[:, 1])
     floor = (ny >= normal_y_min) & (y_max <= comp.min_y + thickness_m)
     out = 0.0
-    plate = _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
-                          for tri in t[floor].tolist()]) if floor.any() else None
+    plate = _union_rings(v[t[floor]][:, :, [0, 2]]) if floor.any() else None
     if plate is not None and not plate.is_empty and plate.area > 0.0:
         top = float(y_max[floor].max()) + thickness_m
         x0, y0, x1, y1 = plate.bounds

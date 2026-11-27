@@ -68,6 +68,7 @@ import time
 import typing as _t
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -294,11 +295,18 @@ def _axis_crossing_mask(v: np.ndarray, tris: np.ndarray, a: XY, b: XY, wall_m: f
     if tris.shape[0] == 0:
         return out
     axis = LineString([a, b])
-    for k, t in enumerate(tris.tolist()):
-        pts = [(float(v[i][0]), float(v[i][2])) for i in t]
-        tri = Polygon(pts)
-        if tri.area > 1e-9 and tri.intersection(axis).length > wall_m:
-            out[k] = True
+    # the same polygons and the same per-triangle GEOS calls, in bulk
+    # (#2206); a triangle whose plan box misses the axis's meets it nowhere
+    pts = v[tris][:, :, [0, 2]].astype(float)
+    lo, hi = pts.min(axis=1), pts.max(axis=1)
+    near = ((lo[:, 0] <= max(a[0], b[0])) & (hi[:, 0] >= min(a[0], b[0]))
+            & (lo[:, 1] <= max(a[1], b[1])) & (hi[:, 1] >= min(a[1], b[1])))
+    idx = np.nonzero(near)[0]
+    if idx.size:
+        tri = shapely.polygons(pts[idx])
+        ok = shapely.area(tri) > 1e-9
+        idx, tri = idx[ok], tri[ok]
+        out[idx[shapely.length(shapely.intersection(tri, axis)) > wall_m]] = True
     return out
 
 
@@ -367,7 +375,7 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     skirt = -y_low                        # a FULL wall's skirt: below the seat
     horiz = ny >= ob.plate_normal_y_min
     pts = v[np.unique(tris.reshape(-1))]
-    hull = Polygon([(float(x), float(z)) for x, z in zip(pts[:, 0], pts[:, 2])]).convex_hull
+    hull = Polygon(pts[:, [0, 2]].astype(float)).convex_hull
     if hull.geom_type != "Polygon":
         return "the solids' plan hull is degenerate (a line)"
     ra = _rect_axis(hull)
@@ -470,9 +478,9 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
                 f"along the corridor axis, a plate's worth: >= plate_min_area_m2 "
                 f"{ob.plate_min_area_m2:.0f}): a building or a deck, not a wall skirt")
     # THE PLATE IN PLAN (round 2 §3.1): the walls' footprint
-    faces = [Polygon([(float(v[i][0]), float(v[i][2])) for i in t])
-             for t in tris[in_bin].tolist()]
-    plate = _fe.union([f for f in faces if f.area > 1e-9], "tunnel_objects.crest").buffer(0)
+    faces = shapely.polygons(v[tris[in_bin]][:, :, [0, 2]].astype(float))
+    plate = _fe.union(faces[shapely.area(faces) > 1e-9].tolist(),
+                      "tunnel_objects.crest").buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
     # A CREST NEEDS A WALL UNDER IT (RULINGS 2026-09-09w (2)): the very

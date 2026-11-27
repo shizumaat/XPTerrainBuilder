@@ -111,21 +111,23 @@ def test_straight_runs_equal_on_random_segments():
 def test_open_edges_equal_on_a_portal_ring():
     ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 8.0), (0.0, 8.0)]
     # walls on three sides, the east end (a portal) open
-    wall = shapely.union_all([LineString([(0, -0.3), (40, -0.3)]),
-                              LineString([(0, 8.3), (40, 8.3)]),
-                              LineString([(-0.3, 0), (-0.3, 8)])])
+    # the wall faces' segments, two of them crossing (the union nodes them)
+    segs = [LineString([(0, -0.3), (40, -0.3)]), LineString([(0, 8.3), (40, 8.3)]),
+            LineString([(-0.3, -1), (-0.3, 9)]), LineString([(-1, 4.0), (0.4, 4.1)])]
+    wall = shapely.union_all(segs)
     for probe in (0.1, 0.3, 0.30000000000000004, 0.5, 1.0):
-        assert object_cut._open_edges(ring, wall, probe) == _ref_open_edges(ring, wall, probe)
-    assert object_cut._open_edges(ring, wall, 0.5) == [1]
+        assert object_cut._open_edges(ring, segs, probe) == _ref_open_edges(ring, wall, probe)
+    assert object_cut._open_edges(ring, segs, 0.5) == [1]
 
 
 def test_open_edges_station_exactly_at_the_tolerance():
     """A station whose distance to the wall IS ``probe_m`` reads as the
     scalar loop read it — the bracket hands it to the scalar distance."""
     ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
-    wall = LineString([(0.0, -0.25), (10.0, -0.25)])
+    segs = [LineString([(0.0, -0.25), (10.0, -0.25)]), LineString([(5.0, -1.0), (5.0, 0.5)])]
+    wall = shapely.union_all(segs)
     for probe in (0.25, np.nextafter(0.25, 0.0), np.nextafter(0.25, 1.0)):
-        assert object_cut._open_edges(ring, wall, float(probe)) == \
+        assert object_cut._open_edges(ring, segs, float(probe)) == \
             _ref_open_edges(ring, wall, float(probe))
 
 

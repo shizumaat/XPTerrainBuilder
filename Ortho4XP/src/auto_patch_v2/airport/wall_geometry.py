@@ -90,6 +90,19 @@ def _plan_segments_indexed(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[flo
     pts = v[tris][:, :, [0, 2]]
     xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
     ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
+    ends, rows = farthest_ends(xs, ys)
+    if not rows:
+        return []
+    segs = shapely.linestrings(np.asarray(ends, dtype=float))
+    return list(zip(segs.tolist(), rows))
+
+
+def farthest_ends(xs: np.ndarray, ys: np.ndarray) -> tuple[list[tuple[XY, XY]], list[int]]:
+    """Per triangle row of plan coordinates ``xs`` / ``ys`` (``(n, 3)``):
+    the FIRST farthest pair of its three points by the scalar
+    ``math.dist`` (0-1, 0-2, 1-2), kept when at least ``_MIN_SEG_M``
+    long, with the rows kept (:func:`_plan_segments_indexed`,
+    ``object_cut._plan_segments``)."""
     dist = math.dist
     ends: list[tuple[XY, XY]] = []
     rows: list[int] = []
@@ -105,10 +118,7 @@ def _plan_segments_indexed(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[flo
         if best >= _MIN_SEG_M:
             ends.append((p, q))
             rows.append(k)
-    if not rows:
-        return []
-    segs = shapely.linestrings(np.asarray(ends, dtype=float))
-    return list(zip(segs.tolist(), rows))
+    return ends, rows
 
 
 def _chord_bearings(lines: np.ndarray) -> list[float]:

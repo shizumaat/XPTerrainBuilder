@@ -156,15 +156,15 @@ def _plan_segments(v: np.ndarray, tris: np.ndarray) -> list[LineString]:
     """Each (vertical) triangle's plan segment: the farthest pair of its
     three plan points — ONE implementation with
     ``wall_geometry._plan_segments_indexed``'s reading, in the AUTHORED
-    frame (that one carries a placement matrix; this one does not)."""
-    out = []
-    for t in tris.tolist():
-        P = [(float(v[i][0]), float(v[i][2])) for i in t]
-        best = max(((math.dist(P[i], P[j]), i, j)
-                    for i in range(3) for j in range(i + 1, 3)), key=lambda q: q[0])
-        if best[0] >= 0.02:
-            out.append(LineString([P[best[1]], P[best[2]]]))
-    return out
+    frame (that one carries a placement matrix; this one does not): the
+    pair by ``wall_geometry.farthest_ends``, the segments in ONE
+    ``shapely.linestrings`` call (#2206)."""
+    from .wall_geometry import farthest_ends
+    if tris.shape[0] == 0:
+        return []
+    pts = v[tris]
+    ends, _rows = farthest_ends(pts[:, :, 0], pts[:, :, 2])
+    return shapely.linestrings(np.asarray(ends, dtype=float)).tolist() if ends else []
 
 
 def valid_polygon(geom):
@@ -244,28 +244,52 @@ class ShellReading:
     floor_faces: "np.ndarray | None" = None
 
 
-def _open_edges(ring: _t.Sequence[XY], wall, probe_m: float) -> list[int]:
+#: metres either side of the probe inside which the wall's raw segments do
+#: not decide a station and their union does (:func:`_near_wall`)
+_RAW_BRACKET_M = 1e-6
+
+
+def _near_wall(segs: list, stations: np.ndarray, probe_m: float) -> np.ndarray:
+    """``wall.distance(s) <= probe_m`` per station, ``wall`` the union of the
+    wall faces' plan ``segs`` -- read off the RAW segments (#2206: the
+    noding union of 10^5 segments is most of a shell's reading), which lie
+    within double rounding of the union's: a station farther than
+    :data:`_RAW_BRACKET_M` from the probe by them is decided by them, and
+    only one inside that band is read against the union, made then."""
+    raw = shapely.multilinestrings(segs)
+    sure = _bulk.within_distance(raw, stations, max(probe_m - _RAW_BRACKET_M, 0.0))
+    near = _bulk.within_distance(raw, stations, probe_m + _RAW_BRACKET_M)
+    out = sure.copy()
+    amb = np.nonzero(near & ~sure)[0]
+    if amb.size:
+        out[amb] = _bulk.within_distance(unary_union(segs), stations[amb], probe_m)
+    return out
+
+
+def _open_edges(ring: _t.Sequence[XY], segs: list, probe_m: float) -> list[int]:
     """The ring edges with no wall face standing on them: an edge is
     OPEN when fewer than half of its stations (every ~2 m, ends included)
-    lie within ``probe_m`` of ``wall``."""
+    lie within ``probe_m`` of the wall, the union of the faces' plan
+    ``segs`` (:func:`_near_wall`)."""
     n = len(ring)
     if n == 0:
         return []
     # §B.3 (#28): every station of every edge in ONE array, read against
-    # the wall by ONE prepared ``dwithin`` (``bulk_geos.within_distance``
-    # returns exactly ``wall.distance(p) <= probe_m`` per station)
+    # the wall by prepared ``dwithin`` (:func:`_near_wall` returns exactly
+    # ``wall.distance(p) <= probe_m`` per station)
     edges = [LineString([ring[i], ring[(i + 1) % n]]) for i in range(n)]
     ks = [max(2, int(e.length / 2.0)) for e in edges]
     reps = np.asarray([k + 1 for k in ks])
     frac = np.concatenate([np.arange(k + 1) / k for k in ks])
     stations = shapely.line_interpolate_point(
         np.repeat(np.asarray(edges, dtype=object), reps), frac, normalized=True)
-    hits = _bulk.within_distance(wall, stations, probe_m)
+    hits = _near_wall(segs, stations, probe_m)
     per = np.add.reduceat(hits.astype(np.int64), np.concatenate(([0], np.cumsum(reps)[:-1])))
     return [i for i in range(n) if int(per[i]) / (ks[i] + 1) < 0.5]
 
 
-def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]], list[XY]]:
+def _ring_ends(interior: Polygon, segs: list, probe_m: float
+               ) -> tuple[list[list[int]], list[XY]]:
     """The trench ring's OPEN RUNS — maximal runs of consecutive ring
     edges with no wall face standing on them — and the simplified ring.
     A shell's ring is walled everywhere but at its portals; a portal
@@ -274,7 +298,7 @@ def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]]
     ``tunnel3_done``: a 44.4 m and a 2.5 m edge at one portal)."""
     ring = list(interior.simplify(_RING_SIMPLIFY_M).exterior.coords)[:-1]
     n = len(ring)
-    opens = _open_edges(ring, wall, probe_m)
+    opens = _open_edges(ring, segs, probe_m)
     runs: list[list[int]] = []
     for i in opens:
         if runs and (runs[-1][-1] + 1) % n == i:
@@ -392,8 +416,7 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     segs = _plan_segments(v, wall_tris)
     if not segs:
         return "the shell has no vertical wall face"
-    wall = unary_union(segs)
-    runs, ring = _ring_ends(interior, wall, _WALL_PROBE_M)
+    runs, ring = _ring_ends(interior, segs, _WALL_PROBE_M)
     if len(runs) < 2:
         return (f"the trench ring has {len(runs)} open end(s), not 2 "
                 f"(a shell is walled everywhere but at its portals)")

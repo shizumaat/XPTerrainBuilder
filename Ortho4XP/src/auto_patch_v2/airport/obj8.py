@@ -1304,8 +1304,7 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
         tris = g.hard_deck
         if tris.shape[0]:
             v = g.vertices
-            rings = [[(float(v[i][0]), float(v[i][2])) for i in t] for t in tris.tolist()]
-            u = _union_rings(rings)
+            u = _union_rings(v[tris][:, :, [0, 2]])
             if u is not None:
                 # §51 (4) row 4 — ENTRY
                 deck = _fe.enter([u], mat, cache.input_quantum_m)[0]
@@ -1623,8 +1622,7 @@ def _plan_footprint(v: np.ndarray, comp: Component):
     """THE COMPONENT'S WHOLE PLAN FOOTPRINT in authored coordinates (spec
     §24 (4)): every triangle of the shell, unclipped — what the object
     covers on the ground, wall tops and ramp decks included."""
-    return _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
-                         for tri in comp.tris.tolist()])
+    return _union_rings(v[comp.tris][:, :, [0, 2]])
 
 
 def _below_key(v: np.ndarray, comp: Component, plane_y: float):
@@ -1679,8 +1677,8 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     if not deep.any():
         return None
     ck = id(comp)
-    plate = _kept(memo, (ck, "plate", deep.tobytes()), lambda: _union_rings(
-        [[(float(v[i][0]), float(v[i][2])) for i in tri] for tri in t[deep].tolist()]))
+    plate = _kept(memo, (ck, "plate", deep.tobytes()),
+                  lambda: _union_rings(v[t[deep]][:, :, [0, 2]]))
     if plate is None:
         return None
     plane_ground = local - base                       # authored y of the ground

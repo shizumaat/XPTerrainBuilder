@@ -165,8 +165,8 @@ def test_a_resources_cover_is_read_once_and_placed_per_object(monkeypatch):
     g = _geom([_quad(0.5, 10.0), _pit(6.0, 10.0)])
     objs = [_ty.SimpleNamespace(id=f"o{i}", xy=(30.0 * i, 5.0), heading_deg=17.0 * i)
             for i in range(3)]
-    fresh = [dpc._placed(o, dpc._local_cover(g, 2.0, None, float(
-        LAW.tables.structures.bridge.deck_plate_normal_y_min)), LAW) for o in objs]
+    fresh = [dpc._placed(o, dpc._local_cover(dpc._cover_faces(g, 2.0, None, float(
+        LAW.tables.structures.bridge.deck_plate_normal_y_min))), LAW) for o in objs]
     calls = []
     real = dpc._local_cover
     monkeypatch.setattr(dpc, "_local_cover", lambda *a: calls.append(1) or real(*a))
@@ -175,3 +175,22 @@ def test_a_resources_cover_is_read_once_and_placed_per_object(monkeypatch):
     assert [p.wkb_hex for p in got] == [p.wkb_hex for p in fresh]
     dpc._cover_plan(objs[0], g, LAW, 2.0, 0.25)
     assert len(calls) == 2                    # another floor is another reading
+
+
+def test_a_cover_no_face_of_which_comes_near_the_region_is_never_read(monkeypatch):
+    # #2206: the placed faces are asked first; a placement whose faces stand
+    # nowhere near the deck region reads no union, one near it reads the
+    # plan the region-free read gives
+    import types as _ty
+
+    from auto_patch_v2.planar import deck_pack_cover as dpc
+    g = _geom([_quad(0.5, 10.0), _pit(6.0, 10.0)])
+    o = _ty.SimpleNamespace(id="o", xy=(30.0, 5.0), heading_deg=17.0)
+    calls = []
+    real = dpc._local_cover
+    monkeypatch.setattr(dpc, "_local_cover", lambda *a: calls.append(1) or real(*a))
+    assert dpc._cover_plan(o, g, LAW, 2.0, region=box(500, 500, 510, 510)) is None
+    assert calls == []
+    near = dpc._cover_plan(o, g, LAW, 2.0, region=box(25, 0, 35, 10))
+    assert len(calls) == 1
+    assert near.wkb_hex == dpc._cover_plan(o, g, LAW, 2.0).wkb_hex

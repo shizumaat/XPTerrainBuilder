@@ -425,8 +425,7 @@ def _plan_union(v: np.ndarray, tris: np.ndarray):
     from .obj8_clip import _union_rings
     if tris.shape[0] == 0:
         return None
-    return _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
-                         for tri in tris.tolist()])
+    return _union_rings(v[tris][:, :, [0, 2]])
 
 
 def _fit_plane(pts: np.ndarray) -> tuple[float, float, float, float]:

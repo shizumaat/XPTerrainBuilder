@@ -102,6 +102,10 @@ class SourceRecord:
     network_strip: bool = False     # ...re-kinded a road strip by it: touches a pad (R1, §3)
     rail_m: float = 0.0     # #1548: at-grade mapped railway length inside
     path_taxi_name: str = ""  # #2134 Q5: a library PATH's taxiway word (the lowest rung)
+    #: a LOT witness on the page (``classify/lot_evidence``: E1 OSM car park,
+    #: E2 OSM parking aisle), ``""`` when none -- a ``lot`` page without one
+    #: is the DEFAULT ROAD (owner 2026-11-26T23:48Z)
+    lot_evidence: str = ""
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {
@@ -115,6 +119,8 @@ class SourceRecord:
             out["source_taxi_name"] = self.taxi_name
         if self.path_taxi_name:
             out["source_path_taxi_name"] = self.path_taxi_name
+        if self.lot_evidence:
+            out["source_lot_evidence"] = self.lot_evidence
         return out
 
 
@@ -399,6 +405,7 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     too_narrow_for_lot = (rules.service.road_width_m <= width
                           <= lot.min_lot_width_m)
     cls, reason = "open", "no road; or taxi/startup/apron evidence"
+    witness = ""
     if named is not None and taxi_m < rules.cells.min_shared_m:
         reason = (f"taxi by name {tok!r}" + (f" ({desig})" if desig else "")
                   + " (04z-1), no taxi centreline")
@@ -448,8 +455,10 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
             acov < lot.apron_cover_fraction and not apron_named(description, rules):
         if pcov >= lot.parking_cover_fraction:
             cls, reason = "lot", f"amenity=parking covers {pcov:.0%}"
+            witness = f"E1: {reason}"
         elif aisle_m > 0.0 and carries_osm:
             cls, reason = "lot", f"OSM parking aisle {aisle_m:.0f} m inside"
+            witness = f"E2: {reason}"
         elif too_narrow_for_lot:
             # §37 (5): MAPPED parking evidence (the two rungs above — an
             # ``amenity=parking`` polygon, an OSM parking aisle) is a
@@ -466,7 +475,8 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
                                   f"no startup, width {width:.1f} m")
     return SourceRecord(sid, description, poly.area, width, road_m, osm_m, through,
                         dead_ends, pieces, reach, aisle_m, taxi_m, starts, pcov, acov,
-                        cls, reason, tok, desig, path_taxi_name=path_name)
+                        cls, reason, tok, desig, path_taxi_name=path_name,
+                        lot_evidence=witness)
 
 
 def _road_reach(poly: Polygon, tree: STRtree | None, lines, tol: float) -> int:

@@ -30,8 +30,8 @@ own within-shape rows are ever TIGHTENED (to the road's cross-fall); the
 5 % ceiling's twin and the road-cap fallback only widen, as every release
 does (``constraints/public_road_release``).
 
-THE VERTICES are the lot's own (``model/lot_ground.lot_datum_vertices``:
-carried by no other face, no level target) and never airside: a row with a
+THE VERTICES are the lot's own (``model/lot_ground.lot_follower_vertices``:
+the lot's and its roads', no pad level) and never airside: a row with a
 stage-1 foot is the airside's and is not touched.  They carry the lot's
 weak DEM row (``solve/design_assemble`` 9'), so the road follows its ground
 under its own law."""
@@ -55,7 +55,7 @@ from ..geom.exact import dist
 from ..law import Law
 from ..law.tables import road_terrain_cap, role_cap
 from ..model.constraints import Diff, Row
-from ..model.lot_ground import LOT_DATUM_ROLE, is_datum_lot, lot_datum_vertices
+from ..model.lot_ground import LOT_DATUM_ROLE, is_datum_lot, lot_follower_vertices
 from ..model.planar import PlanarMap, face_vertex_set
 
 __all__ = ["neck_pair_bounds", "neck_release"]
@@ -86,7 +86,7 @@ class _LotRoad:
 
 def _lot_roads(planar: PlanarMap, law: Law) -> list[_LotRoad]:
     """Every road a lot of ``planar`` narrows into (module docstring)."""
-    own = lot_datum_vertices(planar) - stage_one_vertices(planar, law)
+    own = lot_follower_vertices(planar, law) - stage_one_vertices(planar, law)
     if not own:
         return []
     lots = [_polygon(planar, f) for f in planar.faces.values() if is_datum_lot(f)]

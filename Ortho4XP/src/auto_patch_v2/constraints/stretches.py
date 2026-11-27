@@ -57,6 +57,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+import numpy as np
+
 from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family
@@ -362,6 +364,52 @@ class AxisIndex:
                 best = (d, ux, uy, cl, ct)
         return best
 
+    def _best_all(self, x: float, y: float
+                  ) -> tuple[float, float, float, float, float] | None:
+        """``_best(x, y, range(len(segs)))`` -- the WHOLE-INDEX scan, the same
+        answer bit for bit (#2206: 12,848 such scans were 60 s of KATL's
+        taxi boxes).  Every distance is measured at once in the scan's own
+        operations (``exact.hypot_array``: the same IEEE products, sums and
+        square root per segment), then the scan's update rule runs, in
+        ascending index, over the only segments that can change its answer:
+        one within ``tie_m`` of the running best (a nearer one, or a tie
+        with a stricter cap).  A tie that RAISES the running distance widens
+        that set, so the candidates are re-read past it."""
+        arr = self._arrays()
+        if arr is None:
+            return None
+        ax, ay, ux, uy, ln, cl = arr
+        t = np.maximum(0.0, np.minimum(ln, (x - ax) * ux + (y - ay) * uy))
+        d = exact.hypot_array(x - (ax + t * ux), y - (ay + t * uy))
+        tie, segs = self.tie_m, self.segs
+        bd, bc, bk, pos, n = float(d[0]), segs[0][5], 0, 1, len(segs)
+        while pos < n:
+            # a superset of the segments the rule can take (2x the tie and a
+            # relative ulp margin: the rule's own subtraction rounds)
+            lim = bd + 2.0 * tie + abs(bd) * 1e-12
+            widened = False
+            for j in (np.flatnonzero(d[pos:] <= lim) + pos).tolist():
+                dj, cj = float(d[j]), segs[j][5]
+                if dj < bd - tie or (abs(dj - bd) <= tie and cj < bc):
+                    up = dj > bd
+                    bd, bc, bk = dj, cj, j
+                    if up:
+                        pos, widened = j + 1, True
+                        break
+            if not widened:
+                break
+        _ax, _ay, bux, buy, _ln, bcl, bct = segs[bk]
+        return bd, bux, buy, bcl, bct
+
+    def _arrays(self) -> tuple | None:
+        """The segments as six float arrays (``ax, ay, ux, uy, ln, cap_l``),
+        built once per index; ``None`` with no segment."""
+        got = getattr(self, "_seg_arrays", None)
+        if got is None and self.segs:
+            cols = np.array([s[:6] for s in self.segs], dtype=float)
+            got = self._seg_arrays = tuple(np.ascontiguousarray(cols[:, i]) for i in range(6))
+        return got
+
     def _within(self, x: float, y: float, r: float) -> _t.Sequence[int]:
         """Segment indices, ASCENDING, that can lie within ``r`` of
         ``(x, y)`` — a SUPERSET of those whose :meth:`_tied` distance reads
@@ -437,7 +485,7 @@ class AxisIndex:
         reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
                     y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
         if best is None or best[0] > reach:
-            best = self._best(x, y, range(len(self.segs)))
+            best = self._best_all(x, y)
         if best is None:
             return None
         d, ux, uy, cl, ct = best

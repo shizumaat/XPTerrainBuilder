@@ -2288,7 +2288,18 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # fetch_airport_imagery``) — this step reads the photos, it does not
         # download (its code key stays the vector step's, #836); a build
         # without the hook reads no photos and every imagery vote abstains
+        # THE GATEWAY ANSWER BEFORE THE PATCH (#2212): the feeds are on
+        # disk now, so a first build asks here what the run-start question
+        # could not read, and the patches wait for the answer while the
+        # photos download (an Install in time: built once, on the pack).
+        # The session hands the question in (``tile.gateway_before_patches``,
+        # ``auto_patch.gateway_wait.before_patches``): a question changes
+        # no patch, so it stays out of this step's code key (#836).
+        ask_gateway = getattr(tile, "gateway_before_patches", None)
+        wait_gateway = ask_gateway(cifp_path) if ask_gateway else None
         airport_imagery = _airport_imagery(tile, dico_airports)
+        if wait_gateway is not None:
+            wait_gateway()
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,

@@ -171,6 +171,53 @@ class TestSeaRemainder:
         assert fetched == [(38, -11, 39, -9.5)]
         assert b"portugal" in xml
 
+    def test_unknown_land_takes_no_unstored_parent_first(self, store):
+        # #2218 (2): the build's first ask downloads no parent for land
+        # nobody knows; a parent already stored still serves.
+        box = (38, -11, 39, -9.5)
+        assert EXTRACTS.covering_regions(box, unknown_land_parent=False) \
+            is None
+        with open(EXTRACTS._region_file("europe"), "wb") as pbf:
+            pbf.write(_PBF_HEADER)
+        assert [r for (r, _u) in EXTRACTS.covering_regions(
+            box, unknown_land_parent=False)] == ["europe"]
+
+    def test_elevation_showing_sea_spares_the_parent(
+            self, store, monkeypatch):
+        # #2218 (2): TLPL's 758 MB parent for a box whose remainder the
+        # elevation shows is sea: the leaf serves, the parent is never
+        # downloaded.
+        with open(EXTRACTS._region_file("portugal"), "wb") as pbf:
+            pbf.write(_PBF_HEADER)
+
+        def fetch(box):
+            _witness_posts(monkeypatch, [(-9.0, 38.5)])
+            return True
+
+        monkeypatch.setattr(LAND, "fetch_elevation", fetch)
+        monkeypatch.setattr(EXTRACTS, "_ensure_extracts_foreground",
+                            lambda regions: pytest.fail(repr(regions)))
+        monkeypatch.setattr(EXTRACTS, "_filter_stored_extracts",
+                            lambda regions, *_a: repr(regions).encode())
+        xml = EXTRACTS.osm_xml_from_local_extracts(
+            ['natural=reef'], (38, -11, 39, -9.5))
+        assert b"portugal" in xml and b"europe" not in xml
+
+    def test_no_elevation_to_be_had_keeps_the_parent(self, store, monkeypatch):
+        # The fetch fails (the fixture's): the whole-box parent, as before.
+        def download(regions):
+            assert [r for (r, _u) in regions] == ["europe"]
+            with open(EXTRACTS._region_file("europe"), "wb") as pbf:
+                pbf.write(_PBF_HEADER)
+            return True
+
+        monkeypatch.setattr(EXTRACTS, "_ensure_extracts_foreground", download)
+        monkeypatch.setattr(EXTRACTS, "_filter_stored_extracts",
+                            lambda regions, *_a: repr(regions).encode())
+        xml = EXTRACTS.osm_xml_from_local_extracts(
+            ['natural=reef'], (38, -11, 39, -9.5))
+        assert b"europe" in xml
+
     def test_fetch_elevation_skips_ocean_and_known_cells(self, monkeypatch):
         import O4_DEM_Utils as DEM
 

@@ -50,8 +50,10 @@ is built to check if a newer version is available on the gateway."
   carrying the sidecar.
 * :func:`gateway_choice` — the ``gateway_airports`` command: ``"ask"``,
   ``"install"`` (the rows ticked; a row shown and left unticked is
-  remembered as "never"), ``"never"``, ``"undo"`` (the flatten rows put
-  back in the installed pack).
+  remembered as "never"), ``"never"``, ``"later"`` (Not now: the patches
+  waiting for the answer go on, #2212), ``"undo"`` (the flatten rows put
+  back in the installed pack).  Each answer is recorded with its time
+  (``gateway_wait.note_answer``) for a patch that waits on it.
 """
 from __future__ import annotations
 
@@ -66,12 +68,13 @@ import typing as _t
 from auto_patch_v2.airport import pack_choice as _PC
 
 from . import gateway_api as _api
+from . import gateway_wait as _WAIT
 
 __all__ = ["ACTIONS", "SIDECAR", "gateway_stage", "gateway_choice",
            "gateway_early", "begin_run", "stale_patches"]
 
 #: the actions of the ``gateway_airports`` command
-ACTIONS = ("install", "never", "undo", "ask")
+ACTIONS = ("install", "never", "undo", "ask", "later")
 #: the file in a pack the app installed from the Gateway: what it is
 SIDECAR = "xptb_gateway.json"
 #: how long one Gateway answer stands for the update check (one build
@@ -525,7 +528,11 @@ def gateway_choice(xplane_root: str | None, action: str,
         elif action == "never":
             for icao in seen:
                 STORE.remember(_choice_key(xplane_root, icao), "never")
+                _WAIT.note_answer(xplane_root, icao, "never")
             state = "never"
+        elif action == "later":
+            for icao in seen:
+                _WAIT.note_answer(xplane_root, icao, "later")
         elif action == "undo":
             for icao in picked:
                 files += _undo(xplane_root, icao)
@@ -534,13 +541,18 @@ def gateway_choice(xplane_root: str | None, action: str,
             for icao in seen:
                 if icao not in picked:
                     STORE.remember(_choice_key(xplane_root, icao), "never")
+                    _WAIT.note_answer(xplane_root, icao, "never")
+            for icao in picked:
+                _WAIT.note_answer(xplane_root, icao, "installing")
             for icao in picked:
                 try:
                     done = _install(xplane_root, icao, fetch)
                 except (_api.GatewayError, OSError) as exc:
                     errors.append(f"{icao}: {exc}")
                     _say(0, f"  [gateway] {icao}: the install failed ({exc})")
+                    _WAIT.note_answer(xplane_root, icao, "failed")
                     continue
+                _WAIT.note_answer(xplane_root, icao, "install")
                 STORE.remember(_choice_key(xplane_root, icao), "")
                 with _RUN_LOCK:
                     _RUN["installed"].add(icao)

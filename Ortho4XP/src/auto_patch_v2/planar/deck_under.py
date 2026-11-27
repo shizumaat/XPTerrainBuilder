@@ -17,8 +17,8 @@ footways under 3 m).
 THE RULE (:func:`passes_under`): a deck piece is a bridge only where
 something crosses UNDER it -- a mapped way (road, rail, waterway, a mapped
 tunnel's ramp) whose run inside the piece is at least half the piece's
-narrow width (its minimum rotated rectangle's short side: a bridge spans
-what passes under it, which runs the deck's width), or a co-placed trench
+narrow width (:func:`_narrow`: a bridge spans what passes under it,
+which runs the deck's width), or a co-placed trench
 object stating its walls (the caller's ``walled``).  Without one the deck
 is no bridge: the object seats at grade and the ground is one level.
 Nothing here names an airport."""
@@ -35,13 +35,18 @@ UNDER_TAGS = ("highway", "railway", "waterway")
 
 
 def _narrow(piece) -> float:
+    """The piece's narrow width: its minimum rotated rectangle's short side,
+    or its mean width ``2 A / P`` where that is less (a long curved deck --
+    MEASURED KLAX ``Tracks.obj``, a 71 k m2 guideway whose rectangle is
+    hundreds of metres wide while the roads cross under it in ~10 m)."""
     r = piece.minimum_rotated_rectangle
     c = list(r.exterior.coords)
     if len(c) < 4:
         return 0.0
     a = LineString(c[:2]).length
     b = LineString(c[1:3]).length
-    return min(a, b)
+    mean = 2.0 * piece.area / piece.length if piece.length > 0.0 else 0.0
+    return min(a, b, mean)
 
 
 def passes_under(piece, airport) -> list[tuple[object, float]]:

@@ -4015,3 +4015,17 @@ for _stage in ("emit", "verify"):
         "geom.deck_end_edge verify.deck_pinch verify.frame")}))
 CODE_MODULES["constraints.fill_toe_pins"] = tuple(sorted({
     *CODE_MODULES["constraints.fill_toe_pins"], *_mods("geom.wall_lines model.deck_bank")}))
+# #2206 lane lprefix: the item memos across the prefix runs (geom/item_memo,
+# read by planar/ground_chords, geom/proportions and pipeline/prefix), the
+# road answers by content (airport/road_answer) and the unit plans held per
+# partition (airport/unit_storey reads model/map_memo)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    _have = set(_mods_of)
+    if {"auto_patch_v2.planar.ground_chords", "auto_patch_v2.geom.proportions",
+            "auto_patch_v2.airport.road_profile", "auto_patch_v2.pipeline.prefix"} & _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.item_memo")}))
+    if "auto_patch_v2.airport.road_profile" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("airport.road_answer model.map_memo")}))
+    if "auto_patch_v2.airport.unit_storey" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("model.map_memo")}))

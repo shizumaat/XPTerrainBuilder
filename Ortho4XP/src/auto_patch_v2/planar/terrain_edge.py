@@ -233,9 +233,21 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
     out: list = []
     relief: list = []
     n_runs = 0
+    # #2206: the part's buffer is built once per distance (not once per
+    # road), and a road whose box misses the buffer's box is skipped --
+    # its intersection is empty, as the loop read it
+    bufs: dict[float, tuple] = {}
     for road in roads:
         road, half = road if isinstance(road, tuple) else (road, default)
-        line = road.intersection(part.buffer(half + g, **_MITRE))
+        got = bufs.get(half + g)
+        if got is None:
+            buf = part.buffer(half + g, **_MITRE)
+            got = bufs[half + g] = (buf, buf.bounds)
+        rx0, ry0, rx1, ry1 = road.bounds
+        bx0, by0, bx1, by1 = got[1]
+        if rx0 > bx1 or rx1 < bx0 or ry0 > by1 or ry1 < by0:
+            continue
+        line = road.intersection(got[0])
         if line.is_empty:
             continue
         for piece in getattr(line, "geoms", [line]):

@@ -40,6 +40,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom.item_memo import ItemMemo
 from ..model.frame import XY
 
 __all__ = ["road_ground_densifier", "near_any"]
@@ -124,7 +125,12 @@ def follow_ground(points: _t.Sequence[XY], z_many: _t.Callable, tol_m: float,
     by more than ``tol_m``; every new vertex lies on the chord it splits.
     Ground the DEM cannot read (NaN) is never a reason to split; nor is a
     designed ramp's stretch (module docstring), where ``mouth`` names the
-    ring vertices on a contact and ``ramp`` the ramp law's grades."""
+    ring vertices on a contact and ``ramp`` the ramp law's grades.
+
+    #2206: the ground is READ here, every time (a cached build's DEM witness
+    names each question); what follows is a pure function of the ring, the
+    ground it was handed, its mouths and the law's numbers, answered once
+    per content across the build's prefix runs (``geom/item_memo``)."""
     pts = list(points)
     if len(pts) < 2 or tol_m <= 0.0 or sample_m <= 0.0:
         return pts
@@ -144,16 +150,42 @@ def follow_ground(points: _t.Sequence[XY], z_many: _t.Callable, tol_m: float,
     # ONE ground read for the whole ring (#2206: one per chord was 168,000
     # reads at KATL); a point's ground is its own, whatever is read beside it
     z_all = np.asarray(z_many(np.concatenate(xs), np.concatenate(ys)), dtype=float)
-    zss: list[np.ndarray] = np.split(z_all, np.cumsum([len(ts) for ts in tss])[:-1])
-    free = [np.ones(len(ts), dtype=bool) for ts in tss]
+    heads = None
     if mouth is not None and ramp is not None:
         closed = pts[0] == pts[-1]
+        heads = _mouths(mouth, pts[:-1] if closed else pts)
+    key = (type(pts[0][0]), tuple(pts), z_all.tobytes(),
+           None if heads is None else heads.tobytes(), float(tol_m), float(sample_m),
+           float(min_piece_m), None if heads is None else tuple(ramp))
+    return list(_FOLLOWED.get(key, lambda: tuple(_followed(
+        pts, chords, tss, lens, z_all, heads, tol_m, min_piece_m, ramp))))
+
+
+#: the rings answered, by content (#2206, ``geom/item_memo``)
+_FOLLOWED = ItemMemo("ground_chords.follow_ground")
+
+
+def _mouths(mouth: MouthOf, pts: _t.Sequence[XY]) -> np.ndarray:
+    """Which of ``pts`` are mouths: ``mouth.many`` (one tree query,
+    :func:`near_any`) where the test carries it, else point by point."""
+    many = getattr(mouth, "many", None)
+    if many is not None:
+        return np.asarray(many(pts), dtype=bool)
+    return np.fromiter((bool(mouth(p)) for p in pts), bool, len(pts))
+
+
+def _followed(pts, chords, tss, lens, z_all: np.ndarray, heads: np.ndarray | None,
+              tol_m: float, min_piece_m: float, ramp: Ramp | None) -> list[XY]:
+    """:func:`follow_ground`'s answer from the ring's ground ``z_all`` and its
+    mouth flags ``heads`` (``None``: no ramp walk)."""
+    zss: list[np.ndarray] = np.split(z_all, np.cumsum([len(ts) for ts in tss])[:-1])
+    free = [np.ones(len(ts), dtype=bool) for ts in tss]
+    if heads is not None:
+        closed = pts[0] == pts[-1]
         ds = [np.diff(ts) * d for ts, d in zip(tss, lens, strict=True)]
-        for i, p in enumerate(pts[:-1] if closed else pts):
-            if not mouth(p):
-                continue
+        for i in np.flatnonzero(heads):
             for step in (1, -1):
-                for c, k in _walk(zss, ds, i, step, closed, ramp):
+                for c, k in _walk(zss, ds, int(i), step, closed, ramp):
                     free[c][k] = False
     out: list[XY] = [pts[0]]
     for ((ax, ay), (bx, by)), ts, zs, d, fr in zip(chords, tss, zss, lens, free, strict=True):
@@ -177,6 +209,18 @@ def near_any(polygons: _t.Sequence, distance: float) -> MouthOf | None:
 
     def near(p: XY) -> bool:
         return len(tree.query(Point(p), predicate="dwithin", distance=distance)) > 0
+
+    def many(pts: _t.Sequence[XY]) -> np.ndarray:
+        """``near`` of every point in ONE tree query (the same predicate per
+        pair, so the same answer; #2206)."""
+        import shapely
+        out = np.zeros(len(pts), dtype=bool)
+        if len(pts):
+            hit = tree.query(shapely.points(np.asarray(pts, dtype=float)),
+                             predicate="dwithin", distance=distance)
+            out[hit[0]] = True
+        return out
+    near.many = many                     # type: ignore[attr-defined]
     return near
 
 

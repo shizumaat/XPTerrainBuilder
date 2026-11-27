@@ -68,12 +68,11 @@ from ..geom import exact
 from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
-from ..model.frame import rotated_rectangle
-from ..law.tables import (road_family_roles, road_steep_law, road_terrain_cap,
-                          role_cap, senior_role)
+from ..law.tables import road_family_roles, road_steep_law, road_terrain_cap, role_cap, senior_role
 from ..model.airport import Airport
-from ..model.frame import XY
+from ..model.frame import XY, rotated_rectangle
 from ..model.planar import PlanarMap
+from .road_answer import ANSWERS, answer_key
 from .road_stations import StationTable
 
 __all__ = ["Way", "Answer", "RoadProfiles", "stations", "clamp_profile", "at_grade_rsa_vertices",
@@ -343,8 +342,9 @@ class RoadProfiles:
 
     def __getstate__(self) -> dict:
         state = dict(self.__dict__)
-        for memo in ("_line_memo", "_table_memo", "_box_memo"):
-            state.pop(memo, None)          # rebuilt on use, never stored
+        for memo in ("_line_memo", "_table_memo", "_box_memo",
+                     "_way_keys", "_walls_key"):    # rebuilt on use, never stored
+            state.pop(memo, None)
         return state
 
     def _line(self, way: Way) -> LineString:
@@ -397,6 +397,18 @@ class RoadProfiles:
         cands = through + [(w, self.radius_m) for w in near]
         if not cands:
             return Answer(float(dem), None, None, math.inf)
+        # #2206: one answer per content across the build's prefix runs
+        # (``airport/road_answer``), rebuilt around THIS run's way
+        k, z, kind, ref, lat, s, t = ANSWERS.get(
+            answer_key(self, pt, dem, through, near),
+            lambda: self._answer(pt, dem, through, near, cands))
+        if k < 0:
+            return Answer(z, None, None, math.inf)
+        return Answer(z, kind, ref, lat, cands[k][0], s, t)
+
+    def _answer(self, pt: XY, dem: float, through, near, cands) -> tuple:
+        """:meth:`answer`'s reading: ``(k, z, kind, ref, lateral, s, t)``,
+        ``k`` the winning candidate (``-1``: the DEM)."""
         # THE STATION TABLE (#412 C8): every candidate projected in one
         # numpy pass, GEOS's reading (``airport/road_stations``); the
         # through-ways' table is a face's, the near ways' a neighbourhood's
@@ -416,15 +428,14 @@ class RoadProfiles:
         if self.walls and ok.any():
             ok = self._same_side(pt, cands, s_all, lat_all, ok)
         if not ok.any():
-            return Answer(float(dem), None, None, math.inf)
+            return -1, float(dem), None, None, math.inf, 0.0, 0.0
         rank = np.where(osm & (lat_all <= self.radius_m), 0, 1)
         # the first candidate at the least (rank, lateral), as the loop read
         k = int(np.lexsort((np.arange(len(cands)), np.where(ok, lat_all, np.inf),
                             np.where(ok, rank, 2)))[0])
         w = cands[k][0]
         s, lat = float(s_all[k]), float(lat_all[k])
-        return Answer(w.at(s), w.kind, w.ref, lat, w, s,
-                      _signed_offset(self._line(w), s, pt))
+        return k, w.at(s), w.kind, w.ref, lat, s, _signed_offset(self._line(w), s, pt)
 
     def _same_side(self, pt: XY, cands, s_all, lat_all, ok) -> np.ndarray:
         """``ok`` less every candidate whose way lies ACROSS a retaining

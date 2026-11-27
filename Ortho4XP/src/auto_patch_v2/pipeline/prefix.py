@@ -30,6 +30,7 @@ from ..constraints.runway_chord import ChordReport, with_runway_chord
 from ..constraints.runway_yield import yielded_lines
 from ..constraints.taxi_trend import TaxiTrendReport, with_taxi_trend
 from ..emit.road_join import with_road_coverage_join
+from ..geom import item_memo as _items
 from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
 from . import capture_state as _cstate
@@ -304,6 +305,8 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
 
     def tick(what: str) -> None:
         _pulse.tick(heartbeat or what)
+    # #2206: the item memos keep the run before this one (``geom/item_memo``)
+    _items.next_run()
     wall: dict[str, float] = {}
     t = time.perf_counter()
     if cache is not None:

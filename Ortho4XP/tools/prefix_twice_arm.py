@@ -44,6 +44,25 @@ def _fields(obj: _t.Any) -> dict[str, str]:
     return {f.name: _digest(getattr(obj, f.name)) for f in _dc.fields(obj)}
 
 
+def _laps(rec: _t.Any) -> tuple[dict, list]:
+    """A run's planar sub-step laps (``PlanarStats.step_s``) and its
+    generators' seconds, slowest first -- clocks, never in a digest."""
+    planar = dict(getattr(rec.pstats, "step_s", None) or {})
+    gens = sorted(((k, float(v)) for k, v in (rec.gwalls or {}).items()),
+                  key=lambda kv: -kv[1])
+    return planar, gens
+
+
+def _memo_reads() -> dict[str, tuple[int, int]]:
+    """Every item memo's ``(hits, asks)`` so far (``geom/item_memo``; none in
+    a tree that predates it)."""
+    try:
+        from auto_patch_v2.geom import item_memo as _im
+    except ImportError:
+        return {}
+    return {m.name: (m.reads["hit"], m.reads["hit"] + m.reads["miss"]) for m in _im._ALL}
+
+
 def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
                  out: _t.Callable[[str], None] = print) -> dict:
     """The two derives (module docstring); returns the clocks and the late
@@ -53,16 +72,18 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
 
     def both() -> dict:
         derive = Deriver(airport, law, inputs, pack)
-        walls = []
+        walls, laps, reads = [], [], [_memo_reads()]
         for what, cl_x in (("base", gap_free(cl) or cl), ("late", cl)):
             t, c = time.perf_counter(), time.process_time()
             derive(cl_x)
             walls.append((what, time.perf_counter() - t,
                           time.process_time() - c))
+            laps.append(_laps(derive.last))
+            reads.append(_memo_reads())
             # the build's later derives take the main pass's airport
             derive.airport = derive.last.airport
         pm, cs = derive.last.pm, derive.last.cs
-        return {"walls": walls, "clocks": list(derive.clocks),
+        return {"walls": walls, "clocks": list(derive.clocks), "laps": laps, "reads": reads,
                 "late_pm": _digest(pm), "late_cs": _digest(cs),
                 "late_pm_fields": _fields(pm)}
     got = both()
@@ -70,6 +91,15 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
         steps = ", ".join(f"{k} {v:.1f}" for k, v in clock["wall_s"].items())
         out(f"[{icao}] PREFIX TWICE {what} derive "
             f"{s:.1f} s (cpu {cpu:.1f} s), steps sum {clock['total_s']:.1f} s: {steps}")
+    for (what, _s, _c), (planar, gens) in zip(got["walls"], got["laps"], strict=True):
+        out(f"[{icao}] PREFIX TWICE {what} planar laps: "
+            + ", ".join(f"{k} {v:.1f}" for k, v in planar.items()))
+        out(f"[{icao}] PREFIX TWICE {what} generators: "
+            + ", ".join(f"{k} {v:.1f}" for k, v in gens[:16]))
+    for (what, _s, _c), r0, r1 in zip(got["walls"], got["reads"], got["reads"][1:], strict=True):
+        out(f"[{icao}] PREFIX TWICE {what} item memos (hit/asked): " + ", ".join(
+            f"{k} {r1[k][0] - r0.get(k, (0, 0))[0]}/{r1[k][1] - r0.get(k, (0, 0))[1]}"
+            for k in r1))
     out(f"[{icao}] PREFIX TWICE late map digest pm {got['late_pm']} cs {got['late_cs']}")
     out(f"[{icao}] PREFIX TWICE late map fields "
         + " ".join(f"{k}={v}" for k, v in got["late_pm_fields"].items()))

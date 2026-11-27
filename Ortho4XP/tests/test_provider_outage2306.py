@@ -95,6 +95,8 @@ def _second_build(monkeypatch):
 
 def test_a_second_builder_skips_a_provider_the_first_heard_down(
         tnm, monkeypatch):
+    # the cell fetch warps through GDAL; without it no request is made
+    pytest.importorskip("osgeo.gdal")
     lines = []
     monkeypatch.setattr(UI, "vprint", lambda level, *a: lines.append(
         " ".join(str(x) for x in a)))

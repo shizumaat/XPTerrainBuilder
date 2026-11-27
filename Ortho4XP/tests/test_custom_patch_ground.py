@@ -155,13 +155,12 @@ def test_rings_leave_the_airport_out_and_cut_the_others_back(
     """The left-out airport holds no ring, and another airport's ring
     region no longer reaches its patch hull; the other airport keeps its
     rings."""
-    import O4_Elevation_Level as RINGS
-    from shapely import wkt
-
     from tests import test_approach_rings as AR
 
     if not AR.HAS_GDAL:     # the ring plan needs GDAL, as in test_approach_rings
         pytest.skip("requires the GDAL python bindings")
+    import O4_Elevation_Level as RINGS
+    from shapely import wkt
     AR._install_registry(monkeypatch, AR._definition("FINE", 1.0))
     ring_tile = AR._tile(tmp_path, monkeypatch)
     dico = AR._dico(KAAA=AR._boundary(0.45, 0.5), KCCC=AR._boundary(0.55, 0.5))

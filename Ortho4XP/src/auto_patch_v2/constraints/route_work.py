@@ -8,7 +8,7 @@ is a function of the graph and the source alone, so the sources are handed
 to the work pool (``airport/pool.py``) in chunks and each worker sends home
 only the columns the source pairs with (its groups' members above it):
 
-* :func:`rows` is THE reading -- one chunk of sources through both walks,
+* :func:`_rows` is THE reading -- one chunk of sources through both walks,
   each source's ``[(lengths, budgets), ...]`` at its columns.  The serial
   pricing and a worker both ask it, so the pooled answer is the serial
   answer by construction (the same floats: a Dijkstra row does not depend
@@ -30,7 +30,7 @@ from scipy.sparse.csgraph import dijkstra
 
 from ..airport.pool import SharedArrays, WorkPool, attach, budget_bound
 
-__all__ = ["MIN_WALKS", "MAX_WORKERS", "rows", "setup", "read", "walk_rows"]
+__all__ = ["MIN_WALKS", "MAX_WORKERS", "walk_rows"]
 
 #: Fewer sources than this are walked on one core: the workers must start
 #: first (about a second each to import), and a small graph's walks are done
@@ -45,7 +45,7 @@ Cols = _t.Sequence[np.ndarray]
 Row = list[tuple[np.ndarray, np.ndarray]]
 
 
-def rows(m: csr_matrix, wb: csr_matrix, idx: _t.Sequence[int],
+def _rows(m: csr_matrix, wb: csr_matrix, idx: _t.Sequence[int],
          cols: _t.Sequence[Cols]) -> list[Row]:
     """THE READING: per source of ``idx``, ``[(D[s, c], B[s, c]) for c in
     its cols]`` -- ``D`` the shortest length, ``B`` the least budget
@@ -64,7 +64,7 @@ def _arrays(m: csr_matrix, wb: csr_matrix) -> dict[str, np.ndarray]:
     return out
 
 
-def setup(spec: _t.Mapping[str, tuple]) -> tuple[csr_matrix, csr_matrix]:
+def _setup(spec: _t.Mapping[str, tuple]) -> tuple[csr_matrix, csr_matrix]:
     """The pool's per-worker setup: the two matrices off shared memory
     (copied once: a worker's own writable arrays, the same values)."""
     a = attach(spec)
@@ -76,17 +76,17 @@ def setup(spec: _t.Mapping[str, tuple]) -> tuple[csr_matrix, csr_matrix]:
     return one("m"), one("wb")
 
 
-def read(state: tuple[csr_matrix, csr_matrix],
+def _read(state: tuple[csr_matrix, csr_matrix],
          task: tuple[_t.Sequence[int], _t.Sequence[Cols]]) -> list[Row]:
-    """One task ``(sources, their cols)``: :func:`rows`."""
-    return rows(state[0], state[1], *task)
+    """One task ``(sources, their cols)``: :func:`_rows`."""
+    return _rows(state[0], state[1], *task)
 
 
 def walk_rows(m: csr_matrix, wb: csr_matrix, walk: _t.Sequence[int],
               cols: _t.Mapping[int, Cols], chunk: int, *,
               workers: int | None = None,
               out: _t.Callable[[str], None] = print) -> dict[int, Row]:
-    """``{s: rows(m, wb, [s], [cols[s]])[0] for s in walk}``, walked in
+    """``{s: _rows(m, wb, [s], [cols[s]])[0] for s in walk}``, walked in
     chunks of ``chunk`` sources -- on the work pool when one answers
     (module doc), here otherwise.  ``workers`` pins the count (a twin)."""
     spans = [list(walk[c0:c0 + chunk]) for c0 in range(0, len(walk), chunk)]
@@ -103,12 +103,12 @@ def walk_rows(m: csr_matrix, wb: csr_matrix, walk: _t.Sequence[int],
             out(f"[pool] FELL BACK: the route graph does not cross to a worker "
                 f"({type(e).__name__}: {e}) — constraints: route walks stay on one core")
         else:
-            with shared, WorkPool(setup, (shared.spec,), workers=n, out=out,
+            with shared, WorkPool(_setup, (shared.spec,), workers=n, out=out,
                                   bound=bound) as pool:
-                got = pool.try_map(read, tasks, what="constraints: route walks",
+                got = pool.try_map(_read, tasks, what="constraints: route walks",
                                    unit="chunks")
                 out(pool.line() + " — constraints: route walks")
     if got is None:
-        got = [rows(m, wb, *t) for t in tasks]
+        got = [_rows(m, wb, *t) for t in tasks]
     return {s: r for (idx, _c), rr in zip(tasks, got, strict=True)
             for s, r in zip(idx, rr, strict=True)}

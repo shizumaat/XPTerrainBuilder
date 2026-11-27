@@ -492,6 +492,7 @@ EXCEPTION_CODES = {
     "ElevationTransportRefused": "elevation_download_failed",
     "ElevationAbsentRefused": "elevation_download_failed",
     "ProviderQueryError": "elevation_download_failed",
+    "ProviderOutage": "elevation_download_failed",
     "ProviderUnavailable": "elevation_download_failed",
     "TransientFetchError": "elevation_download_failed",
     "TransferAbandoned": "elevation_download_failed",

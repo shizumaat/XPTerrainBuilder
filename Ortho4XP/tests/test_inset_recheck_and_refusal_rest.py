@@ -73,8 +73,8 @@ def test_a_refusing_provider_is_asked_once_a_day(tmp_path, monkeypatch):
         stored = json.load(handle)
     assert "WFSPROVIDER" in stored and "HTTP 400" in stored[
         "WFSPROVIDER"]["reason"]
-    monkeypatch.setattr(REST, "_MEMORY", {})
-    monkeypatch.setattr(REST, "_LOADED_FROM", [None])
+    monkeypatch.setattr(REST, "_STORE", REST.RestFile(REST._FILE_NAME,
+                                                      REST.REST_S))
     assert REST.resting_refusal("WFSPROVIDER") is not None
     # A day later the provider is asked again.
     later = stored["WFSPROVIDER"]["at"] + REST.REST_S + 1

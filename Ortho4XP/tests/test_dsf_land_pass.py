@@ -30,7 +30,7 @@ def _assert_slots_match(pools, bases):
     walked = copy.deepcopy(pools)
     expected = [walked.slot(base) for base in bases]
     (pool, position) = pools.slots(numpy.asarray(bases, dtype=numpy.int64))
-    assert list(zip(pool.tolist(), position.tolist())) == expected
+    assert list(zip(pool.tolist(), position.tolist(), strict=True)) == expected
     assert pools.length == walked.length
     assert pools.plane == walked.plane
     assert pools.geometric == walked.geometric

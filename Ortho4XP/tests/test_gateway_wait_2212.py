@@ -41,18 +41,18 @@ class _Clock:
             self.on_sleep(self)
 
 
-def _wait(xp, clock):
+def _wait(xp, clock):  # noqa: F811 (pytest fixture)
     return WAIT.wait_for_answers(xp.root, ["KYYY"], clock=clock,
                                  sleep=clock.sleep)
 
 
-def test_the_step_asks_what_the_run_start_could_not_read(xp, session):
+def test_the_step_asks_what_the_run_start_could_not_read(xp, session):  # noqa: F811 (pytest fixture)
     assert WAIT.ask_tile(44, -124, xp.root, xp.osm) == ["KYYY"]
     assert [(e["state"], [r["icao"] for r in e["items"]])
             for e in xp.events] == [("found", ["KYYY"])]
 
 
-def test_a_lane_build_or_no_session_asks_nothing(xp, session, monkeypatch):
+def test_a_lane_build_or_no_session_asks_nothing(xp, session, monkeypatch):  # noqa: F811 (pytest fixture)
     monkeypatch.setenv("O4_PACK_WRITES", "/tmp/x")
     assert WAIT.ask_tile(44, -124, xp.root, xp.osm) == []
     monkeypatch.delenv("O4_PACK_WRITES")
@@ -61,7 +61,7 @@ def test_a_lane_build_or_no_session_asks_nothing(xp, session, monkeypatch):
     assert xp.events == []
 
 
-def test_an_install_in_time_ends_the_wait(xp, session, monkeypatch):
+def test_an_install_in_time_ends_the_wait(xp, session, monkeypatch):  # noqa: F811 (pytest fixture)
     monkeypatch.setattr(GW, "_install", lambda root, icao, fetch=None: {
         "pack": f"{icao} Gateway Airport", "pack_root": "/p", "scenery_id": 7,
         "flatten": "", "files": []})
@@ -74,7 +74,7 @@ def test_an_install_in_time_ends_the_wait(xp, session, monkeypatch):
     assert clock.slept == 3
 
 
-def test_not_now_and_never_end_the_wait_and_the_next_ask(xp, session):
+def test_not_now_and_never_end_the_wait_and_the_next_ask(xp, session):  # noqa: F811 (pytest fixture)
     clock = _Clock(lambda c: GW.gateway_choice(xp.root, "later", 44, -124,
                                                shown=["KYYY"]))
     assert _wait(xp, clock) == []
@@ -86,7 +86,7 @@ def test_not_now_and_never_end_the_wait_and_the_next_ask(xp, session):
     assert _wait(xp, clock) == [] and clock.slept == 0
 
 
-def test_no_answer_waits_the_limit_and_a_download_longer(xp, session):
+def test_no_answer_waits_the_limit_and_a_download_longer(xp, session):  # noqa: F811 (pytest fixture)
     clock = _Clock()
     assert _wait(xp, clock) == []
     assert clock.t == pytest.approx(WAIT.ANSWER_WAIT_S)
@@ -96,19 +96,19 @@ def test_no_answer_waits_the_limit_and_a_download_longer(xp, session):
     assert clock.t == pytest.approx(WAIT.INSTALL_WAIT_S)
 
 
-def test_an_old_answer_is_not_this_runs(xp, session):
+def test_an_old_answer_is_not_this_runs(xp, session):  # noqa: F811 (pytest fixture)
     WAIT.note_answer(xp.root, "KYYY", "later",
                      now=time.time() - WAIT.ANSWER_STANDS_S - 60)
     assert WAIT.ask_tile(44, -124, xp.root, xp.osm) == ["KYYY"]
 
 
-def test_stop_ends_the_wait(xp, session):
+def test_stop_ends_the_wait(xp, session):  # noqa: F811 (pytest fixture)
     clock = _Clock(lambda c: setattr(UI, "red_flag", True))
     _wait(xp, clock)
     assert clock.slept == 1
 
 
-def test_the_vector_step_hook_asks_then_waits(xp, session, monkeypatch):
+def test_the_vector_step_hook_asks_then_waits(xp, session, monkeypatch):  # noqa: F811 (pytest fixture)
     from auto_patch_v2.airport import cifp as CIFP
     monkeypatch.setattr(CIFP, "xplane_root_from_cifp_path",
                         lambda path: xp.root)

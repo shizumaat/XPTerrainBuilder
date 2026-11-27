@@ -123,8 +123,8 @@ def _family_keys(path: str, texture: str, layer: float | None = None
     side by side; a suffixed layer drawn over its cell, ``KEYW_3_06_sw``,
     is that cell's detail and keeps its own family, issue #2115), the
     stem with a lettered grid cell taken off (``lgkr_a1`` and ``lgkr_f1``
-    are ``lgkr_@``, issue #2250), and the length of a hash-like name (letters and digits, at least two of each:
-    ``7JF26B82``)."""
+    are ``lgkr_@``, issue #2250), and the length of a hash-like name
+    (letters and digits, at least two of each: ``7JF26B82``)."""
     folder = os.path.dirname(path.replace("\\", "/")).lower()
     keys: set[str] = set()
     for tag, name in (("pol", _stem(path)), ("img", _stem(texture))):

@@ -7,7 +7,8 @@ DECK AND GENERATED ROAD BRIDGE, off a ``--solved-out`` pickle.
   deck_bank.banked``: a generated deck or a wall-less pack deck): under its
   ring (``INSET_M`` inside the edge) the solved ground stands no higher than
   the bank the cut builds -- the end line's solved seat level less
-  ``slope`` x the distance from that end line, at most the end's depth (the
+  ``slope`` x the distance from that end line's END EDGE (corner to corner,
+  ``geom/deck_end_edge``), at most the end's depth (the
   floor) -- plus ``tol``.  The bank slope is every deck's
   (``model/deck_bank.deck_bank_slope``).
 * A GENERATED ROAD BRIDGE (``Airport.road_bridges``): under its span, each
@@ -85,9 +86,12 @@ def _end_level(pm, z, deck, end: str) -> "float | None":
 def deck_cover(pm, z, deck, slope: float, tol: float) -> dict:
     """One banked deck's read (module doc): the worst sample over the
     bank-or-floor ceiling and how many stand over ``tol``."""
+    from auto_patch_v2.geom.deck_end_edge import end_edge
     from shapely.geometry import LineString, Point, Polygon
     ring = Polygon(deck.ring).buffer(-INSET_M)
-    ends = [(LineString(st), lv, float(dp)) for st, lv, dp in
+    # the bank falls from the deck's full END EDGE, corner to corner (#2239,
+    # ``geom/deck_end_edge``), never from its seat line's run alone
+    ends = [(LineString(end_edge(deck.ring, st) or st), lv, float(dp)) for st, lv, dp in
             ((deck.seats_a, _end_level(pm, z, deck, "a"), deck.depth_a),
              (deck.seats_b, _end_level(pm, z, deck, "b"), deck.depth_b))
             if len(st) >= 2 and lv is not None]

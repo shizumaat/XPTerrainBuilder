@@ -104,7 +104,8 @@ def _rim_seats(planar: PlanarMap, law: Law, decks) -> dict[int, tuple[list, list
     from ..model.platform import stage_air_vertices
     from .geometry import nearest_vertex_fn
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
-    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    from ..geom.deck_plan import wall_inset
+    gap = wall_inset(law)      # #2239 R2: the rim the stations stand past
     got = {id(db): st for db in decks if (st := rim_end_stations(db, step, gap)) is not None}
     if not got:
         return {}

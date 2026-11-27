@@ -23,6 +23,9 @@ whose toe meets the lidar.
 * A WALLED PIT'S BANK (#1949 R3, ``planar/pit_bank``): the same rule on its
   toe, off the pit's void band (whose ring is the bank's crest, pinned by
   ``constraints/object_floor``).
+* A PACK DECK'S APRON (#2239 / #2241, ``planar/deck_apron``): the same rule
+  on its toe, past the deck's run-on (``bank_past_m``; the band nearer is
+  flush with the end edge, ``constraints/edge_deck``).
 
 * A DECK STACK'S BANK BESIDE ITS OWN RUN-ON ROAD FOLLOWS THE ROAD (#2116 R2
   E): a stack-ground vertex (on no toe pin) within the stand-off reach of a
@@ -46,8 +49,10 @@ from ..model.planar import (
     is_pit_bank_ref,
     is_stack_ground_ref,
 )
+from ..model.structures import is_deck_apron_ref
 
-__all__ = ["fill_toe_pins", "GEN", "RULING", "STACK_RULING", "AGP_RULING", "PIT_RULING"]
+__all__ = ["fill_toe_pins", "GEN", "RULING", "STACK_RULING", "AGP_RULING", "PIT_RULING",
+           "APRON_RULING"]
 
 GEN = "fill_toe_pins"
 RULING = "zones.adjacent_ground old-DEM fill toe"
@@ -58,6 +63,25 @@ ROAD_RULING = "#2116 R2 E: a deck stack's bank beside its own run-on road follow
 AGP_RULING = "#2090 C3: an AGP plate's bank meets the lidar at its toe"
 #: #1949 R3: a walled pit's bank meets the lidar at its toe
 PIT_RULING = "#1949 R3 (RULINGS 2026-11-16l): a walled pit's bank meets the lidar at its toe"
+APRON_RULING = "#2239 (spec cyyz-decks-r3 R4): a pack deck's apron meets the lidar at its toe"
+
+
+def _apron_toe(planar: PlanarMap, law: Law, airport: Airport):
+    """``xy -> bool``: past every deck ring's run-on (``bank_past_m``) by
+    more than the identity grid -- an apron vertex nearer is flush with its
+    end edge (``constraints/edge_deck``), never the toe."""
+    import shapely
+
+    from ..model.deck_bank import bank_past_m
+    rings = [shapely.Polygon(db.ring) for db in getattr(planar, "decks", ()) or ()
+             if len(db.ring) >= 3]
+    if not rings:
+        return lambda _xy: True
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    near = shapely.union_all([r.buffer(bank_past_m(law) + grid, join_style="mitre")
+                              for r in rings])
+    shapely.prepare(near)
+    return lambda xy: not bool(shapely.contains_xy(near, xy[0], xy[1]))
 
 
 def _stack_toe(planar: PlanarMap, law: Law, airport: Airport):
@@ -120,7 +144,8 @@ def fill_toe_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for is_ref, ruling, toe in ((is_fill_bank_ref, RULING, None),
                                 (is_stack_ground_ref, STACK_RULING, _stack_toe),
                                 (is_agp_bank_ref, AGP_RULING, _agp_toe),
-                                (is_pit_bank_ref, PIT_RULING, _pit_toe)):
+                                (is_pit_bank_ref, PIT_RULING, _pit_toe),
+                                (is_deck_apron_ref, APRON_RULING, _apron_toe)):
         bank = {f.id for f in planar.faces.values() if is_ref(f.ref)}
         if not bank:
             continue

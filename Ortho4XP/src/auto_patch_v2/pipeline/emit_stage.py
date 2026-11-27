@@ -493,6 +493,10 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
         {"deck": d.object_id, "object": u[0], "resource": u[1], "lon": u[2][0],
          "lat": u[2][1], "area_m2": u[3]}
         for d in getattr(pm, "decks", ()) or () for u in getattr(d, "pack_under", ()) or ()]
+    # #2239 / #2241 (spec cyyz-decks-r3 R5): a trench floor vertex pinched
+    # to a deck's pavement -- the census's ``deck_floor_pinch`` rows
+    from ..verify.deck_pinch import pinch_records
+    pub["deck_floor_pinch"] = pinch_records(pm, law, cs.rows(), airport.frame.transformers()[1])
     # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
     # the edge segments published as open ways over the vertices they
     # already run through — the owner's KML read of where ground ends

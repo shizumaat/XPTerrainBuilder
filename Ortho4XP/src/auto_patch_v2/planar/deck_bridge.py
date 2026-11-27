@@ -80,6 +80,7 @@ from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
 from ..geom.wall_lines import project_span, stretch_pair
 from ..geom.walled_trench import _walled_trench, deck_polygon, open_stretch, rim_end_stations
+from ..geom.deck_plan import wall_inset
 from ..law.tables import role_side
 from ..model.stage_one import from_full, full_map  # one derivation for both maps
 from ..model.structures import DECK_GROUND_REF, DeckBridge, deck_reach
@@ -421,7 +422,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                                                   0.5 * (db.top_a + db.top_b), r, n))
             notes.extend(_floor_pair_note(db))
             objs.append(db)
-        gap = float(law.tables.structures.tunnel.wall_gap_m)
+        gap = wall_inset(law)          # #2239 R2: never under the safe band
         objs = _beyond_stretches(objs, gap, notes)
         out.extend(_walled_zero(objs, airport, step, gap, notes))
     return tuple(out), notes
@@ -839,7 +840,8 @@ def _half_plane(line: tuple[XY, float], toward: XY, big: float) -> Polygon:
 def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
              other: "DeckBridge | None" = None,
              band: "tuple[float, float] | None" = None, bank_run: float = 0.0,
-             roads=None, uncut=None, rim_off: float = 0.0):
+             roads=None, uncut=None, rim_off: float = 0.0, rim_inset: "float | None" = None,
+             lone: bool = False):
     """``(ramp, outer)`` of a corridor under ``db`` (module doc): clipped to
     its own side of the deck's midline (the mouth line — the bore's other
     mouth cuts the rest, so no end cap stands across the trench) and,
@@ -871,8 +873,10 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     so the void between them is the vertical step (never a floor vertex on
     the runway)."""
     road = ramp          # the corridor's own carriageway, before the deck trims it
-    keep = _keep(db, axis, other, band)
-    walled = _walled_trench(db, inset, other)
+    keep = _keep(db, axis, other, band, lone)
+    # #2239 R2: a walled rim stands ``rim_inset`` behind the walls
+    # (``geom/deck_plan.wall_inset``), the bank ring ``inset`` inside the edge
+    walled = _walled_trench(db, inset if rim_inset is None else rim_inset, other)
     rim = None
     if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
@@ -919,13 +923,20 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
 
 
 def _keep(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
-          band: "tuple[float, float] | None"):
+          band: "tuple[float, float] | None", lone: bool = False):
     """The share of the plane a corridor under ``db`` cuts (:func:`deck_cut`):
     its own side of the midline, of the gap line toward ``other`` and of its
-    lane ``band``."""
+    lane ``band``.  A LONE mouth (#2239 / #2241: the deck's bore mouths all
+    stand on one of its sides, ``deck_side``) cuts the WHOLE deck -- no
+    midline: its floor runs on under the far half at the floor's level
+    (MEASURED CYYZ FA: tunnel way -902 cut only from its SE mouth to the
+    midline, the NW half of the ring left to the taxiway's pavement at the
+    deck's level; a mouth moved to the far ring line instead was refused,
+    the bore's road ending 0 m past it)."""
     big = 10.0 * (axis.length + 1000.0)
     ahead = axis.interpolate(min(axis.length, 1.0))
-    keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
+    keep = Polygon.from_bounds(-big, -big, big, big) if lone else \
+        _half_plane(mid_line(db), (ahead.x, ahead.y), big)
     if other is not None:
         c = deck_polygon(db).centroid
         keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
@@ -937,7 +948,8 @@ def _keep(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
 def deck_banks(db: DeckBridge, axis: LineString, inset: float,
                other: "DeckBridge | None" = None,
                band: "tuple[float, float] | None" = None, bank_run: float = 0.0,
-               uncut=None, roads=None, own=None):
+               uncut=None, roads=None, own=None, rim_inset: "float | None" = None,
+               lone: bool = False):
     """THE BANKS UNDER A WALL-LESS DECK (#2072 C): the ring ``inset`` inside
     its edge less the floor (:func:`_bank_floor`), less ``uncut`` and less
     the mapped ``roads`` beside the cut (never ``own``, the corridor's own
@@ -946,7 +958,7 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
     unowned, so ``deck_ground`` mints it as the deck's own ground (the knife
     takes it, the void does not).  ``None`` under a walled deck or where
     nothing is left."""
-    if _walled_trench(db, inset, other) is not None:
+    if _walled_trench(db, inset if rim_inset is None else rim_inset, other) is not None:
         return None
     ring = deck_polygon(db).buffer(-inset, join_style="mitre")
     if ring.is_empty:
@@ -959,7 +971,7 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
         beside = roads if own is None else \
             roads.difference(own.buffer(0.5, join_style="mitre"))
         banks = banks.difference(beside)
-    banks = banks.intersection(_keep(db, axis, other, band))
+    banks = banks.intersection(_keep(db, axis, other, band, lone))
     return None if banks.is_empty or banks.area <= 0.0 else banks
 
 
@@ -1057,7 +1069,7 @@ def _lane_strip(db: DeckBridge, band: tuple[float, float], big: float) -> Polygo
                     for s, u in ((-big, lo), (big, lo), (big, hi), (-big, hi))])
 
 
-def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
+def deck_ground(classification, tunnels, law, keep_out=None, decks=(), dem_z=None) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -1071,8 +1083,11 @@ def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
     pack or generated, RULINGS 2026-11-17p) runs ``bank_past_m`` past its
     ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank under it
     "needs to extend about 1m past the bridge edges"): its bank stands on
-    that ground (``constraints/edge_deck``)."""
+    that ground (``constraints/edge_deck``).  Then every cut pack deck's
+    APRON (``planar/deck_apron``, #2239): the unowned ground outside its end
+    edges, ``dem_z(xy)`` estimating how far its bank runs."""
     from ..model.deck_bank import bank_past_m, banked
+    from .deck_apron import apron_cells
     past = bank_past_m(law)
     gen = {d.object_id for d in decks if banked(d)}
     rings: dict[tuple, Polygon] = {}
@@ -1084,7 +1099,14 @@ def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
                 reach = reach.union(Polygon(t.deck_ring).buffer(past, join_style="mitre"))
                 reach = reach if reach.geom_type == "Polygon" else reach.convex_hull
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
-    if not rings:
+    # #2239 R1: the ring of every pack deck with a cut under it is the
+    # deck's (``planar/deck_ring_cut``) -- what its cut leaves is its ground
+    from .deck_ring_cut import cut_decks
+    owned = {oid for oid, _r in rings}
+    for d in cut_decks(decks, tunnels):
+        if d.object_id not in owned:
+            rings.setdefault((d.object_id, tuple(d.ring)), deck_polygon(d))
+    if not rings and not decks:
         return classification, []
     cells, notes = list(classification.cells), []
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
@@ -1102,19 +1124,27 @@ def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
             notes.append(f"{oid}: the ground the deck rests on, {len(free)} face(s) "
                          f"{sum(q.area for q in free):.0f} m2 no cell owned under its ring, "
                          f"held flush (RULINGS 2026-10-30b / 30f (4))")
+    aprons = apron_cells(decks, tunnels, law, taken, lambda ref, q: _ground_cell(
+        law, ref, -1, q, "deck_apron"), dem_z)
+    if aprons:
+        out.extend(aprons)
+        notes.append(f"pack deck aprons: {len(aprons)} face(s) "
+                     f"{sum(Polygon(c.ring).area for c in aprons):.0f} m2 of unowned ground "
+                     f"outside their end edges (#2239, planar/deck_apron)")
     if not out and not notes:
         return classification, notes
     merged = [_dc.replace(c, id=i) for i, c in enumerate(cells + out)]
     return _dc.replace(classification, cells=tuple(merged)), notes
 
 
-def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
-    """One ``deck_ground:<object>[#k]`` face: ground, never pavement."""
-    return Cell(0, "graded_strip", f"{DECK_GROUND_REF}:{oid}" + (f"#{k}" if k else ""),
-                tuple(part.exterior.coords)[:-1],
+def _ground_cell(law, oid: str, k: int, part: Polygon, kind: str = "deck_ground") -> Cell:
+    """One ``deck_ground:<object>[#k]`` face: ground, never pavement (``k``
+    -1: ``oid`` is the whole ref, a ``kind`` face of its own)."""
+    ref = oid if k < 0 else f"{DECK_GROUND_REF}:{oid}" + (f"#{k}" if k else "")
+    return Cell(0, "graded_strip", ref, tuple(part.exterior.coords)[:-1],
                 tuple(tuple(h.coords)[:-1] for h in part.interiors),
                 None, None, role_side(law, "graded_strip"), "structure",
-                {"deck_ground": 1.0, "area_m2": part.area})
+                {kind: 1.0, "area_m2": part.area})
 
 
 def deck_pin(db: DeckBridge, mouth, law=None):

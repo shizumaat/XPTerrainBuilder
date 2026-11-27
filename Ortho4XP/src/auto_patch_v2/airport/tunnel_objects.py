@@ -72,6 +72,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom.deck_plan import safe_band
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY, rotated_rectangle
@@ -197,6 +198,12 @@ class Corridor:
     #: generator pins the trench to it inside the walls; empty = the floor
     #: is ``floor_z`` (and the design line) everywhere.
     profile: tuple[tuple[float, float], ...] = ()
+    #: #2239: ``(cover, band, sides)`` where the footprint was cut back to
+    #: its cover's sides (``airport/cover_rim``): between the two sides
+    #: (prolonged) the floor stands ``band`` (``geom/deck_plan.safe_band``)
+    #: inside each, never the wall's thickness, and the cut ends square
+    #: beyond the mouths (``planar/structure_geometry``); ``()`` elsewhere
+    under_cover: tuple = ()
 
 
 @_dc.dataclass
@@ -859,19 +866,24 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     footprint = _object_cut.largest_polygon(_fe.union([band, trench], "tunnel_objects.band"))
     if footprint is None:
         return "the shell's footprint has no valid plan area"
-    # #2239: the footprint never reaches past the cover over the trench's
-    # covered stretch (``airport/cover_rim``) -- the deck's end lines meet
-    # the ground they are driven onto from
-    fp2, tr2, moved = _cover_rim.under_cover(footprint, trench, axis2,
-                                             getattr(cut, "covered", None),
-                                             float(law.tables.structures.tunnel.wall_gap_m))
+    # #2239: the rim never stands past the cover's sides along the trench
+    # (``airport/cover_rim``) -- the deck's end lines meet the ground they
+    # are driven onto from -- and the road under the cover is never cut back
+    covered = getattr(cut, "covered", None)
+    fp2, tr2, moved = _cover_rim.under_cover(footprint, trench, axis2, covered, 2.0 * mean_t)
+    under: tuple = ()
     if moved:
         fp2, tr2 = _object_cut.largest_polygon(fp2), _object_cut.largest_polygon(tr2)
         if fp2 is not None and tr2 is not None:
             footprint, trench = fp2, tr2
             band = _object_cut.largest_polygon(band.intersection(fp2)) or band
-            notes.append(f"the footprint stood {moved:.1f} m2 past its cover over the trench: "
-                         f"clipped to wall_gap_m under it (#2239, airport/cover_rim)")
+            # spec cyyz-decks-r3 R2 / R3: the floor is the cover's plan between
+            # its two sides' safe bands, mouth to mouth (``geom/deck_plan``)
+            sides = _cover_rim.side_lines(covered, axis2)
+            under = (covered, safe_band(law), tuple(tuple(s) for s in sides)) if sides else ()
+            notes.append(f"the footprint stood {moved:.1f} m2 past its cover's sides: cut back "
+                         f"to them, the floor ring_floor_m inside under the cover (#2239, "
+                         f"airport/cover_rim)")
     depth = float(mouth_dem - cut.floor_z)
     width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts2) / len(sts2)
     notes.append(f"depth {depth:.2f} m = ground {mouth_dem:.2f} − the AUTHORED floor "
@@ -882,7 +894,7 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
                     mouth_dem, float(cut.floor_z), band, trench, footprint,
                     cut.ends[mouth], mouth_dem, 0.0, tuple(notes), depth, False,
                     cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))),
-                    _floor_profile(cut.floor_line, axis2))
+                    _floor_profile(cut.floor_line, axis2), under_cover=under)
 
 
 def _floor_profile(line, axis) -> tuple[tuple[float, float], ...]:

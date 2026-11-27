@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 
 from ..constraints.roads import road_family_roles
+from ..geom.deck_end_edge import point_segment_m
 from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, pair_side, row
 
@@ -171,7 +172,7 @@ class JointIndex:
         for j, k in self._segments(p[0] - tol_m, p[1] - tol_m, p[0] + tol_m, p[1] + tol_m):
             if j not in hit:
                 pts = self.joints[j][0]
-                if _point_segment_m(p, pts[k], pts[k + 1]) <= tol_m:
+                if point_segment_m(p, pts[k], pts[k + 1]) <= tol_m:
                     hit.add(j)
         return hit
 
@@ -186,14 +187,6 @@ class JointIndex:
         if self.largest:
             return max((self.joints[j][1] for j in hit), default=0.0)
         return sum(self.joints[j][1] for j in hit)
-
-
-def _point_segment_m(p, a, b) -> float:
-    """The distance from ``p`` to the segment ``a``-``b``."""
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    n2 = dx * dx + dy * dy
-    u = 0.0 if n2 <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / n2))
-    return math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy)
 
 
 #: the joint kind a placed or walled-mouth wall publishes

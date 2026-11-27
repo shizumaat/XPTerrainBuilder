@@ -51,11 +51,17 @@ def edge_seats_of(planar: PlanarMap, law: Law, combine: bool = True):
     end line's set and — ``combine`` — each deck's two ends as one seat.
     The airside index is built once, on the first edge trench."""
     memo: list = []
+    own: list = []      # the end lines, read once for the shells under their own decks
 
     def seats_of(tn: Tunnel) -> tuple[tuple[_t.Any, float], ...]:
         seats = getattr(tn, "edge_seats", ())
         if not seats:
-            return ()
+            if getattr(tn, "source", "") != "object":
+                return ()
+            if not own:
+                from .deck_lines import end_lines
+                own.append(end_lines(planar, law))
+            return _own_deck_seat(planar, tn, own[0])
         if not memo:
             from ..model.platform import stage_air_vertices
             from .deck_lines import end_lines
@@ -80,6 +86,35 @@ def edge_seats_of(planar: PlanarMap, law: Law, combine: bool = True):
         return tuple((_mean_terms([], ((a[0], 0.5), (b[0], 0.5))), 0.5 * (a[1] + b[1]))
                      for a, b in zip(ends[0::2], ends[1::2], strict=True))
     return seats_of
+
+
+def _own_deck_seat(planar: PlanarMap, tn: Tunnel, lines: _t.Mapping[str, _t.Sequence]
+                  ) -> tuple[tuple[_t.Any, float], ...]:
+    """A SHELL UNDER ITS OWN DECK HANGS FROM IT (#2239; owner sim read
+    2026-11-26T15:02Z: "the ground under the bridge must meet the bottom of
+    the bridge object, not sit below it").  An object corridor (a
+    signature-B shell, ``airport/object_cut``) whose own placement is a pack
+    deck of the map (``PlanarMap.decks``: its frame's members) is seated by
+    the object stage at that deck's level -- the airside's, solved at its end
+    lines -- so its floor is that seat less the deck's depth (its top less
+    the frame's bottom), the mean of its end lines as one seat (module doc),
+    never the placement's pre-seat zero plus the floor's y: MEASURED CYYZ T
+    on 1.0.585, a hanging cover whose floor stood at 159.34 (zero 166.86
+    -7.51) under walls seated with their bottom at 160.24.  ``lines``:
+    ``constraints/deck_lines.end_lines``.  ``()`` for any other corridor."""
+    if getattr(tn, "source", "") != "object" or not getattr(tn, "objects", ()):
+        return ()
+    mine = set(tn.objects)
+    decks = [db for db in getattr(planar, "decks", ()) or ()
+             if mine & ({db.object_id} | set(getattr(db, "members", ()) or ()))]
+    if not decks:
+        return ()
+    es = [e for db in decks for e in lines.get(db.object_id, ()) if e.deck is db]
+    if not es:
+        return ()
+    w = 1.0 / len(es)
+    return ((_mean_terms([], tuple((e.terms, w) for e in es)),
+             sum(e.depth for e in es) * w),)
 
 
 def _mean_terms(vs: _t.Sequence[int], sets=()) -> tuple[tuple[int, float], ...]:

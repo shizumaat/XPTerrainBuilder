@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..geom.deck_plan import wall_inset
 from ..law import Law
 from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
@@ -71,7 +72,7 @@ def walled_floor_rows(planar: PlanarMap, law: Law, lines, skip: _t.Callable[[int
     from ..geom.walled_trench import _walled_trench, open_stretch, wall_strip
     from ..law.tables import is_structure_role
     from .edge_floor import DECK_FLOOR, seat_pair, sloped_floor_rows
-    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    gap = wall_inset(law)      # #2239 R2 (``geom/deck_plan``)
     rows: list[Row] = []
     held: set[int] = set()
     free = [v for v, vx in planar.vertices.items()
@@ -135,7 +136,7 @@ def release_wall_ramps(rows: list[Row], planar: PlanarMap, law: Law,
     from ..geom.walled_trench import _walled_trench
     from ..model.constraints import Band, Linear, Pin
     from ..model.structures import is_generated
-    gap = float(law.tables.structures.tunnel.wall_gap_m)
+    gap = wall_inset(law)      # #2239 R2 (``geom/deck_plan``)
     decks = [d for d in getattr(planar, "decks", ()) or () if not is_generated(d)]
     rims = []
     for d in decks:

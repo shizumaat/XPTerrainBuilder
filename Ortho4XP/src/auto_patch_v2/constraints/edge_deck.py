@@ -54,6 +54,7 @@ span pair to its nearest seat (:func:`_deck_span`).
 """
 from __future__ import annotations
 
+import functools
 import typing as _t
 
 from ..geom.exact import dist, sq
@@ -63,6 +64,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.structures import DECK_GROUND_REF, deck_reach, is_generated
+from .deck_edge_weld import edge_vertices
 
 __all__ = ["edge_deck_rows", "release_governed", "deck_floor", "GEN", "RULING", "RIGID"]
 
@@ -139,10 +141,14 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
+    from ..law.tables import rolled_on_roles
     from ..model.deck_bank import bank_past_m
     from .deck_lines import end_lines, plate_of
     from .walled_floor import walled_floor_rows
+    air_roles = rolled_on_roles(law)
     flush = float(law.tables.structures.bridge.deck_flush_m)
+    # a vertex nearer a deck's edge than half the least ring separation is ON it
+    tol = 0.5 * float(law.tables.structures.cutout.ring_floor_m)
     lines = end_lines(planar, law)
     seats_of = {oid: {v for e in es for v, _w in e.terms} for oid, es in lines.items()}
     # a groundside road never takes a deck's level off its seats: a mapped
@@ -182,8 +188,17 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                 for part in ([[i] for i in idx] if g in graded else [idx]):
                     tg = _station_tops([ends[i] for i in part], vt)
                     tops.update({v: tg for v in tg})
+        # #2239 / #2241: every vertex on the deck's end EDGE, corner to
+        # corner, is a station of its end line (``constraints/deck_edge_weld``)
+        # owner 2026-11-26T23:48Z: a road meeting airside welds to it unless
+        # it enters a tunnel (its floor) -- roads are not skipped on the edge;
+        # #2239 R4: and the deck's apron is flush over its run-on band
+        welded = {} if graded or all(is_generated(e.deck) for e in es) else edge_vertices(
+            planar, es, tol, _FLOOR_ROLES | _RUNWAY_FAMILY, seats_of[oid],
+            apron=bank_past_m(law), keep=air_roles)
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law)))
+                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law),
+                               welded=frozenset(welded)))
         if all(is_generated(e.deck) for e in es):
             # RULINGS 2026-11-19s (1): a generated deck's end lines are stage
             # 1's no-bridge pavement, constants of stage 2 -- no station or
@@ -201,8 +216,39 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                                          law.ruleset.taxi.longitudinal.value(None, None)))
                 continue
             rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx], vt))
+            rows.extend(_edge_rows(oid, eg, flush, [held[i] for i in idx], vt,
+                                   {v: (idx.index(k), d) for v, (k, d) in welded.items()
+                                    if k in idx}))
             rows.extend(_rigid_rows(name, eg))
     return rows
+
+
+def _edge_rows(oid: str, ends: list, flush: float, level: list, vt,
+               welded: "dict[int, tuple[int, float]]") -> list[Row]:
+    """THE WELD SPANS THE FULL END EDGE (``constraints/deck_edge_weld``):
+    each vertex ``welded`` names stands flush with its end line as a
+    station does (:func:`_station_rows`) -- at the held level less the
+    line's depth plus its own, else from the deck's one zero.  The vertex
+    is each row's FIRST term under the span's head, never :data:`RIGID`, so
+    it is GOVERNED: it sheds the rim's DEM pin and any road ramp
+    (:func:`release_governed`; MEASURED CYYZ T, the shoulder's rim held at
+    its DEM by ``tunnel.object.plate_datum`` relaxed seven welds and
+    dropped the deck 3.6 m)."""
+    top_of = _station_tops(ends, vt)
+    n = len(top_of)
+    mean_top = sum(top_of.values()) / n if n else 0.0
+    out: list[Row] = []
+    for v, (k, depth) in sorted(welded.items()):
+        src = Source(GEN, RULING, (oid, f"edge v{v}"))
+        lv = level[k] if k < len(level) else None
+        if lv is not None:
+            zz = float(lv) + depth - float(ends[k][1])
+            out.append(Linear(((v, 1.0),), zz - flush, zz + flush, src))
+        elif n:
+            ts = ((v, 1.0), *((u, -1.0 / n) for u in sorted(top_of)))
+            rhs = depth - mean_top
+            out.append(Linear(ts, rhs - flush, rhs + flush, src))
+    return out
 
 
 def _floor_deck_rows(planar: PlanarMap, law: Law) -> list[Row]:
@@ -236,7 +282,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
                skip: "_t.AbstractSet[str]" = _FLOOR_ROLES,
                plate_tops: "dict[int, dict[int, float]] | None" = None,
-               bank: "float | None" = None, past: float = 0.0) -> list[Row]:
+               bank: "float | None" = None, past: float = 0.0,
+               welded: _t.AbstractSet[int] = frozenset()) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -312,7 +359,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     blend = Source(GEN, RULING, (oid, oid, BLEND))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
-    seats = set(seat_vs) | set(near_vs)
+    seats = set(seat_vs) | set(near_vs) | set(welded)     # an edge vertex is a station
     rows: list[Row] = []
     for v, vx in planar.vertices.items():
         if v in seats or skip & set(planar.roles_at(v)):
@@ -393,18 +440,38 @@ def _bank_slope(law: Law, es) -> "float | None":
     return deck_bank_slope(law)
 
 
+def _end_edge_line(ring: tuple, line: tuple):
+    """The end line's EDGE, corner to corner (``geom/deck_end_edge``), as a
+    LineString -- the line itself where the ring yields none."""
+    return _end_edge_cached(tuple(tuple(q) for q in ring), tuple(tuple(q) for q in line))
+
+
+@functools.lru_cache(maxsize=1024)
+def _end_edge_cached(ring: tuple, line: tuple):
+    from shapely.geometry import LineString
+
+    from ..geom.deck_end_edge import end_edge
+    edge = end_edge(ring, line)
+    return LineString(edge if len(edge) >= 2 else line)
+
+
 def _bank_drop(es, p, slope: float) -> float:
     """How far under its seat a span vertex at ``p`` stands on a banked
-    deck's bank: ``slope`` x its distance from the nearest end line, at
-    most that line's depth (its top over the frame's bottom, the floor) --
-    the bank's head on the end line, its toe on the floor and the floor
-    beyond."""
-    from shapely.geometry import LineString
+    deck's bank: ``slope`` x its distance from the nearest end line's EDGE,
+    at most that line's depth (its top over the frame's bottom, the floor)
+    -- the bank's head on the end edge, its toe on the floor and the floor
+    beyond.  The EDGE, corner to corner (``geom/deck_end_edge``; #2239 /
+    #2241, owner 2026-11-26: "the weld must span the deck's full width
+    including shoulders"): read from the stations alone, the ground at the
+    deck's edge past the pavement stood ``slope`` x its run along the edge
+    under the deck (CYYZ T's shoulder, 0.58-1.44 m drawn on 1.0.585)."""
     best = None
     for e in es:
         if len(e.line) < 2:
             continue
-        d = LineString(e.line).distance(p)
+        ring = getattr(getattr(e, "deck", None), "ring", ()) or ()
+        d = (_end_edge_line(ring, e.line) if len(ring) >= 3
+             else _end_edge_line((), e.line)).distance(p)
         if best is None or d < best[0]:
             best = (d, float(e.depth))
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))

@@ -248,6 +248,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # RULINGS 2026-11-20a (1): the pack placements left under a generated
     # deck -- LAW INPUT for ``pack_bridge_under_deck``
     "pack_bridge_under_deck": "pack_bridge_under_deck",
+    # #2239 / #2241: trench floor vertices pinched to a deck -- LAW INPUT for
+    # ``deck_floor_pinch``
+    "deck_floor_pinch": "deck_floor_pinch",
     # issue #623 THE GROUND ENVELOPE: ``[lowest, highest]`` lawful elevation
     # of the map (``auto_patch_v2/solve/ground_band.py``) — LAW INPUT for
     # ``sentinel_elevation``.  A patch with no key is read against its own
@@ -746,6 +749,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     from check_grade_lib.families.pack_bridge_under_deck import written_pack_records
     ctx["pack_bridge_under_deck"] = [*(data.get("pack_bridge_under_deck") or ()),
                                      *written_pack_records(osm_path)] or None
+    ctx["deck_floor_pinch"] = data.get("deck_floor_pinch") or None
     ctx["ground_envelope"] = data.get("ground_envelope") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None

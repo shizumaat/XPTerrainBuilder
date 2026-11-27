@@ -156,6 +156,11 @@
    "within"
   ],
   [
+   "deck_floor_pinch",
+   "TRENCH FLOOR vertex pinched to a DECK's pavement (airside or end-edge weld)",
+   "within"
+  ],
+  [
    "sea_wall",
    "SEA WALL (a pavement or quay edge standing ON the shore)",
    "within"
@@ -895,6 +900,10 @@
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],
   "pack_bridge_under_deck": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "deck_floor_pinch": [
    0,
    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   ],

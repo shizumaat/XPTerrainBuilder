@@ -94,7 +94,7 @@ def test_a_ring_cell_falls_through_to_the_next_provider(
         assert os.path.isfile(new["path"])
     # The stamp's plan digest names what was fetched.
     assert json.load(open(FNAMES.approach_ring_index(
-        RING_FIXTURES.TILE_LAT, RING_FIXTURES.TILE_LON)))["plan_stamp"] \
+        RING_FIXTURES.TILE_LAT, RING_FIXTURES.TILE_LON), encoding="utf-8"))["plan_stamp"] \
         == ELEVATION_LEVEL.approach_ring_plan_stamp(after)
     assert ELEVATION_LEVEL.approach_ring_frame_problem(
         RING_FIXTURES.TILE_LAT, RING_FIXTURES.TILE_LON, after) is None
@@ -206,7 +206,7 @@ def test_a_border_tile_takes_each_cells_provider_and_falls_through(
     assert OVERLAY_CELLS.recorded_cell_providers(path) == {
         "REGIONAL": 59, "NATIONAL": 41}
     index = json.load(open(FNAMES.tile_overlay_index(
-        COAST.TILE_LAT, COAST.TILE_LON)))
+        COAST.TILE_LAT, COAST.TILE_LON), encoding="utf-8"))
     assert INSETS.NO_COVERAGE in index.values()
     # A second build recycles the mosaic: nobody is asked.
     del records[:]

@@ -129,7 +129,7 @@ def ensure_cellular_overlay(tile, plan):
         ),
     )
     providers = _cell_providers_count(answered)
-    with open(_sidecar_path(vrt_path), "w", newline="\n") as handle:
+    with open(_sidecar_path(vrt_path), "w", encoding="utf-8", newline="\n") as handle:
         json.dump({
             "cells": {cell["stem"]: cell["code"] for cell in answered},
             "providers": providers,
@@ -152,7 +152,7 @@ def recorded_cell_providers(vrt_path):
     """The ``{provider: cells}`` record beside a cellular overlay VRT, or
     ``None`` when none was written."""
     try:
-        with open(_sidecar_path(vrt_path), "r") as handle:
+        with open(_sidecar_path(vrt_path), "r", encoding="utf-8") as handle:
             return json.load(handle).get("providers")
     except (OSError, ValueError):
         return None

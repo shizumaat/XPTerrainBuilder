@@ -210,6 +210,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # RULINGS 2026-11-19j: ``split_bar.law_of([placement])``;
                # ``None`` disarms
                split_bar: _t.Any = None,
+               # #2293: ``[placement] sink_buried_m`` (0 disarms)
+               sink_buried_m: float = 0.0,
+               # #2293: the built mesh over the sunk rows (``buried_sink.
+               # sinks_box``); ``None`` reads ``surface``
+               sink_surface: _t.Callable | None = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -282,7 +287,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         approach_reach_m=approach_reach_m,
         approach_heading_deg=approach_heading_deg,
         ground_rider_law=ground_rider_law, floor_deck_ends=floor_deck_ends,
-        shell_surface=shell_surface)
+        shell_surface=shell_surface, sink_buried_m=sink_buried_m,
+        sink_surface=sink_surface)
     # #2042: a graded facade's plane comes down onto its drawn ground
     fseats, ffiles, fcounts = _fs.plan_seats(
         dump, pack_root, surface if facade_surface is None else facade_surface)
@@ -358,7 +364,9 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               approach_heading_deg: float = 0.0,
               ground_rider_law: _t.Any = None,
               floor_deck_ends: _t.Any = None,
-              shell_surface: _t.Callable | None = None) -> tuple[tuple, tuple, tuple, dict]:
+              shell_surface: _t.Callable | None = None,
+              sink_buried_m: float = 0.0,
+              sink_surface: _t.Callable | None = None) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -389,7 +397,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     * owner RULINGS 2026-11-10i (#1977): an origin-built converted set on
       a runway's extended centreline is seated with its origin at the
       runway end (``centreline_seat.centreline_seats``; no ``runway_ends``
-      or a 0 reach disarms)."""
+      or a 0 reach disarms);
+    * #2293: an unsettled ``OBJECT_AGL`` SINK that buries its building on
+      every side, with the hill it was sunk for beside it, converts like a
+      §18 re-seated row (``buried_sink.buried_rows``; ``sink_buried_m`` 0
+      disarms)."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     # #1949: a walled pit's frame raised to the airside rail group meeting it
     _records = _pit_shifted(_records, getattr(ss, "pit_shifts", None) or {})
@@ -427,6 +439,16 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     flat = getattr(rebake_plan, "flat", None)
     ground = None if flat is None else flat.z0_m
     msl_counts: dict[str, int] = {}
+    # #2293: a sink that buries its building on every side converts
+    from .buried_sink import buried_rows
+    _buried = buried_rows(dump, pack_root, surface if sink_surface is None else sink_surface,
+                          bar_m=sink_buried_m,
+                          skip=settled | frozenset(c.index for c in conversions),
+                          counts=msl_counts)
+    if _buried:
+        conversions = conversions + tuple(
+            c for c in _dw.conversions_for_dump(dump, pack_root, convert_agl=_buried)[0]
+            if c.index in _buried)
     from .hung_rows import hung_rows as _hung
     msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
                                  pack_root, settled, tol_m=tol_m,

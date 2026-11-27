@@ -121,10 +121,9 @@ def _family_keys(path: str, texture: str, layer: float | None = None
     numbered tile AT ITS DRAW ORDER ``layer`` (``n1e215_BR`` and
     ``n1e216_UL`` are both ``n#e#``: a grid laid as cells of four quarters
     side by side; a suffixed layer drawn over its cell, ``KEYW_3_06_sw``,
-    is that cell's detail and keeps its own family, issue #2115), the
-    stem with a lettered grid cell taken off (``lgkr_a1`` and ``lgkr_f1``
-    are ``lgkr_@``, issue #2250), and the length of a hash-like name
-    (letters and digits, at least two of each: ``7JF26B82``)."""
+    is that cell's detail and keeps its own family, issue #2115), and the
+    length of a hash-like name (letters and digits, at least two of each:
+    ``7JF26B82``)."""
     folder = os.path.dirname(path.replace("\\", "/")).lower()
     keys: set[str] = set()
     for tag, name in (("pol", _stem(path)), ("img", _stem(texture))):
@@ -132,8 +131,6 @@ def _family_keys(path: str, texture: str, layer: float | None = None
         if not name:
             continue
         keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', name.lower())}")
-        if _CELL.search(name):
-            keys.add(f"{folder}|{tag}|{_CELL.sub('@', name.lower())}|cells")
         cell = _QUADRANT.sub("", name)
         if cell != name and layer is not None:
             keys.add(f"{folder}|{tag}|{_NUMBER.sub('#', cell.lower())}"
@@ -144,8 +141,23 @@ def _family_keys(path: str, texture: str, layer: float | None = None
     return keys
 
 
+def _cell_keys(path: str, texture: str) -> set[str]:
+    """The LETTERED-CELL keys of one layer (issue #2250): its folder plus
+    each name's stem with its grid cell taken off (``lgkr_a1`` and
+    ``lgkr_f1`` are ``lgkr_@``: rows lettered, columns numbered, every
+    row too short to make a family of its own)."""
+    folder = os.path.dirname(path.replace("\\", "/")).lower()
+    return {f"{folder}|{tag}|{_CELL.sub('@', name.lower())}|cells"
+            for tag, name in (("pol", _stem(path)), ("img", _stem(texture)))
+            if name and _CELL.search(name)}
+
+
 def _families(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
-    """The layers joined by a shared key (union-find), MIN_TILES or more."""
+    """The layers joined by a shared key (union-find), MIN_TILES or more;
+    the layers left in a smaller group are joined by their lettered-cell
+    keys (:func:`_cell_keys`) among themselves -- a family of numbered
+    rows keeps its rows (issue #2250: two grids of one pack at two
+    resolutions share the cell key)."""
     parent = list(range(len(layers)))
 
     def find(i: int) -> int:
@@ -154,17 +166,25 @@ def _families(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
             i = parent[i]
         return i
 
-    first: dict[str, int] = {}
-    for i, ly in enumerate(layers):
-        for k in _family_keys(ly.path, ly.texture, ly.layer):
-            if k in first:
-                parent[find(i)] = find(first[k])
-            else:
-                first[k] = i
-    groups: dict[int, list[Layer]] = {}
-    for i, ly in enumerate(layers):
-        groups.setdefault(find(i), []).append(ly)
-    return [g for g in groups.values() if len(g) >= MIN_TILES]
+    def join(keys: _t.Callable[[Layer], set[str]], among: _t.Iterable[int]) -> None:
+        first: dict[str, int] = {}
+        for i in among:
+            for k in keys(layers[i]):
+                if k in first:
+                    parent[find(i)] = find(first[k])
+                else:
+                    first[k] = i
+
+    def groups() -> list[list[int]]:
+        out: dict[int, list[int]] = {}
+        for i in range(len(layers)):
+            out.setdefault(find(i), []).append(i)
+        return list(out.values())
+
+    join(lambda ly: _family_keys(ly.path, ly.texture, ly.layer), range(len(layers)))
+    join(lambda ly: _cell_keys(ly.path, ly.texture),
+         [i for g in groups() if len(g) < MIN_TILES for i in g])
+    return [[layers[i] for i in g] for g in groups() if len(g) >= MIN_TILES]
 
 
 def _adjacent(a: Box, b: Box, tx: float, ty: float) -> bool:

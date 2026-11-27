@@ -90,7 +90,19 @@ def test_an_object_drawn_partly_undraped_is_no_photo(tmp_path):
     assert PO._photo_object(str(root / path)) is None
 
 
-def test_lettered_grid_cells_are_one_family():
-    assert (G._family_keys("g/x-obj_groundpoly_a1.obj", "../t/lgkr_a1.dds")
-            & G._family_keys("g/x-obj_groundpoly_f1.obj", "../t/lgkr_f1.dds"))
-    assert not (G._family_keys("g/asphalt.obj", "") & G._family_keys("g/concrete.obj", ""))
+def _layer(i: int, path: str, layer: float = 0.0):
+    return G.Layer(i, path, "", ((0.0, 0.0, 1.0, 1.0),), True, layer)
+
+
+def test_lettered_grid_cells_are_one_family_only_where_rows_are_short():
+    """LGKR's a1..f1 (rows of one to three tiles) are one family; a pack
+    whose lettered rows are families already keeps them (KTIW's 60 cm and
+    30 cm grids share the cell key and stay apart)."""
+    short = [_layer(k, f"g/x-obj_groundpoly_{c}.obj")
+             for k, c in enumerate(("a1", "a2", "b1", "c1", "c2"))]
+    assert [len(f) for f in G._families(short)] == [5]
+    rows = [_layer(k, f"o/K_{res}cm_XP_{r}{c}.pol")
+            for k, (res, r, c) in enumerate((res, r, c) for res, r in (("60", "A"), ("30", "E"))
+                                            for c in range(1, 5))]
+    assert sorted(len(f) for f in G._families(rows)) == [4, 4]
+    assert not G._cell_keys("g/asphalt.obj", "") and not G._cell_keys("g/concrete.obj", "")

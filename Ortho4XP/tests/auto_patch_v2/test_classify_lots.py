@@ -32,8 +32,14 @@ from auto_patch_v2.classify.evidence import build_evidence  # noqa: E402
 from auto_patch_v2.classify.sources import classify_sources  # noqa: E402
 from auto_patch_v2.law import Law  # noqa: E402
 from auto_patch_v2.law.tables import role_cap, role_side  # noqa: E402
-from auto_patch_v2.model.airport import (OsmWay, Pavement, Startup, Surface,  # noqa: E402
-                                         TaxiEdge, TaxiNode)
+from auto_patch_v2.model.airport import (  # noqa: E402
+    OsmWay,
+    Pavement,
+    Startup,
+    Surface,
+    TaxiEdge,
+    TaxiNode,
+)
 from auto_patch_v2.planar.build import build as planar_build  # noqa: E402
 from test_classify import _rect, _synthetic  # noqa: E402
 
@@ -694,9 +700,9 @@ def test_parked_cars_on_a_page_make_it_a_lot(law):
 
 
 def test_lot_cars_count_only_inside_the_face():
-    from shapely.geometry import box
-    from auto_patch_v2.classify.lot_evidence import LotCars, cars_evidence
     import numpy as np
+    from auto_patch_v2.classify.lot_evidence import LotCars, cars_evidence
+    from shapely.geometry import box
     cars = LotCars(np.array([(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (50.0, 50.0)]), 3)
     assert cars.on(box(0, 0, 10, 10)) == 3
     assert cars_evidence(box(0, 0, 10, 10), cars).startswith("E3: 3")

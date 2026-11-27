@@ -133,7 +133,8 @@ def test_dump_rows_converts_the_buried_sink_on_ground(tmp_path, monkeypatch):
 def test_a_pack_object_is_the_splits_never_a_stock_sink(tmp_path):
     res = _box_obj(tmp_path, "deck.obj", -10, 10, -13, 13)
     (tmp_path / "pack" / "lib").mkdir(parents=True)
-    (tmp_path / "pack" / res).write_text((tmp_path / "library" / "deck.obj").read_text())
+    deck = (tmp_path / "library" / "deck.obj").read_text(encoding="utf-8")
+    (tmp_path / "pack" / res).write_text(deck, encoding="utf-8", newline="\n")
     assert BS.buried_rows(_dump(_row(res, -3.5)), str(tmp_path / "pack"), _pad_and_wall(),
                           bar_m=1.0, index=INDEX) == frozenset()
     assert BS.sinks_box(_dump(_row(res, -3.5)), 1.0, str(tmp_path / "pack")) is None

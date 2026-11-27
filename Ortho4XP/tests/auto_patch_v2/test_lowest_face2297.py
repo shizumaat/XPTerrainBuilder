@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from auto_patch_v2.geom.lowest_face import every_z_at, floor_z_at
 
 #: GCLA_Terminal_Underside_020.obj@shell, face 3593 (frame metres), verbatim

@@ -36,7 +36,7 @@ surface, never a pack, an airport or a coordinate:
   bar -- a low side that meets the grade -- keeps the author's row;
 * its plan covers at least ``MIN_PLAN_M2`` (a building: a pole, a column
   or a lamp is sunk to shorten it, never for a hill);
-* THE HILL IS THERE (:func:`hill_beside`): somewhere within ``REACH_M``
+* THE HILL IS THERE (:func:`_hill_beside`): somewhere within ``REACH_M``
   outside its outline our surface stands at least the sink's depth over
   the drape at the row -- the rise the author's mesh smoothed over the
   site.  A sink on open ground (a canopy or a tank lowered on a flat
@@ -56,7 +56,7 @@ import numpy as np
 
 from ..model.placement import KIND_AGL
 
-__all__ = ["buried_rows", "outline_stations", "is_buried", "hill_beside",
+__all__ = ["buried_rows", "outline_stations", "_is_buried", "_hill_beside",
            "sinks_box", "STEP_M", "REACH_M", "MIN_PLAN_M2", "BOX_PAD_M"]
 
 Surface = _t.Callable[[float, float], "float | None"]
@@ -105,7 +105,7 @@ def _placer(row: _t.Any) -> _t.Callable[[float, float], tuple[float, float]]:
     return to
 
 
-def hill_beside(row: _t.Any, v: np.ndarray, surface: Surface,
+def _hill_beside(row: _t.Any, v: np.ndarray, surface: Surface,
                 reach_m: float = REACH_M, step_m: float = STEP_M) -> bool:
     """Does our surface rise, somewhere within ``reach_m`` outside the
     outline of static vertices ``v``, at least the row's sink depth over
@@ -127,7 +127,7 @@ def hill_beside(row: _t.Any, v: np.ndarray, surface: Surface,
     return False
 
 
-def is_buried(row: _t.Any, v: np.ndarray, surface: Surface, bar_m: float,
+def _is_buried(row: _t.Any, v: np.ndarray, surface: Surface, bar_m: float,
               step_m: float = STEP_M) -> bool:
     """Is the building of ``row`` (static vertices ``v``) more than
     ``bar_m`` under ``surface`` at every outline station at its AUTHORED
@@ -212,8 +212,8 @@ def buried_rows(dump: _t.Any, pack_root: str | None, surface: Surface, *,
                 memo[res] = None
         v = memo[res]
         if (v is not None and _plan_m2(v) >= MIN_PLAN_M2
-                and is_buried(rows[i], v, surface, bar_m)
-                and hill_beside(rows[i], v, surface)):
+                and _is_buried(rows[i], v, surface, bar_m)
+                and _hill_beside(rows[i], v, surface)):
             out.add(i)
     if counts is not None and out:
         counts["buried_sinks_seated"] = len(out)
@@ -234,6 +234,7 @@ def _library_index(pack_root: str | None) -> "_t.Mapping[str, str] | None":
         return None
     try:
         import O4_File_Names as FNAMES
+
         from . import obj8 as _obj8
         xplane = os.path.dirname(os.path.dirname(os.path.normpath(pack_root)))
         return _obj8.read_library_index(_obj8.library_index_path(

@@ -738,6 +738,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.classify.gap_stands",
     "auto_patch_v2.classify.gap_terrace",
     "auto_patch_v2.classify.island_spurs",
+    "auto_patch_v2.classify.lot_evidence",
     "auto_patch_v2.classify.lot_roads",
     "auto_patch_v2.classify.neck",
     "auto_patch_v2.classify.neck_road",

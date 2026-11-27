@@ -150,8 +150,11 @@ def split_beyond(regions: list, lost: dict, law, key: str,
     a minted piece stands back from (the pads' set-back knife,
     ``reach_after_pads._beyond_passages``) -- the part inside it is cut out
     of the page and minted as nothing: bare ground between the two."""
-    from ..classify.open_default import (DEFAULT_ROAD_KEY, DEFAULT_ROAD_PLATE,
-                                         unclassified_groundside_role)
+    from ..classify.open_default import (
+        DEFAULT_ROAD_KEY,
+        DEFAULT_ROAD_PLATE,
+        unclassified_groundside_role,
+    )
     from ..classify.rules import load_rules
     from .reach_after_pads import BEYOND
     rules = load_rules()

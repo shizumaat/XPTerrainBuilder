@@ -41,7 +41,7 @@ def _obj(root, name: str, texture: str, quad: tuple[float, float, float, float],
             "POINT_COUNTS 4 0 0 6", *vt, "IDX 0", "IDX 1", "IDX 2", "IDX 0", "IDX 2", "IDX 3"]
     body += (["ATTR_draped"] if draped else []) + ["TRIS 0 6"]
     (root / "ground").mkdir(parents=True, exist_ok=True)
-    (root / "ground" / name).write_text("\n".join(body) + "\n", encoding="utf-8")
+    (root / "ground" / name).write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
     (root / "tex").mkdir(exist_ok=True)
     (root / "tex" / texture).write_bytes(_dds(True))
     return "ground/" + name
@@ -50,7 +50,7 @@ def _obj(root, name: str, texture: str, quad: tuple[float, float, float, float],
 def _pack(tmp_path):
     root = tmp_path / "Custom Scenery" / "Photo Pack"
     (root / "Earth nav data").mkdir(parents=True)
-    (root / "Earth nav data" / "apt.dat").write_text(APT, encoding="utf-8")
+    (root / "Earth nav data" / "apt.dat").write_text(APT, encoding="utf-8", newline="\n")
     return root
 
 

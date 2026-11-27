@@ -17,7 +17,7 @@ def _loop_reference(minimums, maximums, epsilon, cell):
     """The historical loop, verbatim in behaviour: first-touch buckets,
     upper-triangle visits, first passing occurrence added."""
     buckets: dict[tuple[int, int], list[int]] = {}
-    for index, (low, high) in enumerate(zip(minimums, maximums)):
+    for index, (low, high) in enumerate(zip(minimums, maximums, strict=True)):
         for cell_x in range(int((low[0] - epsilon) // cell),
                             int((high[0] + epsilon) // cell) + 1):
             for cell_z in range(int((low[2] - epsilon) // cell),

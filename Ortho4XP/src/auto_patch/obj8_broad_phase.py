@@ -61,7 +61,7 @@ def broad_phase_pairs(
     high = numpy.concatenate(passing_right)
     _unique, first = numpy.unique(low * part_count + high, return_index=True)
     first.sort()
-    return set(zip(low[first].tolist(), high[first].tolist()))
+    return set(zip(low[first].tolist(), high[first].tolist(), strict=True))
 
 
 def _bucket_members(
@@ -78,7 +78,7 @@ def _bucket_members(
     last_z = _cells(box_maximums[:, 2] + epsilon_metres, cell_size)
     buckets: dict[tuple[int, int], list[int]] = {}
     for part_index, (x_low, x_high, z_low, z_high) in enumerate(
-            zip(first_x, last_x, first_z, last_z)):
+            zip(first_x, last_x, first_z, last_z, strict=True)):
         for cell_x in range(x_low, x_high + 1):
             for cell_z in range(z_low, z_high + 1):
                 buckets.setdefault((cell_x, cell_z), []).append(part_index)

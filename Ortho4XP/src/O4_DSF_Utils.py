@@ -1015,7 +1015,12 @@ def _build_dsf_body(tile, download_queue):
     if texture_mode == "airport_ortho":
         airport_geometry = FADE.build_airport_ortho_geometry(tile)
 
-    dico_customzl = zone_list_to_ortho_dico(tile)
+    # The texture of each mesh block asks the provider, square by square,
+    # what it has inside the airport boundaries (#2107): network answers,
+    # waited for beside the mesh read and the water recut, holding no core
+    # (#1264).  Nothing before the point pools reads it.
+    customzl = OVERLAP.beside(zone_list_to_ortho_dico, tile,
+                              what="DSF texture zones", needs_core=False)
 
     # The DEM and bathymetry rasters read the tile alone (GDAL and DSFTool,
     # the GIL released): fetched beside the mesh read and the water recut
@@ -1056,6 +1061,7 @@ def _build_dsf_body(tile, download_queue):
                       else elevation_and_bathymetry_data(tile))
     (bDEMS, node_scale) = inland_bed(
         bDEMS, node_coords, tri_idx, tri_types, tile)
+    dico_customzl = customzl.result()
     
     UI.vprint(1, "-> Computing point pools and texture requirements")
 

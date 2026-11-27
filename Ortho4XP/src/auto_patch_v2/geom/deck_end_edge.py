@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-__all__ = ["end_edge", "on_edge"]
+__all__ = ["end_edge", "on_edge", "point_segment_m"]
 
 XY = tuple[float, float]
 
@@ -39,7 +39,8 @@ def _ring(ring: _t.Sequence[XY]) -> list[XY]:
     return pts
 
 
-def _seg_dist(p: XY, a: XY, b: XY) -> float:
+def point_segment_m(p: XY, a: XY, b: XY) -> float:
+    """The distance from ``p`` to the segment ``a``-``b``."""
     dx, dy = b[0] - a[0], b[1] - a[1]
     L2 = dx * dx + dy * dy
     t = 0.0 if L2 <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2))
@@ -76,7 +77,7 @@ def end_edge(ring: _t.Sequence[XY], line: _t.Sequence[XY]) -> list[XY]:
     area = sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]
                for i in range(n))
     ccw = area > 0.0
-    hit = sorted({min(range(n), key=lambda i, q=q: _seg_dist(q, pts[i], pts[(i + 1) % n]))
+    hit = sorted({min(range(n), key=lambda i, q=q: point_segment_m(q, pts[i], pts[(i + 1) % n]))
                   for q in line})
     nx = ny = 0.0
     for i in hit:
@@ -105,4 +106,4 @@ def end_edge(ring: _t.Sequence[XY], line: _t.Sequence[XY]) -> list[XY]:
 
 def on_edge(p: XY, edge: _t.Sequence[XY], tol: float) -> bool:
     """``p`` lies within ``tol`` of polyline ``edge``."""
-    return any(_seg_dist(p, edge[i], edge[i + 1]) <= tol for i in range(len(edge) - 1))
+    return any(point_segment_m(p, edge[i], edge[i + 1]) <= tol for i in range(len(edge) - 1))

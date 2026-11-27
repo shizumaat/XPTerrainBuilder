@@ -32,6 +32,7 @@ from .contiguity import lateral_contiguity
 from .cutback import groundside_cutback
 from .deck_flush import deck_end_flush
 from .pack_bridge import pack_bridge_under_deck
+from .deck_pinch import deck_floor_pinch
 from .eat import eat_ceiling
 from .jetway import jetway_strip
 from .frontage import frontage_near_miss
@@ -102,6 +103,9 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     # RULINGS 2026-11-20a (1): a pack bridge body left under a generated
     # deck (``verify/pack_bridge.py``)
     "pack_bridge_under_deck": pack_bridge_under_deck,
+    # #2239 / #2241: a trench floor vertex pinched to a deck's pavement
+    # (``verify/deck_pinch.py``)
+    "deck_floor_pinch": deck_floor_pinch,
     # RULINGS 2026-09-13m (lane ``v2zerocrater``; issue #186): the
     # SHIP-SIDE net — a vertex far below the patch's own 5th-percentile
     # ground band is a sentinel, not geometry.  Patch-intrinsic: no

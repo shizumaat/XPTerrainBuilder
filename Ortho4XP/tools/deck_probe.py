@@ -18,8 +18,11 @@ lines round the ring).  ``--vertex``: one vertex's roles, z, DEM, its stage-1 tw
 row on it with its violation.  ``--cut-cover TOL``: the cut under every
 BANKED deck (generated or a wall-less pack deck, RULINGS 2026-11-17p) and
 generated road bridge (``tools/deck_cut_cover``; owner 2026-11-17 "the cut
-goes all the way under"), exit 1 on a FAIL.  Writes
-nothing but ``--json``.
+goes all the way under"), exit 1 on a FAIL.  ``--weld`` / ``--underside``
+/ ``--envelope TOL``: every cut pack deck's weld along its full end edge,
+the trench floor under it and the road envelope under it
+(``tools/deck_bars``); ``--pinch``: trench-floor vertices pinched to a deck
+(``verify/deck_pinch``).  Writes nothing but ``--json``.
 
 Promoted from the deckanchor lanes' scratch probes (``deckA/probe.py``,
 ``unsettled.py``, ``attr.py``) on their second use (tool discipline,
@@ -145,6 +148,23 @@ def main(argv=None) -> int:
                     help="the piers of every GENERATED deck (tools/deck_carve_bars.pier_bars, "
                          "owner 2026-11-20T14:50Z): columns floating over the solved ground "
                          "or standing on a mapped road / railway; exit 1 on any")
+    ap.add_argument("--weld", type=float, default=None, metavar="TOL",
+                    help="THE WELD along every pack deck's full end edge, corner to corner "
+                         "(tools/deck_bars; #2239): samples off the end line's level by "
+                         "more than TOL m")
+    ap.add_argument("--underside", type=float, default=None, metavar="TOL",
+                    help="THE UNDERSIDE: the trench floor under every pack deck against its "
+                         "bottom (tools/deck_bars): median within TOL m, max <= TOL")
+    ap.add_argument("--envelope", type=float, default=None, metavar="TOL",
+                    help="THE ROAD ENVELOPE under every pack deck (tools/deck_bars): "
+                         "carriageway samples over the centreline abeam by more than TOL m")
+    ap.add_argument("--ends", type=float, default=None, metavar="TOL",
+                    help="SQUARE ENDS: the mouth zone between every pack deck's band lines "
+                         "flat across to its road's centreline (tools/deck_bars) within TOL m")
+    ap.add_argument("--pinch", action="store_true",
+                    help="THE FLOOR PINCH (verify/deck_pinch, family deck_floor_pinch): "
+                         "trench-floor vertices that are stage-1 airside or carry a deck "
+                         "end-edge weld row; exit 1 on any")
     a = ap.parse_args(argv)
     warnings.simplefilter("ignore")
     import numpy as np
@@ -269,8 +289,60 @@ def main(argv=None) -> int:
             print(f"SPAN-CLEAN {'FAIL' if q['rows'] else 'PASS'} {q['object']}: strip "
                   f"{q['strip_m2']} m2, {q['rows']} vertex(es) {q['roles']} {q['lines']} "
                   f"{q['vertices']}")
+    rc |= _bars(a, pm, z, d.get("airport"), Law.for_airport(pm.icao), decks, cs, res)
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, default=str))
+    return rc
+
+
+def _bars(a, pm, z, airport, law, decks, cs, res: dict) -> int:
+    """``--weld`` / ``--underside`` / ``--envelope`` (``tools/deck_bars``)
+    and ``--pinch`` (``verify/deck_pinch``); 1 on a FAIL."""
+    rc = 0
+    if a.pinch:
+        from auto_patch_v2.verify.deck_pinch import pinch_records
+        to_ll = airport.frame.transformers()[1] if airport is not None else None
+        res["pinch"] = [q for q in pinch_records(pm, law, cs.rows(), to_ll)
+                        if a.object is None or q["deck"] == a.object]
+        by: dict = {}
+        for q in res["pinch"]:
+            by.setdefault(q["deck"], []).append(q)
+        rc |= bool(res["pinch"])
+        print(f"PINCH {'FAIL' if res['pinch'] else 'PASS'}: {len(res['pinch'])} floor vertex(es)")
+        for oid, qs in sorted(by.items()):
+            first = [(q["v"], q["why"], q.get("lat"), q.get("lon")) for q in qs[:6]]
+            print(f"  PINCH {oid}: {len(qs)} {first}")
+    which = [k for k in ("weld", "underside", "envelope", "ends") if getattr(a, k) is not None]
+    if not which or airport is None:
+        return rc
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from auto_patch_v2.planar.deck_ring_cut import cut_decks
+    from deck_bars import deck_bars
+    tol = min(getattr(a, k) for k in which)
+    mine = decks if a.object is not None else cut_decks(decks, getattr(pm, "structures", ()) or ())
+    res["bars"] = deck_bars(pm, z, airport, law, mine, tol, which)
+    for q in res["bars"]:
+        line = [f"BARS {q['object']} levels {q['levels']}"]
+        if "weld" in q:
+            w = q["weld"]
+            rc |= w["over"] > 0
+            line.append(f"weld {w['over']}/{w['n']} (shoulder {w['shoulder_over']}/"
+                        f"{w['shoulder_n']}) worst {w['worst']}")
+        if "underside" in q:
+            u = q["underside"]
+            bad = u["n"] and (abs(u["median"]) > a.underside or u["max"] > a.underside)
+            rc |= bool(bad)
+            line.append(f"underside n {u['n']} median {u['median']} min {u['min']} "
+                        f"max {u['max']} (want {u['want']})")
+        if "envelope" in q:
+            e = q["envelope"]
+            rc |= e["over"] > 0
+            line.append(f"envelope {e['over']}/{e['n']} worst {e['worst']} roads {e['roads']}")
+        if "ends" in q:
+            e = q["ends"]
+            rc |= e["over"] > 0
+            line.append(f"ends {e['over']}/{e['n']} worst {e['worst']} zone {e.get('zone_m2')} m2")
+        print(" | ".join(line))
     return rc
 
 

@@ -85,7 +85,9 @@ from shapely.strtree import STRtree
 
 from ..classify.pad_touch import without_pads
 from ..classify.roles import Cell, Classification, is_runway_shoulder
+from ..geom.deck_plan import wall_inset
 from ..law import Law
+from .deck_lone import lone_decks, lone_floor
 from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import role_family, role_side, rolled_on_roles, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
@@ -198,6 +200,8 @@ def _generated_reach(db):
     polys = [deck_polygon(db)] + [Polygon(q).buffer(0.0) for q in getattr(db, "approach", ())
                                   or () if len(q) >= 3]
     return unary_union(polys)
+
+
 
 
 def build_structures(airport: Airport, classification: Classification, law: Law,
@@ -548,6 +552,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     spacing = law.tables.emit.chords.station_spacing_m
     credible = inset_class.lidar_credible(airport, law)    # #1280: lidar_road
     gap = tn.wall_gap_m
+    w_inset = wall_inset(law)       # #2239 R2: a walled deck's rim (``geom/deck_plan``)
     rim_off = tn.wall_gap_m + tn.wall_band_width_m      # an OSM bore's rim stand-off
     grid = law.tables.emit.identity.min_distinct_spacing_m
     tunnels: list[Tunnel] = []
@@ -567,6 +572,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     pad_ends: dict[tuple[int, int], str] = {}   # 2026-11-16h: bore ends refused at a pad
     osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
     under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
+    lone = lone_decks(groups, deck_of, edge_of)     # #2239 (``planar/deck_lone``)
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
         c = g.corridor
@@ -1460,10 +1466,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             parts_u = [q for q in (deck_uncut, dead_cut, d_edge, d_pads) if q is not None]
             d_uncut = unary_union(parts_u) if parts_u else None
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next, d_band, d_run,
-                                   deck_roads, d_uncut, rim_off)
+                                   deck_roads, d_uncut, rim_off, rim_inset=w_inset,
+                                   lone=id(deck) in lone)
+            if id(deck) in lone:
+                ramp, outer = lone_floor(deck, axis_ln, inward, half, ramp, outer)
             # #2072 C: the banks are cleared (the knife) and left to the deck's ground
             banks = deck_banks(deck, axis_ln, gap, deck_next, d_band, d_run, d_uncut,
-                               deck_roads, unary_union([ramp, road_own]))
+                               deck_roads, unary_union([ramp, road_own]), rim_inset=w_inset,
+                               lone=id(deck) in lone)
         if rt is not None and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
@@ -1952,8 +1962,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # (``structure_service.decked_exclusion``, which holds the reading).
     cut_lines = _decked_exclusion(classification.cut_lines, tunnels, footprints,
                                   cells, polys, _cut_roles, grid, stats,
-                                  spans=walled_span_cuts(deck_bridges, law.tables.structures.
-                                                         tunnel.wall_gap_m))
+                                  spans=walled_span_cuts(deck_bridges, wall_inset(law)))
     cut_lines = knee_nodes(cut_lines, knee_chords, grid)   # §34 (7), #449
     by_ref = {c.ref: c for c in cells}
     for role, ref, part, _tid in new_cells:

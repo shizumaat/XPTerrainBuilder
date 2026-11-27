@@ -379,6 +379,18 @@ cockpit   = "step"
 # CLASS is "step": the edge of the deck object against the pavement the
 # aircraft rolls onto it from.
 
+[deck_floor_pinch]
+measures  = "a trench floor (tunnel_ramp) vertex that is a stage-1 airside vertex or carries a pack deck's end-edge weld row: the floor pinched up to the deck (published in the sidecar `deck_floor_pinch`)"
+parameter = "structures.cutout.ring_floor_m"
+roles     = ["tunnel_ramp"]
+pairs     = "within"
+ruling    = "2026-11-27a"
+solver    = "construction"
+# #2239 / #2241 (owner sim read 2026-11-26T15:02Z: the road envelope under
+# the bridge stays clear).  "keepout": PRESENCE -- one floor vertex at the
+# deck's level is a wedge across the road under it.
+cockpit   = "keepout"
+
 [pack_bridge_under_deck]
 measures  = "a pack placement still drawing a deck-level top under a GENERATED deck's footprint after the one decision per crossing (published per deck in the sidecar `pack_bridge_under_deck`)"
 parameter = "structures.deck_gen.min_area_m2"

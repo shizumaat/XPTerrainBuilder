@@ -141,9 +141,11 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
+    from ..law.tables import rolled_on_roles
     from ..model.deck_bank import bank_past_m
     from .deck_lines import end_lines, plate_of
     from .walled_floor import walled_floor_rows
+    air_roles = rolled_on_roles(law)
     flush = float(law.tables.structures.bridge.deck_flush_m)
     # a vertex nearer a deck's edge than half the least ring separation is ON it
     tol = 0.5 * float(law.tables.structures.cutout.ring_floor_m)
@@ -188,8 +190,12 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                     tops.update({v: tg for v in tg})
         # #2239 / #2241: every vertex on the deck's end EDGE, corner to
         # corner, is a station of its end line (``constraints/deck_edge_weld``)
+        # owner 2026-11-26T23:48Z: a road meeting airside welds to it unless
+        # it enters a tunnel (its floor) -- roads are not skipped on the edge;
+        # #2239 R4: and the deck's apron is flush over its run-on band
         welded = {} if graded or all(is_generated(e.deck) for e in es) else edge_vertices(
-            planar, es, tol, _FLOOR_ROLES | roads | _RUNWAY_FAMILY, seats_of[oid])
+            planar, es, tol, _FLOOR_ROLES | _RUNWAY_FAMILY, seats_of[oid],
+            apron=bank_past_m(law), keep=air_roles)
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
                                _FLOOR_ROLES | roads, tops, _bank_slope(law, es), bank_past_m(law),
                                welded=frozenset(welded)))

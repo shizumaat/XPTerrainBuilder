@@ -57,6 +57,7 @@ from .grade_separation import road_crossings
 from ..geom.parts import polygon_parts_with_area
 from .deck_carve import deck_carve
 from .deck_generated import carried_off
+from .deck_ring_cut import ring_cut
 from .deck_pack_cover import hidden_cells_off
 from .deck_takeover import (decide_crossings, full_hidden, roads_under, take_frames,
                              without_hidden)
@@ -71,6 +72,7 @@ from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_wall_witness import road_witness
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
+from ..airport.dem import dem_z_at
 from ..airport.road_bridge_ground import clearance_ground, clearance_ribbons
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
@@ -480,10 +482,16 @@ def build(airport: Airport, classification: Classification, law: Law,
     sstats.object_floors.extend(mouth_notes)
     sstats.object_floors.extend(n for c in cuts for n in c.notes)
     decks = with_cuts(decks, tunnels)
+    # #2239 (spec cyyz-decks-r3 R1): the ring of a pack deck with a cut under
+    # it is the deck's -- the airside pavement inside it is cut, ending on
+    # its end edges (``planar/deck_ring_cut``); deck_ground owns the rest
+    classification, ring_notes = ring_cut(classification, decks, tunnels, law)
+    sstats.hard_decks.extend(ring_notes)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
     classification, ground_notes = deck_ground(classification, tunnels, law,
-                                               region_union(survey_deck), decks)
+                                               region_union(survey_deck), decks,
+                                               lambda xy: dem_z_at(airport, xy))
     sstats.hard_decks.extend(ground_notes)
     # owner 2026-11-19T23:07Z: the cut is the GENERATED deck's own -- its
     # floor, banks and ramps back to the terrain along the road's path

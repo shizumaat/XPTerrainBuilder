@@ -45,7 +45,7 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY
 
-__all__ = ["under_cover"]
+__all__ = ["side_lines", "under_cover"]
 
 #: a footprint reaching less than this plan area past its cover is under it
 #: (the arrangement's own rounding, never a slot a wheel finds), m2
@@ -102,6 +102,19 @@ def _sides(poly, ax: LineString) -> list[list[tuple[XY, XY, XY]]]:
         if mine:
             out.append(max(mine, key=lambda r: r[1])[2])
     return out
+
+
+def side_lines(cover, axis: _t.Sequence[XY]) -> list[list[XY]]:
+    """The cover's two SIDES along the trench (:func:`_sides`) as
+    polylines, of its largest polygon; ``[]`` unless it has both."""
+    if cover is None or cover.is_empty or len(axis) < 2:
+        return []
+    polys = [g for g in getattr(cover, "geoms", [cover]) if g.geom_type == "Polygon"]
+    if not polys:
+        return []
+    runs = _sides(max(polys, key=lambda g: g.area), LineString(axis))
+    out = [[tuple(run[0][0])] + [tuple(b) for _a, b, _m in run] for run in runs]
+    return out if len(out) == 2 else []
 
 
 def _lateral_strips(cover, axis: _t.Sequence[XY], far: float):

@@ -699,12 +699,8 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         # step only ate the wall: the eroded floor ring stood a whole
         # 0.5 m inside the object's own inner face.
         inside = outer.buffer(-standoff, join_style="mitre")
-        if covered and 0.0 < covered[1] < standoff:
-            # #2239 (``airport/cover_rim``): where the rim was cut back to a
-            # deck's sides the wall stands OUTSIDE the deck, so under it the
-            # band is the arrangement's least, never the wall's thickness
-            inside = unary_union([inside, outer.buffer(-covered[1], join_style="mitre")
-                                  .intersection(covered[0])])
+        if covered and len(covered) > 2:
+            outer, inside, ramp = _under_cover(outer, inside, ramp, covered)
         inside = _one_polygon(inside)
         if inside is None:
             return None
@@ -719,6 +715,39 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         return None
     return RampGeometry(axis, nrm, left, right, ramp, wall, outer, [], [], [], [],
                         list(outer.exterior.coords), [])
+
+
+def _under_cover(outer, inside, ramp, covered):
+    """``(outer, inside, ramp)`` of a shell cut back to its cover's sides
+    (#2239 / #2241, spec cyyz-decks-r3 R2 / R3; ``geom/deck_plan``): the
+    wall the shell models stands OUTSIDE its deck, so between the cover's
+    two prolonged sides the floor is the footprint less the two safe bands
+    (``DeckPlan.floor``), mouth to mouth, never the footprint eroded by the
+    wall's thickness (MEASURED CYYZ T: the floor ring 0.7071 m inside the
+    rim shared the pavement's snapped stations and pinched the floor up to
+    the deck); and beyond each mouth the cut ends SQUARE -- the strip
+    between the prolonged sides out to the trench's farthest reach is
+    the cut's (``DeckPlan.mouth_zone``), its floor between the bands, so no
+    rim closes across an open mouth (MEASURED: outline vertices no ground
+    face shared took the DEM, 161.13-165.70 against the floor's 160.00)."""
+    from ..geom.deck_plan import plan
+    cover, band, sides = covered[:3]
+    polys = [g for g in getattr(cover, "geoms", [cover]) if g.geom_type == "Polygon"]
+    dp = plan(list(max(polys, key=lambda g: g.area).exterior.coords)[:-1], sides[0],
+              sides[1], band) if polys and len(sides) == 2 else None
+    if dp is None:
+        return outer, inside, ramp
+    strip = dp.strip()
+    # squared at the TRENCH's farthest reach: the footprint's (its wing
+    # walls' band) stood 11-13 m past the object's own outline at CYYZ T and
+    # the cut left it (census ``object_cut_offset`` 1 -> 35, §33 (6))
+    mouth = dp.mouth_zone(ramp)
+    bands = unary_union(dp.bands())
+    outer = _one_polygon(unary_union([outer, mouth])) or outer
+    floor = unary_union([ramp, mouth]).intersection(outer).intersection(strip).difference(bands)
+    inside = unary_union([inside.difference(strip), floor])
+    ramp = unary_union([ramp, floor])
+    return outer, inside, ramp
 
 
 def _one_polygon(geom):

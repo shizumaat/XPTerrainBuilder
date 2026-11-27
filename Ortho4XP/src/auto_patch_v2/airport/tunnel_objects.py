@@ -72,6 +72,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom.deck_plan import safe_band
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY, rotated_rectangle
@@ -197,10 +198,11 @@ class Corridor:
     #: generator pins the trench to it inside the walls; empty = the floor
     #: is ``floor_z`` (and the design line) everywhere.
     profile: tuple[tuple[float, float], ...] = ()
-    #: #2239: ``(cover, band)`` where the footprint was cut back to its
-    #: cover's sides (``airport/cover_rim``): under ``cover`` the floor
-    #: ring stands ``band`` (``[cutout] ring_floor_m``) inside the rim,
-    #: never the wall's thickness; ``()`` everywhere else
+    #: #2239: ``(cover, band, sides)`` where the footprint was cut back to
+    #: its cover's sides (``airport/cover_rim``): between the two sides
+    #: (prolonged) the floor stands ``band`` (``geom/deck_plan.safe_band``)
+    #: inside each, never the wall's thickness, and the cut ends square
+    #: beyond the mouths (``planar/structure_geometry``); ``()`` elsewhere
     under_cover: tuple = ()
 
 
@@ -875,7 +877,10 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
         if fp2 is not None and tr2 is not None:
             footprint, trench = fp2, tr2
             band = _object_cut.largest_polygon(band.intersection(fp2)) or band
-            under = (covered, float(law.tables.structures.cutout.ring_floor_m))
+            # spec cyyz-decks-r3 R2 / R3: the floor is the cover's plan between
+            # its two sides' safe bands, mouth to mouth (``geom/deck_plan``)
+            sides = _cover_rim.side_lines(covered, axis2)
+            under = (covered, safe_band(law), tuple(tuple(s) for s in sides)) if sides else ()
             notes.append(f"the footprint stood {moved:.1f} m2 past its cover's sides: cut back "
                          f"to them, the floor ring_floor_m inside under the cover (#2239, "
                          f"airport/cover_rim)")

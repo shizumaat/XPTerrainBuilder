@@ -28,6 +28,7 @@ from .frame import XY
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
            "ChannelRamp",
            "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
+           "DECK_APRON_REF", "is_deck_apron_ref",
            "CHANNEL_FLOOR_ROLE", "GENERATED_WITNESS", "is_generated",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
            "OBJECT_FLOOR_WALL_REF"]
@@ -622,6 +623,15 @@ class DeckBridge:
 #: the ref prefix of the ground a hard deck rests on (``planar/deck_bridge.
 #: deck_ground``; held flush by ``constraints/edge_deck``)
 DECK_GROUND_REF = "deck_ground"
+
+#: the ref prefix of a pack deck's APRON -- the unowned ground outside its
+#: end edges, corner to corner (``planar/deck_apron``; #2239 / #2241)
+DECK_APRON_REF = "deck_apron"
+
+
+def is_deck_apron_ref(ref) -> bool:
+    """``ref`` names a deck apron face (``deck_apron:<object>[#k]``)."""
+    return str(ref or "").startswith(DECK_APRON_REF + ":")
 
 
 def deck_reach(tn: Tunnel):

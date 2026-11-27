@@ -68,25 +68,37 @@ def _depth_along(planar, e, edge) -> _t.Callable[[tuple[float, float]], float]:
 
 
 def edge_vertices(planar, es: _t.Sequence, tol: float, skip: _t.AbstractSet[str],
-                  stations: _t.AbstractSet[int]) -> dict[int, tuple[int, float]]:
+                  stations: _t.AbstractSet[int], apron: float = 0.0,
+                  keep: _t.AbstractSet[str] = frozenset()) -> dict[int, tuple[int, float]]:
     """``{vertex: (end line index, depth there)}`` (module doc) over one
     object's end lines ``es`` (``constraints/deck_lines.EndLine``), every
     vertex once -- the first end line naming it -- ``stations`` and any
-    vertex carrying a ``skip`` role left out."""
+    vertex carrying a ``skip`` role left out.  THE APRON'S RUN-ON BAND
+    (#2239 R4, ``planar/deck_apron``): a vertex of the deck's own apron
+    faces within ``apron`` of its edge is flush with it too, save one
+    carrying a ``keep`` role (a neighbour whose law it keeps)."""
+    from ..model.structures import DECK_APRON_REF
     out: dict[int, tuple[int, float]] = {}
+    reach = max(tol, apron + tol)
     for k, e in enumerate(es):
         ring = getattr(e.deck, "ring", ())
         edge = end_edge(ring, e.line) if len(ring) >= 3 else []
         if len(edge) < 2:
             continue
         depth = _depth_along(planar, e, edge)
+        own = f"{DECK_APRON_REF}:{getattr(e.deck, 'object_id', '')}"
         xs, ys = [p[0] for p in edge], [p[1] for p in edge]
-        x0, x1, y0, y1 = min(xs) - tol, max(xs) + tol, min(ys) - tol, max(ys) + tol
+        x0, x1, y0, y1 = min(xs) - reach, max(xs) + reach, min(ys) - reach, max(ys) + reach
         for v, vx in planar.vertices.items():
             x, y = vx.xy
             if not (x0 <= x <= x1 and y0 <= y <= y1) or v in stations or v in out:
                 continue
-            if not on_edge(vx.xy, edge, tol) or skip & set(planar.roles_at(v)):
+            roles = set(planar.roles_at(v))
+            if skip & roles:
                 continue
-            out[v] = (k, depth(vx.xy))
+            if on_edge(vx.xy, edge, tol) or (
+                    apron > 0.0 and not keep & roles and on_edge(vx.xy, edge, reach)
+                    and any(str(planar.faces[f].ref).split("#")[0] == own
+                            for f in vx.incident_faces if f in planar.faces)):
+                out[v] = (k, depth(vx.xy))
     return out

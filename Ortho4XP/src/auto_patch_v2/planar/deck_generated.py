@@ -1022,8 +1022,8 @@ def carried_off(classification, decks, law) -> tuple[_t.Any, list[str]]:
     from .cell_knife import knife_cells
     from .deck_bridge import deck_polygon, walled_span_cuts
     gen = [d for d in decks if is_generated(d)]
-    spans = [g for _oid, g in walled_span_cuts(
-        decks, float(law.tables.structures.tunnel.wall_gap_m))]
+    from ..geom.deck_plan import wall_inset
+    spans = [g for _oid, g in walled_span_cuts(decks, wall_inset(law))]
     if not (gen or spans) or classification is None:
         return classification, []
     knife = unary_union([deck_polygon(d) for d in gen]

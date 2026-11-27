@@ -45,7 +45,7 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import RUNWAY_FAMILY, BasinStats, build_basins, read_objects
-from .object_floor_cells import floor_mouths, not_floors, object_floor_stage
+from .object_floor_cells import floor_mouths, not_floors, object_floor_stage, pit_group
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
@@ -172,7 +172,7 @@ def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
                          synth_ways=frozenset(), reads=None, cuts=(),
-                         skip_split=frozenset()):
+                         skip_split=frozenset(), floor_group=frozenset()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -200,9 +200,13 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     witness at all, no pit test can change the outcome and the decision
     pair is not run (OTHH, KCLT, CYXY and SPJC identify no channel with
     a pack witness, and pay nothing for this ordering).
+
+    ``floor_group`` (``planar/object_floor_cells.pit_group``, RULINGS
+    2026-11-27f) are the placements of the pits the object floors own: the
+    same exclusion, known before either call.
     """
     ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways,
-                                 synth_ways=synth_ways, cuts=cuts)
+                                 frozenset(floor_group), synth_ways=synth_ways, cuts=cuts)
     if not any(c.witness_ids for c in ch0):
         st0.notes.append("§45 (13) (d): no channel took a pack wall/floor witness — "
                          "the BUILT-basin exclusion cannot change this airport's reading "
@@ -213,7 +217,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     _cl_b, basins0, _b0 = build_basins(airport, cl_s, law, tun0, objects, cache,
                                        report=orep, claimed=shell_claimed, reads=reads,
                                        skip_split=skip_split)
-    pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
+    pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ())) | floor_group
     channels, stats = identify_channels(airport, classification, law, objects,
                                         claimed_ways, pit, synth_ways, cuts=cuts)
     stats.notes.append(
@@ -382,7 +386,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts,
-        skip_split=shell_ids)
+        skip_split=shell_ids, floor_group=pit_group(floors, objects))
     laps.lap("channels")
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is

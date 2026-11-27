@@ -107,6 +107,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch.guest_stage",
     "auto_patch.health_stage",
     "auto_patch.mesh_sampler",
+    "auto_patch.obj8_broad_phase",
     "auto_patch.obj8_partition",
     "auto_patch.obj8_reader",
     "auto_patch.object_anchor",

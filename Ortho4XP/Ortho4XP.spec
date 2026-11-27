@@ -118,6 +118,18 @@ print("Stage cache code digests: "
 v2_law_datas = v2_law_datas + [
     (_stage_digest_file, os.path.join("auto_patch_v2", "pipeline"))]
 
+# THE PER-FILE READINGS' CODE DIGESTS (#2176) — the same mechanism, one
+# digest per reading kind (the modules that reading runs), bundled beside the
+# module that reads it (``_internal/auto_patch_v2/airport/
+# file_readings_code.sha256``).
+_file_readings_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch_v2", "airport", "file_readings_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_file_readings_code"))
+print("Per-file readings code digests: "
+      + open(_file_readings_digest_file, encoding="ascii").read().strip().replace("\n", ", "))
+v2_law_datas = v2_law_datas + [
+    (_file_readings_digest_file, os.path.join("auto_patch_v2", "airport"))]
+
 # THE OBJECT STAGE REUSE'S CODE DIGEST (issue #879) — the same mechanism for
 # the object stage after the mesh, bundled beside the module that reads it
 # (``_internal/object_stage_code.sha256``, beside ``O4_Object_Stage_Code``).

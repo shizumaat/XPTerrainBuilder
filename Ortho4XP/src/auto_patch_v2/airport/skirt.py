@@ -172,6 +172,7 @@ def reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
         return got
     got = _read(cache, path, law)
     memo[path] = got
+    _obj8.keep_reading(cache, "skirt", path, got)
     return got
 
 

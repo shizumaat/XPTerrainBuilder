@@ -373,18 +373,28 @@ def _file_shape(path: str, mtime_ns: int, size: int) -> "Shape | None":
         return None
 
 
-def shape_of(path: str, geometry: _t.Any = None) -> "Shape | None":
+def shape_of(path: str, geometry: _t.Any = None, files: _t.Any = None) -> "Shape | None":
     """THE CANDIDATE TEST on an OBJ8 file (module doc), or ``None``.
     ``geometry``: its parsed ``ObjGeometry`` when the caller holds it --
     the plan and height gates then read it and most files stop there
-    without a second parse."""
+    without a second parse.  ``files``: the build's per-file store
+    (``airport/file_readings``) -- a shape a previous build read of the
+    same bytes is taken from it, and a shape read here is kept in it."""
     if geometry is not None and not _may_be_candidate(geometry):
         return None
+    if files is not None:
+        from .file_readings import MISSING
+        got = files.get("terrain_shape", path)
+        if got is not MISSING:
+            return got
     try:
         st = os.stat(path)
     except OSError:
         return None
-    return _file_shape(path, st.st_mtime_ns, st.st_size)
+    got = _file_shape(path, st.st_mtime_ns, st.st_size)
+    if files is not None:
+        files.put("terrain_shape", path, got)
+    return got
 
 
 def outer_rim(covered: np.ndarray) -> np.ndarray:
@@ -553,7 +563,8 @@ def placement_models(placements: _t.Sequence[tuple],
                      geometry: _t.Callable[[str], _t.Any],
                      dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                      fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None,
-                     hidden: _t.AbstractSet[str] = frozenset()) -> dict[str, TerrainModel]:
+                     hidden: _t.AbstractSet[str] = frozenset(),
+                     files: _t.Any = None) -> dict[str, TerrainModel]:
     """The terrain models among ``placements`` -- ``(id, def path, xy,
     heading, elevation, kind)`` rows -- by id.  ``path_of(def path)`` is
     the resolved file or ``None``, ``geometry(def path)`` its parsed
@@ -570,7 +581,8 @@ def placement_models(placements: _t.Sequence[tuple],
     Festungsberg shell, authored at 430 m, was converted to on-ground at
     its anchor on the hilltop and drawn 73-106 m over the hill.  Its datum
     is kept on the model (:attr:`TerrainModel.datum`) so the rows the
-    author stood on it keep their place (:func:`set_members`)."""
+    author stood on it keep their place (:func:`set_members`).  ``files``:
+    the build's per-file store (:func:`shape_of`)."""
     from .obj8 import is_stock_library_resource
     from .pack_choice import hides
     out: dict[str, TerrainModel] = {}
@@ -584,7 +596,7 @@ def placement_models(placements: _t.Sequence[tuple],
         if dpath not in shapes:
             phys = path_of(dpath)
             g = None if phys is None else geometry(dpath)
-            shapes[dpath] = None if g is None else shape_of(phys, g)
+            shapes[dpath] = None if g is None else shape_of(phys, g, files)
         shape = shapes[dpath]
         if shape is None:
             continue

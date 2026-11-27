@@ -170,7 +170,7 @@ def stage_digest(part, clusters, ocache=None, objects=None, report=None) -> dict
     return out
 
 
-def run_once(icao: str, cache_on: bool, out_dir: Path,
+def run_once(icao: str, cache_on: "bool | str", out_dir: Path,
              site: tuple[float, float] | None = None,
              pickle_out: Path | None = None,
              workers: int | None = None) -> dict:
@@ -224,12 +224,17 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
     # so a cache-off arm and a MISS arm of one tree printed different
     # digests for the same pack (units, contacts, abutments were equal).
     stage_inputs = inputs if cache_on else _dc.replace(inputs, mod_cache_root=None)
+    # ``--cache files`` (#2176): the per-file readings' store only — the
+    # partition cache neither read nor written, the build after a
+    # pack-code edit (first run cold, later runs warm)
+    stage_kw = {"partition_cache": False} if cache_on == "files" else {}
     lines: list[str] = []
     with guard:
         t = time.perf_counter()
         airport, lrep = load_with_report(icao, inputs, law)
         t_load = time.perf_counter() - t
-        ps = pack_stage(icao, airport, law, stage_inputs, lrep, out=lines.append)
+        ps = pack_stage(icao, airport, law, stage_inputs, lrep, out=lines.append,
+                        **stage_kw)
     report_guard_churn(guard)
     if guard.blocked:
         raise SystemExit(f"[{icao}] REFUSED: the shared repo was written: {guard.blocked}")
@@ -248,7 +253,8 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         "clusters": len(ps["clusters"]),
         "max_rss_gb": (round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)
                        if resource is not None else None),
-        "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
+        "cache_lines": [ln.strip() for ln in lines
+                        if "[partition] cache" in ln or "[file readings]" in ln],
         "workers": n_workers,
         # what the stage's pool ACTUALLY did (``WorkPool.report``) — the
         # budget above is only what it was allowed
@@ -387,7 +393,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("icao")
     ap.add_argument("--runs", type=int, default=3)
-    ap.add_argument("--cache", choices=("off", "on"), default="off")
+    ap.add_argument("--cache", choices=("off", "on", "files"), default="off",
+                    help="off: no mod-cache root for the stage (cold); on: the "
+                         "lane overlay (MISS+WROTE, then HIT); files: the per-file "
+                         "readings only, the partition cache withheld (#2176)")
     ap.add_argument("--json", type=Path)
     ap.add_argument("--out-dir", type=Path, default=ROOT / "tmp" / "pack_stage_profile")
     ap.add_argument("--tree", type=Path, help="time ANOTHER worktree's Ortho4XP/ "
@@ -418,7 +427,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.one:
         st = tuple(float(v) for v in a.site.split(",")) if a.site else None
-        print("RECORD " + json.dumps(run_once(a.icao, a.cache == "on", a.out_dir, st,
+        mode = "files" if a.cache == "files" else a.cache == "on"
+        print("RECORD " + json.dumps(run_once(a.icao, mode, a.out_dir, st,
                                               a.pickle, a.workers)), flush=True)
         return 0
     runs: list[dict] = []

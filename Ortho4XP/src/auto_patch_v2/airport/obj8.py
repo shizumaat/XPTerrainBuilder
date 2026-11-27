@@ -61,7 +61,7 @@ __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjRepor
            "resolve_resource", "is_stock_library_resource", "placement_affine",
            "library_exports", "same_resource",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
-           "derive_base_profile", "read_ahead", "ReadLaw", "read_placement",
+           "derive_base_profile", "read_ahead", "keep_reading", "ReadLaw", "read_placement",
            "placement_grounds",
            "area_fraction_above", "GradeStats",
            "HARD", "HARD_DECK"]
@@ -531,9 +531,25 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
 
 def read_ahead(cache, kind: str, path: str):
     """Take the ``kind`` reading a work pool derived ahead for ``path``
-    off ``cache.pre`` (:class:`ResourceCache`), or ``None``."""
+    off ``cache.pre`` (:class:`ResourceCache`) — or, with none, the one a
+    previous build kept for this file (``cache.files``, ``airport/
+    file_readings``) — or ``None``."""
     pre = getattr(cache, "pre", None)
-    return pre.pop((kind, path), None) if pre else None
+    got = pre.pop((kind, path), None) if pre else None
+    files = getattr(cache, "files", None)
+    if got is None and files is not None:
+        from .file_readings import MISSING
+        got = files.get(kind, path)
+        got = None if got is MISSING else got
+    return got
+
+
+def keep_reading(cache, kind: str, path: str, reading) -> None:
+    """Hand the ``kind`` reading just derived for ``path`` to the build's
+    per-file store (``cache.files``), which keeps it for later builds."""
+    files = getattr(cache, "files", None)
+    if files is not None and reading is not None:
+        files.put(kind, path, reading)
 
 
 def derive_base_profile(g: "ObjGeometry | None", comps: list["Component"], law
@@ -629,6 +645,10 @@ class ResourceCache:
         #: runs FIRST, at classify time, and the planar pass reuses it —
         #: the pack is read once, not twice).
         self.placed: dict[str, object] = {}
+        #: THE BUILD'S PER-FILE STORE (``airport/file_readings``, #2176):
+        #: the readings of a file's own frame kept across builds, attached
+        #: by ``pipeline/build.pack_stage``; ``None`` everywhere else
+        self.files = None
         #: READINGS A WORK POOL COMPUTED AHEAD (issue #362; ``airport/
         #: pack_work.py``): ``{(kind, path): reading}``.  A memo's own
         #: derivation site takes its answer from here INSTEAD of deriving
@@ -721,6 +741,7 @@ class ResourceCache:
             g = self.geometry(path)
             prof = derive_base_profile(g, self.components(path) if g is not None else [], law)
         self.base[path] = prof
+        keep_reading(self, "base", path, prof)
         return prof
 
     def component_bounds(self, path: str) -> np.ndarray:
@@ -1462,7 +1483,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     path_of = lambda d: resolve_resource(d, pack_root, index)   # noqa: E731
     geom = lambda d: _geometry_of(d, pack_root, index, cache)   # noqa: E731
     many = dem_many or _ts.dem_many_of(dem_z)
-    found = _tm.placement_models(placements, path_of, geom, many, fine, water, hidden)
+    found = _tm.placement_models(placements, path_of, geom, many, fine, water, hidden,
+                                 files=cache.files)
     # issue #2056: a ground shell too flat for a terrain model lies on the
     # ground at the no-float seat (a terrain model) or is hidden alone
     from . import ground_shell as _gs

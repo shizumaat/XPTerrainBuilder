@@ -80,6 +80,17 @@ def _weight(path: str) -> float:
         return 0.0
 
 
+def _kept(cache: _obj8.ResourceCache, kind: str) -> _t.Callable[[str], bool]:
+    """Whether the build's per-file store (``cache.files``) already holds
+    ``kind`` for a path: such a resource is never sent to a worker — its
+    reading site takes the kept one (``obj8.read_ahead``).  With a store, a
+    file that is not there is not sent either (a worker reads nothing)."""
+    files = getattr(cache, "files", None)
+    if files is None:
+        return lambda _p: False
+    return lambda p: files.has(kind, p) or not os.path.isfile(p)
+
+
 # ── the per-resource readings ────────────────────────────────────────────
 
 def resource_reads(state: PackWorker, path: str) -> dict:
@@ -120,7 +131,10 @@ def read_resources_ahead(pool: WorkPool | None, cache: _obj8.ResourceCache,
     pool: the loop derives everything itself)."""
     if pool is None or not pool.parallel:
         return 0
-    todo = [p for p in dict.fromkeys(paths) if p not in cache.base]
+    kept = _kept(cache, "base")
+    todo = [p for p in dict.fromkeys(paths) if p not in cache.base and not kept(p)]
+    if not todo:
+        return 0
     got = pool.try_map(resource_reads, todo, weights=[_weight(p) for p in todo],
                        what="pack partition: resource readings", unit="resources")
     if got is None:
@@ -163,8 +177,9 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
     were read ahead; 0 when no pool answers (the serial reader derives
     them in its own place, the same record)."""
     todo: list[str] = []
+    kept = _kept(cache, "skirt")
     for path in dict.fromkeys(paths):
-        if path in cache.skirt or ("skirt", path) in cache.pre:
+        if path in cache.skirt or ("skirt", path) in cache.pre or kept(path):
             continue
         g = cache.geometry(path)
         if g is None or g.solid.shape[0] == 0 or not (cache.y_range(path)[0] < -1e-9):
@@ -257,18 +272,23 @@ def part_attrs_ahead(pool: WorkPool | None,
                      line_members: _t.Collection[int],
                      scatter_members: _t.Collection[int],
                      foot_band_m: float, foot_samples_max: int,
-                     station_span_m: float, stations_max: int) -> list | None:
+                     station_span_m: float, stations_max: int,
+                     held: "_t.Sequence | None" = None) -> list | None:
     """Per member, its parts' ``(feet, rings, solid_h)`` derived by
     ``pool`` — the ``attrs`` of ``contact.partition`` — or ``None`` with no
     pool (the placing derives them itself).  The arguments are
-    ``contact.placed_parts``' own."""
+    ``contact.placed_parts``' own; a member ``held`` names (the readings a
+    previous build kept, ``part_readings.PartBook.held``) is not sent."""
     if pool is None or not pool.parallel or not members:
         return None
     params = (foot_band_m, foot_samples_max, station_span_m, stations_max)
     lines, scat = set(line_members), set(scatter_members)
     by_path: dict[str, list[int]] = {}
     for mi, (o, _geom, _comps) in enumerate(members):
-        by_path.setdefault(o.resolved, []).append(mi)
+        if held is None or held[mi] is None:
+            by_path.setdefault(o.resolved, []).append(mi)
+    if not by_path:
+        return None
     tasks = [(path, params,
               [(members[mi][0], tuple(k for k, _c in members[mi][2]),
                 mi in lines, mi in scat and mi not in lines) for mi in mis])

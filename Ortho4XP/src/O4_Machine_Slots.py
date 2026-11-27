@@ -192,12 +192,14 @@ def memory_admits(budget: dict = BUDGET, need_gb: "float | None" = None) -> bool
 def memory_pressed() -> bool:
     """Does the kernel's memory pressure stop THIS session starting work
     now (``O4_Machine_Memory``: lanes and command-line runs at ``warn``,
-    every session at ``critical``)?  A pool reading it gives back its
-    workers as their tasks end (owner 2026-11-25T18:12Z: "scale back if
-    other apps start").  Never in a session that set :data:`ENV_UNGATED`."""
+    every session at ``critical``), or does it yield to a waiting app step
+    (``O4_Machine_Memory.yields_to_app``, #2307)?  A pool reading it gives
+    back its workers as their tasks end (owner 2026-11-25T18:12Z: "scale
+    back if other apps start").  Never in a session that set
+    :data:`ENV_UNGATED`."""
     if os.environ.get(ENV_UNGATED):
         return False
-    return _MEM.pressure_refuses()
+    return _MEM.pressure_refuses() or _MEM.yields_to_app()
 
 
 def machine_verdict(need_gb: "float | None" = None, *, idle: bool = False,

@@ -27,9 +27,18 @@ its own record counts there, never twice).  Admission (:func:`admits`)::
 * **X-Plane** (a process of :data:`XPLANE_NAMES`) is reserved
   ``xplane_expected_gb`` less what it already holds, plus
   ``xplane_margin_gb`` (:data:`BUDGET`): a flight loading scenery grows.
-* **the app first**: a ``lane`` or ``cli`` session also leaves room for the
-  app's next step — the app session's largest live reservation, or what a
-  waiting app step needs (its WANT mark, written by :func:`note_wait`).
+* **the app first** (owner 2026-11-27T14:58Z, #2307: dev below the app): a
+  ``lane`` or ``cli`` session leaves room for the app's next step — the app
+  session's largest live reservation, or what a waiting app step needs (its
+  WANT mark, written by :func:`note_wait`) — and while an app step WAITS it
+  admits nothing new at all (:func:`yields_to_app`; its pools give back the
+  workers they do not use).  The APP does not count what lane and
+  command-line sessions booked and have not grown into: their idle
+  headroom is theirs to wait for, never the app's.  The 11-17 guarantee
+  holds among the app's steps, X-Plane and every lane or command-line
+  admission (they count every booking); a lane step running when the app
+  takes that headroom may still grow into it — it is never stopped — and
+  the pressure rule below is then what stops the lanes' next work.
 * **pressure**: at the kernel's ``warn`` level lane and command-line
   sessions start nothing new; at ``critical`` no session does.  Running
   steps are never stopped; they finish and give their memory back.
@@ -39,6 +48,24 @@ its own record counts there, never twice).  Admission (:func:`admits`)::
 
 Every wait names who holds memory (:func:`note_wait`: "X-Plane 24 GB, app
 build 30 GB, lane lessa5 18 GB").
+
+LEASES THAT GROW (#2307).  A reservation is a LEASE on what its process
+tree may grow into without asking.  A holder that measures its tree
+(:meth:`Reservation.top_up`: the parallel scheduler every sample, a lane
+job's sampler) asks for one more ``lease_step_gb`` once it comes within
+``lease_margin_gb`` of its lease — the same admission, so a step that
+outgrows its prediction is re-admitted before it takes what others were
+promised.  A refused top-up waits where the holder can wait (a pool's next
+worker, an airport's slot: each is its own lease, taken before it starts)
+and is said and goes on where it cannot (a running step or job: never
+stopped).  A holder that cannot wait therefore leases its whole PREDICTED
+peak up front (its recorded history, :mod:`O4_Machine_Jobs` /
+``o4_engine.step_memory``); only the holders that can wait start small.
+
+Dead records go on read: an unlocked record older than ``fresh_s``, or one
+whose holder process is gone (a lock a forked child inherited), is removed
+by any reader; every ``sweep_s`` a reading also sweeps the tile holds
+(``t-``) and WANT marks no one else reads often.
 
 Standard library only (with :mod:`O4_Parallel_Utils`' memory probes); it
 never raises into a build: a ledger that cannot be written reserves nothing.
@@ -66,7 +93,7 @@ __all__ = ["BUDGET", "ENV_DIR", "ENV_LABEL", "ENV_ROLE", "ENV_SESSION",
            "ENV_STEP_RESERVED", "XPLANE_NAMES", "Reservation", "Snapshot",
            "Verdict", "admission", "admits", "claim", "held_tiles", "hold_tile",
            "holders_text", "ledger_dir", "note_wait", "pressure_refuses",
-           "process_table",
+           "process_table", "yields_to_app",
            "reserve", "role", "session_id", "snapshot"]
 
 #: the ledger directory (default: :func:`ledger_dir`'s per-user path)
@@ -97,7 +124,11 @@ XPLANE_NAMES = frozenset({"X-Plane", "X-Plane-x86_64", "X-Plane-arm64"})
 #: ``snapshot_s`` — how long one reading of the ledger serves a process's
 #: gates; ``table_s`` — how long one process listing does (an old listing
 #: shows less growth, the safe side for a reading; a reservation's base
-#: read from it is at most that old).
+#: read from it is at most that old).  ``lease_step_gb`` — what one top-up
+#: adds past what a lease's tree has grown into, asked once the tree is
+#: within ``lease_margin_gb`` of its lease (a holder samples every 2-5 s;
+#: an ESTIMATE — no growth rate is recorded yet).  ``sweep_s`` — how often a reading also removes
+#: dead tile holds and WANT marks.
 BUDGET = {
     "xplane_expected_gb": 32.0,
     "xplane_margin_gb": 4.0,
@@ -105,6 +136,9 @@ BUDGET = {
     "fresh_s": 5.0,
     "snapshot_s": 1.0,
     "table_s": 3.0,
+    "lease_step_gb": 2.0,
+    "lease_margin_gb": 0.5,
+    "sweep_s": 30.0,
 }
 
 _KIB_PER_GIB = 1024.0 * 1024.0
@@ -302,9 +336,13 @@ class Reservation:
     process's exit) removes it.  ``gigabytes`` is 0 when nothing was
     written (nothing to reserve, or the ledger could not be written)."""
 
-    def __init__(self, path: str = "", fd=None, gigabytes: float = 0.0):
+    def __init__(self, path: str = "", fd=None, gigabytes: float = 0.0,
+                 pid: int = 0, base_gb: float = 0.0):
         self.path, self._fd = path, fd
         self.gigabytes = float(gigabytes) if fd is not None else 0.0
+        #: the process whose tree the lease covers, and its size when the
+        #: lease began (what :meth:`top_up` measures growth from)
+        self.pid, self.base_gb = int(pid), float(base_gb)
 
     def release(self) -> None:
         fd, self._fd = self._fd, None
@@ -326,6 +364,12 @@ class Reservation:
         gigabytes = max(0.0, float(gigabytes))
         if self._fd is None or gigabytes >= self.gigabytes - 0.05:
             return
+        self._rewrite(gigabytes)
+
+    def _rewrite(self, gigabytes: float) -> bool:
+        """The record's lease set to ``gigabytes`` in place: the record's
+        lock is its life, so it is rewritten under the same descriptor,
+        padded to its old length so no reader sees it cut short."""
         try:
             with open(self.path, "r", encoding="utf-8") as handle:
                 old = handle.read()
@@ -335,9 +379,53 @@ class Reservation:
             os.lseek(self._fd, 0, os.SEEK_SET)
             os.write(self._fd, new.ljust(len(old)).encode("utf-8"))
         except (OSError, ValueError):
-            return
+            return False
         self.gigabytes = gigabytes
         _forget_snapshot()
+        return True
+
+    def lease_and_growth(self, table=None) -> "tuple[float, float] | None":
+        """``(leased, grown)`` GB of every live record covering this one's
+        process for its session — a step's lease and the slots its own
+        process took beside it (an airport's, a pool's) are one lease, as
+        every reader counts them — and what that tree has grown since the
+        earliest of them began; ``None`` when it cannot be measured."""
+        if self._fd is None or not self.pid:
+            return None
+        table = _table() if table is None else table
+        records = _live_records("r")
+        mine = [r for r in records if int(r.get("pid", 0)) == self.pid
+                and r.get("session") == session_id()]
+        stop = {int(r.get("pid", 0)) for r in records} - {self.pid}
+        now = _tree_gigabytes(self.pid, table, stop)
+        if now is None or not mine:
+            return None
+        base = min(float(r.get("base_gb", 0.0)) for r in mine)
+        return (sum(float(r.get("gb", 0.0)) for r in mine),
+                max(0.0, now - base))
+
+    def top_up(self, headroom_gb: float, table=None) -> "Verdict | None":
+        """LEASES THAT GROW (module doc): once the covered tree has grown
+        to within ``lease_margin_gb`` of its lease
+        (:meth:`lease_and_growth`), ask the machine for ``lease_step_gb``
+        more past what it has grown into, as any admission does
+        (:func:`admits`, keeping ``headroom_gb`` free).  ``None``: no
+        top-up was needed (or nothing could be measured); else the verdict
+        — granted, this record's lease grew in place; refused, it did not,
+        and the caller waits if it can or says so and goes on (a running
+        step is never stopped)."""
+        measured = self.lease_and_growth(table)
+        if measured is None:
+            return None
+        leased, grown = measured
+        if grown + BUDGET["lease_margin_gb"] < leased:
+            return None
+        want = grown + BUDGET["lease_step_gb"] - leased
+        with admission():
+            verdict = admits(want, headroom_gb)
+            if verdict.ok:
+                self._rewrite(self.gigabytes + want)
+        return verdict
 
     def __enter__(self) -> "Reservation":
         return self
@@ -371,7 +459,9 @@ def _write_record(kind: str, body: dict) -> Reservation:
         _unlock_fd(fd)
         return Reservation()
     _forget_snapshot()
-    return Reservation(path, fd, float(body.get("gb", 0.0)))
+    return Reservation(path, fd, float(body.get("gb", 0.0)),
+                       int(body.get("pid", 0) or 0),
+                       float(body.get("base_gb", 0.0) or 0.0))
 
 
 def _body(gigabytes: float, **extra) -> dict:
@@ -456,6 +546,8 @@ def _live_records(kind: str) -> list:
     for name in names:
         path = os.path.join(folder, name)
         live = _probe_live(path)
+        if live and _holder_gone(name):
+            live = False                   # a lock a forked child inherited
         if live:
             body = _read_body(path)
             if body is not None:
@@ -463,6 +555,41 @@ def _live_records(kind: str) -> list:
         elif live is False and _age(path, now) > BUDGET["fresh_s"]:
             _remove(path)
     return out
+
+
+def _holder_gone(name: str) -> bool:
+    """Has the process that wrote record ``name`` (``kind-PID-…``) exited?
+    Its lock then lives on only in a child that inherited the descriptor
+    across a fork, and the record is dead.  Unknown on Windows: no."""
+    if sys.platform == "win32":
+        return False
+    try:
+        pid = int(name.split("-")[1])
+    except (IndexError, ValueError):
+        return False
+    if pid == os.getpid() or pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+_SWEPT = [0.0]
+
+
+def _sweep() -> None:
+    """Every ``sweep_s``, read (and so clean) the records no reading of
+    the memory needs: the tile holds (``t-``), read only by a cleanup, and
+    the WANT marks (#2307: four dead tile holds stood for days)."""
+    now = time.monotonic()
+    if now - _SWEPT[0] < BUDGET["sweep_s"]:
+        return
+    _SWEPT[0] = now
+    _live_records("t")
 
 
 def _read_body(path: str) -> "dict | None":
@@ -542,6 +669,9 @@ class Snapshot:
     xplane_gb: "float | None" = None
     pressure: str = "normal"
     wants: list = field(default_factory=list)      # live app WANT marks
+    #: the part of ``outstanding_gb`` lane and command-line sessions booked
+    #: (the app does not count it: the module doc's app-first rule)
+    dev_outstanding_gb: float = 0.0
 
 
 def _groups(records: list, table) -> list:
@@ -596,9 +726,12 @@ def snapshot() -> Snapshot:
         hit = _CACHE.get(key)
     if not hit or time.monotonic() - hit[0] >= BUDGET["snapshot_s"]:
         table = _table()
+        _sweep()
         groups = _groups(_live_records("r"), table)
         hit = (time.monotonic(), dict(
             outstanding_gb=sum(g[1] for g in groups),
+            dev_outstanding_gb=sum(g[1] for g in groups
+                                   if g[0][0].get("role", "cli") != "app"),
             sessions=_sessions(groups), xplane_gb=_xplane_gigabytes(table),
             wants=[w for w in _live_records("want") if _want_live(w)]))
         with _CACHE_LOCK:
@@ -671,6 +804,31 @@ def _pressure_refuses(snap: Snapshot) -> bool:
     return snap.pressure == "warn" and role() != "app"
 
 
+def _app_waits(snap: Snapshot) -> bool:
+    """Does another session's app step wait for memory now (a live WANT)?"""
+    mine = session_id()
+    return any(w.get("session") != mine for w in snap.wants)
+
+
+def yields_to_app(snap: "Snapshot | None" = None) -> bool:
+    """THE APP FIRST (#2307): is this a lane or command-line session while
+    an app step waits for memory?  It then admits nothing new, and its
+    pools give back the workers they do not use
+    (``O4_Machine_Slots.memory_pressed``)."""
+    if role() == "app":
+        return False
+    return _app_waits(snapshot() if snap is None else snap)
+
+
+def _counted_outstanding(snap: Snapshot) -> float:
+    """What this caller counts as booked and not yet in use: everything,
+    except that the app does not count the lanes' and command-line runs'
+    idle headroom (the module doc's app-first rule)."""
+    if role() == "app":
+        return max(0.0, snap.outstanding_gb - snap.dev_outstanding_gb)
+    return snap.outstanding_gb
+
+
 def pressure_refuses(snap: "Snapshot | None" = None) -> bool:
     """:func:`admits`' pressure rule alone: does the kernel's pressure now
     stop this session's role starting work?"""
@@ -685,8 +843,8 @@ def _idle_may_run(snap: Snapshot) -> bool:
         return False
     if role() == "app":
         return True
-    return snap.xplane_gb is None and snap.pressure == "normal" and not any(
-        w.get("session") != mine for w in snap.wants)
+    return (snap.xplane_gb is None and snap.pressure == "normal"
+            and not _app_waits(snap))
 
 
 def admits(need_gb: float, headroom_gb: float, *, idle: bool = False,
@@ -696,24 +854,27 @@ def admits(need_gb: float, headroom_gb: float, *, idle: bool = False,
     snap = snapshot() if snap is None else snap
     alone = snap.free_gb - float(need_gb) - float(headroom_gb)
     room = _app_room(snap)
-    spare = alone - snap.outstanding_gb - _xplane_reserve(snap) - room
-    ok = spare >= 0.0 and not _pressure_refuses(snap)
+    booked = _counted_outstanding(snap)
+    spare = alone - booked - _xplane_reserve(snap) - room
+    yields = yields_to_app(snap)
+    ok = spare >= 0.0 and not _pressure_refuses(snap) and not yields
     if not ok and idle:
         ok = _idle_may_run(snap)
     mine = session_id()
     others = (room > 0.0 or snap.xplane_gb is not None
-              or _pressure_refuses(snap)
+              or _pressure_refuses(snap) or yields
               or any(sid != mine for sid in snap.sessions))
     # The reason, as it is (owner 2026-11-18: "listing the memory need
     # which is far lower than the available memory"): what builds have
     # booked and not yet grown into is what stands between the free
     # memory and the need; the pressure only when it is what refuses.
     text = ("needs %s GB, %s GB free, %s GB kept free, %s GB booked by"
-            " builds and not yet in use; holding: %s%s"
+            " builds and not yet in use; holding: %s%s%s"
             % (_gb(need_gb), _gb(snap.free_gb), _gb(headroom_gb),
-               _gb(snap.outstanding_gb), holders_text(snap),
+               _gb(booked), holders_text(snap),
                "; memory pressure %s" % snap.pressure
-               if _pressure_refuses(snap) else ""))
+               if _pressure_refuses(snap) else "",
+               "; the app goes first" if yields else ""))
     return Verdict(ok=ok, spare_gb=spare,
                    contended=not ok and (alone >= 0.0 or others), text=text)
 

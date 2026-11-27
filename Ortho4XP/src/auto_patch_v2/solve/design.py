@@ -115,9 +115,11 @@ from .design_roles import (  # noqa: E402  (re-export)
 # ── the assembled problem: ``solve/design_assemble`` (issue #303, the
 # 1,500-line split point); re-exported, every caller's path unchanged ──
 from .design_assemble import Base, _BodyDatum, assemble  # noqa: E402,F401
+from .assembly_memo import scoped  # noqa: E402
 
 
 
+@scoped    # the sheet geometry, once per staged solve (#2206, solve/assembly_memo)
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  options: Options | None = None, *,
                  size_out: dict | None = None,

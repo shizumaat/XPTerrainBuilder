@@ -2940,7 +2940,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3176,7 +3176,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening pipeline.neck_release
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3360,7 +3360,8 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
     planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner planar.shape_parts planar.shapes
-    planar.strip_keepout solve solve.api solve.design solve.design_assemble
+    planar.strip_keepout solve solve.api solve.assembly_memo solve.design
+    solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.fill_order solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
@@ -3926,3 +3927,25 @@ _GROWN_UNDER = ("airport.underside_admission airport.underside_composite "
                 "airport.unit_underside geom.underside_map pipeline.underside_publication")
 for _stage in ("emit", "verify"):
     CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(_GROWN_UNDER)}))
+
+# #2206 lane lprefix: the item memos across the prefix runs (geom/item_memo,
+# read by planar/ground_chords, geom/proportions and pipeline/prefix), the
+# road answers by content (airport/road_answer) and the unit plans held per
+# partition (airport/unit_storey reads model/map_memo)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    _have = set(_mods_of)
+    if {"auto_patch_v2.planar.ground_chords", "auto_patch_v2.geom.proportions",
+            "auto_patch_v2.airport.road_profile", "auto_patch_v2.pipeline.prefix"} & _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.item_memo")}))
+    if "auto_patch_v2.airport.road_profile" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
+                                             *_mods("airport.road_answer model.map_memo")}))
+    if "auto_patch_v2.airport.unit_storey" in _have:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("model.map_memo")}))
+# #2206 lane lpadbeside: the route pricing's walks on the work pool
+# (constraints/route_work, read by constraints/routes)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.constraints.routes" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(
+            "airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots "
+            "constraints.route_work model.pulse")}))

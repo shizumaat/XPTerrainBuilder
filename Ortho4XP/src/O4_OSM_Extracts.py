@@ -51,12 +51,18 @@ INDEX_REFRESH_DAYS = 7.0
 DEFAULT_EXTRACT_REFRESH_DAYS = 180.0
 WANTED_RESCAN_SECONDS = 60.0
 DOWNLOAD_PROGRESS_EVERY_BYTES = 50 << 20
+# ...and at least this often while bytes arrive (#2299: at ~2 MB/min the
+# byte cadence alone left a build silent for 25 minutes and the app read
+# it as stuck); a joiner waiting on another tile's download says so too.
+DOWNLOAD_PROGRESS_EVERY_SECONDS = 10.0
 HTTP_TIMEOUT_SECONDS = 60
 # An extract address that answered 404 is not asked again for this long
 # (#2201), and a 404 re-reads the index only when the stored one is
 # older than NOT_FOUND_INDEX_FRESH_SECONDS (a fresh index that still
 # 404s means Geofabrik publishes nothing there).
-NOT_FOUND_RETRY_DAYS = 7.0
+# #2299: a day, never a week -- an address is asked again the next day
+# (a week-long entry blocked Oregon's extract for every build).
+NOT_FOUND_RETRY_DAYS = 1.0
 # A 404 reached through a redirect (Geofabrik -latest answers 307 to a
 # dated file that is briefly 404 while the region regenerates), or one no
 # fresh index confirmed, is transient: asked again after this.
@@ -591,7 +597,16 @@ def _ensure_extracts_foreground(regions) -> bool:
     or starting its one download.  The step holds no scheduler slot
     meanwhile (``O4_Step_Wait``).  True only when all are ready; False on
     stop (red_flag), download failure, or a region with no usable url —
-    callers fall back to Overpass exactly as with the lazy path."""
+    callers fall back to Overpass exactly as with the lazy path.
+
+    The store is swept of dead downloads' partial files first, once per
+    process (#2294): only the Qt window's maintenance thread swept it, so
+    the Mac app's engine left ~30 ``*.osm.pbf.tmp-<pid>-*`` files (~1 GB)
+    of killed builds; a live writer's file is kept
+    (:func:`_sweep_interrupted_downloads`)."""
+    if not _swept_this_process.is_set():
+        _swept_this_process.set()
+        _sweep_interrupted_downloads()
     with STEP_WAIT.waiting():
         for (region_id, pbf_url) in regions:
             if _extract_ready(region_id):
@@ -756,6 +771,7 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
         self.metering = False              # the meter module imported
         self.metered = False               # registered with its ETA
         self.next_report = DOWNLOAD_PROGRESS_EVERY_BYTES
+        self.reported_at = time.time()     # the last progress line
         self.chunk_started = 0.0
         self.waited_at = None              # (time, bytes) a joiner last saw
 
@@ -794,17 +810,32 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
             # An in-band download blocks the vector step: drive its bar
             # so the front ends' progress ring moves.
             UI.progress_bar(1, int(min(received * 100 // total_bytes, 99)))
-        if received >= self.next_report:
-            UI.vprint(1, "      ...", self.region_id, "%d%s MB so far" % (
-                received >> 20,
-                "/%d" % (total_bytes >> 20) if total_bytes else ""))
+        self._progress_line(received, total_bytes)
+
+    def _progress_line(self, received: int, total_bytes: int,
+                       lead: str = "") -> None:
+        """One ``... N/M MB so far`` line each DOWNLOAD_PROGRESS_EVERY_BYTES
+        and at least each DOWNLOAD_PROGRESS_EVERY_SECONDS (#2299)."""
+        now = time.time()
+        if (received < self.next_report
+                and now - self.reported_at < DOWNLOAD_PROGRESS_EVERY_SECONDS):
+            return
+        UI.vprint(1, "      ...", self.region_id, "%s%d%s MB so far" % (
+            lead, received >> 20,
+            "/%d" % (total_bytes >> 20) if total_bytes else ""))
+        self.reported_at = now
+        while self.next_report <= received:
             self.next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
 
     def waited(self, received: int, total_bytes: int) -> None:
         """A foreground joiner prices the flight it waits on the same
         way the leader does (#2218): registered with the meter, the
-        bytes landing on disk sampled as throughput, the bar driven."""
-        if not self.foreground or total_bytes <= 0:
+        bytes landing on disk sampled as throughput, the bar driven --
+        and says how far it is, as the leader does (#2299)."""
+        if not self.foreground:
+            return
+        self._progress_line(received, total_bytes, "(another tile's download) ")
+        if total_bytes <= 0:
             return
         try:
             from o4_engine import download_meter as METER
@@ -921,13 +952,16 @@ def _url_not_found(url, transient=None) -> bool:
     """True when ``url`` answered 404 within its memory window.
 
     A transient 404 is remembered NOT_FOUND_TRANSIENT_HOURS, a confirmed
-    one NOT_FOUND_RETRY_DAYS (an entry without the flag is confirmed);
-    ``transient`` True/False asks for one kind only.
+    one NOT_FOUND_RETRY_DAYS; ``transient`` True/False asks for one kind
+    only.  An entry WITHOUT the flag (an older engine's, which recorded
+    redirects and 404s alike) is transient: it cannot show the address
+    is gone (#2299: Oregon's flagless entry of 11-23 kept the extract
+    from every build while the address answered 307 -> 200).
     """
     entry = _not_found_entry(url) if url else None
     if not entry:
         return False
-    is_transient = bool(entry.get("transient", False))
+    is_transient = bool(entry.get("transient", True))
     if transient is not None and transient != is_transient:
         return False
     window = (NOT_FOUND_TRANSIENT_HOURS * 3600 if is_transient
@@ -1039,6 +1073,9 @@ def _refresh_stale_store() -> None:
             break
         # The index's address first: a stored one may predate a move.
         _acquire_extract(region_id, _url_for_region(region_id) or pbf_url)
+
+
+_swept_this_process = threading.Event()
 
 
 def _sweep_interrupted_downloads() -> int:

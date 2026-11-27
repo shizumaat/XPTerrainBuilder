@@ -167,15 +167,30 @@ def test_redirect_to_dated_404_is_transient(store, monkeypatch):
     assert calls["get"] == [OLD, OLD]
 
 
-def test_plain_404_after_refresh_is_remembered_seven_days(store, monkeypatch):
+def test_plain_404_after_refresh_is_remembered_a_day(store, monkeypatch):
+    # #2299: a confirmed 404 expires after 24 h, never a week
     _network(monkeypatch, set(), OLD)
     assert not EXTRACTS._acquire_extract("kansai", OLD)
     assert EXTRACTS._url_not_found(OLD, transient=False)
     path = os.path.join(store, "not_found.json")
     gone = EXTRACTS._read_json(path)
-    gone[OLD]["at"] -= 6 * 86400
+    gone[OLD]["at"] -= 23 * 3600
     EXTRACTS._write_json_atomic(path, gone)
     assert EXTRACTS._url_not_found(OLD)
+    gone[OLD]["at"] -= 3600 + 1
+    EXTRACTS._write_json_atomic(path, gone)
+    assert not EXTRACTS._url_not_found(OLD)
+
+
+def test_a_flagless_entry_is_never_permanent(store, monkeypatch):
+    # #2299: an older engine's entry (no ``transient`` flag, as Oregon's of
+    # 11-23) cannot show the address is gone: read as transient
+    import time as _time
+    path = os.path.join(store, "not_found.json")
+    EXTRACTS._write_json_atomic(path, {OLD: {"region": "kansai",
+                                             "at": _time.time() - 7 * 3600}})
+    assert not EXTRACTS._url_not_found(OLD, transient=False)
+    assert not EXTRACTS._url_not_found(OLD)
 
 
 def test_unconfirmed_plain_404_is_transient(store, monkeypatch):

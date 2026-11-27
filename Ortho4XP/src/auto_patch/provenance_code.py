@@ -1257,6 +1257,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "elevation_access.partial_inset_coast",
     "elevation_access.provider_fill",
     "elevation_access.raster_same",
+    "elevation_access.rate_limit",
     "elevation_access.recheck",
     "elevation_access.refusal_rest",
     "elevation_access.registry",

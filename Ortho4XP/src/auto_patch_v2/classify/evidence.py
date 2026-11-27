@@ -29,6 +29,7 @@ from ..model.frame import XY
 from .rules import Rules
 from .wall_clip import clip_at_walls, cutting_walls
 from ..geom.parts import line_parts
+from ..geom.valid_area import valid_area
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
            "polygon_parts", "chains_from_edges", "apron_named", "is_library_path",
@@ -174,7 +175,15 @@ def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
 def polygon_from(outer: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]] = ()
                  ) -> Polygon | None:
     """A VALID polygon from rings (``buffer(0)`` repair; the largest part
-    of a self-intersecting source — v1 ``_parse_pavement``)."""
+    of a self-intersecting source — v1 ``_parse_pavement``).
+
+    ``buffer(0)`` itself can hand back an INVALID polygon: MEASURED #2298
+    (LEMO), a 5-vertex footprint-cache ring folded flat onto itself (0.035
+    m2, two corners 1e-11 m apart) came back unchanged as a shell with a
+    hole outside it, and the fallback pads' ``unary_union`` aborted on the
+    zero-length edge.  What ``buffer(0)`` leaves invalid is read by its
+    valid area (``geom.valid_area``) — every ring ``buffer(0)`` already
+    repairs is read as before."""
     if len(outer) < 3:
         return None
     try:
@@ -183,6 +192,8 @@ def polygon_from(outer: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]] = (
         return None
     if not p.is_valid:
         p = p.buffer(0)
+        if not p.is_valid:
+            p = valid_area(p)
     if p.is_empty:
         return None
     if p.geom_type != "Polygon":

@@ -343,9 +343,8 @@ class RoadProfiles:
 
     def __getstate__(self) -> dict:
         state = dict(self.__dict__)
-        state.pop("_line_memo", None)      # rebuilt on use, never stored
-        state.pop("_table_memo", None)
-        state.pop("_box_memo", None)
+        for memo in ("_line_memo", "_table_memo", "_box_memo"):
+            state.pop(memo, None)          # rebuilt on use, never stored
         return state
 
     def _line(self, way: Way) -> LineString:

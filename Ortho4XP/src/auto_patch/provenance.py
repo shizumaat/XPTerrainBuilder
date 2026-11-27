@@ -748,13 +748,16 @@ def imagery_identity(paths) -> str:
 #: Elevation / DEM knobs — folded into ``o4_dem`` (``dem_fingerprint``).
 DEM_TILE_SETTINGS = (
     "custom_dem", "fill_nodata", "elevation_level",
-    "elevation_coastline_band_km", "apt_smoothing_pix",
+    "elevation_coastline_band_km", "coastline_elevation_level",
+    "apt_smoothing_pix",
     "apt_smoothing_auto", "airport_elevation_insets",
     "airport_elevation_providers", "airport_elevation_level",
     "airport_elevation_inset_margin_m",
     "airport_elevation_inset_feather_m", "airport_inset_water",
     "working_grid_arc_seconds",
 )
+#: DEM knobs added after stamps existed: recorded only off this default.
+_STAMPED_WHEN_SET = {"coastline_elevation_level": "auto"}
 #: Solve knobs handed to the v2 build (``Inputs.road_grade_limit`` /
 #: ``Inputs.lane_width_m``, RULINGS 04t-4) — folded into ``o4_solve_cfg``.
 SOLVE_TILE_SETTINGS = ("road_grade_limit", "lane_width")
@@ -1177,6 +1180,10 @@ def dem_fingerprint(tile, icao: str | None = None, *,
             # relabel), because the stamp on disk says "True" and the tile
             # now says "ICAO".
             value = normalize_mode(value, name)
+        if _STAMPED_WHEN_SET.get(name, _UNSET) == value:
+            # A setting added after stamps existed is recorded only off its
+            # default, so every patch stamped before it stays current.
+            continue
         spec_parts.append(f"cfg:{name}={value!r}")
     # Base cells read from a FALLBACK source because the configured one could
     # not be reached (#561, ``elevation_access.base_fallback``).  One line per

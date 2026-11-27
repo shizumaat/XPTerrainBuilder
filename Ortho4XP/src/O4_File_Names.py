@@ -1012,9 +1012,41 @@ def coastline_band_cell_dem(
     .tif``."""
     return os.path.join(
         coastline_band_directory(lat, lon),
+        _graded_cell_name(cell_column, cell_row, provider_code,
+                          target_resolution_m, rung_token),
+    )
+
+
+def _graded_cell_name(cell_column, cell_row, provider_code,
+                      target_resolution_m, rung_token):
+    """``cell_03_07_<graded stem>.tif`` -- every graded cell cache's name."""
+    return (
         "cell_%02d_%02d_" % (cell_column, cell_row)
         + _graded_cell_stem(provider_code, target_resolution_m, rung_token)
-        + ".tif",
+        + ".tif"
+    )
+
+
+def tile_overlay_cell_dem(
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m,
+    rung_token=None,
+):
+    """One 0.1 degree cell of a CELLULAR tile-wide overlay (a border tile,
+    owner RULINGS 2026-11-27e), named like a band cell, in the overlay
+    directory."""
+    return os.path.join(
+        tile_overlay_directory(lat, lon),
+        _graded_cell_name(cell_column, cell_row, provider_code,
+                          target_resolution_m, rung_token),
+    )
+
+
+def tile_overlay_cells_vrt(lat, lon, target_resolution_m):
+    """The virtual mosaic of a cellular tile overlay's cells (the bake
+    input), keyed by warp resolution like the single-raster overlay."""
+    return os.path.join(
+        tile_overlay_directory(lat, lon),
+        "cells_" + _resolution_token(target_resolution_m) + "m.vrt",
     )
 
 
@@ -1059,9 +1091,8 @@ def approach_ring_cell_dem(
     reference is the same raster)."""
     return os.path.join(
         approach_ring_directory(lat, lon),
-        "cell_%02d_%02d_" % (cell_column, cell_row)
-        + _graded_cell_stem(provider_code, target_resolution_m, rung_token)
-        + ".tif",
+        _graded_cell_name(cell_column, cell_row, provider_code,
+                          target_resolution_m, rung_token),
     )
 
 

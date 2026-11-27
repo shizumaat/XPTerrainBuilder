@@ -1349,6 +1349,9 @@ class ProductionDem:
                 if k in _MODE_VALUED_KEYS:
                     value = normalize_mode(value, k)   # spec §A.5, row 26
                 self.provenance[f"cfg:{k}"] = str(value)
+            coast = str(getattr(tile, "coastline_elevation_level", "auto"))
+            if coast != "auto":   # named only off its default (new key)
+                self.provenance["cfg:coastline_elevation_level"] = coast
         self._out(f"  [dem] production frame {stem}: {self.provenance[f'tile:{stem}']}")
         overlay = getattr(dem, "tile_overlay_provenance", None)
         return _BakedTile(lat, lon, arr, dem.x0, dem.x1, dem.y0, dem.y1,

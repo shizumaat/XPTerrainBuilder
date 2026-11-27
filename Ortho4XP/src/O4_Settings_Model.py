@@ -251,7 +251,9 @@ _LAYOUT: list = [
         ("approach_rings", "Add finer elevation on the approaches?", "tile", False,
          "10 m out to 10 km around each airport with high-resolution "
          "elevation, then 30 m to 20 km."),
-        ("elevation_coastline_band_km", "Coastline lidar band width (km)", "tile", True, ""),
+        ("coastline_elevation_level", "How detailed should the coastline band be?", "tile", False,
+         "For Auto + coastline band. Auto grades 10 m near airports to 30 m far."),
+        ("elevation_coastline_band_km", "Coastline band width (km)", "tile", True, ""),
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", True, ""),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", True, ""),
         ("airport_elevation_providers", "Inset providers", "tile", True, ""),
@@ -846,12 +848,13 @@ def update_legacy_tile_settings(legacy: dict, custom_build_dir: str) -> str:
 
 # Tile-scope settings most commonly customized per tile (the pinned
 # "This tile" section of the blended settings window): texture source
-# mode, elevation quality, the coastline lidar band, road detail, the
+# mode, elevation quality, the coastline band, road detail, the
 # coastline mask blur, and the airport imagery zoom.
 CURATED_TILE_SETTINGS = (
     "texture_mode",
     "elevation_level",
     "airport_elevation_level",
+    "coastline_elevation_level",
     "elevation_coastline_band_km",
     "road_level",
     "masks_width",

@@ -543,14 +543,14 @@ cfg_tile_vars = {
         "values": ("auto", "coastline", "90", "30", "10", "5", "1"),
         "value_labels": {
             "auto": "Auto — 90 m base + lidar at airports",
-            "coastline": "Auto + coastline lidar band",
+            "coastline": "Auto + coastline band",
             "90": "90 m (3 arc-second)",
             "30": "30 m (1 arc-second)",
             "10": "10 m (1/3 arc-second)",
             "5": "5 m (1/6 arc-second)",
             "1": "1 m sources (1/9 arc-second grid)",
         },
-        "hint": 'Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. "auto" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. "90" pins that 90 m base class explicitly. "coastline" keeps the automatic behaviour and additionally drapes a lidar band along the tile\'s coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar\'s vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. "30" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level\'s base-class preference.',
+        "hint": 'Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. "auto" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. "90" pins that 90 m base class explicitly. "coastline" keeps the automatic behaviour and additionally drapes a band of the airport elevation provider list\'s sources along the tile\'s coastlines (width set by elevation_coastline_band_km, detail set by coastline_elevation_level): by default graded by approach visibility — about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — the source\'s vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. "30" and finer restore the 1 arc-second base class and additionally fetch the first source of the airport elevation provider list that covers the tile and can serve a whole tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level\'s base-class preference.',
     },
     "approach_rings": {
         "type": str,
@@ -565,7 +565,7 @@ cfg_tile_vars = {
     "elevation_coastline_band_km": {
         "type": float,
         "default": 5.0,
-        "hint": 'Width in kilometres of the lidar band along coastlines fetched by the "coastline" elevation level, measured inland (and seaward) from the OpenStreetMap coastline. Only used when elevation_level is "coastline".',
+        "hint": 'Width in kilometres of the elevation band along coastlines fetched by the "coastline" elevation level (its detail is coastline_elevation_level), measured inland (and seaward) from the OpenStreetMap coastline. Only used when elevation_level is "coastline".',
     },
     # Vector
     "apt_smoothing_pix": {
@@ -620,6 +620,44 @@ cfg_tile_vars = {
             "30": "30 m",
         },
         "hint": 'Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. "auto" (default) uses each provider\'s best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief. A level FINER than what a provider publishes is raised to that provider\'s native resolution — interpolating 30 m data onto a 3 m grid adds no detail while costing ~100x the disk — so a fine level only takes effect where a source genuinely offers it. Cached insets are recycled as-is until refreshed, except one stored finer than its source publishes, which is regenerated at native posting.',
+    },
+    "coastline_elevation_level": {
+        "type": str,
+        "default": "auto",
+        "values": ("auto", "0.5", "1", "5", "10", "30"),
+        "value_labels": {
+            "auto": "Auto — 10 m near airports, 20 m mid, 30 m far",
+            "0.5": "0.5 m",
+            "1": "1 m",
+            "5": "5 m",
+            "10": "10 m",
+            "30": "30 m",
+        },
+        "hint": (
+            'Coastline band elevation detail level — the ground resolution in '
+            'metres to which the coastline band (elevation_level "coastline") is '
+            'fetched; the band\'s counterpart of airport_elevation_level, with the '
+            'same levels. "auto" (default) grades the band by approach visibility: '
+            'about 10 m within 20 km of an airport, 20 m out to 50 km, and 30 m '
+            'beyond. A numeric level fetches every band cell at that resolution '
+            'from the same provider list the airport insets use (regional and '
+            'national lidar by priority, then the global fallbacks; a provider '
+            'that does not cover a cell hands it to the next), each cell from a '
+            'source that can serve a 10 km area; a level FINER than what the '
+            'provider publishes is raised to its native resolution (1 m where a '
+            'national 1 m product such as the USGS 3DEP covers the shore, 5 m '
+            'where only a 5 m model does), so a fine level only takes effect '
+            'where a source genuinely offers it. '
+            'A per-tile setting: 1 m is meant for very rugged coasts and small '
+            'islands, set on those tiles only — it is a large download. Fine levels'
+            ' are large: a 5 km band along 100 km of coast is about 1,000 km2 — '
+            'roughly 4 GB of elevation (uncompressed) at 1 m and 16 GB at 0.5 m, '
+            'against about 40 MB at 10 m — and 5 m or finer densifies the whole '
+            'tile\'s working elevation grid like the tile-wide level of the same '
+            'detail (working raster about 2 GB at 5 m and 4 GB at 1 m, with peak '
+            'memory several times that). Only used when elevation_level is '
+            '"coastline".'
+        ),
     },
     "airport_elevation_inset_margin_m": {
         "type": float,
@@ -1218,6 +1256,7 @@ list_vector_vars = [
     "elevation_level",
     "approach_rings",
     "elevation_coastline_band_km",
+    "coastline_elevation_level",
     "apt_smoothing_pix",
     "apt_smoothing_auto",
     "airport_elevation_insets",

@@ -17,7 +17,8 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
     triangle holds the point (its plane there); ``nan`` where none does.
     ``edge_m`` > 0 also reads a point up to that far outside the nearest
     face, on that face's plane (a ring vertex the map snapped a hair off
-    the footprint, or the void band's floor-side ring)."""
+    the footprint, or the void band's floor-side ring), held within
+    ``edge_m`` of that face's own heights (a wall's plane is no floor)."""
     xs = np.asarray(xs, float)
     out = np.full(xs.shape, np.nan)
     for k, z in enumerate(_z_over(faces, xs, ys, edge_m)):
@@ -83,6 +84,14 @@ def _z_over(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float],
             i = np.argmin(w, axis=0)
             h = np.abs(den[c]) / np.maximum(edge[i, np.arange(len(c))], 1e-9)
             near = -least * h <= edge_m
-            yield z[near]
+            # ...and never more than ``edge_m`` outside the face's OWN
+            # heights (#2297, GCLA): a wall of a concave shell is a face
+            # whose plan is a sliver (0.0004 m wide, 0.34 m tall), and its
+            # plane read 1 m off it stood 385 km under the ground -- a pin
+            # the solve obeyed.  A face up to 1:1 already reads within its
+            # heights +- the reach, so every such reading is unchanged.
+            lo = np.minimum(np.minimum(z0[c], z1[c]), z2[c]) - edge_m
+            hi = np.maximum(np.maximum(z0[c], z1[c]), z2[c]) + edge_m
+            yield np.clip(z, lo, hi)[near]
         else:
             yield none

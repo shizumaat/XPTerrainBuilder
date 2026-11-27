@@ -223,7 +223,9 @@ TILE_SCAN_CACHE_FILE = FNAMES.data_path(".tile_scan_cache.json")
 # version is what guarantees no pre-normalisation snapshot survives).
 # 2: TileInfo gained resolved_dir / volume / volume_mounted (#1987).
 # 3: TileInfo gained origin (#1958).
-TILE_SCAN_CACHE_VERSION = 3
+# 4: the World pack's tile states (#2301; the mac app's v7): without them
+#    every built tile drew as Full until the scan's last phase.
+TILE_SCAN_CACHE_VERSION = 4
 
 # Point size of the per-tile stop / resume glyphs on the Activity rows.
 # Shared, so the button never changes size when a row flips between
@@ -331,12 +333,14 @@ def _normalized_provider(provider):
     return text
 
 
-def scan_cache_payload(built, installed, working_dir, custom_scenery_dir):
+def scan_cache_payload(built, installed, working_dir, custom_scenery_dir,
+                       world=None):
     """The JSON-able snapshot of one completed scan.
 
     ``built`` maps (lat, lon) -> TileInfo; the tiles are stored as a flat
-    list because each TileInfo carries its own lat/lon, and ``installed``
-    as [lat, lon] pairs.  Both directories are stored VERBATIM: the
+    list because each TileInfo carries its own lat/lon, ``installed``
+    as [lat, lon] pairs and ``world`` ((lat, lon) -> WorldTile) as its
+    ``ScanBatch.world`` rows.  Both directories are stored VERBATIM: the
     snapshot only describes the pair it was scanned against.
     """
     tiles = []
@@ -353,11 +357,12 @@ def scan_cache_payload(built, installed, working_dir, custom_scenery_dir):
         "custom_scenery_dir": str(custom_scenery_dir or ""),
         "built": tiles,
         "installed": [[int(lat), int(lon)] for (lat, lon) in installed],
+        "world": [tile.wire(key) for (key, tile) in (world or {}).items()],
     }
 
 
 def scan_cache_restore(payload, working_dir, custom_scenery_dir):
-    """``(built, installed)`` from a snapshot, or None.
+    """``(built, installed, world)`` from a snapshot, or None.
 
     None whenever the snapshot cannot be trusted to describe THIS
     session: a different schema version, or either folder differing from
@@ -395,7 +400,11 @@ def scan_cache_restore(payload, working_dir, custom_scenery_dir):
             installed.add((int(lat), int(lon)))
         except (TypeError, ValueError):
             continue
-    return (built, installed)
+    try:
+        world = QTWORLD.from_wire(payload.get("world") or ())
+    except (TypeError, ValueError):
+        world = {}
+    return (built, installed, world)
 
 
 def load_scan_cache(working_dir, custom_scenery_dir, path=None):
@@ -409,13 +418,13 @@ def load_scan_cache(working_dir, custom_scenery_dir, path=None):
 
 
 def save_scan_cache(built, installed, working_dir, custom_scenery_dir,
-                    path=None):
+                    path=None, world=None):
     """Write one completed scan's results.  Best effort, like the prefs:
     a cache that cannot be written costs the next launch its overlay and
     nothing else."""
     path = path or TILE_SCAN_CACHE_FILE
     payload = scan_cache_payload(
-        built, installed, working_dir, custom_scenery_dir)
+        built, installed, working_dir, custom_scenery_dir, world=world)
     try:
         temporary = path + ".tmp"
         with open(temporary, "w", newline="\n") as handle:
@@ -2617,7 +2626,9 @@ class MainWindow(QMainWindow):
         cached = load_scan_cache(self.working_dir(), CFG.custom_scenery_dir)
         if cached is None:
             return
-        (self._built, self._installed) = cached
+        (self._built, self._installed, world) = cached
+        if world and not self.map.world():
+            self.map.set_world(world)
         self.map.set_built(self._built)
         self._refresh_empty_state()
         self.map.set_installed(self._installed)
@@ -3266,7 +3277,8 @@ class MainWindow(QMainWindow):
         # The truth, filed under the folder pair it was scanned against:
         # next launch draws it before the engine has booted.
         if self._scan_dirs is not None:
-            save_scan_cache(self._built, self._installed, *self._scan_dirs)
+            save_scan_cache(self._built, self._installed, *self._scan_dirs,
+                            world=self._scan_world)
         # Badges follow the authoritative built set, never a partial one:
         # a mid-scan sweep would audit tiles the swap is about to drop.
         self._refresh_conflict_tiles()
@@ -3875,10 +3887,9 @@ class MainWindow(QMainWindow):
             adjust.setAutoRaise(True)
             adjust.setText(QTADJ.ADJUST_BUTTON)
             adjust.setFixedHeight(18)
-            adjust.setEnabled(not busy)
-            adjust.setToolTip(
-                _PACK_ROW_WAIT if busy
-                else QTADJ.ADJUST_HELP)
+            # #2303: Adjust… opens the report (a read) during any run;
+            # only its Apply writes, refused by the engine with the reason
+            adjust.setToolTip(QTADJ.ADJUST_HELP)
             adjust.clicked.connect(
                 lambda _checked=False, p=pack: self._adjust_pack_from_row(p))
             rl.addWidget(adjust, 0, Qt.AlignRight)
@@ -5731,7 +5742,7 @@ class MainWindow(QMainWindow):
         report of the pack as it is on the active tile, which opens the
         question (``PackAdjust(state="adjust")``)."""
         tile = self.map.active_tile()
-        if tile is None or self._pack_row_busy(pack):
+        if tile is None:
             return
         self._pack_row_command(pack, lambda: self._session.pack_adjust(
             pack_root=pack["pack_path"], action="adjust",
@@ -5820,8 +5831,8 @@ class MainWindow(QMainWindow):
         .gatewayAirports``): ``state == "found"`` (or ``"ask"``, the
         report) with an airport to offer asks once per tile and airport
         set, every airport checked; Install (the airports kept checked) /
-        Never for these airports send ``gateway_airports`` with every
-        airport shown, Not now sends nothing.  An outcome asks nothing
+        Never for these airports / Not now (``"later"``, #2212) send
+        ``gateway_airports`` with every airport shown.  An outcome asks nothing
         (the engine's log line says what was installed or why not)."""
         state = getattr(event, "state", "found")
         key = QTGATE.question_key(event)

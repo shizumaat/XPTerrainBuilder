@@ -115,11 +115,12 @@ def test_default_name_and_aeronaval_stay_lots(law, rules):
         assert not cl.stats.get("taxi_named")
         page = [c for c in cl.cells if c.ref == "page"]
         assert page and all(c.role == "apron"
-                            and c.evidence.get("airside_edge_was") == "parking_lot"
+                            and c.evidence.get("airside_edge_was") == "groundside_pavement"
                             for c in page), (desc, [(c.role, c.evidence) for c in page])
-        # ...and the same page pulled OFF the runway edge is the lot it was
+        # ...and the same page pulled OFF the runway edge is the plate it was
+        # (no lot witness: the default road, owner 2026-11-26T23:48Z)
         far = classify(_page_airport(desc, offset_y=-400.0), law, rules)
-        assert "parking_lot" in _page_roles(far), (desc, _page_roles(far))
+        assert "groundside_pavement" in _page_roles(far), (desc, _page_roles(far))
 
 
 def test_named_page_with_centreline_keeps_the_corridor_role(law, rules):

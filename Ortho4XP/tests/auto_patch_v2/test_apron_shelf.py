@@ -165,6 +165,33 @@ def test_a_held_region_keeps_its_ground(law):
     assert out == [] and counts["shelf_none_free"] == 1
 
 
+#: #2298's ring (LEMO, a footprint-cache ring folded flat onto itself):
+#: ``buffer(0)`` hands it back INVALID, and a union holding it aborts
+FOLDED = ((-24077.685, 26321.455), (-24083.3, 26321.419),
+          (-24088.957000000002, 26321.329), (-24094.994, 26321.241),
+          (-24100.229, 26321.203))
+
+
+def _folded():
+    q = Polygon(FOLDED).buffer(0)
+    assert not q.is_valid                     # the GEOS repair leaves it invalid
+    return q
+
+
+def test_an_invalid_operand_never_aborts_the_held_union(law):
+    """#2296 (GCXO): the held union raised ``Ring edge missing`` on an
+    operand GEOS refuses; a late cell or a pad left invalid is read by its
+    valid area, and the shelf is the one the valid map makes (the ring
+    keeps its own coordinates: moved, it rounds valid)."""
+    c = _Cluster("unit:1#0", (BUILDING,), 600.0)
+    bad = _folded()
+    counts: dict = {}
+    pad = Region("building", "pad9", bad, None, None, "groundside", "cell")
+    out = sh.shelf_regions(_regions(), [pad], _Airport([c]), law, 0.5, counts,
+                           late=[_folded()])
+    assert counts["shelves"] == 1 and out
+
+
 def test_the_object_stage_reads_a_shelf_as_ground():
     doc = {"vertices": [[0, 0.0, 0.0, 1.0], [1, 0.0, 1.0, 1.0], [2, 1.0, 1.0, 1.0],
                         [3, 2.0, 0.0, 1.0], [4, 2.0, 1.0, 1.0], [5, 3.0, 1.0, 1.0]],

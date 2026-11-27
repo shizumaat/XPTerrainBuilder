@@ -164,7 +164,7 @@ def _land_graph(xyz, tri_idx, land):
     t = tri_idx[land]
     e = numpy.concatenate((t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]))
     e.sort(axis=1)
-    e = numpy.unique(e, axis=0)
+    e = _unique_edges(e, len(xyz))
     w = numpy.maximum(numpy.linalg.norm(xyz[e[:, 0], :2] - xyz[e[:, 1], :2],
                                         axis=1), 1e-3)
     n = len(xyz)
@@ -172,6 +172,16 @@ def _land_graph(xyz, tri_idx, land):
                        (numpy.concatenate((e[:, 0], e[:, 1])),
                         numpy.concatenate((e[:, 1], e[:, 0])))),
                       shape=(n, n)).tocsr()
+
+
+def _unique_edges(e, n):
+    """``numpy.unique(e, axis=0)`` of ``(a, b)`` rows of node indices below
+    ``n``: the rows packed into one integer each (the same lexicographic
+    order), several times faster on a tile's millions of edges (#850)."""
+    if n and n * n < (1 << 63):
+        key = numpy.unique(e[:, 0].astype(numpy.int64) * n + e[:, 1])
+        return numpy.stack((key // n, key % n), axis=1).astype(e.dtype)
+    return numpy.unique(e, axis=0)
 
 
 def _reference(lum, lonlat_tris, land, reader):

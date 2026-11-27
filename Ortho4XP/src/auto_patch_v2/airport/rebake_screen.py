@@ -131,6 +131,9 @@ class RebakeScreen:
     #: #2065 S2: each free deck's published route ends
     #: (``planar/free_bridge.published``)
     free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] = _dc.field(default_factory=dict)
+    #: RULINGS 2026-11-25m (2): the perimeters the tile raster is graded to
+    #: (``RebakePlan.perimeters``); the cut stage reads them off this file
+    perimeters: tuple[_t.Mapping[str, _t.Any], ...] = ()
 
     def to_json(self) -> str:
         fr = self.frame
@@ -145,6 +148,8 @@ class RebakeScreen:
                        for k, v in self.plates.items()},
             "authored_seats": [dict(r) for r in self.authored_seats],
             "free_decks": {k: dict(v) for k, v in self.free_decks.items()},
+            **({"perimeters": [dict(r) for r in self.perimeters]}
+               if self.perimeters else {}),
             "below_grade": [[w, list(ids)] for w, ids in self.below_grade],
             "deck_datum": [[[list(p) for p in ring], z]
                            for ring, z in self.deck_datum],
@@ -196,7 +201,8 @@ class RebakeScreen:
             k.get("partition_digest"), k.get("law_sha256"), str(k["ruleset"]),
             str(k["code_digest"]), int(k["plan_version"]),
             tuple(dict(r) for r in d.get("authored_seats", ())),
-            {str(k): dict(v) for k, v in (d.get("free_decks") or {}).items()})
+            {str(k): dict(v) for k, v in (d.get("free_decks") or {}).items()},
+            tuple(dict(r) for r in d.get("perimeters", ()) or ()))
 
 
 def _plain(v: _t.Any) -> _t.Any:
@@ -229,6 +235,7 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          patches: _t.Iterable[str | os.PathLike] = (),
          authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
          free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
+         perimeters: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
          patch_bodies: _t.Iterable[str] | None = None,
          cache: _t.Any = None) -> RebakeScreen | None:
     """The record of THIS patch build — its keywords are ``rebake_plan.
@@ -259,7 +266,8 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
                      else {patch_body_sha256(p) for p in patches})),
         kept[0], kept[1], _extcache.base_digest(part), law_sha, ruleset,
         _pcache.code_digest(), authored_seats=tuple(dict(r) for r in authored_seats),
-        free_decks={k: dict(v) for k, v in (free_decks or {}).items()})
+        free_decks={k: dict(v) for k, v in (free_decks or {}).items()},
+        perimeters=tuple(dict(r) for r in perimeters))
 
 
 def read(path: str | os.PathLike) -> RebakeScreen:
@@ -390,7 +398,7 @@ def build_plan(screen: RebakeScreen, law: Law, *,
         below_grade=[(_from_wkb(w), ids) for w, ids in screen.below_grade],
         partition=part, keep_extension=keep_extension,
         authored_seats=screen.authored_seats, free_decks=screen.free_decks)
-    return _dc.replace(rplan, connectors=screen.connectors)
+    return _dc.replace(rplan, connectors=screen.connectors, perimeters=screen.perimeters)
 
 
 def plan_line(icao: str, rplan: RebakePlan, seconds: float) -> str:

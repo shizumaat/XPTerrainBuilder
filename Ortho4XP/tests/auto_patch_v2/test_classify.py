@@ -124,9 +124,11 @@ def test_synthetic_verdicts(law):
     assert roles[("apron", "apron")] > roles[("junction", "apron")] > 0
     # the detached island is landside at a gate airport.  Its ROLE moved on
     # 2026-10-02 (§110, issue #110): the island is unclassified groundside
-    # pavement, 100 x 100 m, so it is a `parking_lot` where it used to be
-    # `groundside_pavement`.  What this line pins is LANDSIDE.
-    assert ("parking_lot", "island") in roles, roles
+    # pavement, 100 x 100 m, so it was a `parking_lot`; since 2026-11-26
+    # (owner 2026-11-26T23:48Z, a lot only on evidence: no witness is the
+    # DEFAULT ROAD) it is `groundside_pavement` again.  What this line pins
+    # is LANDSIDE.
+    assert ("groundside_pavement", "island") in roles, roles
     # the lead-in onto the stand (4 -> 6, 60 m, leaf, near the startup) was
     # trimmed from the slice: no taxi cut inside the apron reaches x > 540
     assert not any(ln.kind == "taxi_centerline"
@@ -195,8 +197,12 @@ def test_cyxy_cells(cyxy_cl):
     # 2026-10-02) renamed every unclassified groundside face: CYXY's five
     # `groundside_pavement` cells became 3 `parking_lot` + 2 `service_road`
     # (road proportions), so the test is the SIDE, not the old role name.
+    # Since owner 2026-11-26T23:48Z (a lot only on evidence: no witness is
+    # the DEFAULT ROAD) a groundside_pavement cell carries the default
+    # road's mark or is a minted strip, never an unmarked lot plate.
     assert any(c.side == "groundside" and c.role != "building" for c in cl.cells)
-    assert not any(c.role == "groundside_pavement" for c in cl.cells)
+    assert all(c.evidence.get("default_road") or ":" in str(c.ref)
+               for c in cl.cells if c.role == "groundside_pavement")
     assert {cl_.kind for cl_ in cl.cut_lines} >= {"taxi_centerline", "road_centerline"}
     for c in cl.cells:
         assert c.role in law.tables.precedence.roles, c.role
@@ -615,8 +621,8 @@ def test_a_hand_set_role_is_final(law):
     ap = dc.replace(ap, pavements=tuple(dc.replace(p, id="pav9") if p.id == "island" else p
                                         for p in ap.pavements))
     before = [c for c in classify(ap, law).cells if c.ref == "pav9"]
-    assert before and {c.role for c in before} == {"parking_lot"}
+    assert before and {c.role for c in before} == {"groundside_pavement"}   # the default road
     after = [c for c in classify(dc.replace(ap, role_overrides=(("pav9", "apron"),)),
                                  law).cells if c.ref == "pav9"]
     assert {(c.role, c.side) for c in after} == {("apron", "airside")}
-    assert after[0].evidence["classified_as"] == "parking_lot"
+    assert after[0].evidence["classified_as"] == "groundside_pavement"

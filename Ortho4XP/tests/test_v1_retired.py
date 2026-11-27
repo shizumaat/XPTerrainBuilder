@@ -67,6 +67,7 @@ KEEP = frozenset({
     "auto_patch.flat_site_relief",
     # the object stage
     "auto_patch.mesh_sampler",
+    "auto_patch.obj8_broad_phase",
     "auto_patch.obj8_partition",
     "auto_patch.obj8_reader",
     "auto_patch.object_anchor",
@@ -81,6 +82,7 @@ KEEP = frozenset({
     # #1989: the Gateway airports offer (the build's check, the install)
     "auto_patch.gateway_api",
     "auto_patch.gateway_stage",
+    "auto_patch.gateway_wait",
     # #2145: the offer to hide large structures two packs both draw
     "auto_patch.overlap_stage",
     # ... and to disable the lower of two packs defining one airport (17s)

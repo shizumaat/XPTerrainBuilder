@@ -57,6 +57,7 @@ from collections import defaultdict
 import numpy
 from scipy.spatial import cKDTree
 
+from .obj8_broad_phase import broad_phase_pairs
 from .obj8_reader import VERTEX_WELD_DECIMALS
 
 Triangle = tuple[int, int, int]
@@ -321,7 +322,11 @@ def split_oversized_components_with_edges(
             result.append(group)
             result_edges.append(None)
             continue
-        kept = [index for index in group if index not in set(thin_parts)]
+        # The membership set is built ONCE: rebuilding it per element
+        # made this line O(group x thin) — PAKT's pack-ground pool (307k
+        # parts, riprap stones) spent most of an hour here (#1865).
+        thin_part_set = set(thin_parts)
+        kept = [index for index in group if index not in thin_part_set]
         if not kept:
             result.extend([thin] for thin in thin_parts)
             result_edges.extend([] for _thin in thin_parts)
@@ -1030,47 +1035,16 @@ def _broad_phase_pairs(
     """All part pairs whose 3D axis-aligned bounding boxes come within
     ``epsilon_metres`` on every axis — a superset of true surface contact
     (box gap never exceeds surface gap), so merging on it alone is sound;
-    the narrow phase merely prunes."""
-    cell_size = max(BROAD_PHASE_GRID_CELL_METRES, 2.0 * epsilon_metres)
-    buckets: dict[tuple[int, int], list[int]] = defaultdict(list)
-    for part_index, geometry in enumerate(part_geometries):
-        first_cell_x = int(
-            (geometry.box_minimum[0] - epsilon_metres) // cell_size
-        )
-        last_cell_x = int(
-            (geometry.box_maximum[0] + epsilon_metres) // cell_size
-        )
-        first_cell_z = int(
-            (geometry.box_minimum[2] - epsilon_metres) // cell_size
-        )
-        last_cell_z = int(
-            (geometry.box_maximum[2] + epsilon_metres) // cell_size
-        )
-        for cell_x in range(first_cell_x, last_cell_x + 1):
-            for cell_z in range(first_cell_z, last_cell_z + 1):
-                buckets[(cell_x, cell_z)].append(part_index)
-
-    pairs: set[tuple[int, int]] = set()
-    for bucket in buckets.values():
-        for position, left in enumerate(bucket):
-            left_geometry = part_geometries[left]
-            for right in bucket[position + 1 :]:
-                key = (left, right) if left < right else (right, left)
-                if key in pairs:
-                    continue
-                right_geometry = part_geometries[right]
-                if (
-                    (
-                        left_geometry.box_minimum - epsilon_metres
-                        <= right_geometry.box_maximum
-                    ).all()
-                    and (
-                        right_geometry.box_minimum - epsilon_metres
-                        <= left_geometry.box_maximum
-                    ).all()
-                ):
-                    pairs.add(key)
-    return pairs
+    the narrow phase merely prunes.  Vectorised in
+    :mod:`obj8_broad_phase` (same set, same iteration order)."""
+    if len(part_geometries) < 2:
+        return set()
+    return broad_phase_pairs(
+        numpy.array([geometry.box_minimum for geometry in part_geometries]),
+        numpy.array([geometry.box_maximum for geometry in part_geometries]),
+        epsilon_metres,
+        max(BROAD_PHASE_GRID_CELL_METRES, 2.0 * epsilon_metres),
+    )
 
 
 def contact_graph(

@@ -71,6 +71,7 @@ from ..law import Law
 from ..law.tables import frontage_roles, role_side
 from ..geom.cluster_outline import THIN_PIECE_WIDTH_M
 from ..geom.parts import nonempty_polygon_parts as _parts
+from ..geom.valid_area import valid_area
 from ..model.planar import COLLAR_SUFFIX, SHELF_PREFIX
 
 __all__ = ["SHELVES", "shelf_regions"]
@@ -225,12 +226,17 @@ def shelf_regions(base_regions: _t.Sequence, pad_regions: _t.Sequence,
     if not got:
         return []
     pav_tree = STRtree(pav)
-    air = unary_union([r.polygon for r in base_regions
+    # every union operand is read by its VALID AREA (``geom.valid_area``; a
+    # valid one as is): #2296 (GCXO) lost the airport's patch to a
+    # ``TopologyException: Ring edge missing`` in this union — a late cell
+    # (``Polygon(ring, holes)`` of a ribbon, never repaired) or a pad
+    # ``buffer(0)`` left invalid (#2298's class) is an operand GEOS refuses
+    air = unary_union([valid_area(r.polygon) for r in base_regions
                        if r.polygon is not None and not r.polygon.is_empty
                        and role_side(law, r.role) == "airside"])
-    held = unary_union([r.polygon for r in [*base_regions, *pad_regions]
+    held = unary_union([valid_area(r.polygon) for r in [*base_regions, *pad_regions]
                         if r.polygon is not None and not r.polygon.is_empty]
-                       + [g for g in late if g is not None and not g.is_empty])
+                       + [valid_area(g) for g in late if g is not None and not g.is_empty])
     to_xy = airport.frame.entry()
     prints = _part_prints(airport, to_xy)
     touch = float(st.footprint_touch_m)

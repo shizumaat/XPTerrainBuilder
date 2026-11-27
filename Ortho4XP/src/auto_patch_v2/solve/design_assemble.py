@@ -32,7 +32,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    apply_level_belt)
 from .design_edge import cross_section_rows, membrane_rows
 from .design_junction import second_difference, through_junction_rows
-from ..model.lot_ground import lot_datum_vertices
+from ..model.lot_ground import lot_datum_vertices, lot_follower_vertices
 from .design_ground import (ground_datum_vertices, ground_rim_vertices,
                             riser_rim_vertices)
 from .design_stage import _groundside_minter, _welded_faces
@@ -410,7 +410,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # pull, so every grade cap on a lot vertex is HARD there -- priced
     # soft, the datum bought 0.03-0.06 m over the 5 % cap (MEASURED ESSA
     # ``faclot:1``, chords to the stage-2 constants beside it)
-    lot_cap_v = lot_datum_vertices(planar) if lot_datum else frozenset()
+    lot_cap_v = lot_follower_vertices(planar, law) if lot_datum else frozenset()
     for side in one_t:
         terms, hi, row = side
         src_reading = by_source.get(id(row.source))
@@ -643,7 +643,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     king: in stage 2 the lot keeps its body's plane, so the datum can
     #     pull no landing, apron or road (MEASURED EKVG, the datum in stage
     #     2: ``building4`` landing collars 0.41 m, ``pav0`` 0.02 m).
-    lot_v = (lot_datum_vertices(planar) - pad_follow - hard_follow - datum_v
+    lot_v = (lot_datum_vertices(planar, law) - pad_follow - hard_follow - datum_v
              if lot_datum else set())
     lot_n = 0
     for vid in sorted(lot_v):

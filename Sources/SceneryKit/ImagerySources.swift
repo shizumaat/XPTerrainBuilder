@@ -5,10 +5,10 @@ import Foundation
 /// Build box and the map's preview picker both read this list, so the two
 /// menus offer the same sources in the same order as the Qt window.
 /// Wire keys are STRING LITERALS matched against the engine's row dicts.
-public struct O4ImagerySource: Decodable, Equatable, Sendable, Identifiable {
+public struct O4ImagerySource: Codable, Equatable, Sendable, Identifiable {
     /// A combined source's layer, top first; `bbox` is
     /// `[minLon, minLat, maxLon, maxLat]`, nil for a global layer.
-    public struct Member: Decodable, Equatable, Sendable {
+    public struct Member: Codable, Equatable, Sendable {
         public let code: String
         public let bbox: [Double]?
         public let preview: O4ImageryPreview?
@@ -54,7 +54,7 @@ public struct O4ImagerySource: Decodable, Equatable, Sendable, Identifiable {
 /// (`O4_Imagery_Sources.preview_spec`) with the tile fields left as
 /// placeholders. `url(z:x:y:)` follows `expand_preview` exactly; both are
 /// pinned to `Fixtures/Imagery/imagery_menu.json`.
-public struct O4ImageryPreview: Decodable, Equatable, Sendable {
+public struct O4ImageryPreview: Codable, Equatable, Sendable {
     public let template: String
     public let referer: String
     public let maxZL: Int?

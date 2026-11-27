@@ -51,12 +51,18 @@ INDEX_REFRESH_DAYS = 7.0
 DEFAULT_EXTRACT_REFRESH_DAYS = 180.0
 WANTED_RESCAN_SECONDS = 60.0
 DOWNLOAD_PROGRESS_EVERY_BYTES = 50 << 20
+# ...and at least this often while bytes arrive (#2299: at ~2 MB/min the
+# byte cadence alone left a build silent for 25 minutes and the app read
+# it as stuck); a joiner waiting on another tile's download says so too.
+DOWNLOAD_PROGRESS_EVERY_SECONDS = 10.0
 HTTP_TIMEOUT_SECONDS = 60
 # An extract address that answered 404 is not asked again for this long
 # (#2201), and a 404 re-reads the index only when the stored one is
 # older than NOT_FOUND_INDEX_FRESH_SECONDS (a fresh index that still
 # 404s means Geofabrik publishes nothing there).
-NOT_FOUND_RETRY_DAYS = 7.0
+# #2299: a day, never a week -- an address is asked again the next day
+# (a week-long entry blocked Oregon's extract for every build).
+NOT_FOUND_RETRY_DAYS = 1.0
 # A 404 reached through a redirect (Geofabrik -latest answers 307 to a
 # dated file that is briefly 404 while the region regenerates), or one no
 # fresh index confirmed, is transient: asked again after this.
@@ -263,12 +269,17 @@ def _parent_regions() -> list:
 PARENT_FALLBACK_MAX_AREA = 1500.0
 
 
-def _parent_cover(bbox_polygon) -> Optional[tuple]:
+def _parent_cover(bbox_polygon, unknown_land=True) -> Optional[tuple]:
     """(region_id, pbf_url, area, basis) of the smallest parent region,
     within the cap, whose polygon holds every land post of the box —
     or, while the box's land is not known (#2234: no elevation on disk
     yet), the whole box; ``None`` when the box holds no land or no
-    lawful parent holds it."""
+    lawful parent holds it.
+
+    ``unknown_land=False`` takes the whole-box parent only when it is
+    stored already (#2218 (2): TLPL's reef box fetched the 758 MB
+    central-america for land a few MB of elevation could have shown is
+    sea); the caller fetches the witness's elevation and asks again."""
     import O4_Land_Witness as LAND
     import shapely
 
@@ -285,7 +296,9 @@ def _parent_cover(bbox_polygon) -> Optional[tuple]:
             bbox_polygon.buffer(2 * _COVERAGE_BUFFER_DEGREES)
         ).buffer(_COVERAGE_BUFFER_DEGREES)
         if land is None:
-            if holder.contains(bbox_polygon):
+            if holder.contains(bbox_polygon) and (
+                    unknown_land
+                    or not _stored_regions_missing([(region_id, pbf_url)])):
                 return (region_id, pbf_url, area, "all of it")
         elif shapely.contains_xy(holder, *land).all():
             return (region_id, pbf_url, area, "all of its land")
@@ -298,13 +311,14 @@ def _parent_cover_reason(parent, lead: str) -> str:
             f" {PARENT_FALLBACK_MAX_AREA:.0f})")
 
 
-def _cover_beyond_leaves(bounding_box, bbox_polygon) -> Optional[list]:
+def _cover_beyond_leaves(bounding_box, bbox_polygon,
+                         unknown_land_parent=True) -> Optional[list]:
     """The cover of a box no leaf extract reaches: the smallest lawful
     parent holding it, or NO region (an empty answer) when the box
     holds no land; ``None`` (Overpass) when neither can be shown."""
     import O4_Land_Witness as LAND
 
-    parent = _parent_cover(bbox_polygon)
+    parent = _parent_cover(bbox_polygon, unknown_land_parent)
     if parent is not None:
         _log_cover_reason(
             bounding_box,
@@ -351,8 +365,14 @@ def _log_cover_reason(bounding_box, reason: str,
     UI.vprint(1, "      OSM box", key[0], verdict + ":", reason + ".")
 
 
-def covering_regions(bounding_box) -> Optional[list]:
+def covering_regions(bounding_box, unknown_land_parent=True
+                     ) -> Optional[list]:
     """[(region_id, pbf_url)] of leaves covering the bbox, or ``None``.
+
+    ``unknown_land_parent=False`` (the build's first ask, #2218 (2)): a
+    parent region not stored yet is not chosen for land the witness does
+    not know — ``None`` instead, so the caller fetches the elevation that
+    decides it and asks again (:func:`_parent_cover`).
 
     An EMPTY list means the box lies beyond every leaf, no parent holds
     it and the land witness shows it holds no land: it is served as an
@@ -396,7 +416,8 @@ def covering_regions(bounding_box) -> Optional[list]:
             if region_geometry.intersects(bbox_polygon)
         ]
         if not intersecting:
-            return _cover_beyond_leaves(bounding_box, bbox_polygon)
+            return _cover_beyond_leaves(bounding_box, bbox_polygon,
+                                        unknown_land_parent)
         # All coverage arithmetic happens inside the bbox neighbourhood,
         # so clip once: region polygons carry whole coastlines the
         # repeated buffer/difference calls below must not chew through.
@@ -449,8 +470,8 @@ def covering_regions(bounding_box) -> Optional[list]:
             # land witness (#1731) says that remainder holds no land.
             land = LAND.holds_land(uncovered)
             share = round(100 * uncovered.area / bbox_polygon.area)
-            parent = (_parent_cover(bbox_polygon) if land is not False
-                      else None)
+            parent = (_parent_cover(bbox_polygon, unknown_land_parent)
+                      if land is not False else None)
             if parent is not None:
                 _log_cover_reason(
                     bounding_box,
@@ -591,7 +612,16 @@ def _ensure_extracts_foreground(regions) -> bool:
     or starting its one download.  The step holds no scheduler slot
     meanwhile (``O4_Step_Wait``).  True only when all are ready; False on
     stop (red_flag), download failure, or a region with no usable url —
-    callers fall back to Overpass exactly as with the lazy path."""
+    callers fall back to Overpass exactly as with the lazy path.
+
+    The store is swept of dead downloads' partial files first, once per
+    process (#2294): only the Qt window's maintenance thread swept it, so
+    the Mac app's engine left ~30 ``*.osm.pbf.tmp-<pid>-*`` files (~1 GB)
+    of killed builds; a live writer's file is kept
+    (:func:`_sweep_interrupted_downloads`)."""
+    if not _swept_this_process.is_set():
+        _swept_this_process.set()
+        _sweep_interrupted_downloads()
     with STEP_WAIT.waiting():
         for (region_id, pbf_url) in regions:
             if _extract_ready(region_id):
@@ -637,7 +667,7 @@ def osm_xml_from_local_extracts(statements, bounding_box,
         regions = []
         region_ids_seen = set()
         for box in boxes:
-            box_regions = covering_regions(box)
+            box_regions = covering_regions(box, unknown_land_parent=False)
             if (box_regions is None and _leaf_regions() is None
                     and foreground_download_enabled() and not UI.red_flag
                     and _foreground_index_refresh_once()):
@@ -645,10 +675,14 @@ def osm_xml_from_local_extracts(statements, bounding_box,
                 # end whose maintenance thread hasn't landed it): fetch
                 # it in-band once — a few MB, negligible next to any
                 # extract — so the very first build is extract-served.
-                box_regions = covering_regions(box)
-            if (box_regions is None and _leaf_regions() is not None
-                    and foreground_download_enabled() and not UI.red_flag
-                    and _fetch_witness_elevation(box)):
+                box_regions = covering_regions(box, unknown_land_parent=False)
+            if box_regions is None and _leaf_regions() is not None:
+                # Unknown land: the elevation that decides it first (a
+                # few MB the tile build fetches anyway), then the cover
+                # again — a parent extract only for land it shows, or,
+                # the elevation not to be had, for the whole box.
+                if foreground_download_enabled() and not UI.red_flag:
+                    _fetch_witness_elevation(box)
                 box_regions = covering_regions(box)
             if box_regions is None:
                 return None
@@ -756,6 +790,7 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
         self.metering = False              # the meter module imported
         self.metered = False               # registered with its ETA
         self.next_report = DOWNLOAD_PROGRESS_EVERY_BYTES
+        self.reported_at = time.time()     # the last progress line
         self.chunk_started = 0.0
         self.waited_at = None              # (time, bytes) a joiner last saw
 
@@ -794,17 +829,32 @@ class _ExtractWatcher(DOWNLOADS.Watcher):
             # An in-band download blocks the vector step: drive its bar
             # so the front ends' progress ring moves.
             UI.progress_bar(1, int(min(received * 100 // total_bytes, 99)))
-        if received >= self.next_report:
-            UI.vprint(1, "      ...", self.region_id, "%d%s MB so far" % (
-                received >> 20,
-                "/%d" % (total_bytes >> 20) if total_bytes else ""))
+        self._progress_line(received, total_bytes)
+
+    def _progress_line(self, received: int, total_bytes: int,
+                       lead: str = "") -> None:
+        """One ``... N/M MB so far`` line each DOWNLOAD_PROGRESS_EVERY_BYTES
+        and at least each DOWNLOAD_PROGRESS_EVERY_SECONDS (#2299)."""
+        now = time.time()
+        if (received < self.next_report
+                and now - self.reported_at < DOWNLOAD_PROGRESS_EVERY_SECONDS):
+            return
+        UI.vprint(1, "      ...", self.region_id, "%s%d%s MB so far" % (
+            lead, received >> 20,
+            "/%d" % (total_bytes >> 20) if total_bytes else ""))
+        self.reported_at = now
+        while self.next_report <= received:
             self.next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
 
     def waited(self, received: int, total_bytes: int) -> None:
         """A foreground joiner prices the flight it waits on the same
         way the leader does (#2218): registered with the meter, the
-        bytes landing on disk sampled as throughput, the bar driven."""
-        if not self.foreground or total_bytes <= 0:
+        bytes landing on disk sampled as throughput, the bar driven --
+        and says how far it is, as the leader does (#2299)."""
+        if not self.foreground:
+            return
+        self._progress_line(received, total_bytes, "(another tile's download) ")
+        if total_bytes <= 0:
             return
         try:
             from o4_engine import download_meter as METER
@@ -921,13 +971,16 @@ def _url_not_found(url, transient=None) -> bool:
     """True when ``url`` answered 404 within its memory window.
 
     A transient 404 is remembered NOT_FOUND_TRANSIENT_HOURS, a confirmed
-    one NOT_FOUND_RETRY_DAYS (an entry without the flag is confirmed);
-    ``transient`` True/False asks for one kind only.
+    one NOT_FOUND_RETRY_DAYS; ``transient`` True/False asks for one kind
+    only.  An entry WITHOUT the flag (an older engine's, which recorded
+    redirects and 404s alike) is transient: it cannot show the address
+    is gone (#2299: Oregon's flagless entry of 11-23 kept the extract
+    from every build while the address answered 307 -> 200).
     """
     entry = _not_found_entry(url) if url else None
     if not entry:
         return False
-    is_transient = bool(entry.get("transient", False))
+    is_transient = bool(entry.get("transient", True))
     if transient is not None and transient != is_transient:
         return False
     window = (NOT_FOUND_TRANSIENT_HOURS * 3600 if is_transient
@@ -1039,6 +1092,9 @@ def _refresh_stale_store() -> None:
             break
         # The index's address first: a stored one may predate a move.
         _acquire_extract(region_id, _url_for_region(region_id) or pbf_url)
+
+
+_swept_this_process = threading.Event()
 
 
 def _sweep_interrupted_downloads() -> int:

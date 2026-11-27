@@ -71,8 +71,9 @@ import typing as _t
 import numpy as np
 from auto_patch_v2.airport import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
-           "write_alt", "unfill_water", "refill_land", "run_out_fill"]
+__all__ = ["cut_records", "perimeter_records", "bake", "apply", "held_boxes",
+           "wet_weight_cells", "hold", "write_alt", "unfill_water", "refill_land",
+           "run_out_fill"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
@@ -121,6 +122,32 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
                 out.append(dict(rec, icao=plan.get("icao", "")))
             elif isinstance(rec.get("shell"), dict) and rec.get("fill_z0") is not None:
                 out.append(_run_out(rec, plan.get("icao", "")))
+    return out
+
+
+def perimeter_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
+                      ) -> list[dict[str, _t.Any]]:
+    """THE PERIMETERS (module doc, THE GRADE): every ``perimeters`` record of
+    the object plans (and their screens) of ``icaos`` (``None``: every one
+    in ``patch_dir``), one per group though a screen and its plan both
+    stand."""
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
+    want = None if icaos is None else {str(i).upper() for i in icaos}
+    out, seen = [], set()
+    for path in sorted(glob.glob(os.path.join(patch_dir, PLAN_FILENAME.format(icao="*")))):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                plan = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        icao = str(plan.get("icao", "")).upper()
+        if want is not None and icao not in want:
+            continue
+        for rec in plan.get("perimeters") or ():
+            key = (icao, str(rec.get("unit")), str(rec.get("row")))
+            if isinstance(rec, dict) and key not in seen:
+                seen.add(key)
+                out.append(dict(rec, icao=icao))
     return out
 
 
@@ -219,11 +246,14 @@ def _cut_one(dem, tile, rec) -> int:
 
 
 def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
-         patch_area=None) -> int:
+         patch_area=None, perimeters: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None
+         ) -> int:
     """Cut ``tile.dem``'s raster under every record (:func:`cut_records`
-    of the tile's patch folder when ``None``), then conform its planes and
-    fill its rims (module doc, THE FILL; ``patch_area`` the tile-relative
-    patch coverage, ``None`` for none); the postings changed."""
+    of the tile's patch folder when ``None``), then conform its planes,
+    fill its rims and grade our ground to the perimeters
+    (:func:`perimeter_records` when ``None``; module doc, THE FILL, THE
+    GRADE; ``patch_area`` the tile-relative patch coverage, ``None`` for
+    none); the postings changed."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     dem = getattr(tile, "dem", None)
@@ -231,6 +261,8 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
         return 0
     if records is None:
         records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
+    if perimeters is None:
+        perimeters = perimeter_records(FNAMES.patch_dir(tile.lat, tile.lon))
     total = 0
     # THE SKIRT is read on the raster before any cut (``terrain_cut``)
     skirts = {}
@@ -256,9 +288,9 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
                      f"({rec.get('id')}): the ground under it cut at {n} posting(s){kept}")
     dem.terrain_fill_delta = None
-    if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
+    if perimeters or any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:
-            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area)
+            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area, perimeters)
             total += k
         except Exception as exc:
             UI.vprint(1, f"   terrain composites not filled ({exc})")
@@ -340,13 +372,19 @@ def _raster(dem, tile, patch_area):
     return _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
 
 
-def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
-    """``(r0, r1, c0, c1)``: the raster window every plane and rim fill of
-    ``comps`` can change (their plan boxes and zero footprints grown by
-    the reach and a posting), ``None`` off the raster."""
+def _fill_window(dem, tile, comps, perimeters=()) -> tuple[int, int, int, int] | None:
+    """``(r0, r1, c0, c1)``: the raster window every plane, rim fill and
+    perimeter grade of ``comps`` / ``perimeters`` can change (their plan
+    boxes, zero footprints and stations grown by the reach and a posting),
+    ``None`` off the raster."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
     boxes = []
+    for p in perimeters:
+        la = [*p["stations"]["lat"], *p["plan"]["lat"]]
+        lo = [*p["stations"]["lon"], *p["plan"]["lon"]]
+        if la:
+            boxes.append((min(lo), min(la), max(lo), max(la)))
     for c in comps:
         boxes.append(_tc.plan_box(c.fit, c.to_ll))
         for r in (c.rec["cut"].get("plane") or {}).get("rings") or ():
@@ -415,16 +453,17 @@ def run_out_fill(raster, rec: _t.Mapping[str, _t.Any]) -> dict[str, int]:
                         [c.floor])
 
 
-def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
-    """THE FILL (module doc): every plane, then every rim fill; the
-    postings changed and the change (:func:`write_unfill`'s record, the
-    planes' and fills' ``alt - before`` at the postings they moved)."""
+def _fill_all(dem, tile, records, patch_area, perimeters=()) -> tuple[int, "dict | None"]:
+    """THE FILL (module doc): every plane, then every rim fill, then THE
+    GRADE to every perimeter; the postings changed and the change
+    (:func:`write_unfill`'s record, the planes', fills' and grade's ``alt -
+    before`` at the postings they moved)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import terrain_fill as _tf
     raster = _raster(dem, tile, patch_area)
     band = _fill_band(raster)
     comps = [c for c in (_composite(r, band) for r in records) if c is not None]
-    win = _fill_window(dem, tile, comps)
+    win = _fill_window(dem, tile, comps, perimeters)
     if win is None:
         return 0, None
     r0, r1, c0, c1 = win
@@ -459,6 +498,7 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
                      f"({c.rec.get('id')}): the ground filled to its rim at "
                      f"{rep['raised']} posting(s) from {rep['supports']} support(s), "
                      f"{rep['unserved']} unserved")
+    total += _grade_perimeters(raster, perimeters)
     d = dem.alt_dem[r0:r1 + 1, c0:c1 + 1] - before
     ii, jj = np.nonzero(d != 0)
     if not len(ii):
@@ -475,6 +515,37 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
                    "held": np.where(wet, change, 0.0).astype(np.float32),
                    "nx": int(nx), "ny": int(ny),
                    "frame": np.array([dem.x0, dem.y0, dem.x1, dem.y1], float)}
+
+
+def _grade_perimeters(raster, perimeters) -> int:
+    """THE GRADE (module doc): our ground graded to every perimeter record
+    (``auto_patch_v2.airport.perimeter_grade``), each airport's in its own
+    frame (anchored at its first station); one log line per airport."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import perimeter_grade as _pg
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import unit_perimeter as _up
+    by: dict[str, list] = {}
+    for p in perimeters:
+        if p["stations"]["lat"]:
+            by.setdefault(str(p.get("icao", "")), []).append(p)
+    total = 0
+    for icao, recs in sorted(by.items()):
+        to_xy, to_ll = _tc.projector(float(recs[0]["stations"]["lat"][0]),
+                                     float(recs[0]["stations"]["lon"][0]))
+        pers = [_up.from_dict(r, to_xy) for r in recs]
+        rep = _pg.perimeter_grade(raster, to_xy, to_ll, pers)
+        after = _pg.judge(raster, to_xy, to_ll, pers)
+        moved = rep["raised"] + rep["lowered"] + rep["cut"]
+        total += moved
+        UI.vprint(1, f"   [{icao}] perimeter grade (RULINGS 2026-11-25m (2)): "
+                     f"{len(pers)} group(s), {rep['raised']} posting(s) raised, "
+                     f"{rep['lowered']} lowered, {rep['cut']} cut under below-grade "
+                     f"interiors; free stations over 0.5 m "
+                     f"{sum(r.get('over', 0) for r in after)} of "
+                     f"{sum(r.get('free', 0) for r in after)} "
+                     f"({sum(r.get('boundary', 0) for r in after)} beside the patch)")
+    return total
 
 
 def _metric(tile):
@@ -726,12 +797,14 @@ def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from shapely.geometry import MultiLineString
+    icaos = list(icaos)
     records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
-    if not records:
+    perimeters = perimeter_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
+    if not records and not perimeters:
         write_unfill(tile)
         return 0
     UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
-    total = bake(tile, records, patch_area)
+    total = bake(tile, records, patch_area, perimeters)
     if not total:
         write_unfill(tile)
         return 0

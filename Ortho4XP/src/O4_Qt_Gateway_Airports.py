@@ -8,7 +8,9 @@ question the Qt window asks for it: one checkbox per airport, every one
 checked when it opens, each with its explanation.  **Install** sends
 ``gateway_airports`` with ``action="install"``, the checked ICAOs as
 ``items`` and every ICAO shown as ``shown``; **Never for these airports**
-sends ``action="never"`` with ``shown``; **Not now** sends nothing.
+sends ``action="never"`` with ``shown``; **Not now** sends
+``action="later"`` with ``shown`` (a patch waiting on the answer goes on,
+#2212).
 
 The COPY is identical to the macOS sheet
 (``Sources/SceneryKit/GatewayAirports.swift``); the twin
@@ -122,7 +124,9 @@ class _GatewayAirportsBox(ChoiceDialog):
 def gateway_airports_box(event, parent=None):
     """The question for one ``GatewayAirports(state="found")`` event.
 
-    Returns ``(box, {action: button})``: ``"install"`` and ``"never"`` —
-    the buttons that send ``gateway_airports``; Not now is the escape."""
+    Returns ``(box, {action: button})``: ``"install"``, ``"never"`` and
+    ``"later"`` (Not now) — the buttons that send ``gateway_airports``;
+    closing the box sends nothing."""
     box = _GatewayAirportsBox(event, parent)
-    return box, {"install": box.install, "never": box.never}
+    return box, {"install": box.install, "never": box.never,
+                 "later": box.not_now}

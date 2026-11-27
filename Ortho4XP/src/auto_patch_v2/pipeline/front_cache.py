@@ -154,6 +154,9 @@ class FrontCache:
         self.tag = ""
         #: the records read or written this build (one ``last_used``)
         self._used: list[str] = []
+        #: when this build began: a record written since is this build's
+        #: own (another pass's), never why a stage missed (#2205)
+        self.started = time.time()
         self._law_digest: str | None = None
         self._field_digests: dict[str, tuple[_t.Any, str]] = {}
         self._writer: _cf.ThreadPoolExecutor | None = None
@@ -188,7 +191,7 @@ class FrontCache:
         law read so far, so a worker's record is witnessed as cumulatively
         as this build's own re-run would be."""
         st = {k: getattr(self, k) for k in ("icao", "write", "root", "folder", "bypass",
-                                            "active")}
+                                            "active", "started")}
         if self.active:
             st.update(code=self.code, env=self.env, partition=self.partition, pack=self.pack,
                       law_read=self.law_rec.record(), law_digest=self.law_digest())
@@ -202,6 +205,7 @@ class FrontCache:
         fc = cls.__new__(cls)
         for k in ("icao", "write", "root", "folder", "bypass", "active"):
             setattr(fc, k, state[k])
+        fc.started = state.get("started", time.time())
         fc.recipes, fc.real_law, fc.digests, fc.tag, fc._used = {}, law, {}, "", []
         fc.report = {"stages": {}, "state": "on" if fc.active else "bypass: worker"}
         fc._law_digest, fc._field_digests, fc._writer, fc._pending = None, {}, None, []
@@ -377,14 +381,17 @@ class FrontCache:
         return _pickle.loads(blob) if as_served and blob is not None else out
 
     def _note_miss(self, stage: str, rep: dict) -> None:
-        """A miss names the first recipe field that differs from a record of
-        this stage on disk (#2205; headers only), in the report and the log."""
+        """A miss names the first recipe field that differs from the newest
+        record of this stage an EARLIER build left on disk (#2205; headers
+        only), in the report and the log.  A record this build wrote (a
+        prefix re-run's, on another classification) is not why it missed:
+        a first build says nothing."""
         def age(row: tuple) -> float:
             try:
                 return os.path.getmtime(os.path.join(self.folder, row[0]))
             except OSError:
                 return 0.0
-        rows = [r for r in self.why_miss(stage) if r[1]]
+        rows = [r for r in self.why_miss(stage) if r[1] and age(r) < self.started]
         if rows:
             field = max(rows, key=age)[1]          # the newest record's
             rep["why_miss"] = field

@@ -89,6 +89,11 @@ def test_an_open_basement_is_an_interior_and_airside_reads_t():
     assert [i.kind for i in m.interiors] == ["open"]
     assert abs(m.interiors[0].floor + 3.3) < 1e-6      # its lowest flat surface
     assert m.t_from == "airside" and abs(m.t) < 1e-6 and m.airside.any()
+    # step 3 (G5): the same interior read cell by cell, to be cut out
+    cells = um.interior_cells(m)
+    assert [k for k, *_r in cells] == ["open"]
+    assert len(cells[0][1]) == m.interiors[0].cells
+    assert abs(float(np.nanmin(cells[0][3])) + 3.3) < 1e-6
 
 
 def test_compose_takes_max_top_and_min_low_on_one_lattice():

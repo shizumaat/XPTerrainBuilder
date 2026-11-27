@@ -425,3 +425,54 @@ def test_the_machine_memory_ledger_is_no_file_witness(tmp_path, monkeypatch):
     finally:
         rec.recording(False)
     assert set(rec.record()) == {os.path.abspath(tmp_path / "input.txt")}
+
+
+# ── #2205: a restart names its miss by an EARLIER build's record ─────────
+
+def _pass(fc, ap, cl_digest: str):
+    """One prefix pass's planar stage on its own classification."""
+    return fc.run("planar", {"airport": fc.airport_digest(ap), "classification": cl_digest},
+                  lambda lw: {"cl": cl_digest})
+
+
+def test_a_first_build_names_no_miss_by_its_own_other_pass(tmp_path, capsys):
+    """The main pass and a prefix re-run write two planar records on two
+    classifications in ONE build: the re-run's miss is not "first
+    difference inputs.classification" (the owner's LGKR log, a first
+    build); a restart that changed the classification names it."""
+    law = _law()
+    ap = ToyAirport("TOYS", ToyDem())
+    fc = _cache(tmp_path, ap, law)
+    ap = fc.airport(ap)
+    fc.window(True)
+    _pass(fc, ap, "main")
+    fc.reopen("prefix1")
+    _pass(fc, ap, "ribbon-free")
+    rep = fc.finish()
+    assert "why_miss" not in rep["stages"]["planar@prefix1"], rep["stages"]
+    assert "rebuilt" not in capsys.readouterr().out
+    fc2 = _cache(tmp_path, ToyAirport("TOYS", ToyDem()), law)
+    ap2 = fc2.airport(ToyAirport("TOYS", ToyDem()))
+    fc2.window(True)
+    _pass(fc2, ap2, "main")
+    fc2.reopen("prefix1")
+    _pass(fc2, ap2, "changed")
+    rep2 = fc2.finish()
+    assert rep2["stages"]["planar"]["state"] == "hit"
+    assert rep2["stages"]["planar@prefix1"]["why_miss"] == "inputs.classification"
+    assert "planar rebuilt, first difference inputs.classification" in capsys.readouterr().out
+
+
+def test_the_airport_digest_is_one_however_its_fields_share(tmp_path):
+    """#2205 twin: the airport input built twice — once with its runway
+    rows shared, once as equal copies (a resumed load) — is one digest."""
+    law = _law()
+    row = ("09", 1.0)
+    a = ToyAirport("TOYS", ToyDem(), dsf_objects=(row, row), runways=(row,))
+    b = ToyAirport("TOYS", ToyDem(), dsf_objects=(("09", 1.0), ("09", 1.0)),
+                   runways=(("09", 1.0),))
+    da = _cache(tmp_path, a, law).airport_digest(a)
+    db = _cache(tmp_path, b, law).airport_digest(b)
+    assert da and da == db
+    c = _dc.replace(b, runways=(("27", 1.0),))
+    assert _cache(tmp_path, c, law).airport_digest(c) != da

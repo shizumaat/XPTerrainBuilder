@@ -23,7 +23,8 @@ from auto_patch_v2.pipeline import lot_neck
 from auto_patch_v2.geom.centreline import medial_directions
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.constraints import Diff, Source
-from auto_patch_v2.model.lot_ground import lot_datum_vertices
+from auto_patch_v2.model.lot_ground import (lot_datum_vertices, lot_follower_vertices,
+                                             lot_road_faces)
 
 LAW = load_default()
 RULES = load_rules()
@@ -49,7 +50,7 @@ def test_lot_vertices_are_the_lots_own():
     pm = _map([_face(1, "parking_lot", [0, 1, 2, 3]), _face(2, "apron", [3, 4, 5])],
               [10.0, 11.0, None, 12.0, 13.0, 14.0])
     # 3 is the apron's too (airside is king), 2 has no DEM sample
-    assert lot_datum_vertices(pm) == {0, 1}
+    assert lot_datum_vertices(pm, LAW) == {0, 1}
 
 
 def test_a_car_lot_is_its_own_stage():
@@ -57,23 +58,47 @@ def test_a_car_lot_is_its_own_stage():
     (``constraints/car_lot_follow``): it carries no datum here."""
     car = types.SimpleNamespace(id=1, role="parking_lot", ring=(0, 1, 2), holes=(),
                                 ref="carlot:7")
-    assert lot_datum_vertices(_map([car], [1.0, 2.0, 3.0])) == frozenset()
+    assert lot_datum_vertices(_map([car], [1.0, 2.0, 3.0]), LAW) == frozenset()
 
 
 def test_a_lot_with_a_level_target_keeps_it():
     faces = [_face(1, "parking_lot", [0, 1, 2]), _face(2, "parking_lot", [3, 4, 5])]
     dem = [1.0] * 6
     levelled = _map(faces, dem, road_terrace={"lot_level": {"lots": [1]}})
-    assert lot_datum_vertices(levelled) == {3, 4, 5}
+    assert lot_datum_vertices(levelled, LAW) == {3, 4, 5}
     profiled = _map(faces, dem, preferred_z={4: 1.0})
-    assert lot_datum_vertices(profiled) == {0, 1, 2, 3, 5}
+    assert lot_datum_vertices(profiled, LAW) == {0, 1, 2, 3, 5}
 
 
 def test_other_groundside_bodies_are_not_lots():
     pm = _map([_face(1, "groundside_pavement", [0, 1, 2]), _face(2, "service_road", [3, 4, 5])],
               [1.0] * 6)
-    assert lot_datum_vertices(pm) == frozenset()
+    assert lot_datum_vertices(pm, LAW) == frozenset()
 
+
+
+def test_the_roads_in_a_lot_are_the_lot():
+    """RULINGS 2026-10-14a (2) after stage 1 is insulated (14h (c)): a
+    road ribbon edge-sharing a lot follows the ground with the lot; a
+    vertex another face shares (the next road, an apron) stays that
+    face's."""
+    pm = _map([_face(1, "parking_lot", [0, 1, 2, 3]),
+               _face(2, "service_road", [2, 3, 4, 5]),
+               _face(3, "service_road", [5, 6, 7]),
+               _face(4, "apron", [7, 8, 9]),
+               _face(5, "service_road", [10, 11, 12])],
+              [1.0] * 13)
+    assert lot_road_faces(pm, LAW, {1}) == {2}
+    assert lot_datum_vertices(pm, LAW) == {0, 1, 2, 3, 4}
+
+
+def test_a_profiled_lot_vertex_follows_its_profile():
+    """A lot vertex a road profile targets is freed with the lot (its own
+    ``road_fit`` row levels it), never held at stage 2's level; it takes
+    no DEM datum."""
+    pm = _map([_face(1, "parking_lot", [0, 1, 2])], [1.0] * 3, preferred_z={1: 1.5})
+    assert lot_follower_vertices(pm, LAW) == {0, 1, 2}
+    assert lot_datum_vertices(pm, LAW) == {0, 2}
 
 # --- the neck ---------------------------------------------------------------
 
@@ -233,3 +258,17 @@ def test_a_chord_over_the_road_is_published_from_a_lot_without_one(pm):
     assert n == 1
     got = pub.get((key[7], key[8]), pub.get((key[8], key[7])))
     assert got == pytest.approx(out.cap * out.d, abs=1e-3)
+
+
+# --- a lot only on evidence: the default road (owner 2026-11-26T23:48Z) ----
+
+def test_a_default_road_plate_follows_its_ground():
+    """A ROAD BY DEFAULT (``Face.default_road``) follows its ground like a
+    lot; a plain groundside plate (an edge strip) does not."""
+    road = types.SimpleNamespace(id=1, role="groundside_pavement", ring=(0, 1, 2), holes=(),
+                                 ref="dsf:pol23", default_road=True)
+    strip = types.SimpleNamespace(id=2, role="groundside_pavement", ring=(3, 4, 5), holes=(),
+                                  ref="edgestrip:0:pav0", default_road=False)
+    pm = _map([road, strip], [10.0, 11.0, 12.0, 13.0, 14.0, 15.0])
+    assert lot_datum_vertices(pm, LAW) == {0, 1, 2}
+

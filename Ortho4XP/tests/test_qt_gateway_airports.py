@@ -78,7 +78,7 @@ def test_every_airport_is_checked(qapp):
     assert list(box.item_boxes) == ["KEUG", "KXXX"]
     assert box.item_boxes["KEUG"].text() == "KEUG Mahlon Sweet Fld"
     assert all(b.isChecked() for b in box.item_boxes.values())
-    assert set(buttons) == {"install", "never"}
+    assert set(buttons) == {"install", "never", "later"}
     assert QTGATE._row_detail(ITEMS[1]) == (
         "A newer Gateway version is available (110181 → 120000); it "
         "installs without the flatten tag.")
@@ -145,7 +145,9 @@ def test_never_and_not_now(window, monkeypatch):
     window._on_engine_event(_event())
     [box] = window._pack_art_boxes
     _button(box, "Not now").click()
-    assert sent == []
+    assert sent == [{"action": "later", "lat": 44, "lon": -124,
+                     "shown": ["KEUG", "KXXX"]}]
+    sent.clear()
     window._on_engine_event(_event(lat=45))
     [box] = window._pack_art_boxes
     _button(box, "Never for these airports").click()

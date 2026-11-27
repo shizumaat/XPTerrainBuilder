@@ -138,7 +138,8 @@ class Shape:
     #: a rock's witness values (``rock_witness.features``), sorted items
     witness: tuple = ()
     #: a rock and no small shell (``terrain_shell.small_shape`` refused
-    #: it): its ``OBJECT_MSL`` rows are not read (RULINGS 2026-11-25l)
+    #: it): its ``OBJECT_MSL`` rows are matched as a small shell's at
+    #: their datum (:func:`match`, #2285), its other rows as a rock's
     rock_only: bool = False
 
 
@@ -418,9 +419,11 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     row's ``OBJECT_MSL`` elevation -- a small shell (``Shape.small``) is
     matched and seated at it by ``terrain_shell.small_match``; ``rock``: a
     plain or ``OBJECT_AGL`` row of a rock (``Shape.rock``), matched at
-    ``datum`` = ``terrain_rock.row_datum`` by ``terrain_rock.rock_match``
-    (a rock with no small shell, ``Shape.rock_only``, has no other row)."""
-    if rock or shape.rock_only:
+    ``datum`` = ``terrain_rock.row_datum`` by ``terrain_rock.rock_match``.
+    A rock with no small shell (``Shape.rock_only``) on an ``OBJECT_MSL``
+    row is a small shell there (#2285, TNCS's hard tide-pool shell: left
+    unread, the 11d conversion lifted it onto our ground at its anchor)."""
+    if rock or (shape.rock_only and datum is None):
         from .terrain_rock import rock_match
         return (None if not rock or datum is None
                 else rock_match(shape, xy, heading, dem_many, float(datum), fine, water))

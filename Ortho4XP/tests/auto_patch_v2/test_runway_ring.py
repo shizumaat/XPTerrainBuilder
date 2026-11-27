@@ -72,6 +72,22 @@ def test_a_blast_pad_within_the_end_area_is_a_turn_pad():
     assert rest == [] and len(pad) == 1
     pad, rest = end_pad_split(face, rw, "30", 0.0, 1.0)     # an end area cut at the end
     assert pad == [] and len(rest) == 1
+    # a WIDENED face at a turn end is the turn pad whole (#2286, TNCS 30)
+    pad, rest = end_pad_split(face, rw, "30", 30.0, 1.0, whole=True)
+    assert rest == [] and sum(p.area for p in pad) == pytest.approx(47.0 * 27.0)
+
+
+def test_a_turn_pad_is_widened_past_a_side_line():
+    """#2286: TNCS 30's turnaround stands 6.9 m out past the runway's side
+    line (a turn pad); a blast pad as wide as the slab does not."""
+    from auto_patch_v2.classify.end_pad import widened
+    rw = SimpleNamespace(width_m=19.8,
+                         ends=(SimpleNamespace(name="12", xy=(0.0, 0.0)),
+                               SimpleNamespace(name="30", xy=(300.0, 0.0))))
+    assert widened(box(300.0, -16.8, 353.0, 10.1), rw, 1.0)
+    assert not widened(box(300.0, -10.2, 353.0, 10.2), rw, 1.0)
+    # past the end and beyond the far line
+    assert widened(box(-46.0, -9.6, 0.0, 17.5), rw, 1.0)
 
 
 def test_a_turn_pad_is_at_an_end_no_taxiway_reaches():

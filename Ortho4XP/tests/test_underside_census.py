@@ -37,3 +37,22 @@ def test_the_table_counts_verdicts_no_pad_and_gaps():
 def test_the_index_row():
     index = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "`Ortho4XP/tools/underside_census.py`" in index
+
+
+def test_the_perimeter_report_counts_free_and_in_patch_overs():
+    res = {"icao": "TEST", "path": "x.pkl", "seconds": 1.0, "grade": {"raised": 3},
+           "perimeters": [{"unit": "u1", "res": "a.obj", "why": "coherent", "z0": 10.0,
+                           "stations": 9, "far": 1},
+                          {"unit": "u2", "res": "b.obj", "why": "no pad", "z0": 5.0,
+                           "stations": 4, "far": 0}],
+           "in_patch": [{"by_role": {"parking_lot": [5, 2, -0.7]}, "groundside": 5,
+                         "groundside_over": 2},
+                        {"by_role": {}, "groundside": 0, "groundside_over": 0}],
+           "free_before": [{"over": 3}, {"over": 0}],
+           "free_after": [{"free": 4, "over": 1, "boundary": 2, "patch": 3},
+                          {"free": 4, "over": 0, "boundary": 0, "patch": 0}]}
+    lines = uc.perimeter_lines(res)
+    assert len(lines) == 3 and "a.obj" in lines[1] and "parking_lot 2/5" in lines[1]
+    assert lines[-1].split("TOTAL ")[1].startswith("free stations 8: over 0.5 m 3 -> 1")
+    assert "in-patch groundside 5: over 2" in lines[-1]
+    assert "perimeter_judge" in (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")

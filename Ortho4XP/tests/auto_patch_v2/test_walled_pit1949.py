@@ -385,3 +385,23 @@ def test_the_open_hollows_read_ahead_answer_the_hollow_pass(tmp_path, monkeypatc
                                              for r in cands}
     got, _n = _read_bored(objs, 105.0, [_BORE])
     assert [f.id for f in got] == [f.id for f in want] and got[0].floor_z == want[0].floor_z
+
+
+def test_a_floor_sharing_only_a_datum_with_a_lifted_pit_keeps_its_zero():
+    """#2302 (LEMD): a cargo pit's frame lifted -22.62 m carried a tunnel
+    floor 4 km away -- co-placed, so listing the pit among its frame --
+    and all 205 placements of that frame under the ground.  A floor moves
+    with a lifted pit only when its OWN placements (floor object, covers)
+    stand among the pit's seats."""
+    from shapely.geometry import box
+    def floor(fid, oid, covers, seats, lift=0.0):
+        return OF.ObjectFloor(fid, oid, "r", covers, 100.0 + lift, 95.0 + lift, box(0, 0, 1, 1),
+                              np.zeros((0, 3, 3)), (), tuple((p, "r", 100.0 + lift)
+                                                           for p in seats), lift=lift)
+    from auto_patch_v2.airport.walled_pit import share_lift
+    pit = floor("pit", "a", ("b",), ("a", "b"), lift=-22.0)
+    tunnel = floor("tunnel", "t", ("c",), ("t", "c", "a", "b", "x"))
+    inside = floor("in", "b", (), ("b", "y"))
+    out = {f.id: f for f in share_lift([pit, tunnel, inside], [])}
+    assert out["tunnel"].lift == 0.0 and out["tunnel"].zero_z == 100.0
+    assert out["in"].lift == -22.0 and {z for _p, _r, z in out["in"].seats} == {78.0}

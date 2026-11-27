@@ -21,12 +21,11 @@ lane drape229).
   rectangle reads HECA's 600 m ``T3_road`` sheet 163 m wide)."""
 from __future__ import annotations
 
+import numpy as np
 import shapely
 from shapely.geometry import Polygon
 
 from .item_memo import ItemMemo
-
-import numpy as np
 
 __all__ = ["inscribed_width_m", "typical_width_m", "road_proportioned"]
 

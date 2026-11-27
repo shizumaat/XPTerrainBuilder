@@ -9,12 +9,11 @@ import random
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.airport import road_profile as rp
 from auto_patch_v2.geom import item_memo as im
 from auto_patch_v2.geom.proportions import _inscribed_width, inscribed_width_m
 from auto_patch_v2.planar import ground_chords as GC
+from shapely.geometry import LineString, Polygon
 
 
 def test_a_memo_keeps_this_run_and_the_one_before():

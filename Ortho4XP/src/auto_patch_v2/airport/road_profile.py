@@ -68,11 +68,9 @@ from ..geom import exact
 from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
-from ..model.frame import rotated_rectangle
-from ..law.tables import (road_family_roles, road_steep_law, road_terrain_cap,
-                          role_cap, senior_role)
+from ..law.tables import road_family_roles, road_steep_law, road_terrain_cap, role_cap, senior_role
 from ..model.airport import Airport
-from ..model.frame import XY
+from ..model.frame import XY, rotated_rectangle
 from ..model.planar import PlanarMap
 from .road_answer import ANSWERS, answer_key
 from .road_stations import StationTable

@@ -40,8 +40,8 @@ import typing as _t
 
 import numpy as np
 
-from ..model.frame import XY
 from ..geom.item_memo import ItemMemo
+from ..model.frame import XY
 
 __all__ = ["road_ground_densifier", "near_any"]
 

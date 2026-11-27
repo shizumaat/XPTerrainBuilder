@@ -115,8 +115,16 @@ def _overhead(g, o, heading_deg: float, above_y: float, region) -> list:
     x, z = V[T[idx]][:, :, 0], V[T[idx]][:, :, 2]
     px = (o[0] + x * c) - z * s
     py = o[1] - (x * s + z * c)
-    polys = shapely.polygons(np.stack([px, py], axis=-1))
+    # #2176: a triangle whose plan box misses the region's meets no part of
+    # it, so only the rest are made polygons and asked (a terminal's
+    # triangles over one road under it)
+    rb = region.bounds
+    near = np.nonzero((px.max(axis=1) >= rb[0]) & (px.min(axis=1) <= rb[2])
+                      & (py.max(axis=1) >= rb[1]) & (py.min(axis=1) <= rb[3]))[0]
+    if not near.size:
+        return []
+    polys = shapely.polygons(np.stack([px[near], py[near]], axis=-1))
     ok = (shapely.area(polys) > 1e-6) & shapely.intersects(polys, region)
     lo, hi = ys.min(axis=1), ys.max(axis=1)
     return [(polys[k], float(lo[i]), float(hi[i]))
-            for k, i in enumerate(idx.tolist()) if ok[k]]
+            for k, i in enumerate(idx[near].tolist()) if ok[k]]

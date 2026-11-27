@@ -415,20 +415,26 @@ def split_at_walls(points: _t.Sequence, polys: _t.Sequence) -> "tuple[list, floa
             ln.length - rest.length)
 
 
-def crosses_wall(a, b, walls: _t.Sequence[WallSides]) -> bool:
+def crosses_wall(a, b, walls: _t.Sequence[WallSides], boxes=None) -> bool:
     """The segment ``a``-``b`` runs ACROSS (or into) a wall: it reaches the
     footprint's core (:attr:`WallSides.core`) — a vertex on the wall's face
-    and its own side's way never do."""
+    and its own side's way never do.  ``boxes``: the cores' bounds, row for
+    wall, where the caller holds them (#2176); the segment's box is its end
+    points', and the line is made only for a wall whose core's box it
+    meets."""
     if not walls:
         return False
-    seg = LineString([tuple(a), tuple(b)]) if math.dist(a, b) > 1e-9 else Point(a)
-    x0, y0, x1, y1 = seg.bounds
-    for w in walls:
+    ax, ay, bx, by = float(a[0]), float(a[1]), float(b[0]), float(b[1])
+    x0, x1, y0, y1 = min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)
+    seg = None
+    for i, w in enumerate(walls):
         if w.core is None:
             continue
-        bx0, by0, bx1, by1 = w.core.bounds
+        bx0, by0, bx1, by1 = w.core.bounds if boxes is None else boxes[i]
         if x0 > bx1 or x1 < bx0 or y0 > by1 or y1 < by0:
             continue
+        if seg is None:
+            seg = LineString([tuple(a), tuple(b)]) if math.dist(a, b) > 1e-9 else Point(a)
         if seg.intersects(w.core):
             return True
     return False

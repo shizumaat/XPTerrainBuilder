@@ -111,3 +111,31 @@ def test_array_read_is_the_walks_answer():
             want = _reference(members, cache, to_xy, region, floor)
             assert got == want, (region.wkt, floor, got, want)
     assert underside_over(members, cache, to_xy, box(-4.0, -3.0, 9.5, 11.0), -1.0)["covered"] > 0
+
+
+def test_box_prefilter_keeps_every_triangle_the_region_meets():
+    """#2176: only triangles whose plan box meets the region's are made
+    polygons; the list is the unfiltered read's, polygon for polygon."""
+    import shapely
+    from auto_patch_v2.planar import level_underside as lu
+    rng = np.random.default_rng(2176)
+    n = 3000
+    c = rng.uniform(-60.0, 60.0, (n, 1, 3))
+    V = (c + rng.normal(0.0, 3.0, (n, 3, 3))).reshape(-1, 3)
+    g = types.SimpleNamespace(vertices=V, solid=np.arange(3 * n).reshape(n, 3),
+                              animated=np.zeros(0, dtype=bool))
+    for region in (box(-10.0, -8.0, 12.0, 9.0), Polygon([(-30, 0), (0, -25), (31, 3), (2, 28)]),
+                   box(500.0, 500.0, 510.0, 510.0)):
+        got = lu._overhead(g, (3.0, -2.0), 17.0, -2.0, region)
+        h = math.radians(17.0)
+        T = g.solid
+        ys = V[T][:, :, 1]
+        idx = np.nonzero(ys.max(axis=1) > -2.0)[0]
+        x, z = V[T[idx]][:, :, 0], V[T[idx]][:, :, 2]
+        px = (3.0 + x * math.cos(h)) - z * math.sin(h)
+        py = -2.0 - (x * math.sin(h) + z * math.cos(h))
+        polys = shapely.polygons(np.stack([px, py], axis=-1))
+        ok = (shapely.area(polys) > 1e-6) & shapely.intersects(polys, region)
+        want = [(polys[k], float(ys[i].min()), float(ys[i].max()))
+                for k, i in enumerate(idx.tolist()) if ok[k]]
+        assert [(p.wkb, a, b) for p, a, b in got] == [(p.wkb, a, b) for p, a, b in want]

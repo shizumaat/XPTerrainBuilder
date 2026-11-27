@@ -82,17 +82,36 @@ class MouthGroup:
 
 def _solids(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
     """``(placed plan, top y, hard-deck triangles)`` of ``o``'s genuine solids
-    (frame metres), or ``None`` with none."""
-    g = None if o.resolved is None else cache.geometry(o.resolved)
-    comps = [] if g is None else cache.genuine(o.resolved)
-    if g is None or not comps:
+    (frame metres), or ``None`` with none.  The union is the RESOURCE's
+    (:func:`_resource_solids`); only the placement is applied per call."""
+    local = None if o.resolved is None else _resource_solids(o.resolved, cache)
+    if local is None:
         return None
-    tris = np.concatenate([c.tris for c in comps])
-    plan = _fe.union(_bulk_polys(g.vertices, tris), "mouth_group._solids")
-    plan = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+    plan = _fe.enter([local[0]], _obj8.placement_affine(o.xy, o.heading_deg),
+                     _fe.quantum(law))[0]
     if plan is None or plan.is_empty:
         return None
-    return plan, float(g.vertices[np.unique(tris), 1].max()), int(len(g.hard_deck))
+    return plan, local[1], local[2]
+
+
+def _resource_solids(path: str, cache: _obj8.ResourceCache):
+    """``(plan union in the object's own frame, top y, hard-deck triangles)``
+    of resource ``path``'s genuine solids, or ``None`` with none -- read once
+    per resource on ``cache`` (#2176: the mouth groups are asked once per
+    mouth, per pass and per stage, of the same pieces)."""
+    memo = getattr(cache, "solids_memo", None)
+    if memo is not None and path in memo:
+        return memo[path]
+    g = cache.geometry(path)
+    comps = [] if g is None else cache.genuine(path)
+    got = None
+    if g is not None and comps:
+        tris = np.concatenate([c.tris for c in comps])
+        got = (_fe.union(_bulk_polys(g.vertices, tris), "mouth_group._solids"),
+               float(g.vertices[np.unique(tris), 1].max()), int(len(g.hard_deck)))
+    if memo is not None:
+        memo[path] = got
+    return got
 
 
 def _farthest(plan, other) -> float:

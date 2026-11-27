@@ -11,7 +11,6 @@ import typing as _t
 import numpy as np
 import shapely
 from shapely.errors import GEOSException
-from shapely.geometry import Polygon
 
 from ..geom.parts import areal_part
 from . import frame_entry as _fe
@@ -54,12 +53,34 @@ def _polygon_parts(u) -> list:
     return parts[keep].tolist()
 
 
-def _union_rings(rings: list[list[tuple[float, float]]]):
+def _ring_polys(rings) -> np.ndarray:
+    """``Polygon(r)`` per ring, in order, those that cannot be built (fewer
+    than three points) left out -- made by array, one call per ring length
+    (#2206: the same coordinates, the same polygons).  ``rings`` is a list
+    of ``(x, z)`` point lists or an ``(n, k, 2)`` array of them."""
+    if isinstance(rings, np.ndarray):
+        if not rings.shape[0]:
+            return np.empty(0, dtype=object)
+        return np.asarray(shapely.polygons(rings.astype(float)), dtype=object)
+    out = np.empty(len(rings), dtype=object)
+    keep = np.zeros(len(rings), dtype=bool)
+    by_len: dict[int, list[int]] = {}
+    for i, r in enumerate(rings):
+        by_len.setdefault(len(r), []).append(i)
+    for n, idx in by_len.items():
+        if n < 3:
+            continue
+        out[idx] = shapely.polygons(np.asarray([rings[i] for i in idx], dtype=float))
+        keep[idx] = True
+    return out[keep]
+
+
+def _union_rings(rings):
     """The union of clipped-triangle rings, REPAIRED at the contribution
     (a clip of a folded or sliver triangle is invalid; one invalid member
     refuses the whole union — measured OTHH, a side-location conflict at
     the millimetre) and unioned under a snapping precision when the exact
-    union still refuses.
+    union still refuses.  ``rings``: :func:`_ring_polys`'s.
 
     EVERY PREDICATE HERE IS VECTORISED (owner RULINGS 2026-09-14q, scout
     ``v2partcost2``): ``is_empty`` / ``is_valid`` / ``area`` are PROPERTY
@@ -67,25 +88,23 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     of every component — the same per-object property cost that made
     ``_rim_index`` 137 s at VHHH.  Same predicates, same order, same
     survivors; one C call per predicate instead of one per ring."""
-    if not rings:
+    arr = _ring_polys(rings)
+    if not arr.size:
         return None
-    built = []
-    for r in rings:
-        try:
-            built.append(Polygon(r))
-        except (ValueError, TypeError):
-            continue
-    if not built:
-        return None
-    arr = np.empty(len(built), dtype=object)
-    arr[:] = built
     arr = arr[~shapely.is_empty(arr)]
     if arr.size:
         bad = ~shapely.is_valid(arr)
         if bad.any():
             # the AREA of each repair (``geom/parts.areal_part``): the lines
-            # a collapsed sliver leaves would ride into the union (#1472)
-            arr[bad] = [areal_part(r) for r in shapely.make_valid(arr[bad])]
+            # a collapsed sliver leaves would ride into the union (#1472).
+            # A repair that is a Polygon / MultiPolygon IS its areal part
+            # and one with no area (a line, a point) is dropped by the area
+            # filter below either way: only a collection is read (#2206).
+            fixed = np.asarray(shapely.make_valid(arr[bad]), dtype=object)
+            mixed = np.nonzero(shapely.get_type_id(fixed) == 7)[0]
+            if mixed.size:
+                fixed[mixed] = [areal_part(r) for r in fixed[mixed]]
+            arr[bad] = fixed
         arr = arr[~shapely.is_empty(arr) & (shapely.area(arr) > 1e-9)]
     if not arr.size:
         return None

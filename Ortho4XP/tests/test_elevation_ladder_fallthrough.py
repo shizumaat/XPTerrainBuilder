@@ -152,6 +152,7 @@ def _whole_tile_registry(monkeypatch, tmp_path):
             coverage_bbox=whole)])
 
 
+@needs_gdal
 def test_a_tile_one_provider_covers_keeps_the_single_fetch(
         monkeypatch, tmp_path):
     _whole_tile_registry(monkeypatch, tmp_path)
@@ -162,6 +163,7 @@ def test_a_tile_one_provider_covers_keeps_the_single_fetch(
         plan["target_resolution_m"])
 
 
+@needs_gdal
 def test_a_border_tile_plans_its_overlay_per_cell(monkeypatch, tmp_path):
     """The regional service reaches only the west half: the tile's cells
     have different first providers, so the overlay is cellular."""

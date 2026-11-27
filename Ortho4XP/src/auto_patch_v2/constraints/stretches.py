@@ -57,6 +57,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
+import numpy as np
+
 from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap, role_family
@@ -66,7 +68,7 @@ from .geometry import project_to_chain
 from .precedence import taxi_cap_for
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
-           "compose_pairs", "nearest_line_cap", "AxisIndex", "APRON_ROLE"]
+           "compose_pairs", "nearest_line_cap", "AxisIndex", "APRON_ROLE", "tie_scan"]
 
 #: THE APRON the route passes through (RULINGS 2026-09-06t): the emitted
 #: ``apron`` role — the tables register it in the ``common`` family (the
@@ -310,6 +312,34 @@ def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
     return compose_pairs(xy, verts, lines, base_cap, min_d, common_only)
 
 
+def tie_scan(d: np.ndarray, cap: _t.Sequence[float], tie: float) -> int:
+    """The index the nearest-with-strictest-cap scan keeps over candidates
+    ``0..n-1`` in order: the first is kept, then candidate ``j`` replaces
+    the running ``(bd, bc)`` when ``d[j] < bd - tie`` or ``|d[j] - bd| <=
+    tie and cap[j] < bc`` -- bit for bit (#2206), visiting only the
+    candidates that can change the answer: those within ``tie`` of the
+    running best (a nearer one, or a tie with a stricter cap).  A tie that
+    RAISES the running distance widens that set, so the candidates are
+    re-read past it."""
+    bd, bc, bk, pos, n = float(d[0]), cap[0], 0, 1, len(d)
+    while pos < n:
+        # a superset of the candidates the rule can take (2x the tie and a
+        # relative ulp margin: the rule's own subtraction rounds)
+        lim = bd + 2.0 * tie + abs(bd) * 1e-12
+        widened = False
+        for j in (np.flatnonzero(d[pos:] <= lim) + pos).tolist():
+            dj, cj = float(d[j]), cap[j]
+            if dj < bd - tie or (abs(dj - bd) <= tie and cj < bc):
+                up = dj > bd
+                bd, bc, bk = dj, cj, j
+                if up:
+                    pos, widened = j + 1, True
+                    break
+        if not widened:
+            break
+    return bk
+
+
 class AxisIndex:
     """THE NEAREST STRETCH AXIS, grid-indexed (RULINGS 2026-09-06s; the
     generator's and the verify reader's one locator, the shape of the v1
@@ -361,6 +391,36 @@ class AxisIndex:
                     (abs(d - best[0]) <= self.tie_m and cl < best[3]):
                 best = (d, ux, uy, cl, ct)
         return best
+
+    def _best_all(self, x: float, y: float
+                  ) -> tuple[float, float, float, float, float] | None:
+        """``_best(x, y, range(len(segs)))`` -- the WHOLE-INDEX scan, the same
+        answer bit for bit (#2206: 12,848 such scans were 60 s of KATL's
+        taxi boxes).  Every distance is measured at once in the scan's own
+        operations (``exact.hypot_array``: the same IEEE products, sums and
+        square root per segment), then the scan's update rule runs, in
+        ascending index, over the only segments that can change its answer:
+        one within ``tie_m`` of the running best (a nearer one, or a tie
+        with a stricter cap).  A tie that RAISES the running distance widens
+        that set, so the candidates are re-read past it."""
+        arr = self._arrays()
+        if arr is None:
+            return None
+        ax, ay, ux, uy, ln, cl = arr
+        t = np.maximum(0.0, np.minimum(ln, (x - ax) * ux + (y - ay) * uy))
+        d = exact.hypot_array(x - (ax + t * ux), y - (ay + t * uy))
+        bk = tie_scan(d, cl, self.tie_m)
+        _ax, _ay, bux, buy, _ln, bcl, bct = self.segs[bk]
+        return float(d[bk]), bux, buy, bcl, bct
+
+    def _arrays(self) -> tuple | None:
+        """The segments as six float arrays (``ax, ay, ux, uy, ln, cap_l``),
+        built once per index; ``None`` with no segment."""
+        got = getattr(self, "_seg_arrays", None)
+        if got is None and self.segs:
+            cols = np.array([s[:6] for s in self.segs], dtype=float)
+            got = self._seg_arrays = tuple(np.ascontiguousarray(cols[:, i]) for i in range(6))
+        return got
 
     def _within(self, x: float, y: float, r: float) -> _t.Sequence[int]:
         """Segment indices, ASCENDING, that can lie within ``r`` of
@@ -437,7 +497,7 @@ class AxisIndex:
         reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
                     y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
         if best is None or best[0] > reach:
-            best = self._best(x, y, range(len(self.segs)))
+            best = self._best_all(x, y)
         if best is None:
             return None
         d, ux, uy, cl, ct = best

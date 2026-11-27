@@ -50,7 +50,7 @@ import zlib
 from .file_hash import sha256_file_or_none
 
 __all__ = ["KINDS", "MISSING", "STORE_VERSION", "SLOTS_MAX", "FileReadings",
-           "folder_for", "file_sha"]
+           "folder_for"]
 
 #: Bump when the SHAPE of a stored reading or of the file changes.
 STORE_VERSION = 1
@@ -91,7 +91,7 @@ _ZLIB_LEVEL = 1
 _SHAS: dict[tuple[str, int, int], "str | None"] = {}
 
 
-def file_sha(path: str) -> "str | None":
+def _file_sha(path: str) -> "str | None":
     """sha256 of ``path``'s bytes, once per file version per process."""
     try:
         st = os.stat(path)
@@ -120,8 +120,7 @@ def _law_digest(law: _t.Any, paths: _t.Sequence[str]) -> "str | None":
         got = resolve(law, tuple(p.split(".")))
         if got is gone:
             return None
-        h.update(p.encode()); h.update(b"\0")
-        h.update(value_digest(got).encode()); h.update(b"\0")
+        h.update(p.encode() + b"\0" + value_digest(got).encode() + b"\0")
     return h.hexdigest()
 
 
@@ -196,7 +195,7 @@ class FileReadings:
     def get(self, kind: str, path: "str | None") -> _t.Any:
         """The reading of ``path`` kept for ``kind``, or :data:`MISSING`."""
         entries = self._entries(kind)
-        sha = file_sha(path) if entries is not None and path else None
+        sha = _file_sha(path) if entries is not None and path else None
         if sha is None:
             return MISSING
         got = entries.get(sha, MISSING)
@@ -207,13 +206,13 @@ class FileReadings:
     def has(self, kind: str, path: "str | None") -> bool:
         """Whether ``kind`` holds a reading of ``path`` (counts nothing)."""
         entries = self._entries(kind)
-        sha = file_sha(path) if entries is not None and path else None
+        sha = _file_sha(path) if entries is not None and path else None
         return sha is not None and sha in entries
 
     def put(self, kind: str, path: "str | None", reading: _t.Any) -> None:
         """Keep ``reading`` of ``path`` (written on :meth:`flush`)."""
         entries = self._entries(kind)
-        sha = file_sha(path) if entries is not None and path else None
+        sha = _file_sha(path) if entries is not None and path else None
         if sha is None or _same(entries.get(sha, MISSING), reading):
             return
         entries[sha] = reading

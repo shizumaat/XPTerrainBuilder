@@ -244,11 +244,11 @@ def test_a_kept_part_reading_is_the_placing_bit_for_bit(world):           # noqa
     held = book.held(members, lines, scat, params)
     assert all(h is not None for h in held)
     got = C.placed_parts(members, *params[:2], lines, *params[2:], scat, attrs=held)
-    for a, b in zip(got, want):
+    for a, b in zip(got, want, strict=True):
         assert a.feet.tobytes() == b.feet.tobytes() and a.solid_h == b.solid_h
         assert len(a.rings) == len(b.rings) and all(
             np.asarray(x).tobytes() == np.asarray(y).tobytes()
-            for x, y in zip(a.rings, b.rings))
+            for x, y in zip(a.rings, b.rings, strict=True))
     moved = [(dc.replace(o, heading_deg=o.heading_deg + 1.0), g, c) for o, g, c in members]
     assert book.held(moved, lines, scat, params) == [None] * len(members)
     assert book.held(members, lines, scat, (1.0, 5, 5.0, 12)) == [None] * len(members)

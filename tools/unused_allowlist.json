@@ -570,6 +570,11 @@
   "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/file_readings_code.py",
+  "name": "write_freeze_digest",
+  "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"
+ },
+ {
   "path": "Ortho4XP/src/O4_Code_Closure.py",
   "name": "write_digest_file",
   "reason": "called by name through a runpy/vars() table (_CLOSURE[...] / run_path(...)[...] in the O4_*_Code registries and Ortho4XP*.spec), invisible to the import census"

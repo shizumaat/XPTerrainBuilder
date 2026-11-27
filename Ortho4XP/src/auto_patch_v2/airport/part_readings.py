@@ -32,10 +32,10 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["part_key", "PartBook"]
+__all__ = ["PartBook"]
 
 
-def part_key(ci: int, o: _t.Any, is_line: bool, is_scat: bool, params: tuple) -> tuple:
+def _part_key(ci: int, o: _t.Any, is_line: bool, is_scat: bool, params: tuple) -> tuple:
     """Everything ``contact.part_attrs`` reads of component ``ci`` placed
     by ``o`` (module doc), as exact values."""
     return (int(ci), float(o.heading_deg), float(o.xy[0]), float(o.xy[1]),
@@ -81,7 +81,7 @@ class PartBook:
         for mi, (o, geom, comps) in enumerate(members):
             is_line, is_scat = self._classes(mi, lines, scat)
             book = self._of(str(geom.path)) if comps else {}
-            keys = [part_key(ci, o, is_line, is_scat, params) for ci, _c in comps]
+            keys = [_part_key(ci, o, is_line, is_scat, params) for ci, _c in comps]
             self._asked.setdefault(str(geom.path), set()).update(keys)
             row = [book.get(k) for k in keys]
             out.append(row if comps and all(r is not None for r in row) else None)
@@ -106,7 +106,7 @@ class PartBook:
             for ci, _c in comps:
                 p = got.get(ci)
                 if p is not None:
-                    book[part_key(ci, o, is_line, is_scat, params)] = (
+                    book[_part_key(ci, o, is_line, is_scat, params)] = (
                         p.feet, p.rings, p.solid_h)
             self._dirty.add(str(geom.path))
             n += 1

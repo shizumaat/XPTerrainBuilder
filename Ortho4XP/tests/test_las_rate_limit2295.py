@@ -14,7 +14,11 @@ import pytest
 from elevation_access import base as ea_base
 from elevation_access import rate_limit as RATE
 from elevation_access.strategies import las_tile_index as ea_las_tile_index
-from tests.test_las_tile_index import _definition, _Response, _write_las
+# the helpers' module skips without these at import; skip HERE first so the
+# collection floor and the suite name this module, not that one (CI #244)
+for _dep in ("laspy", "pyproj", "osgeo.gdal"):
+    pytest.importorskip(_dep)
+from tests.test_las_tile_index import _definition, _Response, _write_las  # noqa: E402
 
 
 @pytest.fixture

@@ -408,9 +408,15 @@ def test_ensure_no_coverage_negative_is_written_and_honoured(
     stem = os.path.splitext(os.path.basename(plan["path"]))[0]
     assert index[stem] == INSETS.NO_COVERAGE
 
-    # A second call honours the cached negative without re-querying.
-    assert ELEVATION_LEVEL.ensure_tile_overlay(_overlay_tile()) is None
     assert call_count["n"] == 1
+    # The negative is never re-asked for the whole tile: it turns the plan
+    # cellular, each cell walking the ladder (RULINGS 2026-11-27e;
+    # test_overlay_cells.py walks it).
+    import O4_Elevation_Overlay_Cells as OVERLAY_CELLS
+
+    assert OVERLAY_CELLS.cellular_overlay_path(
+        TILE_LAT, TILE_LON, plan["definition"], [], 10.29, plan["path"]
+    ) == FNAMES.tile_overlay_cells_vrt(TILE_LAT, TILE_LON, 10.29)
 
 
 def test_ensure_fetch_exception_returns_none_without_poisoning_cache(

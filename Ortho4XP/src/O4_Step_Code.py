@@ -210,6 +210,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Download_Manager",
     "O4_Elevation_Ladder",
     "O4_Elevation_Level",
+    "O4_Elevation_Overlay_Cells",
     "O4_External_Writes",
     "O4_File_Lock",
     "O4_File_Names",

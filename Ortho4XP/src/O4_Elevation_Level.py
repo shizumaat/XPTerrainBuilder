@@ -526,12 +526,25 @@ def resolve_tile_overlay_plan(tile):
     path = FNAMES.tile_overlay_dem(
         tile.lat, tile.lon, definition["code"], target_resolution_m
     )
-    return {
+    plan = {
         "definition": definition,
         "factor": factor,
         "target_resolution_m": target_resolution_m,
         "path": path,
     }
+    # A BORDER tile (or a whole-tile no coverage) is fetched per cell
+    # through the band's ladder walk (RULINGS 2026-11-27e).
+    import O4_Elevation_Overlay_Cells as OVERLAY_CELLS
+
+    cells_path = OVERLAY_CELLS.cellular_overlay_path(
+        tile.lat, tile.lon, definition,
+        _wide_area_candidate_definitions(
+            tile.lat, tile.lon, providers_config),
+        target_resolution_m, path,
+    )
+    if cells_path is not None:
+        plan.update(path=cells_path, cellular=True)
+    return plan
 
 
 def ensure_tile_overlay(tile, dico_airports=None):
@@ -564,7 +577,10 @@ def ensure_tile_overlay(tile, dico_airports=None):
         return overlay_path
 
     import O4_Airport_Elevation_Insets as INSETS
+    import O4_Elevation_Overlay_Cells as OVERLAY_CELLS
 
+    if plan.get("cellular"):
+        return OVERLAY_CELLS.ensure_cellular_overlay(tile, plan)
     lat = tile.lat
     lon = tile.lon
     definition = plan["definition"]
@@ -574,15 +590,9 @@ def ensure_tile_overlay(tile, dico_airports=None):
     # their own positive/negative record.
     index_key = os.path.splitext(os.path.basename(overlay_path))[0]
     index_path = FNAMES.tile_overlay_index(lat, lon)
+    # A recorded no-coverage for the whole tile made the plan cellular
+    # (:func:`O4_Elevation_Overlay_Cells.cellular_overlay_path`).
     index = _read_overlay_index(index_path)
-    if index.get(index_key) == INSETS.NO_COVERAGE:
-        UI.vprint(
-            2,
-            "   No wide-area elevation coverage recorded for",
-            definition["code"],
-            "over this tile; skipping the overlay fetch.",
-        )
-        return None
 
     level = parse_elevation_level(
         getattr(tile, "elevation_level", "auto")
@@ -623,9 +633,13 @@ def ensure_tile_overlay(tile, dico_airports=None):
     if provenance is None:
         if not fetch_raised:
             # A clean "no usable coverage" answer is a durable fact; cache
-            # it so a rebuild never re-queries the discovery service.
+            # it so a rebuild never re-queries the discovery service --
+            # and the tile falls through to the ladder per cell.
             index[index_key] = INSETS.NO_COVERAGE
             _write_overlay_index(index_path, index)
+            cellular = resolve_tile_overlay_plan(tile)
+            if cellular is not None and cellular.get("cellular"):
+                return OVERLAY_CELLS.ensure_cellular_overlay(tile, cellular)
         UI.lvprint(
             0,
             "   WARNING: elevation_level",
@@ -1008,9 +1022,11 @@ def _band_cell_providers(box, class_m, providers_config):
 
 
 def _band_cell_sources(lat, lon, column, row, rung, level_m,
-                       providers_config):
+                       providers_config, cell_path=None):
     """Every ladder provider that can serve one band cell of ``rung``, in
-    ladder order: ``{code, source_rung, resolution_m, path, stem}``."""
+    ladder order: ``{code, source_rung, resolution_m, path, stem}``.
+    ``cell_path`` names the cache (default the band's own cells; the
+    cellular tile overlay passes its own)."""
     box = approach_ring_cell_box(lat, lon, column, row)
     sources = []
     for definition in _band_cell_providers(
@@ -1021,7 +1037,7 @@ def _band_cell_sources(lat, lon, column, row, rung, level_m,
         )
         if source_rung is None:
             continue
-        path = FNAMES.coastline_band_cell_dem(
+        path = (cell_path or FNAMES.coastline_band_cell_dem)(
             lat, lon, column, row, definition["code"], resolution_m,
             source_rung.token,
         )
@@ -1043,7 +1059,8 @@ def _band_provider_code(cells):
     return next(cell["code"] for cell in cells if counts[cell["code"]] == best)
 
 
-def _band_cell_answered(source, cell, lat, lon, cell_outcomes, discard):
+def _band_cell_answered(source, cell, lat, lon, cell_outcomes, discard,
+                        label="Coastline band cell"):
     """Ask one provider for one band cell; True when it holds data.
 
     A cached raster is recycled after the same plausibility probes a
@@ -1067,27 +1084,58 @@ def _band_cell_answered(source, cell, lat, lon, cell_outcomes, discard):
         return True
     if cell_outcomes.get(stem) == INSETS.NO_COVERAGE:
         return False
-    try:
-        provenance = INSETS.fetch_inset(
-            definition,
-            approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
-            source["resolution_m"],
-            path,
-        )
-    except Exception as error:
-        UI.vprint(
-            2, "   Coastline band cell fetch error at", stem, ":",
-            str(error),
-        )
+    outcome, detail = _fetch_cell(
+        definition,
+        approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
+        source["resolution_m"],
+        path,
+    )
+    if outcome == _CELL_RAISED:
+        UI.vprint(2, "   " + label + " fetch error at", stem, ":",
+                  str(detail))
         return False
-    if provenance is None:
-        cell_outcomes[stem] = INSETS.NO_COVERAGE
-        return False
-    if INSETS.geotiff_is_constant_value(path):
+    if outcome == _CELL_CONSTANT:
         discard(path, stem)
         return False
-    cell_outcomes[stem] = "ok"
+    if outcome != _CELL_OK:
+        cell_outcomes[stem] = INSETS.NO_COVERAGE
+        return False
+    cell_outcomes[stem] = _CELL_OK
     return True
+
+
+#: :func:`_fetch_cell`'s outcomes beside ``NO_COVERAGE``.
+_CELL_OK = "ok"
+_CELL_CONSTANT = "constant"
+_CELL_RAISED = "raised"
+
+
+def _fetch_cell(definition, box, resolution_m, path):
+    """Ask one provider for one 0.1 degree cell -- THE one fetch every
+    graded-cell walk shares (coastline band, approach rings, the cellular
+    tile overlay).  Returns ``(outcome, detail)``:
+
+    * ``(_CELL_OK, provenance)`` -- data written to ``path``;
+    * ``(NO_COVERAGE, None)`` -- a clean "no usable coverage" (durable);
+    * ``(_CELL_CONSTANT, None)`` -- one constant value everywhere, a fill
+      served beyond the provider's true extent (the caller discards the
+      raster; durable);
+    * ``(_CELL_RAISED, error)`` -- a raised failure, never durable (it may
+      be a transient outage).
+
+    Every one but ``_CELL_OK`` hands the cell to the next ladder provider.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    try:
+        provenance = INSETS.fetch_inset(definition, box, resolution_m, path)
+    except Exception as error:
+        return _CELL_RAISED, error
+    if provenance is None:
+        return INSETS.NO_COVERAGE, None
+    if INSETS.geotiff_is_constant_value(path):
+        return _CELL_CONSTANT, None
+    return _CELL_OK, provenance
 
 
 def resolve_coastline_band_plan(tile):
@@ -1223,6 +1271,11 @@ def bake_tile_overlay_into_alt_dem(tile):
             "path": overlay_path,
             "target_resolution_m": plan["target_resolution_m"],
         }
+        if plan.get("cellular"):
+            import O4_Elevation_Overlay_Cells as OVERLAY_CELLS
+
+            tile.dem.tile_overlay_provenance["cell_providers"] = (
+                OVERLAY_CELLS.recorded_cell_providers(overlay_path))
         UI.vprint(
             1,
             "   Tile elevation overlay baked:",
@@ -1969,6 +2022,7 @@ def resolve_approach_ring_plan(tile, dico_airports):
 
     cells = []
     layers = {}
+    outcomes = (read_approach_ring_stamp(lat, lon) or {}).get("cells") or {}
     cell_count = int(round(1.0 / COASTLINE_CELL_DEGREES))
     for column in range(cell_count):
         for row in range(cell_count):
@@ -1984,7 +2038,7 @@ def resolve_approach_ring_plan(tile, dico_airports):
                 continue
             cell = _approach_ring_cell(
                 lat, lon, column, row, box, reach_ring, ladder,
-                providers_config, level_m, feathers,
+                providers_config, level_m, feathers, outcomes,
             )
             cell["reach_index"] = reach_index
             cells.append(cell)
@@ -2075,23 +2129,33 @@ def _class_key(class_m):
 
 def _approach_ring_cell(
     lat, lon, column, row, box, reach_ring, ladder, providers_config,
-    level_m, feathers,
+    level_m, feathers, outcomes=None,
 ):
     """One plan cell: its class, its provider and its cache path.
 
     Collapse rule (spec section 2): the cell is fetched at ``reach_ring``'s
-    class from the finest wide-area provider native-fine enough for it;
-    when none covers the cell, ring 1 COLLAPSES into ring 2 (the cell is
+    class from the first ladder provider native-fine enough for it; when
+    none covers the cell, ring 1 COLLAPSES into ring 2 (the cell is
     fetched at the coarser class instead), and when no provider covers it
     at all the cell carries ``provider: None`` -- a no-coverage cell where
     the tile's base DEM stands.
+
+    THE LADDER'S FALL-THROUGH (RULINGS 2026-11-27e, as the band's): the
+    cell keeps every source in that order under ``sources``, and is the
+    first one the ring stamp ``outcomes`` has not passed over
+    (:func:`_ring_cell_choice`) -- so a provider that answered no
+    coverage, a fill, or a failure a later source stood in for hands the
+    cell to the next one, from the same disk state every reader sees.
     """
     rungs = list(ladder)
     start = rungs.index(reach_ring)
+    sources = []
     for rung in rungs[start:]:
         if level_m is not None and level_m <= rung.resolution_m:
             # A tile-wide level already delivers this class or finer:
             # SUPERSEDED (spec section 7 -- a ring never coarsens a level).
+            if sources:
+                break
             return {
                 "column": column,
                 "row": row,
@@ -2121,34 +2185,13 @@ def _approach_ring_cell(
             )
             if source_rung is None:
                 continue
-            code = definition["code"]
-            path = FNAMES.approach_ring_cell_dem(
-                lat, lon, column, row, code, rung.resolution_m,
-                source_rung.token,
-            )
-            return {
-                "column": column,
-                "row": row,
-                "ring": rung.label,
-                "class_m": rung.resolution_m,
-                "reach_ring": reach_ring.label,
-                "provider": code,
-                "source_rung": source_rung.label,
-                "source_rung_native_m": source_rung.native_resolution_m,
-                "source_rung_token": source_rung.token,
-                "state": None,
-                "path": path,
-                # ONE cell cache, two plans (spec section 5): a cell already
-                # fetched for the coastline band at the same stem is
-                # reused BY REFERENCE, never copied.  The rung is part of
-                # the stem, so the two plans share a cell only when they
-                # fetched it from the same rung.
-                "band_path": FNAMES.coastline_band_cell_dem(
-                    lat, lon, column, row, code, rung.resolution_m,
-                    source_rung.token,
-                ),
-                "stem": os.path.splitext(os.path.basename(path))[0],
-            }
+            sources.append(_ring_cell_source_entry(
+                lat, lon, column, row, rung, reach_ring, definition["code"],
+                source_rung,
+            ))
+    chosen = _ring_cell_choice(sources, outcomes or {})
+    if chosen is not None:
+        return dict(chosen, sources=sources)
     return {
         "column": column,
         "row": row,
@@ -2162,6 +2205,62 @@ def _approach_ring_cell(
         "band_path": None,
         "stem": None,
     }
+
+
+def _ring_cell_source_entry(lat, lon, column, row, rung, reach_ring, code,
+                            source_rung):
+    """One ring cell source: the plan cell's fields for ``code`` at
+    ``rung`` through ``source_rung``."""
+    path = FNAMES.approach_ring_cell_dem(
+        lat, lon, column, row, code, rung.resolution_m, source_rung.token,
+    )
+    return {
+        "column": column,
+        "row": row,
+        "ring": rung.label,
+        "class_m": rung.resolution_m,
+        "reach_ring": reach_ring.label,
+        "provider": code,
+        "source_rung": source_rung.label,
+        "source_rung_native_m": source_rung.native_resolution_m,
+        "source_rung_token": source_rung.token,
+        "state": None,
+        "path": path,
+        # ONE cell cache, two plans (spec section 5): a cell already
+        # fetched for the coastline band at the same stem is reused BY
+        # REFERENCE, never copied.  The rung is part of the stem, so the
+        # two plans share a cell only when they fetched it from the same
+        # rung.
+        "band_path": FNAMES.coastline_band_cell_dem(
+            lat, lon, column, row, code, rung.resolution_m,
+            source_rung.token,
+        ),
+        "stem": os.path.splitext(os.path.basename(path))[0],
+    }
+
+
+#: A ring cell source that raised while a LATER source of the same cell
+#: answered: the cell stands on that later source until a deliberate
+#: refresh (``--refresh-data rings``) asks the first one again -- rings
+#: never re-check by themselves (spec section 5), so a build never
+#: re-fetches into the shared repo as a side effect.
+RING_FELL_THROUGH = "fell-through"
+
+def _ring_cell_choice(sources, outcomes):
+    """The source a ring cell stands on: the first with a raster on disk
+    or not passed over by its recorded outcome; when every one was passed
+    over, the first (its negative answers the cell; the base stands)."""
+    for source in sources:
+        if approach_ring_cell_source(source) is not None or \
+                not _ring_passed_over(outcomes, source["stem"]):
+            return source
+    return sources[0] if sources else None
+
+
+def _ring_passed_over(outcomes, stem):
+    """True when the ring stamp passes source ``stem`` over (a durable
+    negative, or a failure a later source stood in for)."""
+    return outcomes.get(stem) in (NO_RING_COVERAGE, RING_FELL_THROUGH)
 
 
 def approach_ring_cell_source(cell):
@@ -2395,7 +2494,7 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
     outcomes = {
         stem: outcome
         for stem, outcome in (stamp.get("cells") or {}).items()
-        if outcome == NO_RING_COVERAGE
+        if _ring_passed_over({stem: outcome}, stem)
     }
     # Pass 1 (serial, disk only): recycle cached cells, honour recorded
     # negatives, and collect the cells that need a network fetch.
@@ -2407,89 +2506,30 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
         existing = approach_ring_cell_source(cell)
         if existing is not None and not refresh:
             # The fetch's provider-fill mask re-judges it too (#1340).
-            INSETS.mask_fetched_provider_fill(
-                existing,
-                INSETS.elevation_providers_dict.get(cell["provider"]),
-                label=stem)
-            if INSETS.geotiff_is_constant_value(existing):
-                _discard_implausible_ring_cell(existing, stem, outcomes)
-            else:
+            if _ring_raster_plausible(existing, cell):
                 outcomes[stem] = "ok"
+                continue
+            # A fill: the cell falls through to its next source.
+            _discard_implausible_ring_cell(existing, stem, outcomes)
+        elif _ring_passed_over(outcomes, stem) and not refresh:
             continue
-        if outcomes.get(stem) == NO_RING_COVERAGE and not refresh:
-            continue
-        definition = INSETS.elevation_providers_dict.get(cell["provider"])
-        if definition is None:
-            continue
-        # THE RULING (2026-10-02f): fetch THROUGH the planned rung, not
-        # through the provider's own (1 m, project-discovered) definition.
-        source_rung = surround_rung_for_class(definition, cell["class_m"])
-        if source_rung is None or source_rung.label != cell.get("source_rung"):
-            # The registry moved under the plan derived at the top of this
-            # function: the planned stem is not what this rung would write.
-            UI.vprint(
-                2,
-                "   Approach ring cell",
-                stem,
-                "plans rung",
-                cell.get("source_rung"),
-                "but the registry now offers",
-                None if source_rung is None else source_rung.label,
-                "- skipping it.",
-            )
-            continue
-        jobs.append((cell, source_rung))
+        walk = _ring_cell_walk(cell, outcomes, refresh)
+        if walk:
+            jobs.append((cell, walk))
     # Pass 2 (bounded pool, #1327): the fetches are network-bound and
-    # independent.  Pass 3 below records every result in STEM order, so
+    # independent; each walks its cell's sources (the ladder's
+    # fall-through).  Pass 3 below records every result in STEM order, so
     # outcomes, sidecars and the stamp never depend on completion order.
-    results = _fetch_approach_ring_cells(lat, lon, jobs, INSETS)
+    results = _fetch_approach_ring_cells(lat, lon, jobs)
     tile.rings_coarsened_last_build = sum(
-        1 for provenance, _error in results
-        if provenance is _RING_FETCH_COARSENED)
+        1 for answered, _rung, _provenance, _attempts in results
+        if answered is _RING_FETCH_COARSENED)
     fetched = 0
-    for (cell, source_rung), (provenance, error) in sorted(
+    for (cell, _walk), result in sorted(
         zip(jobs, results, strict=True),
         key=lambda pair: pair[0][0]["stem"],
     ):
-        stem = cell["stem"]
-        if error is not None:
-            UI.vprint(
-                2,
-                "   Approach ring cell fetch error at",
-                stem,
-                ":",
-                str(error),
-            )
-            continue
-        if provenance is _RING_FETCH_SKIPPED or (
-                provenance is _RING_FETCH_COARSENED):
-            continue
-        if provenance is None:
-            outcomes[stem] = NO_RING_COVERAGE
-        elif INSETS.geotiff_is_constant_value(cell["path"]):
-            _discard_implausible_ring_cell(cell["path"], stem, outcomes)
-        else:
-            outcomes[stem] = "ok"
-            fetched += 1
-            record = dict(provenance)
-            record["fetch_date"] = datetime.date.today().isoformat()
-            # The sidecar records the RUNG (owner RULINGS 2026-10-02f): a
-            # cell's class alone does not say which product answered it.
-            record[SURROUND_RUNG_PROVENANCE_KEY] = {
-                "label": source_rung.label,
-                "native_resolution_m": source_rung.native_resolution_m,
-                "provider": source_rung.definition.get(
-                    "code", cell["provider"]
-                ),
-            }
-            sidecar = FNAMES.approach_ring_cell_provenance(
-                lat, lon, cell["column"], cell["row"], cell["provider"],
-                cell["class_m"], cell.get("source_rung_token"),
-            )
-            with open(
-                sidecar, "w", encoding="utf-8", newline="\n"
-            ) as handle:
-                json.dump(record, handle, indent=2, sort_keys=True)
+        fetched += _record_ring_cell_walk(lat, lon, cell, result, outcomes)
     write_approach_ring_stamp(
         lat,
         lon,
@@ -2517,6 +2557,98 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
     return fetched
 
 
+def _ring_raster_plausible(path, source):
+    """A cached ring raster's plausibility: the provider-fill mask
+    (#1340) applied, then not one constant value everywhere."""
+    import O4_Airport_Elevation_Insets as INSETS
+
+    INSETS.mask_fetched_provider_fill(
+        path, INSETS.elevation_providers_dict.get(source["provider"]),
+        label=source["stem"])
+    return not INSETS.geotiff_is_constant_value(path)
+
+
+def _ring_cell_walk(cell, outcomes, refresh):
+    """The sources one ring cell's fetch walks, ladder order:
+    ``(source, rung, may_recycle)``.  From the cell's own source on (a
+    refresh: from the first), past every source the stamp passes over."""
+    import O4_Airport_Elevation_Insets as INSETS
+
+    sources = list(cell.get("sources") or [cell])
+    stems = [source["stem"] for source in sources]
+    if not refresh and cell["stem"] in stems:
+        sources = sources[stems.index(cell["stem"]):]
+    walk = []
+    for source in sources:
+        stem = source["stem"]
+        if not refresh and _ring_passed_over(outcomes, stem):
+            continue
+        definition = INSETS.elevation_providers_dict.get(source["provider"])
+        if definition is None:
+            continue
+        # THE RULING (2026-10-02f): fetch THROUGH the planned rung, not
+        # through the provider's own (1 m, project-discovered) definition.
+        rung = surround_rung_for_class(definition, source["class_m"])
+        if rung is None or rung.label != source.get("source_rung"):
+            # The registry moved under the plan derived at the top of
+            # ensure_approach_rings: the planned stem is not what this
+            # rung would write.
+            UI.vprint(
+                2, "   Approach ring cell", stem, "plans rung",
+                source.get("source_rung"), "but the registry now offers",
+                None if rung is None else rung.label, "- skipping it.",
+            )
+            continue
+        walk.append((source, rung, not refresh and stem != cell["stem"]))
+    return walk
+
+
+def _record_ring_cell_walk(lat, lon, cell, result, outcomes):
+    """Pass 3 of :func:`ensure_approach_rings` for one cell: record each
+    source's answer, move the plan cell onto the source that answered, and
+    write its provenance sidecar.  Returns 1 for a fresh fetch, else 0."""
+    answered, source_rung, provenance, attempts = result
+    raised = []
+    for source, outcome, detail in attempts:
+        if outcome == _CELL_RAISED:
+            UI.vprint(2, "   Approach ring cell fetch error at",
+                      source["stem"], ":", str(detail))
+            raised.append(source["stem"])
+        elif outcome == _CELL_CONSTANT:
+            _discard_implausible_ring_cell(detail, source["stem"], outcomes)
+        else:
+            outcomes[source["stem"]] = NO_RING_COVERAGE
+    if answered is None or answered is _RING_FETCH_SKIPPED or \
+            answered is _RING_FETCH_COARSENED:
+        return 0
+    for stem in raised:
+        outcomes[stem] = RING_FELL_THROUGH
+    outcomes[answered["stem"]] = "ok"
+    if answered["stem"] != cell["stem"]:
+        UI.vprint(1, "   Approach ring cell", cell["stem"],
+                  "falls through to", answered["stem"], "(owner RULINGS"
+                  " 2026-11-27e).")
+        cell.update(answered)
+    if provenance is _RING_FETCH_CACHED:
+        return 0
+    record = dict(provenance)
+    record["fetch_date"] = datetime.date.today().isoformat()
+    # The sidecar records the RUNG (owner RULINGS 2026-10-02f): a
+    # cell's class alone does not say which product answered it.
+    record[SURROUND_RUNG_PROVENANCE_KEY] = {
+        "label": source_rung.label,
+        "native_resolution_m": source_rung.native_resolution_m,
+        "provider": source_rung.definition.get("code", answered["provider"]),
+    }
+    sidecar = FNAMES.approach_ring_cell_provenance(
+        lat, lon, answered["column"], answered["row"], answered["provider"],
+        answered["class_m"], answered.get("source_rung_token"),
+    )
+    with open(sidecar, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(record, handle, indent=2, sort_keys=True)
+    return 1
+
+
 #: Ring-cell fetches in flight at once against one provider, MACHINE-WIDE
 #: (#1327, RULINGS 2026-10-26t): every tile of the session shares the
 #: provider's cell class (``fetch_slots.cell_fetch_class``), so three
@@ -2534,6 +2666,9 @@ _RING_FETCH_SKIPPED = object()
 #: A cell the user's "Use coarser data" (#1351) left on the base
 #: elevation: like a skipped cell, no outcome, so the next run fetches it.
 _RING_FETCH_COARSENED = object()
+
+#: A later source's raster already on disk answered the cell (no fetch).
+_RING_FETCH_CACHED = object()
 
 #: The ring pass's ``task_meter`` phase: its words for the slow-step alert,
 #: and the key the alert's "Use coarser data" is answered under.
@@ -2558,12 +2693,15 @@ def _ensure_ring_candidate_footprints(tile, refresh=False):
     )
 
 
-def _fetch_approach_ring_cells(lat, lon, jobs, insets):
-    """Fetch ``jobs`` (``(cell, source_rung)`` pairs) in a bounded pool.
+def _fetch_approach_ring_cells(lat, lon, jobs):
+    """Fetch ``jobs`` (``(cell, walk)`` pairs, :func:`_ring_cell_walk`) in
+    a bounded pool, each cell walking its sources in ladder order: a
+    source answering no coverage, a fill or a raised failure hands the
+    cell to the next (RULINGS 2026-11-27e, the band's own fall-through).
 
-    Returns one ``(provenance, error)`` per job, in ``jobs`` order.  A
-    raised failure comes back as ``error`` (never a negative: it may be a
-    transient outage).  Prints ``approach rings: N/M cells`` every
+    Returns one ``(answered, rung, provenance, attempts)`` per job, in
+    ``jobs`` order (:func:`_record_ring_cell_walk` reads it).  Prints
+    ``approach rings: N/M cells`` every
     :data:`APPROACH_RING_PROGRESS_EVERY` finished cells and folds the same
     text into the running step's ``StepProgress`` label.
     """
@@ -2582,34 +2720,66 @@ def _fetch_approach_ring_cells(lat, lon, jobs, insets):
     lock = threading.Lock()
     done = [0]
 
-    def _one(job):
-        (cell, source_rung) = job
+    def _stop():
+        if UI.red_flag:
+            return _RING_FETCH_SKIPPED
+        if TASK_METER.coarser_requested(APPROACH_RING_PHASE):
+            return _RING_FETCH_COARSENED
+        return None
+
+    def _ask(source, source_rung):
+        if _stop() is not None:
+            return None, None
         try:
-            if UI.red_flag:
-                return (_RING_FETCH_SKIPPED, None)
-            if TASK_METER.coarser_requested(APPROACH_RING_PHASE):
-                return (_RING_FETCH_COARSENED, None)
-            try:
-                with MACHINE_SLOTS.hold_class(
-                    ea_fetch_slots.cell_fetch_class(cell["provider"]),
-                    APPROACH_RING_FETCH_WORKERS,
-                    give_up=lambda: UI.red_flag,
-                ):
-                    if UI.red_flag:
-                        return (_RING_FETCH_SKIPPED, None)
-                    if TASK_METER.coarser_requested(APPROACH_RING_PHASE):
-                        return (_RING_FETCH_COARSENED, None)
-                    provenance = insets.fetch_inset(
-                        source_rung.definition,
-                        approach_ring_cell_box(
-                            lat, lon, cell["column"], cell["row"]
-                        ),
-                        cell["class_m"],
-                        cell["path"],
-                    )
-            except Exception as error:
-                return (None, error)
-            return (provenance, None)
+            with MACHINE_SLOTS.hold_class(
+                ea_fetch_slots.cell_fetch_class(source["provider"]),
+                APPROACH_RING_FETCH_WORKERS,
+                give_up=lambda: UI.red_flag,
+            ):
+                if _stop() is not None:
+                    return None, None
+                return _fetch_cell(
+                    source_rung.definition,
+                    approach_ring_cell_box(
+                        lat, lon, source["column"], source["row"]
+                    ),
+                    source["class_m"],
+                    source["path"],
+                )
+        except Exception as error:
+            return _CELL_RAISED, error
+
+    def _one(job):
+        """Walk one cell's sources: ``(answered, rung, provenance,
+        attempts)``, ``attempts`` the passed-over ``(source, outcome,
+        detail)`` in walk order (THE LADDER'S FALL-THROUGH, RULINGS
+        2026-11-27e)."""
+        (_cell, walk) = job
+        attempts = []
+        try:
+            for source, source_rung, may_recycle in walk:
+                stop = _stop()
+                if stop is not None:
+                    return (stop, None, None, attempts)
+                existing = approach_ring_cell_source(source) \
+                    if may_recycle else None
+                if existing is not None:
+                    if _ring_raster_plausible(existing, source):
+                        return (source, source_rung, _RING_FETCH_CACHED,
+                                attempts)
+                    attempts.append((source, _CELL_CONSTANT, existing))
+                    continue
+                outcome, detail = _ask(source, source_rung)
+                if outcome is None:
+                    return (_stop() or _RING_FETCH_SKIPPED, None, None,
+                            attempts)
+                if outcome == _CELL_OK:
+                    return (source, source_rung, detail, attempts)
+                attempts.append((
+                    source, outcome,
+                    source["path"] if outcome == _CELL_CONSTANT else detail,
+                ))
+            return (None, None, None, attempts)
         finally:
             with lock:
                 done[0] += 1
@@ -2637,9 +2807,9 @@ def _ring_phase_words(jobs):
     downloads, from which providers at which resolution, and that it can
     finish on the base elevation ("Use coarser data")."""
     sources = sorted({
-        "%s at %g m" % (cell["provider"], float(
-            getattr(rung, "native_resolution_m", None) or cell["class_m"]))
-        for cell, rung in jobs})
+        "%s at %g m" % (source["provider"], float(
+            getattr(rung, "native_resolution_m", None) or source["class_m"]))
+        for source, rung, _recycle in (walk[0] for _cell, walk in jobs)})
     return {
         "what": "Downloading detailed elevation around the airports: "
                 "{done} of {total} areas done",

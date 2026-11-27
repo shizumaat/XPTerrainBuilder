@@ -1962,17 +1962,18 @@ def test_ring_cells_of_every_tile_share_one_machine_wide_pool(
             with lock:
                 in_flight[0] -= 1
 
-    fake = SimpleNamespace(fetch_inset=_fetch)
+    monkeypatch.setattr(INSETS, "fetch_inset", _fetch)
     rung = SimpleNamespace(definition={"code": "POOLTEST"})
 
     def _tile_pass(lat):
-        jobs = [
-            ({"column": column, "row": 0, "provider": "POOLTEST",
-              "class_m": 10.0,
-              "path": str(tmp_path / ("c%d_%d.tif" % (lat, column)))}, rung)
+        cells = [
+            {"column": column, "row": 0, "provider": "POOLTEST",
+             "class_m": 10.0, "stem": "c%d_%d" % (lat, column),
+             "path": str(tmp_path / ("c%d_%d.tif" % (lat, column)))}
             for column in range(4)
         ]
-        RINGS._fetch_approach_ring_cells(lat, 7, jobs, fake)
+        jobs = [(cell, [(cell, rung, False)]) for cell in cells]
+        RINGS._fetch_approach_ring_cells(lat, 7, jobs)
 
     tiles = [threading.Thread(target=_tile_pass, args=(lat,))
              for lat in (46, 47)]
@@ -2049,9 +2050,9 @@ def test_ensure_probes_the_footprint_before_the_plan(tmp_path, monkeypatch):
     monkeypatch.setattr(ea_footprints, "ensure_tile_footprints", _ensure)
     fetched = []
 
-    def _fetch(lat, lon, jobs, insets):
-        fetched.extend(cell["provider"] for (cell, _rung) in jobs)
-        return [(None, RuntimeError("not fetched")) for _job in jobs]
+    def _fetch(lat, lon, jobs):
+        fetched.extend(cell["provider"] for (cell, _walk) in jobs)
+        return [(None, None, None, []) for _job in jobs]
 
     monkeypatch.setattr(RINGS, "_fetch_approach_ring_cells", _fetch)
     RINGS.ensure_approach_rings(tile, _dico(KASE=_boundary(0.5, 0.5)))

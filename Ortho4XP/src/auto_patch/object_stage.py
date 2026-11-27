@@ -163,6 +163,13 @@ def _widened(mesh_sample, box, surface):
     return out
 
 
+def _sink_surface(mesh_sample, dump, bar_m: float, surface):
+    """#2293: the built mesh over the dump's sunk rows (``buried_sink.
+    sinks_box``: a stock row stands in no plan's bounds)."""
+    from auto_patch_v2.airport import buried_sink as _bs
+    return _widened(mesh_sample, _bs.sinks_box(dump, bar_m), surface)
+
+
 def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
     """The mesh the placement stage samples: the plan's witnesses and the
     runway ends of the graded surface beside the patch (RULINGS 2026-11-10i,
@@ -786,6 +793,7 @@ def _plan_half(plan_, law, mesh_sample, tile, patch_dir: str,
             # is kept (an AGL row stays AGL; a split that moves nothing is not made)
             authored_keep_tol_m=float(
                 law.tables.structures.placement.authored_keep_tol_m),
+            sink_buried_m=float(law.tables.structures.placement.sink_buried_m),
             # #1908: a free-standing column stands on its own foot
             free_column=_fcol.law_of(law.tables.structures.placement),
             # jetway-strip spec §4 (C17): the riders' population and strips
@@ -801,6 +809,9 @@ def _plan_half(plan_, law, mesh_sample, tile, patch_dir: str,
             facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             agp_surface=_agp_surface(mesh_sample, dump, target_root, _surface),
             shell_surface=_shell_surface(mesh_sample, plan_, _surface),
+            sink_surface=_sink_surface(
+                mesh_sample, dump, float(law.tables.structures.placement.sink_buried_m),
+                _surface),
             # #2090 A6: every follower lifted to its published datum
             agp_groups=(None if _gd is None else _agp_published(_gd)),
             engine_version=_engine_version(), law_digest=digest,

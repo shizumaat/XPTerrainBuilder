@@ -237,6 +237,13 @@ class Placement:
     #: seat is not split.  The owner's own figure (0.05 m); 0 disarms both.
     authored_keep_tol_m: float = 0.05
 
+    #: A SINK THAT BURIES ITS BUILDING ON EVERY SIDE (#2293;
+    #: ``airport/buried_sink``): an ``OBJECT_AGL`` building row sunk by at
+    #: least this, whose floor stands more than this under the design
+    #: surface at every outline station with the hill it was sunk for beside
+    #: it, converts and is seated on our ground.  0 disarms.
+    sink_buried_m: float = 1.0
+
     #: A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p
     #: (3), #709; ``airport/placement_leaves``): inside one placement, a
     #: LEAF ground group (no part ``chain_min_height_m`` tall) within this

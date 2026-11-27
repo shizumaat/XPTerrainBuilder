@@ -460,12 +460,21 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     oracle: dict = {}
     capture = [bool(args.oracle_write)]
+    # #2293: a buried sink is a stock row in no plan's bounds -- the mesh is
+    # read over its box too, as ``object_stage._sink_surface`` widens it
+    from auto_patch_v2.airport.buried_sink import sinks_box as _sinks_box
+    _read_bounds = plan_.bounds()
+    _sb = _sinks_box(dump, float(getattr(law.tables.structures.placement,
+                                         "sink_buried_m", 0.0) or 0.0))
+    if _sb is not None:
+        _read_bounds = (min(_read_bounds[0], _sb[0]), min(_read_bounds[1], _sb[1]),
+                        max(_read_bounds[2], _sb[2]), max(_read_bounds[3], _sb[3]))
 
     def _mesh_sampler():
         from auto_patch.mesh_sampler import OutsideMeshError
         started = time.perf_counter()
         # #2077: the tile's own mesh may be its installed .dsf too
-        sampler = _also_sampler(args.mesh, plan_.bounds())
+        sampler = _also_sampler(args.mesh, _read_bounds)
         construct = time.perf_counter() - started
         print("  MeshElevationSampler: %d retained triangles, construct %.2fs"
               % (len(sampler._triangles), construct))
@@ -643,6 +652,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
                                    "frame_tilt_max_deg", None),
         authored_keep_tol_m=getattr(law.tables.structures.placement,
                                     "authored_keep_tol_m", None),
+        sink_buried_m=getattr(law.tables.structures.placement, "sink_buried_m", None),
         # #1908, through the same dropper
         free_column=(_pp._fcol.law_of(law.tables.structures.placement)
                      if hasattr(_pp, "_fcol") else None),

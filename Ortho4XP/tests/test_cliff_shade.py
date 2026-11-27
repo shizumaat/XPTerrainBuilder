@@ -145,17 +145,27 @@ class _Tile:
         self.build_dir = build_dir
 
 
-def test_reader_takes_the_texture_mip(tmp_path):
-    os.makedirs(tmp_path / "textures")
+def test_reader_reads_the_jpeg_whatever_the_folder_holds(tmp_path,
+                                                          monkeypatch):
+    # #2308: a rebuilt folder holds the converted texture; the first build
+    # of a fresh folder does not.  Both read the same pixels: the JPEG.
     import O4_File_Names as FNAMES
-    rgb = numpy.zeros((1024, 1024, 3), numpy.uint8)
-    rgb[:, :512] = 200
-    ENC.encode_file(rgb, "bc1", str(tmp_path / "textures" /
-                                    FNAMES.dds_file_name_from_attributes(
-                                        *ATTRS)))
-    got = PHOTOS.photo_reader(_Tile(str(tmp_path)), fetch=False)(ATTRS)
-    assert got.shape == (PHOTOS.SAMPLE_PX, PHOTOS.SAMPLE_PX, 3)
-    assert abs(int(got[5, 5, 0]) - 200) <= 8 and got[5, -5, 0] <= 8
+    from PIL import Image
+    jpeg = tmp_path / "photo.jpg"
+    Image.fromarray(numpy.full((4096, 4096, 3), 90, numpy.uint8)).save(jpeg)
+    monkeypatch.setattr(PHOTOS, "_jpeg_path", lambda tile, attrs: str(jpeg))
+    fresh = PHOTOS.photo_reader(_Tile(str(tmp_path)), fetch=False)(ATTRS)
+    os.makedirs(tmp_path / "textures")
+    ENC.encode_file(numpy.full((1024, 1024, 3), 200, numpy.uint8), "bc1",
+                    str(tmp_path / "textures" /
+                        FNAMES.dds_file_name_from_attributes(*ATTRS)))
+    rebuilt = PHOTOS.photo_reader(_Tile(str(tmp_path)), fetch=False)(ATTRS)
+    assert fresh.shape == (PHOTOS.SAMPLE_PX, PHOTOS.SAMPLE_PX, 3)
+    assert numpy.array_equal(fresh, rebuilt)
+    monkeypatch.setattr(PHOTOS, "_jpeg_path",
+                        lambda tile, attrs: str(tmp_path / "absent.jpg"))
+    assert PHOTOS.photo_reader(_Tile(str(tmp_path)), fetch=False)(ATTRS) \
+        is None
 
 
 def test_reader_falls_back_to_the_jpeg_and_never_fetches_when_told(

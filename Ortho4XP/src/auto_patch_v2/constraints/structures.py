@@ -83,7 +83,7 @@ from .survey_floor import cap_line, survey_floor_pins
 from ..model.planar import Face, PlanarMap
 from ..model.platform import stage_air_vertices
 from ..model.structures import (SKIRT_ROLE, UNDERPASS_NOTE, Basin, Tunnel, deck_floor_z,
-                                profile_z)
+                                is_deck_apron_ref, profile_z)
 from .airside_top import TOP_FLUSH, top_seat, top_seats
 from .entrance_skirt import skirt_pins
 from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
@@ -303,10 +303,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 
     def shared_with_ground(v: int) -> bool:
         """A governed face other than the structure's own touches ``v``
-        (a terrain deck is road ground, 08-30m)."""
+        (a terrain deck is road ground, 08-30m) -- or a pack deck's apron
+        (#2239 R4, ``planar/deck_apron``): the ground the deck's end meets
+        carries a wall stub's rim it shares (MEASURED CYYZ T: a stub rim
+        vertex DEM-pinned 163.27 m inside the apron at 167.2-167.7)."""
         for fid in vw.vertex_faces[v]:
             f = planar.faces[fid]
-            if f.role not in structure_roles and vw.caps[fid] is not None:
+            if f.role not in structure_roles and (vw.caps[fid] is not None
+                                                  or is_deck_apron_ref(f.ref)):
                 return True
         return False
 

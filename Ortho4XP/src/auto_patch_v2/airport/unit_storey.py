@@ -419,6 +419,23 @@ class UnitLevels:
         return 0.0 if self.land_y is None else float(self.land_y) - float(self.air_y)
 
 
+#: the units' plans, held by the partition they were read from and dropped
+#: with it (``model/map_memo.per_map``; #2206)
+_PLANS: dict = {}
+
+
+def _plans_of(part, frame, to_xy):
+    """:func:`_unit_plans` once per partition and frame (#2206: the main pass,
+    stage 1 and the late map read the same plans, each in full); the frame
+    is checked by identity, the plans are read-only."""
+    from ..model.map_memo import per_map
+    held = per_map(_PLANS, part)
+    got = held.get("plans")
+    if got is None or got[0] is not frame:
+        got = held["plans"] = (frame, _unit_plans(part, to_xy))
+    return got[1]
+
+
 def _unit_plans(part, to_xy):
     from .frontage_face import UnitPlans
     solid, lines, boxes = [], [], []
@@ -760,7 +777,7 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     near, to_xy, dem = _near(air, near_m), frame.entry(), getattr(airport, "dem", None)
     from .airside_floor import airside_union
     credible, apt = None, airside_union(airport)
-    plans = _unit_plans(part, to_xy)
+    plans = _plans_of(part, frame, to_xy)
     out: list[UnitLevels] = []
     for ui, u in enumerate(part.units):
         t0 = _plan_floor(plans.solid[ui], near)

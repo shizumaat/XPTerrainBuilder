@@ -24,6 +24,8 @@ from __future__ import annotations
 import shapely
 from shapely.geometry import Polygon
 
+from .item_memo import ItemMemo
+
 import numpy as np
 
 __all__ = ["inscribed_width_m", "typical_width_m", "road_proportioned"]
@@ -44,10 +46,21 @@ def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
     calls 42 (RULINGS 2026-09-14g item 4 — "use the INSCRIBED circle")."""
     if poly is None or poly.is_empty or poly.area <= 0.0:
         return 0.0
+    # #2206: one answer per shape across the build's prefix runs (a face the
+    # late map shares with the main pass is the same WKB)
+    return _WIDTHS.get((shapely.to_wkb(poly), float(tol)),
+                       lambda: _inscribed_width(poly, tol))
+
+
+def _inscribed_width(poly: Polygon, tol: float) -> float:
     try:
         return 2.0 * float(shapely.maximum_inscribed_circle(poly, tol).length)
     except Exception:                                      # pragma: no cover
         return 0.0
+
+
+#: the widths answered, by the shape's WKB (``geom/item_memo``)
+_WIDTHS = ItemMemo("proportions.inscribed_width_m")
 
 
 def typical_width_m(poly: Polygon) -> float:

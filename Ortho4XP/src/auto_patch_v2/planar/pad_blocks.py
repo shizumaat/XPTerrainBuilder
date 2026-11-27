@@ -82,6 +82,8 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split as _split, unary_union
 
+from ..airport.dem import dem_z_or_nan
+
 __all__ = ["Block", "BlockPlan", "plan_blocks", "reach", "band", "arc_distance",
            "bisect_blocks", "hold_mask", "bay_m", "BLOCK_PLANS"]
 
@@ -533,13 +535,6 @@ def _sample_ring(ring, step: float) -> list[tuple[float, float]]:
     return [ring.interpolate(i * ring.length / n).coords[0] for i in range(n)]
 
 
-def _dem(dem, x: float, y: float) -> float:
-    try:
-        return float(dem.z(x, y))
-    except Exception:  # noqa: BLE001 — off the raster: no witness
-        return float("nan")
-
-
 def bay_m(law) -> float:
     """The smallest block's frontage: one jetway BAY — the apron strip a
     gate holds level with the terminal, ``emit.design.jetway_strip_m`` (the
@@ -618,7 +613,7 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     S = np.asarray([i * step for i in keep], dtype=float)
     if C.shape[0] < 3:
         return None
-    Cz = np.asarray([_dem(dem, x, y) for x, y in C])
+    Cz = np.asarray([dem_z_or_nan(dem, x, y) for x, y in C])
     ok = np.isfinite(Cz)
     C, Cz, S = C[ok], Cz[ok], S[ok]
     if C.shape[0] < 3:
@@ -632,7 +627,7 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
                 if tx is not None and tx.distance(Point(xy)) <= _Q_TOUCH_M:
                     Qs.append(xy)
     Q = np.asarray(Qs, dtype=float).reshape(-1, 2)
-    Tq = np.asarray([_dem(dem, x, y) for x, y in Q])
+    Tq = np.asarray([dem_z_or_nan(dem, x, y) for x, y in Q])
     okq = np.isfinite(Tq)
     Q, Tq = Q[okq], Tq[okq]
     tau = np.full(Q.shape[0], -margin)
@@ -644,7 +639,7 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
             if s <= 0.0:
                 continue
             pp = nearest_points(pin_u, pt)[0]
-            u = abs(Tq[i] - _dem(dem, pp.x, pp.y))
+            u = abs(Tq[i] - dem_z_or_nan(dem, pp.x, pp.y))
             if u != u:
                 u = 0.0
             tau[i] = max(0.0, t * s - u) - margin

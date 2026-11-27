@@ -12,9 +12,7 @@ from __future__ import annotations
 import random
 
 import pytest
-
 from auto_patch_v2.constraints.stretches import AxisIndex
-
 from test_perf412a import _axes
 
 

@@ -26,7 +26,7 @@ import numpy as np
 
 from ..model.frame import Frame
 
-__all__ = ["dem_z_at", "dem_z_many", "HgtRaster", "GeoTiffRaster", "DemSampler", "resolve_dem_files",
+__all__ = ["dem_z_at", "dem_z_many", "dem_z_or_nan", "HgtRaster", "GeoTiffRaster", "DemSampler", "resolve_dem_files",
            "hgt_name", "load_dem"]
 
 _LAT_SCALE = 111320.0
@@ -291,6 +291,15 @@ def load_dem(frame: Frame, elevation_root: str, icao: str,
 def dem_z_at(airport, p) -> float:
     """The DEM altitude at frame point p — airport.dem.z as a float."""
     return float(airport.dem.z(p[0], p[1]))
+
+
+def dem_z_or_nan(dem, x: float, y: float) -> float:
+    """``dem.z`` at one frame point as a float, NaN where the read raises
+    (off the raster: no witness)."""
+    try:
+        return float(dem.z(x, y))
+    except Exception:  # noqa: BLE001 -- off the raster
+        return float("nan")
 
 
 def dem_z_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:

@@ -45,6 +45,8 @@ import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from .dem import dem_z_or_nan
+
 __all__ = ["FAR", "HELD", "PLINTH_COVER", "SINGLE", "UNCONFIRMED", "Level", "Storey",
            "UnitLevels", "carried_by", "dem_samples", "frontage_held", "part_footprint",
            "unit_floor",
@@ -113,7 +115,7 @@ def dem_samples(dem, g, step: float = 2.0) -> list:
     try:
         zs = np.asarray(many(px, py), dtype=float).ravel().tolist()
     except Exception:  # noqa: BLE001 -- no array read: point by point
-        zs = [_z_or_nan(dem, x, y) for x, y in zip(px.tolist(), py.tolist(), strict=True)]
+        zs = [dem_z_or_nan(dem, x, y) for x, y in zip(px.tolist(), py.tolist(), strict=True)]
     return [z for z in zs if z == z]
 
 
@@ -124,13 +126,6 @@ def _steps(a: float, b: float, h: float) -> list:
         out.append(a)
         a += h
     return out
-
-
-def _z_or_nan(dem, x: float, y: float) -> float:
-    try:
-        return float(dem.z(x, y))
-    except Exception:  # noqa: BLE001 -- off the raster
-        return float("nan")
 
 
 def part_footprint(p, to_xy) -> "Polygon | None":
@@ -151,9 +146,8 @@ def unit_floor(parts, near, to_xy) -> "float | None":
     """THE AIRSIDE FLOOR of a unit (module docstring): the base most of its
     GROUNDED ``parts`` whose footprint meets ``near`` stand at (the lowest
     of a tie), or ``None`` where no grounded part meets it."""
-    ys = [p.base_y for p in parts if getattr(p, "feet", ())
-          and (g := part_footprint(p, to_xy)) is not None and _meets(near, g)]
-    return float(min(_st.multimode(round(y) for y in ys))) if ys else None
+    return _plan_floor([(p, g) for p in parts if getattr(p, "feet", ())
+                        and (g := part_footprint(p, to_xy)) is not None], near)
 
 
 def _plan_floor(pg, near) -> "float | None":

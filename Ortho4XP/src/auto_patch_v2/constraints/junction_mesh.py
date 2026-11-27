@@ -76,7 +76,7 @@ from .taxi import (BOX_RULING, GEN as TAXI_GEN, PricedPair, axis_index,
 __all__ = ["junction_mesh", "face_triangles", "face_mesh_edges",
            "mesh_edge_caps", "triangle_caps", "triangle_boxes", "mesh_edges_ll",
            "junction_roles", "crossing_lines", "crossing_axes", "stretch_axes",
-           "nearest_axis", "nearest_axis_all"]
+           "nearest_axis"]
 
 GEN = "junction_mesh"
 XY = tuple[float, float]
@@ -214,7 +214,7 @@ def nearest_axis(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
     return best[3], best[1], best[2]
 
 
-#: :func:`nearest_axis_all`'s arrays, built once per axes object (a
+#: :func:`_nearest_axis_all`'s arrays, built once per axes object (a
 #: single slot; the object is held, so its ``id`` cannot be reused)
 _ALL_AXES: dict[str, _t.Any] = {"axes": None, "arrays": None}
 
@@ -249,7 +249,7 @@ def _axes_arrays(axes: _t.Sequence[Axis]) -> tuple | None:
     return got
 
 
-def nearest_axis_all(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
+def _nearest_axis_all(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
                      ) -> tuple[tuple[float, float], float, float] | None:
     """:func:`nearest_axis` over a LARGE population (the map's stretches,
     the fallback of a face no stretch crosses), the same answer bit for
@@ -282,10 +282,10 @@ def nearest_axis_all(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
 
 
 def _nearest_held(memo: dict | None, p: XY, axes: _t.Sequence[Axis], whole: bool = False):
-    """:func:`nearest_axis` of ``p`` over ``axes`` (:func:`nearest_axis_all`
+    """:func:`nearest_axis` of ``p`` over ``axes`` (:func:`_nearest_axis_all`
     with ``whole``), read from ``memo`` (the answers for THESE axes'
     content, by point) when it holds one."""
-    near = nearest_axis_all if whole else nearest_axis
+    near = _nearest_axis_all if whole else nearest_axis
     if memo is None:
         return near(p, axes)
     got = memo.get(p, False)

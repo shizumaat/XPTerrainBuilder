@@ -1,6 +1,6 @@
 """#2206 lane lvec -- three hot scans read at once, bit for bit.
 
-* ``junction_mesh.nearest_axis_all`` == ``nearest_axis`` (the per-chain
+* ``junction_mesh._nearest_axis_all`` == ``nearest_axis`` (the per-chain
   ``project_to_chain`` walk), ties, duplicates, degenerate segments and
   one-point chains included;
 * ``anchor_rule.first_pads_holding`` == the per-point first-box-then-ray
@@ -19,7 +19,7 @@ import pytest
 from auto_patch_v2.airport import anchor_rule as _ar
 from auto_patch_v2.airport.placement_family import pad_plurality
 from auto_patch_v2.airport.unit_storey import dem_samples
-from auto_patch_v2.constraints.junction_mesh import nearest_axis, nearest_axis_all
+from auto_patch_v2.constraints.junction_mesh import _nearest_axis_all, nearest_axis
 from shapely.geometry import Point, Polygon
 from test_perf412a import _axes
 
@@ -44,7 +44,7 @@ def test_the_whole_population_scan_is_nearest_axis(tie):
         pts += [q for a, _c, _t in axes for q in a]                # every vertex: ties
         pts += [(rng.uniform(-1500, 2500), rng.uniform(-1500, 2500)) for _ in range(400)]
         for p in pts:
-            assert nearest_axis_all(p, axes, tie) == nearest_axis(p, axes, tie)
+            assert _nearest_axis_all(p, axes, tie) == nearest_axis(p, axes, tie)
 
 
 def test_parallel_tie_chains():
@@ -55,14 +55,14 @@ def test_parallel_tie_chains():
         axes = [([(-1.0, r), (0.0, r), (1.0, r)], rng.choice((0.03, 0.02, 0.01)), 0.02)
                 for r in rs]
         tie = rng.choice((0.5, 0.45, 0.41, 1e-6))
-        assert nearest_axis_all((0.0, 0.0), axes, tie) == nearest_axis((0.0, 0.0), axes, tie)
+        assert _nearest_axis_all((0.0, 0.0), axes, tie) == nearest_axis((0.0, 0.0), axes, tie)
 
 
 def test_no_usable_axis_reads_none():
-    assert nearest_axis_all((0.0, 0.0), []) is None
-    assert nearest_axis_all((0.0, 0.0), [([(1.0, 1.0)], 0.1, 0.1)]) is None
+    assert _nearest_axis_all((0.0, 0.0), []) is None
+    assert _nearest_axis_all((0.0, 0.0), [([(1.0, 1.0)], 0.1, 0.1)]) is None
     axes = [([(1.0, 1.0), (1.0, 1.0)], 0.1, 0.1)]
-    assert nearest_axis_all((0.0, 0.0), axes) == nearest_axis((0.0, 0.0), axes)
+    assert _nearest_axis_all((0.0, 0.0), axes) == nearest_axis((0.0, 0.0), axes)
 
 
 # ---------------------------------------------------------------- (b) pads

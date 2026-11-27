@@ -61,7 +61,7 @@ def _depth_along(planar, e, edge) -> _t.Callable[[tuple[float, float]], float]:
     ds = [d for _q, d in pts]
     n = len(ss)
     ms, md = sum(ss) / n, sum(ds) / n
-    var = sum((s - ms) ** 2 for s in ss)
+    var = sum((s - ms) * (s - ms) for s in ss)
     slope = 0.0 if var <= 1e-12 else sum((s - ms) * (d - md)
                                          for s, d in zip(ss, ds, strict=True)) / var
     return lambda p: md + slope * (ln.project(Point(p)) - ms)

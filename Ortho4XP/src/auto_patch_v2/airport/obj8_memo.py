@@ -15,40 +15,18 @@ files.
 """
 from __future__ import annotations
 
-import contextlib
-import functools
 import os
 import typing as _t
 
+from ..geom.scoped_memo import ScopedMemo
+
 __all__ = ["scoped", "parse", "components", "per_file"]
 
-#: the open scope's memo, or ``None`` (no scope: every call parses)
-_MEMO: "dict[tuple, _t.Any] | None" = None
-
-
-@contextlib.contextmanager
-def _scope() -> _t.Iterator[None]:
-    """Memoise :func:`parse` until the block exits (nested scopes share
-    the outer one's memo)."""
-    global _MEMO
-    if _MEMO is not None:
-        yield
-        return
-    _MEMO = {}
-    try:
-        yield
-    finally:
-        _MEMO = None
-
-
-def scoped(fn: _t.Callable) -> _t.Callable:
-    """``fn`` run inside :func:`_scope` (its signature kept: ``inspect``
-    reads the wrapped one)."""
-    @functools.wraps(fn)
-    def run(*args: _t.Any, **kwargs: _t.Any) -> _t.Any:
-        with _scope():
-            return fn(*args, **kwargs)
-    return run
+#: the open scope's memo (``memo``; ``None`` outside a scope: every call
+#: computes), shared helper ``geom/scoped_memo``
+_SCOPE = ScopedMemo()
+_scope = _SCOPE.scope
+scoped = _SCOPE.scoped
 
 
 def parse(path: str) -> _t.Any:
@@ -64,7 +42,7 @@ def components(geom: _t.Any) -> list:
     scope (the geometry is held with its components, so its id is never
     reused while remembered)."""
     from .obj8 import solid_components
-    memo = _MEMO
+    memo = _SCOPE.memo
     if memo is None:
         return solid_components(geom)
     key = ("components", id(geom))
@@ -79,7 +57,7 @@ def per_file(path: str, kind: str, read: _t.Callable[[str], _t.Any]) -> _t.Any:
     the version is ``(absolute path, mtime_ns, size)``.  The caller owns
     the answer's immutability: a reader whose result is mutated later
     copies it (``obj8_split._read``)."""
-    memo = _MEMO
+    memo = _SCOPE.memo
     if memo is None:
         return read(path)
     st = os.stat(path)

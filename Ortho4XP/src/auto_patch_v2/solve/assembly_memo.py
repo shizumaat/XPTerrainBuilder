@@ -30,45 +30,24 @@ memo dies with the scope; nothing outlives the solve.
 """
 from __future__ import annotations
 
-import contextlib
-import functools
 import typing as _t
+
+from ..geom.scoped_memo import ScopedMemo
 
 __all__ = ["scoped", "sheet_geometry"]
 
-#: the open scope's memo: kind -> ``(inputs, extra, answer)``, its one slot;
-#: ``None`` outside a scope (every call computes)
-_MEMO: "dict[str, tuple[tuple, _t.Any, _t.Any] | None] | None" = None
-
-
-@contextlib.contextmanager
-def _scope() -> _t.Iterator[None]:
-    """Memoise until the block exits (a nested scope shares the outer one)."""
-    global _MEMO
-    if _MEMO is not None:
-        yield
-        return
-    _MEMO = {}
-    try:
-        yield
-    finally:
-        _MEMO = None
-
-
-def scoped(fn: _t.Callable) -> _t.Callable:
-    """``fn`` run inside :func:`_scope` (signature kept for ``inspect``)."""
-    @functools.wraps(fn)
-    def run(*args: _t.Any, **kwargs: _t.Any) -> _t.Any:
-        with _scope():
-            return fn(*args, **kwargs)
-    return run
+#: the open scope's memo (``memo``; ``None`` outside a scope: every call
+#: computes), shared helper ``geom/scoped_memo``
+_SCOPE = ScopedMemo()
+_scope = _SCOPE.scope
+scoped = _SCOPE.scoped
 
 
 def _held(kind: str, objs: tuple, extra: _t.Hashable,
           compute: _t.Callable[[], _t.Any]) -> _t.Any:
     """``compute()`` -- or the answer held in ``kind``'s one slot when it
     was computed from the same ``objs`` (by identity) and ``extra``."""
-    memo = _MEMO
+    memo = _SCOPE.memo
     if memo is None:
         return compute()
     hit = memo.get(kind)

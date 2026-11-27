@@ -3949,3 +3949,8 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(
             "airport airport.frame_entry airport.pool airport.pool_memory airport.pool_slots "
             "constraints.route_work model.pulse")}))
+# #2206 lane lcover: the two scoped module memos share geom/scoped_memo
+# (read by airport/obj8_memo and solve/assembly_memo)
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if {"auto_patch_v2.airport.obj8_memo", "auto_patch_v2.solve.assembly_memo"} & set(_mods_of):
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.scoped_memo")}))

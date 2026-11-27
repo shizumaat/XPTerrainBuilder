@@ -111,6 +111,21 @@ def _placed(o, geom, law):
 _LOCAL: dict[int, dict] = {}
 
 
+def _held(g) -> dict:
+    """``g``'s entry of :data:`_LOCAL`, dropped with the geometry."""
+    memo = _LOCAL.get(id(g))
+    if memo is None:
+        memo = _LOCAL[id(g)] = {}
+        weakref.finalize(g, _LOCAL.pop, id(g), None)
+    return memo
+
+
+def _local(memo: dict, key: tuple, local: _t.Callable[[], _t.Any]):
+    if key not in memo:
+        memo[key] = local()
+    return memo[key]
+
+
 def held_plan(o, g, law, key: tuple, local: _t.Callable[[], _t.Any]):
     """``o``'s plan read off its parsed geometry ``g``: ``local()`` -- a
     reading of the resource alone, in its AUTHORED frame, named by ``key``
@@ -119,13 +134,8 @@ def held_plan(o, g, law, key: tuple, local: _t.Callable[[], _t.Any]):
     resource, every deck asking and every prefix run of the build read
     the union once, and each placement places it once); the answers are
     the ones computed, so a caller never mutates them."""
-    memo = _LOCAL.get(id(g))
-    if memo is None:
-        memo = _LOCAL[id(g)] = {}
-        weakref.finalize(g, _LOCAL.pop, id(g), None)
-    if key not in memo:
-        memo[key] = local()
-    got = memo[key]
+    memo = _held(g)
+    got = _local(memo, key, local)
     if got is None:
         return None
     at = (key, tuple(o.xy), float(o.heading_deg), _fe.quantum(law))
@@ -134,22 +144,30 @@ def held_plan(o, g, law, key: tuple, local: _t.Callable[[], _t.Any]):
     return memo[at]
 
 
-def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
+def _cover_plan(o, g, law, depth: float, floor: "float | None" = None, region=None):
     """The frame plan of ``o``'s up-facing faces within ``depth`` of its
     ground (solid -- neither animated nor drawn under the terrain -- and
     draped), or ``None``.  With ``floor``: only its SOLID up-facing faces
     standing at least ``floor`` over its ground (an elevated top: a deck,
-    an overpass, a roof -- never a draped face).
+    an overpass, a roof -- never a draped face).  With ``region``: ``None``
+    also when no such face of ``o`` comes near it (:func:`_faces_near`), a
+    plan that could not meet it, never read.
 
     The union is read in the AUTHORED frame, a reading of the resource
     alone, so it is held per geometry (:func:`held_plan`)."""
     ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
-    key = ("cover", float(depth), None if floor is None else float(floor), ny_min)
-    return held_plan(o, g, law, key, lambda: _local_cover(g, depth, floor, ny_min))
+    fl = None if floor is None else float(floor)
+    tris = _local(_held(g), ("cover faces", float(depth), fl, ny_min),
+                  lambda: _cover_faces(g, depth, floor, ny_min))
+    if tris is None or (region is not None and not _faces_near(o, tris, region, law)):
+        return None
+    return held_plan(o, g, law, ("cover", float(depth), fl, ny_min),
+                     lambda: _local_cover(tris))
 
 
-def _local_cover(g, depth: float, floor: "float | None", ny_min: float):
-    """:func:`_cover_plan`'s union in ``g``'s authored frame, or ``None``."""
+def _cover_faces(g, depth: float, floor: "float | None", ny_min: float):
+    """:func:`_cover_plan`'s faces in ``g``'s authored plan, ``(n, 3, 2)``
+    ``(x, z)``, or ``None``."""
     v = g.vertices
     parts = [t for t in (_static_solid(g, g.animated, getattr(g, "under_terrain", _NONE)),
                          g.draped if floor is None else _NONE_TRIS) if t.shape[0]]
@@ -158,11 +176,35 @@ def _local_cover(g, depth: float, floor: "float | None", ny_min: float):
     tris = np.concatenate(parts)
     low = -depth if floor is None else float(floor)
     up = (_face_normals_y(v, tris) >= ny_min) & (v[tris][:, :, 1].min(axis=1) >= low)
-    if not up.any():
-        return None
-    polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
-             if p.is_valid and p.area > 1e-6]
+    return v[tris[up]][:, :, [0, 2]] if up.any() else None
+
+
+def _local_cover(tris: np.ndarray):
+    """The union of :func:`_cover_faces` in the authored frame, or ``None``."""
+    polys = shapely.polygons(tris)
+    polys = polys[shapely.is_valid(polys) & (shapely.area(polys) > 1e-6)].tolist()
     return _fe.union(polys, "deck_pack_cover.cover") if polys else None
+
+
+def _faces_near(o, tris: np.ndarray, region, law) -> bool:
+    """May ``o``'s placed union of ``tris`` meet ``region``?  ``False`` only
+    when no face, placed, comes within a margin of it -- a margin past
+    what the frame entry's snap to the quantum can move the union's
+    boundary (#2206: KATL read 92 resources' tops, 1.3 M faces, for decks
+    most of them stand nowhere near)."""
+    a, b, d, e, xoff, yoff = _obj8.placement_affine(o.xy, o.heading_deg)
+    xs = a * tris[:, :, 0] + b * tris[:, :, 1] + xoff
+    ys = d * tris[:, :, 0] + e * tris[:, :, 1] + yoff
+    m = 0.01 + 4.0 * _fe.quantum(law)
+    lo_x, hi_x, lo_y, hi_y = xs.min(axis=1), xs.max(axis=1), ys.min(axis=1), ys.max(axis=1)
+    box = shapely.bounds(shapely.get_parts(region))
+    near = np.zeros(tris.shape[0], dtype=bool)
+    for x0, y0, x1, y1 in box.tolist():
+        near |= (lo_x <= x1 + m) & (hi_x >= x0 - m) & (lo_y <= y1 + m) & (hi_y >= y0 - m)
+    if not near.any():
+        return False
+    placed = shapely.polygons(np.stack([xs[near], ys[near]], axis=-1))
+    return bool(shapely.dwithin(placed, region, m).any())
 
 
 def _structure_plan(o, g, law, depth: float):
@@ -211,10 +253,12 @@ def pack_decks_near(objects: _t.Sequence, cache, law, region,
             plan = _placed(o, hull.convex_hull, law)
             if plan is not None and not plan.is_empty and plan.intersects(region):
                 out.append(_PackDeck(str(o.id), str(o.path), "under", plan, tuple(o.xy), True))
-        reads = [("cover", _cover_plan), ("structure", _structure_plan)]
+        reads = [("cover", lambda o_, g_, law_, d_: _cover_plan(o_, g_, law_, d_,
+                                                                 region=region)),
+                 ("structure", _structure_plan)]
         if over_m is not None:
             reads.append(("over", lambda o_, g_, law_, d_: _cover_plan(o_, g_, law_, d_,
-                                                                       over_m)))
+                                                                       over_m, region)))
         for kind, read in reads:
             plan = read(o, g, law, depth)
             if plan is not None and not plan.is_empty and plan.intersects(region):

@@ -36,7 +36,7 @@ __all__ = ["past_the_wall"]
 
 def past_the_wall(groups: _t.Mapping[str, list], done: dict, storey_lots: _t.Sequence,
                   floor, airport, law, grid: float, reg, up_kind: str,
-                  air_of: _t.Callable) -> set[str]:
+                  air_of: _t.Callable, others_of: _t.Callable) -> set[str]:
     """Mint every held pad of ``groups`` past ``floor`` as its main
     block's upper landing (module docstring); returns the pads taken
     (their regions go to ``done``).  ``air_of(P)`` -- the airside about a
@@ -45,7 +45,9 @@ def past_the_wall(groups: _t.Mapping[str, list], done: dict, storey_lots: _t.Seq
     at 47.6 m) -- a riser only, never ``plan_up``'s frontage room: a 4 m
     remnant of the pad at the airside level held the corridor lot beside it
     there (48.1 m, the lot welded to the remnant's rim, 3 m past the kerb's
-    reach)."""
+    reach).  ``others_of(ref, P)`` -- the other pads beside it: a riser
+    off them too (MEASURED PHLI: ``building15/p1`` shared vertices with
+    ``building11``, the main block, whose flat rows held it at 47.3 m)."""
     if floor is None or floor.is_empty or airport is None or not storey_lots:
         return set()
     from .low_level import unit_share
@@ -75,14 +77,19 @@ def past_the_wall(groups: _t.Mapping[str, list], done: dict, storey_lots: _t.Seq
             continue
         block = min(main)[1]
         U = P.difference(air_of(P).buffer(w, join_style=2))
+        others = others_of(ref, P)
+        if others is not None and not others.is_empty:
+            U = U.difference(others.buffer(w, join_style=2))
         if U.is_empty:
             continue
-        S = P.intersection(U.buffer(w, join_style=2)).difference(U)
-        H = P.difference(U.buffer(w, join_style=2))
+        # what the riser leaves is the riser: no remnant of the pad stays at
+        # its own airside seat for the lot beside it to front (MEASURED PHLI:
+        # a 1 m remnant of ``building15`` held the corridor lot and the
+        # landing at 47.2 m through its §28 frontage row)
+        S = P.difference(U)
         up = plane_ref(ref, 1)
         tmpl = groups[ref][0]
-        done[ref] = ([_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
-                     + [_dc.replace(tmpl, ref=up, polygon=q) for q in nonempty_polygon_parts(U)]
+        done[ref] = ([_dc.replace(tmpl, ref=up, polygon=q) for q in nonempty_polygon_parts(U)]
                      + [_dc.replace(tmpl, ref=up + STRIP_SUFFIX, polygon=q)
                         for q in nonempty_polygon_parts(S)])
         reg.landings[up] = {"block": block, "deck": None, "kind": up_kind,

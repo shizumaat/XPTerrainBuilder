@@ -265,9 +265,23 @@ def kerb_wall_exempt(rows: list[Row], planar: PlanarMap, law: Law
     ramp row (``constraints/road_ramp``: the road's target and ceiling off
     its DEM) all of whose vertices are kerb vertices — the kerb row is
     that vertex's level, the run-out's precedent
-    (``ramp_runout.runout_exempt``); and the count withdrawn."""
+    (``ramp_runout.runout_exempt``); and the count withdrawn.
+
+    THE FRONTAGE LEVEL'S WALL (RULINGS 2026-11-26c, lane lfront3): a
+    pairwise row (a ``Diff``) spanning a vertex of the frontage block's
+    LEVEL (its landing at the record's rise, ``frontage_ramp.
+    _landing_vertices``) and a wall vertex off it is withdrawn too -- the
+    level stands at ``z_D + rise`` by its landing rows, and a lot face
+    wrapping the riser (MEASURED PHLI: ``pav63`` from ``building15/p1``
+    round the strip to ``building11``) or a pad's flat rows to the block
+    may not tie it to the floor a storey off.  Linear rows (the landing's
+    own plane rows to the datum) stay."""
+    from ..model.constraints import Diff
+    from .frontage_ramp import _landing_vertices
     from .road_ramp import GEN as _ROAD_RAMP
     kerb, wall = kerb_vertices(planar, law)
+    land = set(_landing_vertices(planar)) if kerb else set()
+    off = wall - land
     if not kerb:
         return rows, 0
     keep: list[Row] = []
@@ -277,7 +291,9 @@ def kerb_wall_exempt(rows: list[Row], planar: PlanarMap, law: Law
             vs = _row_vertices(r)
             on = [v in kerb for v in vs]
             if (any(on) and any(v in wall for v in vs)) or (
-                    r.source.generator == _ROAD_RAMP and vs and all(on)):
+                    r.source.generator == _ROAD_RAMP and vs and all(on)) or (
+                    isinstance(r, Diff) and any(v in land for v in vs)
+                    and any(v in off for v in vs)):
                 n += 1
                 continue
         keep.append(r)

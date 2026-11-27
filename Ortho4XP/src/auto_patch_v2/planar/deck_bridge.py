@@ -332,6 +332,7 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
     off ``objects``."""
     if not objects or cache is None or classification is None or not classification.cells:
         return (), []
+    from .deck_under import passes_under
     if ground is None and getattr(airport, "dem", None) is not None:
         from ..airport.below_grade_witness import ground_of
         ground = ground_of(airport, objects, cache, law)
@@ -372,6 +373,13 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
                              _routes_across(airport, piece) if len(pairs) > 1 else ())
             if pair is None:
                 notes.append(f"{where}: no pavement runs across it (RULINGS 2026-10-27c)")
+                continue
+            if not walled and not passes_under(piece, airport):
+                # owner 2026-11-27 (PHLI front kerb): a deck nothing passes
+                # under is no bridge -- seated at grade, one level
+                # (``planar/deck_under``)
+                notes.append(f"{where}: nothing passes under it (no mapped way crosses "
+                             f"it, no trench object) -- seated at grade, one level")
                 continue
             if _beside_a_building(frame, piece, roles):
                 notes.append(f"{where}: a building stands beside it in its frame (22n)")

@@ -187,6 +187,7 @@ def road_overpasses(objects, cache, classification, airport, law, decks=(),
     ``cut_objects`` the placement ids of every pack object cut, ``free`` the
     free bridges' deck ids (``planar/free_bridge``, #2065 S4): all taken."""
     from .deck_bridge import CellRoles, _beside_a_building, _frames
+    from .deck_under import passes_under
     if not objects or cache is None or classification is None:
         return (), []
     br = law.tables.structures.bridge
@@ -216,6 +217,12 @@ def road_overpasses(objects, cache, classification, airport, law, decks=(),
                 continue
             if _beside_a_building(frame, piece, roles):
                 notes.append(f"{name}: a building stands beside it in its frame (22n)")
+                continue
+            if not passes_under(piece, airport):
+                # owner 2026-11-27 (PHLI front kerb): the ways only clip it --
+                # nothing passes under (``planar/deck_under``)
+                notes.append(f"{name}: no road overpass -- way(s) {list(ids)} only clip it, "
+                             f"nothing passes under it")
                 continue
             out.append(_Overpass(str(d.id), str(d.path), tuple(piece.exterior.coords[:-1]),
                                 st, ids, float(top)))

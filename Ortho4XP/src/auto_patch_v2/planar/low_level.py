@@ -947,7 +947,10 @@ def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
     from .past_wall import past_the_wall
     past = past_the_wall(groups, done, storey_lots, floor, airport, law, grid, reg, UP_KIND,
                          lambda P: unary_union([air_polys[int(j)] for j in tree.query(
-                             P.buffer(50.0), predicate="intersects")]))
+                             P.buffer(50.0), predicate="intersects")]),
+                         lambda ref, P: unary_union(
+                             [r.polygon for r in out if str(r.ref) != ref and r.polygon is not None
+                              and r.polygon.intersects(P.buffer(1.0))]))
     for ref, regs in sorted(groups.items()):
         if ref in past:
             continue

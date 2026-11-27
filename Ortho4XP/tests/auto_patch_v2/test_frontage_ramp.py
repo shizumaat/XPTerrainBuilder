@@ -235,8 +235,23 @@ def test_a_pad_wholly_past_the_wall_is_the_upper_level(monkeypatch):
     done: dict = {}
     air = box(0.0, -50.0, 100.0, 0.0)
     got = past_the_wall(groups, done, [(lot, 4.1)], floor, ap, LAW, 0.25, reg, "up",
-                        lambda P: air)
+                        lambda P: air, lambda ref, P: None)
     assert got == {"canopy"}
     assert [r.ref for r in done["canopy"]] == ["canopy/p1"]
     assert done["canopy"][0].polygon.area == pytest.approx(400.0)
     assert reg.landings["canopy/p1"]["block"] == "main" and reg.landings["canopy/p1"]["y"] == 4.1
+
+
+def test_a_hard_deck_needs_something_passing_under_it():
+    """Owner 2026-11-27 (PHLI front kerb): a deck piece is a bridge only
+    where a mapped way crosses under it -- a run of at least half its narrow
+    width; a way clipping its corner, or none, is no witness."""
+    from auto_patch_v2.planar.deck_under import passes_under
+    piece = box(0.0, 0.0, 40.0, 100.0)                  # narrow width 40 m
+    across = NS(id=1, tags={"highway": "primary"}, points=[(-10.0, 50.0), (50.0, 50.0)])
+    corner = NS(id=2, tags={"highway": "service"}, points=[(-5.0, 3.0), (3.0, -5.0)])
+    river = NS(id=3, tags={"waterway": "stream"}, points=[(20.0, -10.0), (20.0, 110.0)])
+    apron = NS(id=4, tags={"aeroway": "taxiway"}, points=[(-10.0, 60.0), (50.0, 60.0)])
+    assert passes_under(piece, NS(osm_ways=[across, corner])) == [(1, 40.0)]
+    assert passes_under(piece, NS(osm_ways=[river])) == [(3, 100.0)]
+    assert passes_under(piece, NS(osm_ways=[corner, apron])) == []

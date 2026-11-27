@@ -61,6 +61,8 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+import numpy as np
+
 from ..model.placement import TOL_DEG as _TOL_DEG
 from .cut_portal_seat import CUT_BRIDGE_PLATE, PORTAL_PLATE
 from .hung_wall_seat import WALL_TOP_PLATE
@@ -416,7 +418,50 @@ def _pad_boxes(pads: _t.Sequence[PadRing], slot: "dict[str, _t.Any] | None" = No
              for p in pads if len(p.ring) >= 3]
     slot["pads"] = pads
     slot["boxes"] = boxes
+    slot.pop("arrays", None)
     return boxes
+
+
+def _box_arrays(pads: _t.Sequence[PadRing], slot: "dict[str, _t.Any] | None"):
+    """:func:`_pad_boxes` of ``pads`` as four float arrays (``lat_min,
+    lon_min, lat_max, lon_max``), held in the same slot."""
+    boxes = _pad_boxes(pads, slot)
+    slot = _PAD_BOXES if slot is None else slot
+    got = slot.get("arrays")
+    if got is None:
+        cols = np.array([b[1:] for b in boxes], dtype=float).reshape(-1, 4)
+        got = slot["arrays"] = tuple(np.ascontiguousarray(cols[:, i]) for i in range(4))
+    return boxes, got
+
+
+def first_pads_holding(pads: _t.Sequence[PadRing], cands: _t.Sequence[_t.Sequence[float]],
+                       slot: "dict[str, _t.Any] | None" = None) -> list:
+    """Per point of ``cands`` (``(lat, lon, ...)``), the FIRST pad in
+    ``pads`` order whose closed box holds it and whose ring holds it
+    (:func:`_inside`), else ``None`` -- the scan :func:`pad_majority` and
+    ``placement_family.pad_plurality`` ran per point over every box, the
+    same answer bit for bit (#2206): the boxes (hoisted in ``slot``,
+    :func:`_pad_boxes`) are screened for a block of points at once with
+    the same float comparisons, and only the screened pads are ray cast,
+    in pads order."""
+    boxes, (y0, x0, y1, x1) = _box_arrays(pads, slot)
+    out: list = [None] * len(cands)
+    if not boxes or not cands:
+        return out
+    la = np.array([c[0] for c in cands], dtype=float)
+    lo = np.array([c[1] for c in cands], dtype=float)
+    rows = max(1, 4_000_000 // len(boxes))
+    for r0 in range(0, len(cands), rows):
+        a, o = la[r0:r0 + rows, None], lo[r0:r0 + rows, None]
+        ii, jj = np.nonzero((y0 <= a) & (a <= y1) & (x0 <= o) & (o <= x1))
+        done = -1
+        for i, j in zip(ii.tolist(), jj.tolist(), strict=True):
+            if i == done:
+                continue
+            c, p = cands[r0 + i], boxes[j][0]
+            if _inside(p.ring, c[0], c[1]):
+                out[r0 + i], done = p, i
+    return out
 
 
 def fold_pad_ref(pads: _t.Sequence[PadRing], ref: str) -> "PadRing | None":
@@ -483,14 +528,11 @@ def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
     contact per body."""
     if not pads or not cands:
         return None
-    boxes = _pad_boxes(pads)
     hits: dict[str, tuple[PadRing, int]] = {}
-    for la, lo, _y, _z in cands:
-        for p, y0, x0, y1, x1 in boxes:
-            if y0 <= la <= y1 and x0 <= lo <= x1 and _inside(p.ring, la, lo):
-                got = hits.get(p.ref)
-                hits[p.ref] = (p, (got[1] if got else 0) + 1)
-                break
+    for p in first_pads_holding(pads, cands):
+        if p is not None:
+            got = hits.get(p.ref)
+            hits[p.ref] = (p, (got[1] if got else 0) + 1)
     if not hits:
         return None
     p, n = max(hits.values(), key=lambda q: q[1])

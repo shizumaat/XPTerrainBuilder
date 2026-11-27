@@ -91,8 +91,16 @@ distance and skips a road whose box misses it (its intersection is empty, the lo
   run, whose re-opened window (`FrontCache.reopen`: a fresh DEM record) would then not record any DEM
   question those readings asked in the main run.  Worth one read by the stage-cache owner.
 
-## 5. Bars and results
+## 5. Bars and results (measured)
 
-See the lane report (identity table, timings, memory).  Bar: emitted files sha256-identical at KATL,
-KDFW, BIKF, OMDB, LGAV, KDEN, KEGE (`--replay --from classify --emit --rebake-plan`, base c67299b6e vs
-head); KATL late map digest identical under `--prefix-twice`.
+Identity, `--replay --from classify --emit --rebake-plan`, base c67299b6e vs head: all six emitted files
+sha256-identical at KATL (patch f4b7afdeea0d, graded 6e2855a9451f: lvec's reference), KDFW, BIKF, OMDB,
+LGAV, KDEN, KEGE.  `--prefix-twice`: KATL late map digest identical (pm 796685780bee997c, cs
+b46f25a4055565dd) on every arm.
+
+KATL late derive (`--prefix-twice`; base and head run CONCURRENTLY as pairs, the machine loaded by other
+lanes): 198.9 -> 170.8 s and 152.9 -> 137.8 s (-28 / -15 s, -14 % / -10 %); the main pass 276.5 ->
+267.2 and 256.7 -> 245.3 s.  By step (pair means): planar -12 s, channels -5.7 s, road profile -2.6 s.
+Late-run hits: road answers 93,841 / 111,742, widths 1,601 / 1,659, rings 4,688 / 13,506; the main pass
+also hits 19,508 / 104,371 answers (the road ramp's re-reads).  Alternating single runs did not resolve
+the effect (load drift 150-260 s).  Peak memory: +0.1 GB.

@@ -53,6 +53,16 @@ def _laps(rec: _t.Any) -> tuple[dict, list]:
     return planar, gens
 
 
+def _memo_reads() -> dict[str, tuple[int, int]]:
+    """Every item memo's ``(hits, asks)`` so far (``geom/item_memo``; none in
+    a tree that predates it)."""
+    try:
+        from auto_patch_v2.geom import item_memo as _im
+    except ImportError:
+        return {}
+    return {m.name: (m.reads["hit"], m.reads["hit"] + m.reads["miss"]) for m in _im._ALL}
+
+
 def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
                  out: _t.Callable[[str], None] = print) -> dict:
     """The two derives (module docstring); returns the clocks and the late
@@ -62,17 +72,18 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
 
     def both() -> dict:
         derive = Deriver(airport, law, inputs, pack)
-        walls, laps = [], []
+        walls, laps, reads = [], [], [_memo_reads()]
         for what, cl_x in (("base", gap_free(cl) or cl), ("late", cl)):
             t, c = time.perf_counter(), time.process_time()
             derive(cl_x)
             walls.append((what, time.perf_counter() - t,
                           time.process_time() - c))
             laps.append(_laps(derive.last))
+            reads.append(_memo_reads())
             # the build's later derives take the main pass's airport
             derive.airport = derive.last.airport
         pm, cs = derive.last.pm, derive.last.cs
-        return {"walls": walls, "clocks": list(derive.clocks), "laps": laps,
+        return {"walls": walls, "clocks": list(derive.clocks), "laps": laps, "reads": reads,
                 "late_pm": _digest(pm), "late_cs": _digest(cs),
                 "late_pm_fields": _fields(pm)}
     got = both()
@@ -85,12 +96,10 @@ def prefix_twice(icao: str, airport, cl, law, inputs, pack, *,
             + ", ".join(f"{k} {v:.1f}" for k, v in planar.items()))
         out(f"[{icao}] PREFIX TWICE {what} generators: "
             + ", ".join(f"{k} {v:.1f}" for k, v in gens[:16]))
-    try:                                  # #2206: the item memos' reads
-        from auto_patch_v2.geom import item_memo as _im
-        out(f"[{icao}] PREFIX TWICE item memos: " + ", ".join(
-            f"{m.name} {m.reads['hit']}/{m.reads['hit'] + m.reads['miss']}" for m in _im._ALL))
-    except ImportError:                   # a tree that predates them
-        pass
+    for (what, _s, _c), r0, r1 in zip(got["walls"], got["reads"], got["reads"][1:], strict=True):
+        out(f"[{icao}] PREFIX TWICE {what} item memos (hit/asked): " + ", ".join(
+            f"{k} {r1[k][0] - r0.get(k, (0, 0))[0]}/{r1[k][1] - r0.get(k, (0, 0))[1]}"
+            for k in r1))
     out(f"[{icao}] PREFIX TWICE late map digest pm {got['late_pm']} cs {got['late_cs']}")
     out(f"[{icao}] PREFIX TWICE late map fields "
         + " ".join(f"{k}={v}" for k, v in got["late_pm_fields"].items()))

@@ -59,6 +59,8 @@ from __future__ import annotations
 
 import typing as _t
 
+import numpy as np
+
 from ..geom import exact
 from ..law import Law
 from ..law.tables import snap_margin_m
@@ -67,14 +69,14 @@ from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import chords_covered, face_cover, project_to_chain
 from .precedence import View, view
-from .stretches import Stretches, nearest_line_cap, stretches
+from .stretches import Stretches, nearest_line_cap, stretches, tie_scan
 from .taxi import (BOX_RULING, GEN as TAXI_GEN, PricedPair, axis_index,
                    box_pair_rows, box_rows, pad_vertices, taxi_pair_routes)
 
 __all__ = ["junction_mesh", "face_triangles", "face_mesh_edges",
            "mesh_edge_caps", "triangle_caps", "triangle_boxes", "mesh_edges_ll",
            "junction_roles", "crossing_lines", "crossing_axes", "stretch_axes",
-           "nearest_axis"]
+           "nearest_axis", "nearest_axis_all"]
 
 GEN = "junction_mesh"
 XY = tuple[float, float]
@@ -212,14 +214,83 @@ def nearest_axis(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
     return best[3], best[1], best[2]
 
 
-def _nearest_held(memo: dict | None, p: XY, axes: _t.Sequence[Axis]):
-    """:func:`nearest_axis` of ``p`` over ``axes``, read from ``memo`` (the
-    answers for THESE axes' content, by point) when it holds one."""
+#: :func:`nearest_axis_all`'s arrays, built once per axes object (a
+#: single slot; the object is held, so its ``id`` cannot be reused)
+_ALL_AXES: dict[str, _t.Any] = {"axes": None, "arrays": None}
+
+
+def _axes_arrays(axes: _t.Sequence[Axis]) -> tuple | None:
+    """Every segment of ``axes`` (the chains of two points or more, in
+    order) as arrays: ``(ax, ay, vx, vy, l2, n, starts, chain, cap_l)``
+    -- the segment's start, its vector, :func:`project_to_chain`'s
+    ``l2``, its length (:func:`exact.hypot`), each kept chain's first
+    segment, its index in ``axes`` and its cap; ``None`` with none."""
+    if _ALL_AXES["axes"] is axes:
+        return _ALL_AXES["arrays"]
+    xs, ys, bxs, bys, starts, chain = [], [], [], [], [], []
+    for i, (pts, _cl, _ct) in enumerate(axes):
+        if len(pts) < 2:
+            continue
+        starts.append(len(xs))
+        chain.append(i)
+        for k in range(len(pts) - 1):
+            xs.append(pts[k][0])
+            ys.append(pts[k][1])
+            bxs.append(pts[k + 1][0])
+            bys.append(pts[k + 1][1])
+    got = None
+    if chain:
+        ax, ay = np.array(xs, dtype=float), np.array(ys, dtype=float)
+        vx, vy = np.array(bxs, dtype=float) - ax, np.array(bys, dtype=float) - ay
+        l2 = vx * vx + vy * vy
+        got = (ax, ay, vx, vy, l2, np.sqrt(l2), np.array(starts), chain,
+               np.array([float(axes[i][1]) for i in chain]))
+    _ALL_AXES["axes"], _ALL_AXES["arrays"] = axes, got
+    return got
+
+
+def nearest_axis_all(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
+                     ) -> tuple[tuple[float, float], float, float] | None:
+    """:func:`nearest_axis` over a LARGE population (the map's stretches,
+    the fallback of a face no stretch crosses), the same answer bit for
+    bit (#2206: KATL 31 s profiled over two passes).  Every segment is
+    measured at once in :func:`project_to_chain`'s own operations (the
+    same IEEE products, quotient, clamp and square root per segment; a
+    degenerate one skipped as it skips it); each chain keeps its FIRST
+    nearest segment, and the axes' tie rule runs in order over the chains
+    whose segment is not degenerate (``stretches.tie_scan``)."""
+    arr = _axes_arrays(axes)
+    if arr is None:
+        return None
+    ax, ay, vx, vy, l2, n, starts, chain, cap = arr
+    with np.errstate(all="ignore"):
+        t = ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2
+        t = np.where(t < 0.0, 0.0, np.where(t > 1.0, 1.0, t))
+        d = exact.hypot_array(p[0] - (ax + t * vx), p[1] - (ay + t * vy))
+    d[(l2 < 1e-18) | np.isnan(d)] = np.inf             # never taken by ``d < best``
+    m = np.minimum.reduceat(d, starts)
+    cnt = np.diff(np.append(starts, len(d)))
+    idx = np.where(d == np.repeat(m, cnt), np.arange(len(d)), len(d))
+    k = np.minimum.reduceat(idx, starts)               # the chain's first nearest
+    ok = np.flatnonzero(n[k] >= 1e-12)
+    if not len(ok):
+        return None
+    w = int(ok[tie_scan(m[ok], cap[ok], tie_m)])
+    s, i = int(k[w]), chain[w]
+    u = (float(vx[s]) / float(n[s]), float(vy[s]) / float(n[s]))
+    return u, float(axes[i][1]), float(axes[i][2])
+
+
+def _nearest_held(memo: dict | None, p: XY, axes: _t.Sequence[Axis], whole: bool = False):
+    """:func:`nearest_axis` of ``p`` over ``axes`` (:func:`nearest_axis_all`
+    with ``whole``), read from ``memo`` (the answers for THESE axes'
+    content, by point) when it holds one."""
+    near = nearest_axis_all if whole else nearest_axis
     if memo is None:
-        return nearest_axis(p, axes)
+        return near(p, axes)
     got = memo.get(p, False)
     if got is False:
-        got = memo[p] = nearest_axis(p, axes)
+        got = memo[p] = near(p, axes)
     return got
 
 
@@ -248,7 +319,7 @@ def triangle_boxes(vw: View, axes: _t.Sequence[Axis],
         cen = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0)
         hit = _nearest_held(memo, cen, axes)
         if hit is None and fallback and face_caps is not None:
-            fb = _nearest_held(memo_fallback, cen, fallback)
+            fb = _nearest_held(memo_fallback, cen, fallback, whole=True)
             if fb is not None:
                 hit = (fb[0], face_caps[0], face_caps[1])
         if hit is not None:

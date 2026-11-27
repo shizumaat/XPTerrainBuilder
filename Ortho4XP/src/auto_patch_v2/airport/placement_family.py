@@ -843,6 +843,11 @@ def _profile_job_of(u: _t.Any, grp: _t.Sequence[int],
                        pids=pids)
 
 
+#: :func:`pad_plurality`'s own slot of ``anchor_rule``'s box hoist (#2206:
+#: KATL rebuilt every pad's box on each call, 140 M ``min``/``max``)
+_PLURALITY_BOXES: dict[str, _t.Any] = {"pads": None, "boxes": ()}
+
+
 def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],
                   pads: _t.Sequence[_ar.PadRing]) -> "_ar.PadRing | None":
     """§16f (4): THE PAD A FAMILY MEMBER JOINS — the pad holding the
@@ -857,16 +862,11 @@ def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],
     is; a plurality of zero is no evidence and returns ``None``."""
     if not pads or not cands:
         return None
-    boxes = [(p, min(v[0] for v in p.ring), min(v[1] for v in p.ring),
-              max(v[0] for v in p.ring), max(v[1] for v in p.ring))
-             for p in pads if len(p.ring) >= 3]
     hits: dict[str, tuple[_ar.PadRing, int]] = {}
-    for la, lo, _y, _z in cands:
-        for p, y0, x0, y1, x1 in boxes:
-            if y0 <= la <= y1 and x0 <= lo <= x1 and _ar._inside(p.ring, la, lo):
-                got = hits.get(p.ref)
-                hits[p.ref] = (p, (got[1] if got else 0) + 1)
-                break
+    for p in _ar.first_pads_holding(pads, cands, _PLURALITY_BOXES):
+        if p is not None:
+            got = hits.get(p.ref)
+            hits[p.ref] = (p, (got[1] if got else 0) + 1)
     if not hits:
         return None
     # fix C (owner RULINGS 2026-09-17t/u): the plurality is over the REF,

@@ -36,9 +36,12 @@ exists and ``planar`` reads the same floor rule inside a pad."""
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import statistics as _st
 import typing as _t
 
+import numpy as np
+import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -88,29 +91,46 @@ class _UpperPad:
 
 
 def dem_samples(dem, g, step: float = 2.0) -> list:
-    """The DEM over ``g`` on a ``step`` grid (at most ~400 samples)."""
-    import math
-
-    from shapely.geometry import Point
+    """The DEM over ``g`` on a ``step`` grid (at most ~400 samples): the
+    grid's points (row by row, each axis stepped by repeated addition)
+    that ``g`` contains, their finite heights.  The points are tested and
+    sampled at once (#2206: ``shapely.contains_xy``, the point-in-area
+    predicate ``contains`` reads; the DEM's own ``z_many``, its ``z`` bit
+    for bit); a DEM whose array read raises is asked point by point."""
     if dem is None or g is None or g.is_empty:
         return []
     x0, y0, x1, y1 = g.bounds
     h = max(step, math.sqrt(max(g.area, 1.0) / 400.0))
-    zs = []
-    y = y0 + 0.5 * h
-    while y < y1:
-        x = x0 + 0.5 * h
-        while x < x1:
-            if g.contains(Point(x, y)):
-                try:
-                    z = float(dem.z(x, y))
-                except Exception:  # noqa: BLE001 -- off the raster
-                    z = float("nan")
-                if z == z:
-                    zs.append(z)
-            x += h
-        y += h
-    return zs
+    xs, ys = _steps(x0 + 0.5 * h, x1, h), _steps(y0 + 0.5 * h, y1, h)
+    if not xs or not ys:
+        return []
+    px, py = np.tile(np.array(xs), len(ys)), np.repeat(np.array(ys), len(xs))
+    inside = np.asarray(shapely.contains_xy(g, px, py), dtype=bool)
+    px, py = px[inside], py[inside]
+    if not len(px):
+        return []
+    many = getattr(dem, "z_many", None)
+    try:
+        zs = np.asarray(many(px, py), dtype=float).ravel().tolist()
+    except Exception:  # noqa: BLE001 -- no array read: point by point
+        zs = [_z_or_nan(dem, x, y) for x, y in zip(px.tolist(), py.tolist(), strict=True)]
+    return [z for z in zs if z == z]
+
+
+def _steps(a: float, b: float, h: float) -> list:
+    """``a, a + h, a + h + h, ...`` while below ``b`` (repeated addition)."""
+    out = []
+    while a < b:
+        out.append(a)
+        a += h
+    return out
+
+
+def _z_or_nan(dem, x: float, y: float) -> float:
+    try:
+        return float(dem.z(x, y))
+    except Exception:  # noqa: BLE001 -- off the raster
+        return float("nan")
 
 
 def part_footprint(p, to_xy) -> "Polygon | None":
@@ -132,8 +152,31 @@ def unit_floor(parts, near, to_xy) -> "float | None":
     GROUNDED ``parts`` whose footprint meets ``near`` stand at (the lowest
     of a tie), or ``None`` where no grounded part meets it."""
     ys = [p.base_y for p in parts if getattr(p, "feet", ())
-          and (g := part_footprint(p, to_xy)) is not None and g.intersects(near)]
+          and (g := part_footprint(p, to_xy)) is not None and _meets(near, g)]
     return float(min(_st.multimode(round(y) for y in ys))) if ys else None
+
+
+def _plan_floor(pg, near) -> "float | None":
+    """:func:`unit_floor` off the unit's solid parts with their footprints
+    ``pg`` (``_unit_plans``: the same parts, in order, their footprints
+    already read)."""
+    ys = [p.base_y for p, g in pg if getattr(p, "feet", ()) and _meets(near, g)]
+    return float(min(_st.multimode(round(y) for y in ys))) if ys else None
+
+
+def _near(air, near_m: float):
+    """``air`` widened by ``near_m``, PREPARED (#2206): every part of every
+    unit is asked whether it meets it, and :func:`_meets` reads it with the
+    prepared predicate -- the same answer, the airside indexed once."""
+    near = air.buffer(near_m)
+    shapely.prepare(near)
+    return near
+
+
+def _meets(near, g) -> bool:
+    """``g.intersects(near)``, asked of ``near`` (symmetric; a prepared
+    ``near``, :func:`_near`, answers through its index)."""
+    return bool(near.intersects(g))
 
 
 def _solid(u) -> list:
@@ -143,8 +186,9 @@ def _solid(u) -> list:
 
 def _floors(part, near, to_xy) -> _t.Iterator[tuple]:
     """``(index, unit, solid parts, floor)`` per unit of ``part`` with an
-    airside floor (:func:`unit_floor` against ``near``) -- the one read
-    :func:`upper_storeys` and :func:`unit_levels` share."""
+    airside floor (:func:`unit_floor` against ``near``), as
+    :func:`upper_storeys` reads it (:func:`unit_levels` reads the same
+    floor off its unit plans, :func:`_plan_floor`)."""
     for ui, u in enumerate(part.units):
         parts = _solid(u)
         t = unit_floor(parts, near, to_xy)
@@ -164,7 +208,7 @@ def upper_storeys(airport, law, air) -> list[Storey]:
                          "low_level_min_step_m", 0.0) or 0.0)
     if step <= 0.0:
         return []
-    near = air.buffer(_near_m(law))
+    near = _near(air, _near_m(law))
     to_xy = frame.entry()
     out: list[Storey] = []
     for ui, _u, parts, t in _floors(part, near, to_xy):
@@ -249,7 +293,7 @@ def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy,
         return None                                       # T3
     rise = y_p - t
     floor = [g for p, g in ur.parts if getattr(p, "feet", ()) and round(p.base_y) == t
-             and g.intersects(near)]
+             and _meets(near, g)]
     zp = dem_samples(dem, P)
     za = dem_samples(dem, air.intersection(unary_union(floor).buffer(_near_m(law))))
     if not zp or not za:
@@ -304,7 +348,7 @@ def upper_pads(airport, law, air, pads, *, born=None, flipped=None) -> list[_Upp
         return []
     born = air if born is None else born
     near_m = _near_m(law)
-    near = air.buffer(near_m)
+    near = _near(air, near_m)
     to_xy = frame.entry()
     units = None
     out: list[_UpperPad] = []
@@ -422,8 +466,6 @@ def _contact_level(airport, ui: int, face, t: float, near_m: float, step: float
     ``near_m`` of its landside ``face`` standing a storey (``step``) or more
     off its airside floor ``t``, either sign -- their fullest 0.1 m plane
     (the lowest of a tie), or ``None`` where no such station stands."""
-    import numpy as np
-    import shapely
     maps = getattr(airport, "undersides", None) or {}
     if face is None or face.is_empty or not maps:
         return None
@@ -523,7 +565,7 @@ def _apron_floor(pg, t: float, near, apt, step: float) -> float:
     band = _band_m()
     geoms = [g for _p, g in pg]
     tree = STRtree(geoms)
-    nr = [(p, g) for p, g in pg if g.intersects(near)]
+    nr = [(p, g) for p, g in pg if _meets(near, g)]
     opened = [(p, g) for p, g in _unsupported(nr, pg, band)
               if g.area > 0.0 and g.intersection(apt).area >= 0.5 * g.area
               and _open_sky(p, g, pg, tree, geoms)]
@@ -548,7 +590,7 @@ def _storey_parts(pg, t: float, near, air, law) -> list[Level]:
     storey's parts carry no ground feet and 1.3-1.7 m height, so neither
     ``Part.feet`` nor ``[placement] chain_min_height_m`` can gate them."""
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
-    off = [(p, g) for p, g in pg if abs(p.base_y - t) >= step and not g.intersects(near)]
+    off = [(p, g) for p, g in pg if abs(p.base_y - t) >= step and not _meets(near, g)]
     return sorted(_planes(_unsupported(off, pg, _band_m()), air, _band_m()),
                   key=lambda lv: (-lv.parts, -lv.area_m2))
 
@@ -608,7 +650,7 @@ def _confirmed_first(levels, pg, t: float, near, dem, plan, air, face, near_m: f
     first, best = None, None
     for lv in levels:
         at = unary_union([g for p, g in pg if abs(p.base_y - lv.y) <= _band_m()
-                          and not g.intersects(near)])
+                          and not _meets(near, g)])
         gr = _grounds(dem, plan, air, face, near_m, reach, at, ground)
         first = first or (lv, gr)
         rise = lv.y - t
@@ -721,12 +763,15 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
     near_m = _near_m(law)
     reach = float(law.tables.emit.road_contact.contact_reach_m)
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
-    near, to_xy, dem = air.buffer(near_m), frame.entry(), getattr(airport, "dem", None)
+    near, to_xy, dem = _near(air, near_m), frame.entry(), getattr(airport, "dem", None)
     from .airside_floor import airside_union
-    plans, credible, apt = None, None, airside_union(airport)
+    credible, apt = None, airside_union(airport)
+    plans = _unit_plans(part, to_xy)
     out: list[UnitLevels] = []
-    for ui, u, _parts, t0 in _floors(part, near, to_xy):
-        plans = _unit_plans(part, to_xy) if plans is None else plans
+    for ui, u in enumerate(part.units):
+        t0 = _plan_floor(plans.solid[ui], near)
+        if t0 is None:
+            continue
         plan = unary_union([g for _p, g in plans.solid[ui]])
         shell = _split_level(u, t0, shells, step)
         if plan.is_empty or (plan.area < min_m2 and not shell):
@@ -750,7 +795,7 @@ def unit_levels(airport, law, air, *, ground=None, shells=()) -> list[UnitLevels
             if credible:
                 levels, witness = [Level(round(t + g[1] - g[0], 2), 0.0, 0, 0.0)], _L6
         clues = face_clues(ui, plan, face, airport, plans, reach, near_m, dem_samples)
-        nr = [(p, q) for p, q in plans.solid[ui] if q.intersects(near)]
+        nr = [(p, q) for p, q in plans.solid[ui] if _meets(near, q)]
         clues["air_planes"] = [[lv.y, lv.parts, lv.area_m2] for lv in sorted(
             _planes(_unsupported(nr, plans.solid[ui], _band_m()), air, _band_m()),
             key=lambda lv: -lv.parts)]

@@ -170,10 +170,11 @@ def _graph(perm: list[int]):
 
 
 def test_an_equal_route_graph_under_other_ids_is_read_back_exactly(monkeypatch):
+    from auto_patch_v2.constraints import route_work as RW
     from auto_patch_v2.constraints import routes as R
     walks: list = []
-    real = R.dijkstra
-    monkeypatch.setattr(R, "dijkstra",
+    real = RW.dijkstra                 # the pricing walks through route_work.rows
+    monkeypatch.setattr(RW, "dijkstra",
                         lambda *a, **k: walks.append(list(k["indices"])) or real(*a, **k))
     ring = [0, 4, 1, 5, 2, 3, 6]
     g1, p1 = _graph(list(range(7)))

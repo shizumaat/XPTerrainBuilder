@@ -122,6 +122,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # deck-end-anchors spec §6: every pack hard deck's end-line anchors —
     # LAW INPUT for the ``deck_end_flush`` census family
     "deck_anchors",
+    # RULINGS 2026-11-27a (6): trench floor vertices pinched to a deck's
+    # pavement -- EVIDENCE for the ``deck_floor_pinch`` census family
+    "deck_floor_pinch",
     # RULINGS 2026-11-20a (1): the pack placements left under a generated
     # deck after the one decision -- LAW INPUT for ``pack_bridge_under_deck``
     "pack_bridge_under_deck",

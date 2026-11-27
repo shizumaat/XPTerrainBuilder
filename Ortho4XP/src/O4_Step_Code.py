@@ -803,7 +803,6 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.fixed_overlay",
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.grid_pickle",
-    "auto_patch_v2.geom.item_memo",
     "auto_patch_v2.geom.lens",
     "auto_patch_v2.geom.line_walk",
     "auto_patch_v2.geom.lowest_face",

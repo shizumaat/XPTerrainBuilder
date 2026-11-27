@@ -118,7 +118,7 @@ def test_the_mesh_record_names_no_pack_or_code_while_the_stage_runs(stage):
 def test_a_confined_window_records_its_own_thread_only(tmp_path):
     mine, other = tmp_path / "mine.txt", tmp_path / "other.txt"
     for path in (mine, other):
-        path.write_text("x", encoding="utf-8")
+        path.write_text("x", encoding="utf-8", newline="\n")
     seen = {}
     opened, done = threading.Event(), threading.Event()
 

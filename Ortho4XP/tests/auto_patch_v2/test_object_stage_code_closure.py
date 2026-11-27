@@ -34,8 +34,11 @@ def test_every_module_the_stage_imports_is_in_its_code_key():
 def test_the_entry_is_where_the_mesh_step_enters_the_stage():
     # the mesh step's tail runs the object stage as a step of its own
     # (O4_Object_Stage, #1699), which a tile bundle's import runs alone
+    # through O4_Object_Stage_Beside (#1264), inline or beside
     text = (SRC / "O4_Mesh_Utils.py").read_text(encoding="utf-8")
-    assert "OBJECT_STAGE.run(tile)" in text
+    assert "OBJECT_STAGE_BESIDE.run(tile)" in text
+    beside = (SRC / "O4_Object_Stage_Beside.py").read_text(encoding="utf-8")
+    assert "OBJECT_STAGE.run(tile)" in beside
     text = (SRC / "O4_Object_Stage.py").read_text(encoding="utf-8")
     assert "object_stage.rebake_after_mesh(tile, failed=failed)" in text
     assert STAGE.rebake_after_mesh.__module__ == OSC.ENTRY_MODULES[0]

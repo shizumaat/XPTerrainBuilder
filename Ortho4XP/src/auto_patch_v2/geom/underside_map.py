@@ -64,7 +64,7 @@ import numpy as np
 __all__ = ["CELL_M", "MAX_CELLS", "SKIN_M", "SHEET_STEP_M", "BEHIND_M", "WALL_M",
            "SKIRT_M", "FLOOR_SUNKEN_MIN_M", "ROOFED_COVER_MIN", "FLAT_M",
            "KINDS", "Layers", "UndersideMap", "rasterise_layers",
-           "compose", "ground_sheet",
+           "compose", "ground_sheet", "interior_cells",
            "relief", "underside"]
 
 #: the plan grid (m); a grid that would exceed :data:`MAX_CELLS` coarsens
@@ -389,18 +389,21 @@ def _stations(g: Layers, P: np.ndarray, storey_m: float) -> dict[str, np.ndarray
             "kind": kind, "levels": levels}
 
 
-def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
-              ) -> tuple[_Interior, ...]:
-    """THE BELOW-GRADE INTERIORS of ``P`` (module doc)."""
+def _sunk(g: Layers, P: np.ndarray, ii: np.ndarray, jj: np.ndarray, h: np.ndarray
+          ) -> list[tuple[str, tuple[slice, slice], np.ndarray, float]]:
+    """THE BELOW-GRADE INTERIORS of ``P`` (module doc) read off the stations
+    ``(ii, jj)`` and their contact heights ``h``: per piece of at least
+    :data:`INTERIOR_MIN_CELLS` its kind, grid slice, cell mask in the slice
+    and covered share."""
     from scipy import ndimage
-    if not len(st["ii"]):
-        return ()
+    if not len(ii):
+        return []
     mark = np.ones(P.shape, dtype=bool)
-    mark[st["ii"], st["jj"]] = False
+    mark[ii, jj] = False
     ni, nj = ndimage.distance_transform_edt(mark, return_distances=False,
                                             return_indices=True)
     hmap = np.full(P.shape, np.nan)
-    hmap[st["ii"], st["jj"]] = st["h"]
+    hmap[ii, jj] = h
     contact = hmap[ni, nj]
     with np.errstate(invalid="ignore"):
         sunk = P & np.isfinite(g.floor) & (g.floor <= contact - FLOOR_SUNKEN_MIN_M)
@@ -410,14 +413,39 @@ def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
         if sl is None:
             continue
         m = lab[sl] == k
-        cells = int(m.sum())
-        if cells < INTERIOR_MIN_CELLS:
+        if int(m.sum()) < INTERIOR_MIN_CELLS:
             continue
         with np.errstate(invalid="ignore"):
             cover = float(np.mean((g.top[sl] - g.floor[sl])[m] > SKIN_M))
-        out.append(_Interior("roofed" if cover >= ROOFED_COVER_MIN else "open", cells,
-                            round(float(np.nanmin(g.floor[sl][m])), 3), round(cover, 3)))
-    return tuple(out)
+        out.append(("roofed" if cover >= ROOFED_COVER_MIN else "open", sl, m, cover))
+    return out
+
+
+def _interiors(g: Layers, P: np.ndarray, st: _t.Mapping[str, np.ndarray]
+              ) -> tuple[_Interior, ...]:
+    """THE BELOW-GRADE INTERIORS of ``P`` (module doc)."""
+    return tuple(_Interior(kind, int(m.sum()), round(float(np.nanmin(g.floor[sl][m])), 3),
+                           round(cover, 3))
+                 for kind, sl, m, cover in _sunk(g, P, st["ii"], st["jj"], st["h"]))
+
+
+def interior_cells(m: "UndersideMap") -> list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]:
+    """Every below-grade interior of map ``m`` CELL BY CELL (spec §3 G5:
+    they are cut out, 25m (3)): ``(kind, east, north, floor y)`` of its
+    cells, frame metres and authored ``y``; read again off the map's own
+    layers, plan and stations (the record keeps only their summary)."""
+    g = m.layers
+    if not len(m.e):
+        return []
+    jj = np.clip(np.floor((m.e - g.e0) / g.step).astype(np.int64), 0, g.top.shape[1] - 1)
+    ii = np.clip(np.floor((m.n - g.n0) / g.step).astype(np.int64), 0, g.top.shape[0] - 1)
+    out = []
+    for kind, sl, mk, _cover in _sunk(g, m.plan, ii, jj, np.asarray(m.h, float)):
+        ci, cj = np.nonzero(mk)
+        ci, cj = ci + sl[0].start, cj + sl[1].start
+        e, n = g.centres(ci, cj)
+        out.append((kind, e, n, g.floor[ci, cj].astype(float)))
+    return out
 
 
 def relief(e: np.ndarray, n: np.ndarray, h: np.ndarray) -> float:

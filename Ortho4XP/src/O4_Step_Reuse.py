@@ -380,13 +380,19 @@ def _terrain_cut(tile) -> list:
     """The terrain models whose ground the vector step cuts (owner RULINGS
     2026-11-13k): hiding one in "Hide terrain objects", or showing it
     again, re-runs the cut -- and (#2077 2.6) each record's CONTENT, its
-    zero, fill and zero plane, so a re-seated composite re-runs it too."""
+    zero, fill and zero plane, so a re-seated composite re-runs it too;
+    and every perimeter record the grade reads (RULINGS 2026-11-25m)."""
     from auto_patch import terrain_cut_stage
     out = []
     for r in terrain_cut_stage.cut_records(FNAMES.patch_dir(tile.lat, tile.lon)):
         body = json.dumps({"elevation": r.get("elevation"), "cut": r.get("cut")},
                           sort_keys=True, default=str)
         out.append(f"{r.get('id')}:{hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]}")
+    # RULINGS 2026-11-25m (2): a group's perimeter our ground is graded to
+    for r in terrain_cut_stage.perimeter_records(FNAMES.patch_dir(tile.lat, tile.lon)):
+        body = json.dumps(r, sort_keys=True, default=str)
+        out.append(f"perimeter:{r.get('icao')}:{r.get('row')}:"
+                   f"{hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]}")
     return sorted(out)
 
 

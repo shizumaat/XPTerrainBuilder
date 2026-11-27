@@ -285,7 +285,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          partition: PackPartition | None = None,
          keep_extension: bool = False,
          authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
-         free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None) -> RebakePlan:
+         free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
+         perimeters: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
     ``objects`` are the planar pass's placed objects (read from the
@@ -370,7 +371,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                   else tuple(v.to_dict() for v in part.connectors)),
                       adapted_frame_pids=tuple(sorted(
                           getattr(part, "adapted_frame_pids", ()) or ())),
-                      origin_tile=_origin_tile(airport))
+                      origin_tile=_origin_tile(airport),
+                      perimeters=tuple(dict(r) for r in perimeters))
 
 
 def _witness(pack_root: "str | None", airport) -> _t.Callable[..., "str | None"]:

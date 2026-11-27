@@ -620,15 +620,24 @@ def _structure_ids(pm) -> set[str]:
 
 
 def _underside_seats(airport, surf, objects, taken, touch_m: float,
-                     storey_m: float) -> list:
-    """``airport/underside_seat.seat_records`` on the solved surface's object
-    pads (read as the object stage reads them, ``placement_read``)."""
-    if not objects or not getattr(airport, "undersides", None) or surf is None:
-        return []
+                     storey_m: float) -> tuple[list, list]:
+    """``(seats, perimeters)``: ``airport/underside_seat.seat_records`` on the
+    solved surface's object pads (read as the object stage reads them,
+    ``placement_read``), and the perimeter records our ground is graded to
+    (``airport/unit_perimeter``, RULINGS 2026-11-25m (2): each group at the
+    zero it is written at)."""
+    if not getattr(airport, "undersides", None) or surf is None:
+        return [], []
     from ..airport import underside_seat as _us
+    from ..airport import unit_perimeter as _up
     from ..airport.placement_read import pads_rims_from_graded_doc
     pads, _rims = pads_rims_from_graded_doc(surf.to_dict())
-    return _us.seat_records(airport, pads, objects, taken, touch_m, storey_m)[0]
+    seats = (_us.seat_records(airport, pads, objects, taken, touch_m, storey_m)[0]
+             if objects else [])
+    zeros = {str(r["unit"]): float(r["zero"]) for r in seats if not r.get("rider")}
+    to_ll = _up.projector(airport.frame)[1]
+    return seats, [p.to_dict(to_ll) for p in _up.perimeters(
+        airport, pads, zeros, storey_m, taken={str(t) for t in taken})]
 
 
 def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[str, _t.Any]:
@@ -692,11 +701,12 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         if objects and shells else []
     # RULINGS 2026-11-25m (4) (spec U13): an admitted unit is written whole at
     # its underside zero ``D - t`` -- no other seat moves a row of it
-    storey_seats = storey_seats + _underside_seats(
+    under_seats, perimeters = _underside_seats(
         airport, surf, objects, excluded | {str(r["id"]) for r in storey_seats}
         | {str(r["id"]) for r in model_seats} | {str(r["id"]) for r in floor_seats}
         | {str(r["id"]) for r in _ts.seat_records(airport)} | _structure_ids(pm), TOUCH_M,
         float(law.tables.structures.building_pad.low_level_min_step_m))
+    storey_seats = storey_seats + under_seats
     shelled = {str(r["id"]) for r in storey_seats}
     excluded |= shelled
     model_seats = [r for r in model_seats if str(r["id"]) not in shelled] + storey_seats
@@ -751,6 +761,8 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
     excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}
     return {
         "free_decks": free_decks,
+        # RULINGS 2026-11-25m (2): the tile raster's half of the grade
+        "perimeters": perimeters,
         "tunnel_objects": plates,
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone

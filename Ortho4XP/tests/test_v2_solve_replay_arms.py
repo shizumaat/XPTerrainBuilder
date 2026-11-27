@@ -72,6 +72,11 @@ NOT_ARMS = {
     "--rebake-plan",
     # #2134: OUTPUTS / reads of the dry --reclassify (the role-flip census)
     "--roles-out", "--roles-against", "--protect",
+    # #2283: the role the --roles-against census tables (a read's parameter)
+    "--flip-role",
+    # lcrash: the app build's photo list a --capture replays (an input
+    # that reproduces a build, never an arm)
+    "--imagery-paths",
     # #1899: the route / trend derivations alone off a --solved-out pickle
     "--rederive-from",
     # spec §61 (6): a READ of the --replay arm's own solve (a second solve

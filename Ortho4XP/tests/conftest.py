@@ -630,11 +630,25 @@ def _provider_refusal_rest_is_per_test(monkeypatch):
     (``elevation_access.refusal_rest``): a refusal one test provokes would
     otherwise silence the same provider code for every later test."""
     import elevation_access.refusal_rest as REST
-    monkeypatch.setattr(REST, "_MEMORY", {})
-    monkeypatch.setattr(REST, "_LOADED_FROM", [None])
+    monkeypatch.setattr(REST, "_STORE", REST.RestFile(REST._FILE_NAME,
+                                                      REST.REST_S))
     monkeypatch.setattr(REST, "_NOTED", set())
     monkeypatch.setattr(REST, "_ANSWERED", set())
     monkeypatch.setattr(REST, "_GATES", {})
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _provider_outage_is_per_test(monkeypatch, tmp_path_factory):
+    """No test inherits another's outage record
+    (``elevation_access.provider_outage``, #2306), and none writes the real
+    ``Elevation_data/provider_outages.json``."""
+    import elevation_access.provider_outage as OUTAGE
+    store = OUTAGE.RestFile(OUTAGE._FILE_NAME, OUTAGE.OUTAGE_S)
+    scratch = str(tmp_path_factory.mktemp("outage") / OUTAGE._FILE_NAME)
+    monkeypatch.setattr(store, "path", lambda: scratch)
+    monkeypatch.setattr(OUTAGE, "_STORE", store)
+    monkeypatch.setattr(OUTAGE, "_NOTED", {})
     yield
 
 

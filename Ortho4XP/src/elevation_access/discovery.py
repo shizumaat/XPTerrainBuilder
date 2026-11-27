@@ -69,7 +69,15 @@ def discovery_status_is_transient(status_code):
     return code == 429 or 500 <= code <= 599
 
 
-def raise_transient_discovery_failure(description, reason, answered=False):
+def _is_timeout(reason) -> bool:
+    """Is ``reason`` a timed-out request (``requests``' or the socket's)?"""
+    return isinstance(reason, BaseException) and any(
+        kind.__name__ in ("Timeout", "TimeoutError", "timeout")
+        for kind in type(reason).__mro__)
+
+
+def raise_transient_discovery_failure(description, reason, answered=False,
+                                      status=None):
     """WARN in the module idiom and raise :class:`TransientFetchError`.
 
     Never returns.  ``description`` names the request ("TNM discovery
@@ -77,7 +85,10 @@ def raise_transient_discovery_failure(description, reason, answered=False):
     ``answered`` marks a SERVER's answer (a 5xx, a 429, an error
     envelope) as opposed to a request that never got one: only the
     former is a refusal the provider rests from
-    (``elevation_access.refusal_rest``).
+    (``elevation_access.refusal_rest``).  The error carries the HTTP
+    ``status`` (``http_status``) and whether the request timed out
+    (``timed_out``): a 5xx or a timeout is an OUTAGE every build waits
+    out (``elevation_access.provider_outage``).
     """
     UI.vprint(
         1,
@@ -87,6 +98,8 @@ def raise_transient_discovery_failure(description, reason, answered=False):
     )
     error = TransientFetchError("%s failed: %s" % (description, reason))
     error.server_answered = bool(answered)
+    error.http_status = status
+    error.timed_out = _is_timeout(reason)
     raise error
 
 
@@ -256,8 +269,8 @@ def discovery_json_payload(response, description):
     if not 200 <= status < 300:
         if discovery_status_is_transient(status):
             raise_transient_discovery_failure(
-                description, "status %d" % status, answered=True
-            )
+                description, "status %d" % status, answered=True,
+                status=status)
         if 400 <= status < 500 and status not in HTTP_ABSENT_STATUSES:
             raise_provider_query_error(
                 description, status, getattr(response, "url", ""))

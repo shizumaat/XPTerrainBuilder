@@ -23,6 +23,7 @@ from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.failures import (
     error_message_indicates_transient_network_failure,
 )
+from elevation_access.provider_outage import ProviderOutage, is_outage
 
 __all__ = [
     "RETRY_DELAYS_S",
@@ -39,8 +40,10 @@ RETRY_DELAYS_S = (60.0, 180.0, 300.0)
 
 
 def _is_transient_fetch_error(error) -> bool:
-    """Is ``error`` a failure worth asking again (never a capability)?"""
-    if isinstance(error, ProviderUnavailable):
+    """Is ``error`` a failure worth asking again (never a capability,
+    never an outage: every build waits that out, ``provider_outage``)?"""
+    if isinstance(error, (ProviderUnavailable, ProviderOutage)) or (
+            is_outage(error)):
         return False
     return isinstance(error, TransientFetchError) or (
         error_message_indicates_transient_network_failure(error))

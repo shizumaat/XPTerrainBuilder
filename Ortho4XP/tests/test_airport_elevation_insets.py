@@ -5433,7 +5433,7 @@ def test_degraded_tnm_200_leaves_the_index_record_absent(
         # The envelope is a SERVER's refusal: the provider rests a day.
         from elevation_access import refusal_rest as ea_refusal_rest
         assert ea_refusal_rest.resting_refusal("USGS3DEP") is not None
-        ea_refusal_rest._MEMORY.clear()
+        ea_refusal_rest._STORE.memory.clear()
 
         # CONTROL: the well-formed empty answer DOES record no-coverage.
         monkeypatch.setattr(

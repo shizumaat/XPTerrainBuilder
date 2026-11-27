@@ -25,16 +25,13 @@ rest decides.  The memory lives in ``Elevation_data/provider_refusals.json``
 from __future__ import annotations
 
 import contextlib
-import json
-import os
 import threading
 import time
 
-import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderQueryError, TransientFetchError
-from elevation_access.downloads import _write_refused_by_armed_guard
+from elevation_access.rest_file import RestFile
 
 __all__ = [
     "REST_S",
@@ -50,8 +47,8 @@ REST_S = 24 * 3600
 
 _FILE_NAME = "provider_refusals.json"
 _LOCK = threading.Lock()
-_MEMORY = {}          # code -> {"at": epoch s, "reason": str, "query": str}
-_LOADED_FROM = [None]
+#: code -> {"at": epoch s, "reason": str, "query": str}, shared by file.
+_STORE = RestFile(_FILE_NAME, REST_S)
 _NOTED = set()        # codes whose rest this process has already logged
 _ANSWERED = set()     # codes that answered (not refused) in this process
 _GATES = {}           # code -> the lock its first asking holds
@@ -65,80 +62,19 @@ def is_refusal(error) -> bool:
         getattr(error, "server_answered", False))
 
 
-def _path():
-    root = getattr(FNAMES, "Elevation_dir", "") or ""
-    return os.path.join(root, _FILE_NAME) if root else None
-
-
-def _load_locked():
-    """Merge the file into memory when it is new or changed since read:
-    the tiles of a build are separate processes, and one's refusal is
-    every other's rest."""
-    path = _path()
-    if path is None:
-        return
-    try:
-        stamp = (path, os.stat(path).st_mtime_ns)
-    except OSError:
-        stamp = (path, None)
-    if _LOADED_FROM[0] == stamp:
-        return
-    _LOADED_FROM[0] = stamp
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            stored = json.load(handle)
-    except (OSError, ValueError):
-        return
-    if isinstance(stored, dict):
-        for (code, record) in stored.items():
-            mine = _MEMORY.get(str(code))
-            if isinstance(record, dict) and (
-                    mine is None
-                    or float(record.get("at", 0)) > float(mine.get("at", 0))):
-                _MEMORY[str(code)] = record
-
-
-def _save_locked(now):
-    path = _path()
-    if path is None or not os.path.isdir(os.path.dirname(path)):
-        return
-    if _write_refused_by_armed_guard(path):
-        return                        # a build is not a refresh event
-    live = {code: record for (code, record) in _MEMORY.items()
-            if now - float(record.get("at", 0)) < REST_S}
-    scratch = "%s.%d.tmp" % (path, os.getpid())
-    try:
-        with open(scratch, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(live, handle, indent=2, sort_keys=True)
-        os.replace(scratch, path)
-    except OSError:
-        try:
-            os.remove(scratch)
-        except OSError:
-            pass
-
-
 def remember_refusal(code, error, query=None, now=None):
     """Record that provider ``code`` refused ``query`` (an airport, a
     rung) with ``error``: it rests for :data:`REST_S`."""
     now = time.time() if now is None else now
+    _STORE.put(code, {"reason": str(error)[:300], "query": str(query or "")},
+               now)
     with _LOCK:
-        _load_locked()
-        _MEMORY[str(code)] = {"at": now, "reason": str(error)[:300],
-                              "query": str(query or "")}
         _NOTED.discard(str(code))
-        _save_locked(now)
 
 
 def resting_refusal(code, now=None):
     """The refusal provider ``code`` is resting from, or ``None``."""
-    now = time.time() if now is None else now
-    with _LOCK:
-        _load_locked()
-        record = _MEMORY.get(str(code))
-    if record is None or now - float(record.get("at", 0)) >= REST_S:
-        return None
-    return record
+    return _STORE.live(code, time.time() if now is None else now)
 
 
 def note_resting_once(code, record, now=None):

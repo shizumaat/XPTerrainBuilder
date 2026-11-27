@@ -177,6 +177,7 @@ from elevation_access import raster_same as ea_raster_same
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
 from elevation_access import recheck as ea_recheck
+from elevation_access import provider_outage as ea_provider_outage
 from elevation_access import refusal_rest as ea_refusal_rest
 from elevation_access import footprints as ea_footprints
 from elevation_access import mask_coverage as ea_mask_coverage
@@ -1303,9 +1304,12 @@ def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
     beyond its data becomes nodata before any reader sees the raster, and
     the provenance records it (``provider_fill``) with the TRUE coverage.
     Every fetch passes here -- the airport inset, each ladder rung, the
-    approach-ring and coastline-band cells -- so the rule is one."""
-    provenance = strategy.fetch(definition, bounding_box_wgs84,
-                                target_resolution_m, destination_path)
+    approach-ring and coastline-band cells -- so the rule is one.  So is
+    THE OUTAGE RECORD (#2306): a provider another build heard down is
+    not asked (:mod:`elevation_access.provider_outage`)."""
+    with ea_provider_outage.asking_provider(definition.get("code")):
+        provenance = strategy.fetch(definition, bounding_box_wgs84,
+                                    target_resolution_m, destination_path)
     if provenance is not None:
         record = mask_fetched_provider_fill(destination_path, definition)
         if record is not None:
@@ -2854,7 +2858,8 @@ def discover_inset(definition, bounding_box_wgs84):
     strategy_factory = ACCESS_STRATEGIES.get(definition.get("access_strategy"))
     if strategy_factory is None:
         return None
-    return strategy_factory().discover(definition, bounding_box_wgs84)
+    with ea_provider_outage.asking_provider(definition.get("code")):
+        return strategy_factory().discover(definition, bounding_box_wgs84)
 
 
 def geotiff_is_constant_value(geotiff_path):
@@ -4513,7 +4518,9 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             transient = True
             continue
         try:
-            sources = factory().discover(rung_definition, bounding_box)
+            with ea_provider_outage.asking_provider(
+                    rung_definition.get("code")):
+                sources = factory().discover(rung_definition, bounding_box)
         except Exception as error:
             if ea_refusal_rest.is_refusal(error):
                 ea_refusal_rest.remember_refusal(

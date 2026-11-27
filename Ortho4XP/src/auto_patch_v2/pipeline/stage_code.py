@@ -1781,6 +1781,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
         "auto_patch_v2.constraints.edge_deck",
+        "auto_patch_v2.constraints.deck_edge_weld",
+        "auto_patch_v2.geom.deck_end_edge",
         "auto_patch_v2.constraints.edge_floor",
         "auto_patch_v2.constraints.end_lip",
         "auto_patch_v2.constraints.entrance_skirt",
@@ -2082,7 +2084,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.deck_ground geom.end_line model.deck_ends
         geom.lowest_face geom.plate_heights
         geom.exact geom.lowest_face
-        constraints.contiguity constraints.deck_stack constraints.edge_deck geom.wall_lines
+        constraints.contiguity constraints.deck_stack constraints.edge_deck constraints.deck_edge_weld geom.deck_end_edge geom.wall_lines
         model.deck_bank
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
@@ -2096,7 +2098,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.agp_plate model.agp_plate model.deck_ends geom.end_line
         geom.lowest_face geom.plate_heights
         geom.exact  
-        constraints.agp_plate constraints.contiguity constraints.edge_deck geom.wall_lines
+        constraints.agp_plate constraints.contiguity constraints.edge_deck constraints.deck_edge_weld geom.deck_end_edge geom.wall_lines
         model.deck_bank
         constraints.edge_floor constraints.deck_lines
         constraints.end_lip constraints.geometry
@@ -2312,7 +2314,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
-        constraints.contiguity constraints.edge_deck geom.wall_lines model.deck_bank
+        constraints.contiguity constraints.edge_deck constraints.deck_edge_weld geom.deck_end_edge geom.wall_lines model.deck_bank
         constraints.edge_floor
         constraints.deck_lines
         constraints.end_lip constraints.geometry
@@ -2599,7 +2601,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
      classify.wall_clip constraints constraints.apron constraints.apron_shelf constraints.cut_kerb
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
     constraints.contiguity constraints.eat
-    constraints.edge_deck geom.wall_lines model.deck_bank constraints.end_lip constraints.flat_site
+    constraints.edge_deck constraints.deck_edge_weld geom.deck_end_edge geom.wall_lines model.deck_bank constraints.end_lip constraints.flat_site
     constraints.foot_rows constraints.geometry constraints.groundside
     constraints.hard_plane constraints.steep_apron constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
@@ -3095,7 +3097,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.apron constraints.apron_shelf constraints.cut_kerb
     constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
-    constraints.edge_deck geom.wall_lines model.deck_bank
+    constraints.edge_deck constraints.deck_edge_weld geom.deck_end_edge geom.wall_lines model.deck_bank
     constraints.end_lip constraints.flat_site constraints.foot_road constraints.foot_rows
     constraints.gap_follow constraints.geometry constraints.groundside
     constraints.hard_plane constraints.steep_apron constraints.jetway_strip
@@ -3698,7 +3700,7 @@ _GROWN: dict[str, str] = {
     geom.pad_base_slope
     """,
     'constraints.edge_deck': """
-    constraints.walled_floor
+    constraints.walled_floor constraints.deck_edge_weld geom.deck_end_edge
     """,
     'constraints.road_coverage_join': """
     constraints.deck_lines geom.plate_bands geom.route_over_pad geom.sunk_cluster geom.wall_lines

@@ -56,7 +56,7 @@ import numpy as np
 
 from ..model.placement import KIND_AGL
 
-__all__ = ["buried_rows", "outline_stations", "_is_buried", "_hill_beside",
+__all__ = ["buried_rows", "outline_stations",
            "sinks_box", "STEP_M", "REACH_M", "MIN_PLAN_M2", "BOX_PAD_M"]
 
 Surface = _t.Callable[[float, float], "float | None"]

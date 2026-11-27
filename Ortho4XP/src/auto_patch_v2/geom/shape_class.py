@@ -56,7 +56,12 @@ class Raster:
 
 def rasterise(p: np.ndarray, max_cells: int = 160000, min_step: float = 0.5) -> "Raster | None":
     """Top and lowest surface of the 3D triangles ``p`` ``(n, 3, 3)`` per
-    grid cell, the step sized so the grid holds about ``max_cells``."""
+    grid cell, the step sized so the grid holds about ``max_cells``.
+
+    #2176: the triangles are rastered in batches (:func:`_raster_batched`),
+    each cell's value by the same arithmetic in the same order as one
+    triangle at a time (:func:`_raster_each`, kept for non-finite input),
+    and a cell's top / lowest is a max / min, which no order changes."""
     if not p.shape[0]:
         return None
     lo, hi = p[:, :, :2].reshape(-1, 2).min(0), p[:, :, :2].reshape(-1, 2).max(0)
@@ -65,6 +70,16 @@ def rasterise(p: np.ndarray, max_cells: int = 160000, min_step: float = 0.5) -> 
     ncol, nrow = int(span[0] // step) + 1, int(span[1] // step) + 1
     top = np.full(nrow * ncol, -np.inf)
     low = np.full(nrow * ncol, np.inf)
+    fill = _raster_batched if np.isfinite(p).all() else _raster_each
+    fill(p, lo, step, ncol, top, low)
+    top[~np.isfinite(top)] = np.nan
+    low[~np.isfinite(low)] = np.nan
+    return Raster(float(lo[0]), float(lo[1]), step,
+                  top.reshape(nrow, ncol), low.reshape(nrow, ncol))
+
+
+def _raster_each(p, lo, step, ncol, top, low) -> None:
+    """:func:`rasterise`'s fill, one triangle at a time."""
     for t in p:
         (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = t
         d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
@@ -84,10 +99,51 @@ def rasterise(p: np.ndarray, max_cells: int = 160000, min_step: float = 0.5) -> 
             k = rr[m] * ncol + cc[m]
             np.maximum.at(top, k, zz)
             np.minimum.at(low, k, zz)
-    top[~np.isfinite(top)] = np.nan
-    low[~np.isfinite(low)] = np.nan
-    return Raster(float(lo[0]), float(lo[1]), step,
-                  top.reshape(nrow, ncol), low.reshape(nrow, ncol))
+
+
+#: about this many candidate cells are weighed per batch
+_BATCH_CELLS = 1 << 22
+
+
+def _raster_batched(p, lo, step, ncol, top, low) -> None:
+    """:func:`_raster_each` over batches of triangles: each triangle's own
+    quantities in ``p``'s dtype, each cell's in float64, as there."""
+    x1, y1, z1 = p[:, 0, 0], p[:, 0, 1], p[:, 0, 2]
+    x2, y2, z2 = p[:, 1, 0], p[:, 1, 1], p[:, 1, 2]
+    x3, y3, z3 = p[:, 2, 0], p[:, 2, 1], p[:, 2, 2]
+    d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+    xs, ys = p[:, :, 0], p[:, :, 1]
+    c0 = ((xs.min(axis=1) - lo[0]) // step).astype(np.int64)
+    c1 = ((xs.max(axis=1) - lo[0]) // step).astype(np.int64)
+    r0 = ((ys.min(axis=1) - lo[1]) // step).astype(np.int64)
+    r1 = ((ys.max(axis=1) - lo[1]) // step).astype(np.int64)
+    nc = c1 - c0 + 1
+    n = nc * (r1 - r0 + 1)
+    live = np.flatnonzero(np.abs(d) >= 1e-12)
+    ends = np.cumsum(n[live])
+    i = 0
+    while i < len(live):
+        j = max(i + 1, int(np.searchsorted(ends, (ends[i - 1] if i else 0) + _BATCH_CELLS,
+                                            side="right")))
+        tri = live[i:j]
+        cnt = n[tri]
+        at = np.repeat(tri, cnt)
+        local = np.arange(int(cnt.sum())) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+        rr = r0[at] + local // nc[at]
+        cc = c0[at] + local % nc[at]
+        cx, cy = lo[0] + (cc + 0.5) * step, lo[1] + (rr + 0.5) * step
+        dd = d[at]
+        w1 = ((y2 - y3)[at] * (cx - x3[at]) + (x3 - x2)[at] * (cy - y3[at])) / dd
+        w2 = ((y3 - y1)[at] * (cx - x3[at]) + (x1 - x3)[at] * (cy - y3[at])) / dd
+        w3 = 1.0 - w1 - w2
+        m = (w1 >= -1e-6) & (w2 >= -1e-6) & (w3 >= -1e-6)
+        if m.any():
+            a = at[m]
+            zz = w1[m] * z1[a] + w2[m] * z2[a] + w3[m] * z3[a]
+            k = rr[m] * ncol + cc[m]
+            np.maximum.at(top, k, zz)
+            np.minimum.at(low, k, zz)
+        i = j
 
 
 def boundary_cells(r: Raster, cov: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:

@@ -29,6 +29,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..classify.open_default import DEFAULT_ROAD_KEY, DEFAULT_ROAD_PLATE
 from ..classify.roles import Classification, is_late_cell, is_pad_road_cell
 from ..geom.containment import sets_inside_one_ring
 from ..geom.proportions import inscribed_width_m
@@ -107,6 +108,9 @@ class Region:
     #: #1071: a road by its SHAPE alone (§110 ``road_by_proportions``), carried
     #: to the map face (``Face.road_by_proportions``)
     road_by_proportions: bool = False
+    #: a ROAD BY DEFAULT (``classify/lot_evidence``), carried to the map
+    #: face (``Face.default_road``)
+    default_road: bool = False
 
 
 def cell_region(c) -> Region:
@@ -114,9 +118,19 @@ def cell_region(c) -> Region:
     side, and whether it is a road by its SHAPE alone (§110 ribbon,
     ``classify.open_default.unclassified_groundside_role``'s
     ``road_by_proportions``; #1071: the wall pass reads it on the face)."""
-    by_shape = bool((getattr(c, "evidence", None) or {}).get("road_by_proportions"))
-    return Region(c.role, c.ref, Polygon(c.ring, c.holes), c.code_number,
-                  c.code_letter, c.side, "cell", road_by_proportions=by_shape)
+    evid = getattr(c, "evidence", None) or {}
+    # A ROAD BY DEFAULT stands in the arrangement as the LOT it was (owner
+    # 2026-11-26T23:48Z: only its GRADE is the road's): every planar pass
+    # -- a landing's cut, a fill, a pad's rim, a foot kerb -- reads it as
+    # before, and the map face takes the road role (``build``).  MEASURED
+    # EKVG: read as a road, its landings went uncut and pad ``building5``
+    # moved 2.46 m; BIKF: pads re-cut, apron ``dsf:pol74`` 0.18 m.
+    by_default = bool(evid.get(DEFAULT_ROAD_KEY)) and c.side == "groundside"
+    return Region(DEFAULT_ROAD_PLATE if by_default else c.role, c.ref,
+                  Polygon(c.ring, c.holes), c.code_number,
+                  c.code_letter, c.side, "cell",
+                  road_by_proportions=bool(evid.get("road_by_proportions")),
+                  default_road=by_default)
 
 
 @_dc.dataclass(frozen=True)

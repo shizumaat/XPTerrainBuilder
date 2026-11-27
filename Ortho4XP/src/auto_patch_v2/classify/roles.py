@@ -115,7 +115,8 @@ from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
 from .neck_road import road_beyond_routes
-from .open_default import (apron_witness, narrow_road, open_pavement_role,
+from .lot_evidence import LotCars, cars_evidence
+from .open_default import (DEFAULT_ROAD_KEY, apron_witness, narrow_road, open_pavement_role,
                            unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
                         is_held_step, is_touching, part_evidence,
@@ -236,6 +237,7 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
     ev = build_evidence(airport, rules, pad_min, law, cache)
     laps.section("sources")
     sources, cut_polys = classify_sources(airport, ev, rules, law)
+    cars = LotCars.of(airport, rules)  # E3, the lot witness of a face
     apron_u = apron_union(airport)     # §40 (2): mapped apron, read PER CELL
     # §40 (1): each runway's ring as a contact BAND, built ONCE (a buffer
     # per face per runway is ~2,200 constructions at HECA)
@@ -502,7 +504,17 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
             evid = {"area_m2": face.area, "n_taxi": 0, "kind": src.cls}
             evid.update(src.as_evidence())
             evid.update(neck_ev)       # a §43 piece keeps its mark here too
-            role = "service_road" if src.cls == "strip" else "parking_lot"
+            role = "service_road"
+            if src.cls != "strip":
+                # a LOT only on evidence, else the default road (owner
+                # 2026-11-26T23:48Z; ``classify/lot_evidence``)
+                role, why = unclassified_groundside_role(
+                    face, rules, road_reached=True, shape=False,
+                    lot_evidence=src.lot_evidence or cars_evidence(
+                        cut_polys.get(src.id, face), cars))
+                evid.update(why)
+                if role != "parking_lot":     # a lot page with no witness
+                    evid[DEFAULT_ROAD_KEY] = 1.0
             scored.append((face, role, src.id, None, evid, False))
             continue
         taxi = _touching(face, taxi_tree, taxi_parts, rules)
@@ -794,7 +806,8 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
             # 04z-1 taxi-name veto rides into it as ``taxi_named``.
             role, _why = unclassified_groundside_role(
                 face, rules, road_reached=i in road_ev,
-                taxi_named=bool(evid.get("taxi_name")))
+                taxi_named=bool(evid.get("taxi_name")),
+                lot_evidence=cars_evidence(face, cars))
             evid = dict(evid, demoted=1.0, **_why)
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
@@ -807,7 +820,8 @@ def _classify(airport: Airport, law: Law, rules: Rules, cache,
             evid = dict(evid, **g.evidence)
             if g.role is None:
                 role, evid = open_pavement_role(face, i in road_ev, rules, evid,
-                                                str(g.evidence.get("apron_witness")))
+                                                str(g.evidence.get("apron_witness")),
+                                                cars_evidence(face, cars))
                 stats["open_defaulted"] = stats.get("open_defaulted", 0) + 1
             else:
                 role = g.role

@@ -25,6 +25,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.strtree import STRtree
 
+from ..classify.open_default import DEFAULT_ROAD_PLATE
 from ..classify.pad_sunk import sunk_levels
 from ..classify.roles import Classification
 from ..law import Law
@@ -648,13 +649,24 @@ def build(airport: Airport, classification: Classification, law: Law,
             pts.pop()
         return table.walk([vertex(p) for p in pts], fid)
 
+    from ..classify.rules import load_rules
+    road_role = load_rules().groundside.unclassified_role   # the default road
     for fid, (poly, region) in enumerate(arr.faces):
         poly = orient(poly, sign=1.0)
         ring = walk(poly.exterior.coords, fid)
         holes = tuple(walk(h.coords, fid) for h in poly.interiors)
-        faces[fid] = Face(fid, region.role, region.ref, ring, holes,
+        # A ROAD BY DEFAULT (``classify/lot_evidence``): the arrangement
+        # read it as the lot it was (``overlay.cell_region``); its map face
+        # takes the road's role.  Only a GROUNDSIDE lot region is one: a
+        # region a later pass re-roled (§27's edge flip, a pad) is not
+        # (MEASURED EKVG apron ``dsf:pol20``)
+        by_default = (bool(getattr(region, "default_road", False))
+                      and region.side == "groundside" and region.role == DEFAULT_ROAD_PLATE)
+        faces[fid] = Face(fid, road_role if by_default else region.role,
+                          region.ref, ring, holes,
                           region.code_number, region.code_letter, region.side,
-                          bool(getattr(region, "road_by_proportions", False)))
+                          bool(getattr(region, "road_by_proportions", False)),
+                          by_default)
         stats.faces_by_role[region.role] = stats.faces_by_role.get(region.role, 0) + 1
         stats.area_by_role_m2[region.role] = \
             stats.area_by_role_m2.get(region.role, 0.0) + poly.area

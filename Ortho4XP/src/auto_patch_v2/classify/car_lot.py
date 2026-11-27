@@ -60,8 +60,8 @@ from .edge_line_mint import standing_keep_off
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["mint_car_lots", "cut_car_lots", "car_anchors", "LOT_ROLE", "CARS_KEY",
-           "ANCHORS_KEY"]
+__all__ = ["mint_car_lots", "cut_car_lots", "car_anchors", "seated_cars", "LOT_ROLE",
+           "CARS_KEY", "ANCHORS_KEY"]
 
 LOT_ROLE = "parking_lot"
 #: the cell evidence: how many counted cars stand in the lot
@@ -105,6 +105,23 @@ def _on_ground(o, dem, cfg) -> bool:
     return kind != "OBJECT_AGL" or abs(o.y_offset_m) <= cfg.ground_m
 
 
+def _seated(airport, cfg) -> tuple[np.ndarray, int]:
+    """``(anchors (n, 2), cars placed)``: every parked car the pack places
+    and the anchors of those seated on the ground (:func:`_on_ground`)."""
+    dem = getattr(airport, "dem", None)
+    objs = [o for o in getattr(airport, "dsf_objects", ()) or () if is_parked_car(o.path)]
+    cars = np.array([o.xy for o in objs if _on_ground(o, dem, cfg)],
+                    dtype=float).reshape(-1, 2)
+    return cars, len(objs)
+
+
+def seated_cars(airport, rules: Rules) -> np.ndarray:
+    """The anchors ``(n, 2)`` (frame metres) of every parked car the pack
+    seats ON THE GROUND -- the cars' own witness, wherever they stand (the
+    lot evidence of a classified page reads it, ``classify/lot_evidence``)."""
+    return _seated(airport, rules.car_lots)[0]
+
+
 def _structures(airport) -> Polygon:
     """Every building footprint the airport reads (a pad or not): a car
     inside one is in a garage or a showroom, and no lot covers one."""
@@ -120,12 +137,9 @@ def _structures(airport) -> Polygon:
 def _counted_cars(airport, polys, law: Law, cfg, stats) -> np.ndarray:
     """The car anchors that count: seated on the ground, on no held cell
     or building, not along a road."""
-    dem = getattr(airport, "dem", None)
-    objs = [o for o in getattr(airport, "dsf_objects", ()) or () if is_parked_car(o.path)]
-    stats["cars"] = len(objs)
-    cars = np.array([o.xy for o in objs if _on_ground(o, dem, cfg)],
-                    dtype=float).reshape(-1, 2)
-    stats["cars_raised"] = len(objs) - len(cars)
+    cars, placed = _seated(airport, cfg)
+    stats["cars"] = placed
+    stats["cars_raised"] = placed - len(cars)
     if len(cars) < cfg.min_cars:
         return cars[:0]
     held = unary_union([p for _c, p in polys] + [_structures(airport)])

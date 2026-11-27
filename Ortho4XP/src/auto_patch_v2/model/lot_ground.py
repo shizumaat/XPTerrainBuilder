@@ -29,6 +29,18 @@ def is_datum_lot(face) -> bool:
     return face.role == LOT_DATUM_ROLE and not is_car_lot_ref(face.ref)
 
 
+def _follows_ground(face) -> bool:
+    """``face`` follows its ground within its own grade cap: a datum lot
+    (:func:`is_datum_lot`, RULINGS 2026-11-25e (1)), or a ROAD BY DEFAULT
+    (``Face.default_road``, owner 2026-11-26T23:48Z: the pavement no lot
+    witness names is a road, and a road climbs with its ground, 25e (2)) --
+    at the road's cap, its own role's.  MEASURED EKVG ``pav0#beyond1``
+    (357 x 240 m over DEM 79-93 m): with no row of its own a groundside
+    plate takes its neighbours' level, a 6.2 m cut at its north road."""
+    return is_datum_lot(face) or (bool(getattr(face, "default_road", False))
+                                  and not is_car_lot_ref(face.ref))
+
+
 def lot_road_faces(planar: PlanarMap, law: Law, lots: _t.AbstractSet[int]) -> set[int]:
     """THE ROADS IN A LOT ARE THE LOT (owner RULINGS 2026-10-14a (2): "a
     mapped road (or aisle) that runs inside or edge-shares a parking lot's
@@ -84,7 +96,7 @@ def _lot_faces(planar: PlanarMap, law: Law) -> set[int]:
     in them (:func:`lot_road_faces`)."""
     record = (getattr(planar, "road_terrace", None) or {}).get("lot_level") or {}
     levelled = {int(f) for f in record.get("lots") or ()}
-    lots = {f.id for f in planar.faces.values() if is_datum_lot(f) and f.id not in levelled}
+    lots = {f.id for f in planar.faces.values() if _follows_ground(f) and f.id not in levelled}
     return lots | lot_road_faces(planar, law, lots)
 
 

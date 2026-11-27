@@ -55,13 +55,21 @@ def _way(wid: int, pts, **tags) -> OsmWay:
 
 def _lot_airport():
     """Landside, west of the runway: a 60 x 80 m lot page with three
-    dead-end aisles, entered from the south by an 8 m x 120 m road strip
-    carrying an OSM service road that runs on into the lot."""
+    dead-end MAPPED PARKING AISLES (its lot witness E2, owner
+    2026-11-26T23:48Z: a lot only on evidence), entered from the south by
+    an 8 m x 120 m road strip carrying an OSM service road that runs on
+    into the lot.  ``aisle=False`` draws the same aisles as plain service
+    roads: no witness, the page is the DEFAULT ROAD."""
+    return _lot_airport_with(aisle=True)
+
+
+def _lot_airport_with(*, aisle: bool):
     a = _synthetic(gate=True)
     lot = Pavement("lot", Surface.ASPHALT, _rect(-400.0, 200.0, -340.0, 280.0), ())
     strip = Pavement("strip", Surface.ASPHALT, _rect(-374.0, 80.0, -366.0, 200.0), ())
     road = _way(1, [(-370.0, 60.0), (-370.0, 200.0), (-370.0, 270.0)], highway="service")
-    aisles = [_way(10 + k, [(-370.0, y), (-345.0, y)], highway="service")
+    tags = {"highway": "service", **({"service": "parking_aisle"} if aisle else {})}
+    aisles = [_way(10 + k, [(-370.0, y), (-345.0, y)], **tags)
               for k, y in enumerate((220.0, 240.0, 260.0))]
     return _dc.replace(a, pavements=a.pavements + (lot, strip),
                        osm_ways=a.osm_ways + (road, *aisles))
@@ -74,7 +82,7 @@ def test_road_strip_and_lot_are_two_faces_cut_at_the_mouth(law):
     recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
     assert recs["strip"].cls == "strip", recs["strip"]
     assert recs["lot"].cls == "lot", recs["lot"]
-    assert recs["lot"].road_pieces >= 3            # the aisle grid, not one road
+    assert recs["lot"].lot_evidence.startswith("E2"), recs["lot"]
     cl = classify(a, law, rules)
     cells = _cells(cl)
     roads = [c for c in cells if c[1] == "strip"]
@@ -129,7 +137,10 @@ def test_apron_never_absorbs_an_adjacent_lot(law):
     assert len(page) == 1 and abs(page[0][2] - 60.0 * 80.0) < 1.0
     assert page[0][0] == "apron"                     # §27: the airside edge
     ev = page[0][3].evidence
-    assert ev.get("airside_edge_flip") == 1.0 and ev.get("airside_edge_was") == "parking_lot"
+    # no lot witness on the page: it was the DEFAULT ROAD's plate before
+    # the edge flip (owner 2026-11-26T23:48Z), judged by the lot's rule
+    assert ev.get("airside_edge_flip") == 1.0 and \
+        ev.get("airside_edge_was") == "groundside_pavement"
     # no OTHER apron face reaches into the lot page's rectangle
     for _r, _ref, _a, c in cells:
         if _ref == "lotpage" or _r != "apron":
@@ -199,12 +210,13 @@ def test_network_taxiway_makes_a_detached_page_airside(law):
     # the detached island with NO taxiway on it is still landside (M1 law).
     # Its ROLE moved on 2026-10-02 (§110, issue #110): the 100 x 100 m
     # island is unclassified groundside pavement with no ribbon
-    # proportions, so it is a `parking_lot` where it used to be
-    # `groundside_pavement`.  What this twin pins is the SIDE -- the M1
-    # touch-chain law -- not which groundside role §110 names.
+    # proportions, so it was a `parking_lot`; since 2026-11-26 (owner
+    # 23:48Z, a lot only on evidence) it is the DEFAULT ROAD's plate.
+    # What this twin pins is the SIDE -- the M1 touch-chain law -- not
+    # which groundside role the default names.
     island = [c for c in cl.cells if c.ref == "island"]
     assert island and all(c.side == "groundside" for c in island)
-    assert [c.role for c in island] == ["parking_lot"], \
+    assert [c.role for c in island] == ["groundside_pavement"], \
         [(c.role, c.side) for c in island]
 
 
@@ -541,17 +553,19 @@ def test_unclassified_groundside_pavement_is_a_lot_or_a_road_ribbon(law):
     ribbon = [c for c in cells if c[1] == "ribbon"]
     plate = [c for c in cells if c[1] == "plate"]
     assert [c[0] for c in ribbon] == ["service_road"], ribbon
-    assert [c[0] for c in plate] == ["parking_lot"], plate
-    # both stay groundside, and each is priced by its OWN law
+    # no lot witness: the plate is the DEFAULT ROAD (owner 2026-11-26T23:48Z)
+    assert [c[0] for c in plate] == ["groundside_pavement"], plate
+    assert plate[0][3].evidence.get("default_road") == 1.0
+    # both stay groundside, and both are priced by the road law
     assert ribbon[0][3].side == "groundside" and plate[0][3].side == "groundside"
-    assert role_cap(law, "service_road").longitudinal > \
-        role_cap(law, "parking_lot").longitudinal
+    assert role_cap(law, "groundside_pavement").longitudinal == pytest.approx(
+        law.tables.common.road_max_grade)
     # the proportions are RECORDED as evidence on the face
     assert ribbon[0][3].evidence["ribbon_aspect"] > \
         rules.groundside.road_ribbon_min_aspect
     assert plate[0][3].evidence["ribbon_aspect"] < \
         rules.groundside.road_ribbon_min_aspect
-    assert "§110" in str(plate[0][3].evidence["unclassified_default"])
+    assert "default road" in str(plate[0][3].evidence["unclassified_default"])
 
 
 def test_the_ribbon_test_reads_the_rotated_rectangle_not_the_bbox(law):
@@ -650,3 +664,60 @@ def test_a_proportions_ribbon_bridging_airside_end_on_is_apron(law):
     # a road BY EVIDENCE (no §110 proportions verdict) keeps its mouths
     kept = run({})
     assert kept[0] == "service_road", kept[4]
+
+
+# ── a lot only on evidence (owner 2026-11-26T23:48Z, #2283 EKVG) ─────────
+
+def test_a_lot_page_with_no_witness_is_the_default_road(law):
+    """The same page with its aisles drawn as plain service roads: roads
+    reaching and running inside a page are no lot witness, so the page is
+    the DEFAULT ROAD -- the road-law plate, marked ``default_road``."""
+    cl = classify(_lot_airport_with(aisle=False), law)
+    lots = [c for c in cl.cells if c.ref == "lot"]
+    assert [c.role for c in lots] == ["groundside_pavement"], [c.role for c in lots]
+    assert lots[0].evidence.get("default_road") == 1.0
+    assert not lots[0].evidence.get("lot_evidence")
+
+
+def test_parked_cars_on_a_page_make_it_a_lot(law):
+    """E3: at least ``[car_lots] min_cars`` ground-seated parked cars on the
+    page are its lot witness (owner RULINGS 2026-11-16p)."""
+    from auto_patch_v2.model.airport import DsfObject
+    a = _lot_airport_with(aisle=False)
+    car = "lib/airport/vehicles/parking/car.obj"
+    cars = tuple(DsfObject(f"dsf:obj{k}", car, (-390.0 + 6.0 * k, 250.0), 0.0, None, False,
+                           None, 0.0) for k in range(4))
+    cl = classify(_dc.replace(a, dsf_objects=tuple(a.dsf_objects) + cars), law)
+    lots = [c for c in cl.cells if c.ref == "lot"]
+    assert [c.role for c in lots] == ["parking_lot"], [c.role for c in lots]
+    assert str(lots[0].evidence.get("lot_evidence", "")).startswith("E3")
+
+
+def test_lot_cars_count_only_inside_the_face():
+    from shapely.geometry import box
+    from auto_patch_v2.classify.lot_evidence import LotCars, cars_evidence
+    import numpy as np
+    cars = LotCars(np.array([(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (50.0, 50.0)]), 3)
+    assert cars.on(box(0, 0, 10, 10)) == 3
+    assert cars_evidence(box(0, 0, 10, 10), cars).startswith("E3: 3")
+    assert cars_evidence(box(0, 0, 2.5, 2.5), cars) == ""
+    assert cars_evidence(box(0, 0, 10, 10), None) == ""
+
+
+def test_a_default_road_stands_as_the_lot_and_grades_as_a_road(law):
+    """The arrangement reads a road by default as the LOT it was (every
+    planar pass sees ``parking_lot``); its map face takes the road role and
+    the ``default_road`` mark (``planar/overlay.cell_region``, ``build``)."""
+    from auto_patch_v2.planar.overlay import cell_region
+    a = _lot_airport_with(aisle=False)
+    cl = classify(a, law)
+    cell = [c for c in cl.cells if c.ref == "lot"][0]
+    reg = cell_region(cell)
+    assert cell.role == "groundside_pavement" and reg.role == "parking_lot" and reg.default_road
+    pm, _stats = planar_build(a, cl, law)
+    lot = [f for f in pm.faces.values() if f.ref == "lot"]
+    assert lot and all(f.role == "groundside_pavement" and f.default_road for f in lot)
+    # the evidenced page is a lot all the way through
+    pm2, _s = planar_build(_lot_airport(), classify(_lot_airport(), law), law)
+    lot2 = [f for f in pm2.faces.values() if f.ref == "lot"]
+    assert lot2 and all(f.role == "parking_lot" and not f.default_road for f in lot2)

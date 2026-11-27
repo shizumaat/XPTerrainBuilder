@@ -167,7 +167,11 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             # (owner #1028 Q32: "never cross a pavement edge"): its edge,
             # clear of the mouth's own cap, stops the ramp's top
             # (a road hosting it is the ramp's own: its pavement traces the ramp)
-            edge = None if (not airside and c.role != "parking_lot") \
+            # a ROAD BY DEFAULT is still the lot's plate here, as in the
+            # arrangement (``overlay.cell_region``, owner 2026-11-26T23:48Z)
+            lot = c.role == "parking_lot" or (c.side == "groundside" and bool(
+                (getattr(c, "evidence", None) or {}).get("default_road")))
+            edge = None if (not airside and not lot) \
                 or _own_road(axis, p, half + rim_off, grid) else \
                 p.exterior.buffer(grid).difference(mouth_end)
             if edge is not None and not edge.is_empty:   # (the ramp's own road IS it)

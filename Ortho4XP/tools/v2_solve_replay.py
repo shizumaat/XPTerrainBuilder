@@ -1323,7 +1323,8 @@ def _under_seat_line(icao, law, surf, airport, objects, got) -> None:
 def reclassify(pkl: Path, rule: dict[str, object],
                json_out: Path | None, top: int = 12,
                roles_out: Path | None = None, roles_against: Path | None = None,
-               protect: "tuple[str, ...] | list[str]" = ()) -> int:
+               protect: "tuple[str, ...] | list[str]" = (),
+               flip_role: str = "apron") -> int:
     """THE §40 SHOULDER-BAND READING, DRY, OFF A REGISTERED CAPTURE
     (lane ``v2shoulderband`` r2; promoted on its second use per RULINGS
     ``7e90032`` — r1 hand-rolled it in a scratchpad for the HECA control
@@ -1383,7 +1384,7 @@ def reclassify(pkl: Path, rule: dict[str, object],
         if roles_against:
             print(f"[{icao}] ROLE FLIPS against {roles_against}")
             flips = role_flips.report(roles_against, cl.cells, _to_ll,
-                                      protect=protect)
+                                      role=flip_role, protect=protect)
 
     rw_of = {rw.id: rw for rw in airport.runways}
     def _lat_off(ring, rw) -> float:
@@ -3409,6 +3410,10 @@ def main() -> int:
                          "apron area that left apron, by new role and by base "
                          "minting rule, the largest flips with lat, lon, the "
                          "cells that became apron (tools/role_flips.py)")
+    ap.add_argument("--flip-role", default="apron", metavar="ROLE",
+                    help="with --roles-against: the role whose flips are "
+                         "tabled (default apron; parking_lot for the lot-"
+                         "evidence census, #2283)")
     ap.add_argument("--protect", action="append", default=[], metavar="REF",
                     help="with --roles-against: a ref that must stay apron "
                          "(an owner-ruled apron); any flip of it is printed")
@@ -3685,7 +3690,8 @@ def _dispatch(a, ap) -> int:
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)
         return reclassify(a.reclassify, rl, a.json, roles_out=a.roles_out,
-                          roles_against=a.roles_against, protect=a.protect)
+                          roles_against=a.roles_against, protect=a.protect,
+                          flip_role=a.flip_role)
     if a.why_from:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:

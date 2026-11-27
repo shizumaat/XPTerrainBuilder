@@ -125,17 +125,21 @@ def _reached_page_airport():
                        ground_routes=routes)
 
 
-def test_open_page_a_route_reaches_is_a_lot(law):
+def test_open_page_a_route_reaches_is_the_default_road(law):
+    """A route reaching a page is no lot witness (owner 2026-11-26T23:48Z):
+    the page is a ``lot``-class source page with no ``lot_evidence``, and
+    its face is the DEFAULT ROAD."""
     a = _reached_page_airport()
     rules = load_rules()
     ev = build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2)
     recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
     page = recs["page"]
     assert page.road_m == pytest.approx(0.0) and page.road_reach == 1
-    assert page.cls == "lot" and "reach" in page.reason
+    assert page.cls == "lot" and "reach" in page.reason and not page.lot_evidence
     cl = classify(a, law, rules)
     cells = [c for c in cl.cells if c.ref == "page"]
-    assert [c.role for c in cells] == ["parking_lot"], cells
+    assert [c.role for c in cells] == ["groundside_pavement"], cells
+    assert cells[0].evidence["default_road"] == 1.0
     assert cells[0].side == "groundside"
     assert cells[0].evidence["source_road_reach"] == 1.0
     # the route's corridor outside pavement is a service road
@@ -193,7 +197,8 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     """
     rules = load_rules()
     assert rules.groundside.default_open_role == "groundside_pavement"
-    assert rules.groundside.unclassified_role == "parking_lot"
+    # owner 2026-11-26T23:48Z: unclassified pavement is the DEFAULT ROAD
+    assert rules.groundside.unclassified_role == "groundside_pavement"
     # A NARROW page on the runway edge: chain-seeded, so the 04u OPEN
     # DEFAULT is what speaks (not the touch-chain demotion), and every
     # shared edge — with the runway, and with its own proximity-band
@@ -202,8 +207,8 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     cl = classify(a, law, rules)
     cells = [c for c in cl.cells if c.ref == "bare"]
     roles = {c.role for c in cells}
-    assert "parking_lot" in roles and "apron" not in roles, cells
-    gs = [c for c in cells if c.role == "parking_lot"]
+    assert "groundside_pavement" in roles and "apron" not in roles, cells
+    gs = [c for c in cells if c.role == "groundside_pavement"]
     assert all(c.side == "groundside" and c.evidence.get("open_default") == 1.0
                and not c.evidence.get("demoted") for c in gs)
     # §110: the remainder is 6 x 25 m — a plate by its proportions, not a
@@ -216,12 +221,16 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
                    if c.ref == "bare")
     # the apron itself (startup + taxi centreline) is still apron
     assert any(c.role == "apron" and c.ref == "apron" for c in cl.cells)
-    # ...and the same page with a route reaching it is a lot too (§110: a
+    # ...and the same page with a route reaching it is the same (§110: a
     # road reaching a face is evidence, no longer the verdict)
     cl2 = classify(_bare_page_airport(reach=True, width=6.0), law, rules)
     cells2 = [c for c in cl2.cells if c.ref == "bare"]
-    assert cells2 and "parking_lot" in {c.role for c in cells2} and \
-        "apron" not in {c.role for c in cells2}, cells2
+    # (owner 2026-11-26T23:48Z: the default road, a road reaching it or not;
+    # the reached page is a 6 x 75 m source page, a ribbon by its proportions)
+    assert cells2 and {c.role for c in cells2} & {"groundside_pavement", "service_road"} \
+        and "apron" not in {c.role for c in cells2}, cells2
+    assert all(c.evidence.get("default_road") for c in cells2
+               if c.role in ("groundside_pavement", "service_road")), cells2
 
 
 def test_an_open_page_welded_to_the_runway_is_apron(law):
@@ -248,7 +257,9 @@ def test_an_open_page_welded_to_the_runway_is_apron(law):
         # `parking_lot` in BOTH arms — the 90 x 25 m remainder is a plate
         # by its proportions (aspect 3.6), and a road reaching it no longer
         # decides.  Before #110 the no-road arm read `groundside_pavement`.
-        assert was == {"parking_lot"}, (reach, was)
+        # owner 2026-11-26T23:48Z: with no lot witness it is the DEFAULT
+        # ROAD's plate in both arms, judged by the lot's rule at the edge
+        assert was == {"groundside_pavement"}, (reach, was)
         assert all(float(c.evidence["airside_edge_m"]) >= 10.0 for c in flipped)
         # the proximity band's own verdict is untouched where the band
         # splits the page (the road-reached page is one lot face, uncut)

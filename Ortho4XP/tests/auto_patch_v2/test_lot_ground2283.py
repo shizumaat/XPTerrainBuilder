@@ -258,3 +258,17 @@ def test_a_chord_over_the_road_is_published_from_a_lot_without_one(pm):
     assert n == 1
     got = pub.get((key[7], key[8]), pub.get((key[8], key[7])))
     assert got == pytest.approx(out.cap * out.d, abs=1e-3)
+
+
+# --- a lot only on evidence: the default road (owner 2026-11-26T23:48Z) ----
+
+def test_a_default_road_plate_follows_its_ground():
+    """A ROAD BY DEFAULT (``Face.default_road``) follows its ground like a
+    lot; a plain groundside plate (an edge strip) does not."""
+    road = types.SimpleNamespace(id=1, role="groundside_pavement", ring=(0, 1, 2), holes=(),
+                                 ref="dsf:pol23", default_road=True)
+    strip = types.SimpleNamespace(id=2, role="groundside_pavement", ring=(3, 4, 5), holes=(),
+                                  ref="edgestrip:0:pav0", default_road=False)
+    pm = _map([road, strip], [10.0, 11.0, 12.0, 13.0, 14.0, 15.0])
+    assert lot_datum_vertices(pm, LAW) == {0, 1, 2}
+

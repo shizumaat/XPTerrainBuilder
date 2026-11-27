@@ -268,6 +268,20 @@ def _storey_lots(cells) -> dict[str, float]:
             if STOREY_Y_KEY in (c.evidence or {})}
 
 
+def _storey_floor(cells):
+    """THE AIRSIDE FLOOR the storey lots meet (#2279; RULINGS 2026-11-26c):
+    the union of their kerb lines (``classify.storey_edge``'s
+    ``STOREY_PLAN_KEY`` rings) -- the retaining wall's airside, or ``None``."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from ..classify.storey_edge import STOREY_PLAN_KEY
+    rings = [Polygon(r) for c in cells for r in (c.evidence or {}).get(STOREY_PLAN_KEY, ())
+             if len(r) >= 4]
+    rings = [p if p.is_valid else p.buffer(0.0) for p in rings]
+    return unary_union(rings) if rings else None
+
+
 def _store_floor_yards(cells, reg: Registries) -> None:
     """#2068: a floor yard stands on its floor pad's held block -- the
     record goes on a held, non-conforming pad's ``held`` record only."""
@@ -527,6 +541,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                                             getattr(airport, "dem", None),
                                             airport=airport, reg=reg,
                                             storey=_storey_lots(cells),
+                                            storey_floor=_storey_floor(cells),
                                             seeds=level_seeds, shells=shells,
                                             upper=upper_pad_reads(cells))
         _pad_clip.update(_plat)

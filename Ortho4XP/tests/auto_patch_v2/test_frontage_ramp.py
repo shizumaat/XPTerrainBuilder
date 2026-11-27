@@ -208,3 +208,35 @@ def test_the_airside_floor_ends_at_the_road_through_the_storey():
     under = unary_union([f[2] for f in final[2:] if f[0] == "apron"])
     assert under.area == pytest.approx(230.0 * (30.0 - half), rel=1e-3)
     assert under.intersection(band.roads).area < 1.0
+
+
+def test_a_pad_wholly_past_the_wall_is_the_upper_level(monkeypatch):
+    """RULINGS 2026-11-26c: the unit's main block stands over the airside
+    floor; a canopy pad of the same unit wholly past it, touching the
+    storey lot, becomes the main block's upper landing at the storey's
+    rise; a pad keeping a pad's worth on the floor is left to ``plan_up``."""
+    import dataclasses
+
+    import auto_patch_v2.planar.low_level as ll
+    from auto_patch_v2.planar.past_wall import past_the_wall
+
+    @dataclasses.dataclass(frozen=True)
+    class Reg:
+        ref: str
+        polygon: object
+    monkeypatch.setattr(ll, "unit_share", lambda P, airport, to_xy: (0, []))
+    floor = box(0.0, 0.0, 100.0, 40.0)
+    groups = {"main": [Reg("main", box(0.0, 0.0, 100.0, 40.0))],
+              "canopy": [Reg("canopy", box(20.0, 50.0, 40.0, 70.0))],
+              "half": [Reg("half", box(60.0, 10.0, 80.0, 60.0))]}
+    lot = box(0.0, 40.0, 100.0, 100.0).difference(box(20.0, 50.0, 40.0, 70.0))
+    reg = NS(landings={})
+    ap = NS(frame=NS(entry=lambda: (lambda lon, lat: (lon, lat))))
+    done: dict = {}
+    air = box(0.0, -50.0, 100.0, 0.0)
+    got = past_the_wall(groups, done, [(lot, 4.1)], floor, ap, LAW, 0.25, reg, "up",
+                        lambda P: air)
+    assert got == {"canopy"}
+    assert [r.ref for r in done["canopy"]] == ["canopy/p1"]
+    assert done["canopy"][0].polygon.area == pytest.approx(400.0)
+    assert reg.landings["canopy/p1"]["block"] == "main" and reg.landings["canopy/p1"]["y"] == 4.1

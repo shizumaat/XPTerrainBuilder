@@ -3882,7 +3882,7 @@ for _stage in ("emit", "verify"):
 for _stage, _mods_of in list(CODE_MODULES.items()):
     if "auto_patch_v2.planar.low_level" in _mods_of:
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage],
-                                             *_mods("planar.frontage_roads")}))
+                                             *_mods("planar.frontage_roads planar.past_wall")}))
     if "auto_patch_v2.airport.road_ways" in _mods_of:
         # its carriageway corridors (``road_corridors``) read valid areas
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("geom.valid_area")}))

@@ -559,18 +559,27 @@ def _fmt(g_hi, g_lo) -> str:
     return "n/a" if g_hi is None or g_lo is None else f"{g_hi - g_lo:+.2f}"
 
 
-def plan_up(P, air, lots, rise: float, law, grid: float, others=None, airport=None
-            ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
+def plan_up(P, air, lots, rise: float, law, grid: float, others=None, airport=None,
+            floor=None) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, upper, strip, record)`` for one held pad ``P`` touching the
     storey lots ``lots`` (one geometry) whose storey stands ``rise`` above
     the pad's floor (module docstring), or ``None``.  With ``airport`` the
     mapped roads leaving the pad from the upper level on its groundside are
-    on it (``planar/frontage_roads``)."""
+    on it (``planar/frontage_roads``).  ``floor``: the unit's airside floor
+    (the storey lots' kerb line): EVERYTHING PAST THE RETAINING WALL IS THE
+    UPPER GROUNDSIDE LEVEL (owner 2026-11-26, RULINGS 2026-11-26c) -- every
+    piece of the pad off that floor that the lots touch is the upper level
+    whole (MEASURED PHLI: ``building15`` covers the kerb canopy and island
+    past the kerb road, 47.52 m between a forecourt at 51.6)."""
     from ..law.tables import design as design_law
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     U = P.intersection(lots.buffer(near, join_style=2))
+    if floor is not None and not floor.is_empty:
+        past = [q for q in nonempty_polygon_parts(P.difference(floor.buffer(w, join_style=2)))
+                if q.distance(lots) <= w]
+        U = unary_union([U, *past])
     if airport is not None:
         from .frontage_roads import frontage_roads
         U = unary_union([U, *frontage_roads(U, P, air, airport, law, near, w)])
@@ -618,7 +627,7 @@ def _ground(L, dem, step: float) -> "float | None":
 
 def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     law, grid: float, counts: dict, *, reg: Registries,
-                    storey_lots: _t.Sequence = (),
+                    storey_lots: _t.Sequence = (), storey_floor=None,
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
                     lots: _t.Sequence = (), seeds: _t.Sequence = (),
@@ -629,7 +638,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
     ``reg.landings``.  ``storey_lots`` — ``(polygon, rise)`` of the lots
-    met across a storey — give the held pads they touch an UPPER level.
+    met across a storey — give the held pads they touch an UPPER level,
+    reaching every piece of the pad past ``storey_floor`` (the airside
+    floor they meet, RULINGS 2026-11-26c) that they touch.
     Each lower level then extends over its group's lower footprint
     (``planar/low_extent``, #1306/#1302), kept off ``air_all`` -- every
     airside or structure REGION, the zones among them (default: ``air_polys`` as
@@ -756,7 +767,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                             law, grid, counts, reg, cut_levels)
     _upper_split({r: g for r, g in groups.items() if r not in by_pad and not (
                      r in done and r in (upper or {}))}, done, out, tree,
-                 air_polys, storey_lots, law, grid, reg, airport)
+                 air_polys, storey_lots, law, grid, reg, airport, storey_floor)
     if cut_levels:
         # the cut's ENDS grade to the open cut at the rail grade (28r (3),
         # ``planar/cut_runout``): landing run-outs of the level
@@ -922,7 +933,7 @@ def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:
 
 
 def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
-                 grid: float, reg: Registries, airport=None) -> None:
+                 grid: float, reg: Registries, airport=None, floor=None) -> None:
     """THE UPPER LEVELS (module docstring): every held pad in ``groups``
     touching a storey lot -- a block a lower level split keeps it, as
     ``<block>/p2`` on its high remainder (RULINGS 2026-10-23b: a two-level
@@ -931,7 +942,15 @@ def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
         return
     lots = [g for g, _y in storey_lots]
     ltree = STRtree(lots)
+    # RULINGS 2026-11-26c: a pad wholly past the airside floor's wall is
+    # the unit's upper level whole (``planar/past_wall``)
+    from .past_wall import past_the_wall
+    past = past_the_wall(groups, done, storey_lots, floor, airport, law, grid, reg, UP_KIND,
+                         lambda P: unary_union([air_polys[int(j)] for j in tree.query(
+                             P.buffer(50.0), predicate="intersects")]))
     for ref, regs in sorted(groups.items()):
+        if ref in past:
+            continue
         lower = done.get(ref) or []
         high = [r for r in lower if str(r.ref) == ref] if lower else regs
         rest = [r for r in lower if str(r.ref) != ref]
@@ -945,7 +964,8 @@ def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))]
                              + [r.polygon for r in rest if r.polygon is not None])
         got = plan_up(P, air, unary_union([lots[j] for j in hit]),
-                      min(storey_lots[j][1] for j in hit), law, grid, others, airport)
+                      min(storey_lots[j][1] for j in hit), law, grid, others, airport,
+                      floor)
         if got is None:
             continue
         H, U, S, rec = got

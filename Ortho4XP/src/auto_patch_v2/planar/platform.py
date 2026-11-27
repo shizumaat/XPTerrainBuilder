@@ -188,9 +188,11 @@ def platform_split(base_regions, pad_regions, law: Law,
                    grid: float = 0.0, dem=None, airport=None, *,
                    reg: Registries, storey: _t.Mapping[str, float] | None = None,
                    seeds: _t.Sequence = (), shells: _t.Sequence = (),
-                   upper: _t.Mapping[str, tuple] | None = None) -> tuple[list, dict]:
+                   upper: _t.Mapping[str, tuple] | None = None,
+                   storey_floor=None) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
-    counts)``.
+    counts)``.  ``storey_floor``: the airside floor the storey lots meet
+    (``planar/overlay._storey_floor``), handed to ``low_level_split``.
 
     Flat-pad spec §2 (RULINGS 2026-09-30f): with ``[building_pad]
     frontage_hold`` on, every unit pad is TESTED and PARTITIONED per rigid
@@ -386,6 +388,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                           storey_lots=[(r.polygon, float(storey[str(r.ref)]))
                                        for r in base_regions if storey
                                        and str(r.ref) in storey and r.polygon is not None],
+                          storey_floor=storey_floor,
                           air_all=[r for r in base_regions if r.polygon is not None
                                    and not r.polygon.is_empty
                                    and (_side(law, r.role) == "airside"

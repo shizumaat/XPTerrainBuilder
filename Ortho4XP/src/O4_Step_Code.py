@@ -1233,6 +1233,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Mesh_Utils",
         "O4_Num_Text",
         "O4_Object_Stage",
+        # the object stage beside the masks and imagery steps (#1264)
+        "O4_Object_Stage_Beside",
         "O4_Object_Stage_Code",
         # the post-mesh sea guard (lflood): its witness, the coastline
         "O4_Sea_Leak_Guard",

@@ -619,8 +619,12 @@ def _stop_session_and_exit_process(session: EngineSession,
         pass
     deadline = time.time() + _shutdown_grace_seconds()
     # _building is the session's own run flag, cleared by both run modes'
-    # end paths once the cancel is acknowledged.
-    while time.time() < deadline and session._building:
+    # end paths once the cancel is acknowledged; an object stage running
+    # beside a worker's steps (#1264) gets the same window to finish its
+    # pack writes (past it, the pack journal puts them back).
+    import O4_Object_Stage_Beside as OBJECT_STAGE_BESIDE
+    while time.time() < deadline and (session._building
+                                       or OBJECT_STAGE_BESIDE.pending()):
         time.sleep(0.1)
     if reason in _FRONT_END_GONE:
         # The app quit (or died): its edit caches go with it unless a

@@ -76,6 +76,10 @@ that safe:
   What the mesh step hands on leaves its pack DSFs out
   (:func:`_handed_on`): no later step reads them, so that re-run leaves
   the masks reusable;
+- while the object stage still runs BESIDE the masks and imagery steps
+  (#1264, ``O4_Object_Stage_Beside``) the mesh step's record names
+  neither its pack DSFs nor the stage's code (a build that dies first
+  runs the stage again over the reused mesh); the join cuts it again;
 - the record file is replaced whole (temporary file + ``os.replace``): a
   process killed while writing it leaves the record as it was, and one
   that cannot be read reads as no record.
@@ -607,6 +611,16 @@ def _handed_outputs_digest(entry: dict) -> str:
                             if row and row[0] not in packs])
 
 
+def _object_stage_beside(tile) -> bool:
+    """The tile's object stage still runs beside its steps; the record is
+    then cut again when it is joined (``O4_Object_Stage_Beside``)."""
+    import O4_Object_Stage_Beside as BESIDE
+    if not BESIDE.pending(tile):
+        return False
+    BESIDE.recut_when_done(tile, lambda: record(tile, "mesh"))
+    return True
+
+
 def _object_stage_code() -> "str | None":
     """The object stage's own code digest (``O4_Object_Stage_Code``)."""
     import O4_Object_Stage_Code as OBJCODE
@@ -802,7 +816,12 @@ def record(tile, step: str, osm_files=None) -> None:
         if step == "vector" and osm_files is None:
             osm_files = _osm_files(tile)
         inputs = _inputs(tile, step, _previous_digest(doc, step), osm_files)
-        pack_dsfs = _journalled_dsfs(tile) if step == "mesh" else []
+        # The object stage still running beside the later steps (#1264):
+        # the record names neither its packs nor its code until the join
+        # cuts it again, so a build that dies first runs the stage again.
+        beside = step == "mesh" and _object_stage_beside(tile)
+        pack_dsfs = _journalled_dsfs(tile) if step == "mesh" and not beside \
+            else []
         rows = _outputs(tile, step, pack_dsfs)
         committed = dict(doc.get("committed") or {})
         committed[step] = {"inputs": inputs, "digest": _digest(inputs),
@@ -810,7 +829,8 @@ def record(tile, step: str, osm_files=None) -> None:
                            else None,
                            "pack_dsfs": pack_dsfs,
                            "object_code": (_object_stage_code()
-                                           if step == "mesh" else None),
+                                           if step == "mesh" and not beside
+                                           else None),
                            "outputs": rows,
                            "outputs_digest": _outputs_digest(rows)}
         _write(tile, {"committed": committed})

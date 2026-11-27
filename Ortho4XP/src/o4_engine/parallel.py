@@ -780,6 +780,10 @@ class _WorkerChild:
         # True from the vector step until the imagery step adopts the
         # tile's imagery job or it reports: it may still take a token.
         self.imagery_job_open = False
+        # True from a mesh step sent ``objects_beside`` until the tile's
+        # next step other than masks starts (#1264): between its steps the
+        # tile's object stage may still be writing packs in this child.
+        self.objects_beside = False
         # While the step only waits (step_class is step_parking's
         # WAITING_CLASS): the class it returns to and its memory booking.
         self.parked_class = None
@@ -1998,7 +2002,11 @@ class ParallelBuildRun:
                     and self._may_prefetch_locked(child.tile, step_key))
         if opens_job:
             arguments = dict(arguments, prefetch=True, token_lent=prefetch)
+        beside = self._objects_beside_locked(child.tile, step_key)
+        if beside:
+            arguments = dict(arguments, objects_beside=True)
         if child.start_step(step_key, arguments):
+            child.objects_beside = beside
             if prefetch:
                 self._class_active["imagery"] += 1
                 child.prefetch_token = True
@@ -2104,6 +2112,16 @@ class ParallelBuildRun:
                            "lon": child.tile[1]}):
                 self._class_active["imagery"] += 1
                 child.prefetch_token = True
+
+    def _objects_beside_locked(self, tile, step_key):
+        """Whether the tile's ``step_key`` may run beside (mesh) or with
+        (masks) the mesh step's object stage: the imagery step, which joins
+        it, follows in this child (#1264, ``O4_Object_Stage_Beside``)."""
+        if step_key not in ("mesh", "masks"):
+            return False
+        program = tuple(self._programs.get(tile, ()))
+        index = self._next_step_index.get(tile, 0)
+        return "imagery" in program[index + 1:]
 
     def _close_imagery_job_locked(self, child):
         """The tile left this child: its job can take no token, and one it
@@ -2328,6 +2346,7 @@ class ParallelBuildRun:
     def cancel_tile(self, tile):
         emit_stopped = False
         cancelling = None
+        ending = None
         with self._lock:
             attempt = self._attempt(tile)
             if tile in self._queue:
@@ -2339,7 +2358,17 @@ class ParallelBuildRun:
                 for child in self._children:
                     if child.tile != tile or child.retired:
                         continue
-                    if child.running_step is None:
+                    if (child.running_step is None
+                            and getattr(child, "objects_beside", False)):
+                        # Between steps, but the mesh step's object stage
+                        # may still write packs in it (#1264): the child
+                        # ends (its exit waits for the stage within the
+                        # shutdown grace) and the tile is reported stopped,
+                        # its packs put back, once it has exited.
+                        child.cancelling = True
+                        ending = child
+                        accepted = True
+                    elif child.running_step is None:
                         # Between steps: no child cancel needed at all —
                         # stop dispatching and report stopped (spec §3.8);
                         # the child stays clean and reusable.
@@ -2356,6 +2385,8 @@ class ParallelBuildRun:
                     break
             if accepted:
                 self._freeze_tile_clock_locked(tile)
+        if ending is not None:
+            self._escalate_cancel(ending)
         if cancelling is not None:
             # Same bounded clock as cancel_all: a per-tile Stop on a
             # child wedged in an operation that never polls its red
@@ -2387,10 +2418,15 @@ class ParallelBuildRun:
             self._queue.clear()
             waiting = []
             cancelling = []
+            ending = []
             for child in self._children:
                 if child.retired or child.tile is None:
                     continue
-                if child.running_step is None:
+                if (child.running_step is None
+                        and getattr(child, "objects_beside", False)):
+                    child.cancelling = True        # see cancel_tile (#1264)
+                    ending.append(child)
+                elif child.running_step is None:
                     waiting.append(child.tile)
                     child.tile = None
                 else:
@@ -2403,6 +2439,8 @@ class ParallelBuildRun:
             self._session._emit(self._stopped_state(tile, attempts[tile]))
         for child in cancelling:
             self._arm_cancel_escalation(child)
+        for child in ending:
+            self._escalate_cancel(child)
         self._maybe_finish()
 
     def _arm_cancel_escalation(self, child):

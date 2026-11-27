@@ -26,6 +26,12 @@ opened outside Python (a C library, a subprocess) reads is not seen; the
 DEM's rasters, the one such read the front half makes, are witnessed by
 their answers (``airport/dem_record``).
 
+A window opened on a thread that :func:`confine_to_thread` marked records
+only that thread's opens: the object stage running BESIDE the masks and
+imagery steps (#1264, ``O4_Object_Stage_Beside``) opens its windows there,
+and the orthophotos, masks and textures those steps open meanwhile are not
+its inputs.  Unmarked threads record every thread's opens, as before.
+
 The hook is installed once per process and does nothing while no window
 is open.
 """
@@ -37,7 +43,7 @@ import threading
 import typing as _t
 import weakref
 
-__all__ = ["FileRecorder", "holds", "note"]
+__all__ = ["FileRecorder", "confine_to_thread", "holds", "note"]
 
 _CODE = (".py", ".pyc", ".pyd", ".so", ".dylib", ".dll")
 #: the stage cache's own records and index (``airport/stage_cache``)
@@ -48,6 +54,8 @@ _LOCK = threading.Lock()
 #: the open windows, held weakly: a build that raised mid-window leaves none
 _ACTIVE: "weakref.WeakSet[FileRecorder]" = weakref.WeakSet()
 _HOOKED = False
+#: ``confined``: the windows this thread opens record its opens only
+_THREAD = threading.local()
 
 
 def _as_str(path: _t.Any) -> "str | None":
@@ -70,8 +78,9 @@ def _hook(event: str, args: tuple) -> None:
     if event == "os.rename":            # ``os.rename`` / ``os.replace``
         dst = _as_str((tuple(args) + (None, None))[1])
         if dst is not None and not os.path.basename(dst).startswith(_OWN):
+            me = threading.get_ident()
             for rec in tuple(_ACTIVE):
-                if rec._written is not None:
+                if rec._written is not None and rec._thread in (None, me):
                     rec._written.add(dst)
         return
     path, mode, flags = (tuple(args) + (None, None, None))[:3]
@@ -83,7 +92,10 @@ def _hook(event: str, args: tuple) -> None:
         writing = any(c in mode for c in "wax+")
     else:
         writing = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
+    me = threading.get_ident()
     for rec in tuple(_ACTIVE):
+        if rec._thread is not None and rec._thread != me:
+            continue
         if not writing:
             rec._paths.add(path)
         elif rec._written is not None:
@@ -115,12 +127,16 @@ class FileRecorder:
         #: with ``writes``: every file opened for writing or renamed onto
         #: (``os.rename`` / ``os.replace``) — the object stage's outputs (#879)
         self._written: "set[str] | None" = set() if writes else None
+        #: the one thread whose opens this window records (None: every one)
+        self._thread: "int | None" = None
         _install()
 
     def recording(self, on: bool) -> None:
         """Open (``True``) or close the window."""
         with _LOCK:
             if on:
+                self._thread = (threading.get_ident()
+                                if getattr(_THREAD, "confined", False) else None)
                 _ACTIVE.add(self)
             else:
                 _ACTIVE.discard(self)
@@ -147,13 +163,20 @@ class FileRecorder:
         self._paths.update(record or ())
 
 
+def confine_to_thread() -> None:
+    """The windows this thread opens from now on record only this
+    thread's opens (module doc)."""
+    _THREAD.confined = True
+
+
 def note(reads: _t.Iterable[str], written: _t.Iterable[str] = ()) -> None:
     """Record ``reads`` / ``written`` in every open window, as if this
-    process had opened them: the files a WORKER opened for a window of
+    thread had opened them: the files a WORKER opened for a window of
     this one (#412 2b, ``object_stage``'s plans computed ahead)."""
     reads, written = tuple(reads), tuple(written)
+    me = threading.get_ident()
     with _LOCK:
-        recs = tuple(_ACTIVE)
+        recs = tuple(r for r in _ACTIVE if r._thread in (None, me))
     for rec in recs:
         rec._paths.update(reads)
         if rec._written is not None:

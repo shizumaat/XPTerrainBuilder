@@ -27,6 +27,7 @@ import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Step_Reuse as REUSE  # noqa: F401
 import O4_Stopped_Build as STOPPED
 import O4_Unpatched_Airports as UNPATCHED
+import O4_Object_Stage_Beside as OBJECT_STAGE_BESIDE
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -603,6 +604,9 @@ def build_tile(tile):
         # skip_downloads): the step never issues a remote request, so its
         # fetch token is free from the outset.
         UI.imagery_downloads_done(tile.lat, tile.lon, 0, 0)
+    # The mesh step's object stage, when it ran beside this step (#1264):
+    # everything below (activation, cleaning, the pack journal) follows it.
+    OBJECT_STAGE_BESIDE.join(tile)
     if dsf_build_error:
         UI.exit_message_and_bottom_line("", code=None)   # named in the guard
         return 0

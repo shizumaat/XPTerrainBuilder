@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 __all__ = [
     "STALE_SUFFIX", "STRICT_ENV", "UNPATCHED_SIDECAR", "PATCH_FAMILY",
@@ -139,6 +140,12 @@ def may_continue(failure) -> bool:
                for rec in failure.failures)
 
 
+#: One read-modify-write of the sidecar at a time: the object stage may run
+#: BESIDE the masks and imagery steps in this process (#1264,
+#: ``O4_Object_Stage_Beside``), and each restates its own key.
+_SIDECAR_LOCK = threading.RLock()
+
+
 def _sidecar_path(build_dir: str) -> str:
     return os.path.join(build_dir, UNPATCHED_SIDECAR)
 
@@ -186,11 +193,12 @@ def _read_all(build_dir: str) -> dict:
 def _write_key(build_dir: str, key: str, value) -> None:
     """Rewrite ONE key of the sidecar, keeping the others (the same file
     carries the tile's other closing facts)."""
-    data = _read_all(build_dir)
-    data[key] = value
-    with open(_sidecar_path(build_dir), "w", encoding="utf-8",
-              newline="\n") as handle:
-        json.dump(data, handle)
+    with _SIDECAR_LOCK:
+        data = _read_all(build_dir)
+        data[key] = value
+        with open(_sidecar_path(build_dir), "w", encoding="utf-8",
+                  newline="\n") as handle:
+            json.dump(data, handle)
 
 
 #: Sidecar key of the base-elevation cells read from a FALLBACK source
@@ -339,6 +347,11 @@ def record_degraded(tile, source: str, rows) -> list:
     ``{"code", "detail", ...words}`` with a DEGRADED ``O4_Tile_Failures``
     code — replacing that part's earlier rows; the final ``BuildDone``
     names them as warnings (:func:`read_degraded`).  Never fatal."""
+    with _SIDECAR_LOCK:
+        return _record_degraded(tile, source, rows)
+
+
+def _record_degraded(tile, source: str, rows) -> list:
     rows = [dict(row) for row in rows or () if isinstance(row, dict)]
     own = getattr(tile, "degraded_outputs", None)
     if own is None:

@@ -68,7 +68,8 @@ Usage:
     venv/bin/python tools/profile_tile_build.py <lat> <lon>
         [--build-dir DIR] [--provider CODE] [--zl N]
         [--steps vector,mesh,masks,imagery] [--interval 0.05]
-        [--count MODULE:ATTR ...] [--no-sample] [--reuse] [--out PATH]
+        [--count MODULE:ATTR ...] [--no-sample] [--reuse]
+        [--pack-copy DIR] [--objects-beside] [--out PATH]
 
 ``--reuse`` is the frame of the app's "Rebuild tile" (#1323): a current
 step is reused and a height-only patch edit takes the vector fast path
@@ -117,8 +118,14 @@ from build_airport import (apply_xplane_install_paths,  # noqa: E402
 # main(), so module scope is early enough — and it must not be later:
 # O4_File_Names computes Default_dsf_cache_dir AT IMPORT, and the
 # auto_patch driver's pool workers inherit only the environment.
-_CACHE_REDIRECTS = redirect_engine_caches(
+# Only in the process that was STARTED: a spawned pool worker (the object
+# stage's plans computed ahead) imports this file again as ``__mp_main__``
+# and inherits the environment, so a second redirect there only re-armed
+# ``O4_PACK_WRITES=measure_only`` over the parent's ``--pack-copy`` (the
+# worker's plan then targeted the installed pack and its write refused).
+_CACHE_REDIRECTS = (redirect_engine_caches(
     os.path.join(os.getcwd(), "tmp", "profile_tile_build"), "tile_profile")
+    if __name__ == "__main__" else {})
 
 from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
                                shared_repo_snapshot, snapshot_diff,
@@ -260,8 +267,27 @@ def main():
                         help="override the tile's texture_mode (the "
                              "harness's geometry frame is default_xplane: "
                              "no orthophoto, no airport imagery read)")
+    parser.add_argument("--pack-copy", default=None, metavar="DIR",
+                        help="the object stage writes a COPY of each pack "
+                             "under DIR (build_airport.py --tile --pack-copy, "
+                             "the same arming): without it the redirect "
+                             "stands every pack write down (measure_only), "
+                             "so no object output exists to compare")
+    parser.add_argument("--objects-beside", action="store_true",
+                        help="run the mesh step's object stage beside the "
+                             "masks and imagery steps, as the app's session "
+                             "does when the build goes on to imagery "
+                             "(#1264, O4_Object_Stage_Beside); without it the "
+                             "stage runs inline at the end of the mesh step")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
+    if args.pack_copy:
+        import pack_copy_arm as PCA
+        from build_airport import owner_install_roots, xplane_install_roots
+        from shared_repo_guard import PACK_WRITES_ENV
+        PCA.arm_pack_copy(PCA.require_pack_copy_dir(
+            args.pack_copy, xplane_install_roots() + owner_install_roots()),
+            PACK_WRITES_ENV)
 
     steps = [s.strip() for s in args.steps.split(",") if s.strip()]
     unknown = [s for s in steps if s not in STEP_ORDER]
@@ -279,6 +305,7 @@ def main():
     import O4_Tile_Utils as TILE
     import O4_Config_Utils as CFG
     import O4_Bathymetry_Band as BATHYBAND
+    import O4_Object_Stage_Beside as OBJECT_STAGE_BESIDE
     import O4_Patch_Fast_Path as FASTPATH
     import O4_Step_Reuse as REUSE
 
@@ -357,6 +384,9 @@ def main():
 
     step_wall = {}
     t_run = time.time()
+    # the session's own rule (o4_engine.session): beside only when the
+    # imagery step, which joins it, runs too
+    OBJECT_STAGE_BESIDE.want(tile, args.objects_beside and "imagery" in steps)
     try:
         with guard:
             for step in STEP_ORDER:
@@ -390,6 +420,7 @@ def main():
             # thread would otherwise write the corpus after the guard came
             # down (measured 2026-08-08, the S13W078 band index.json).
             BATHYBAND.join_prefetches()
+            OBJECT_STAGE_BESIDE.join()     # a step that failed before it
     finally:
         # The audit runs even when a step raised: a run that died halfway
         # has still changed the corpus every other lane reads.

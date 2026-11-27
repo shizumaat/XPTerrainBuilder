@@ -617,7 +617,8 @@ def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: X
         if g is not None and getattr(g, "rim_fn", None) is not None and ss:
             want = min(min(g.rim_fn(s)) for s in ss)
         gm = geometry_from_trench(axis_fn, ss, half, want, grid,
-                                  c.trench, c.footprint, half_fn)
+                                  c.trench, c.footprint, half_fn,
+                                  getattr(c, "under_cover", ()) or None)
         if gm is not None:
             return gm
     return geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
@@ -625,7 +626,7 @@ def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: X
 
 
 def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float, grid: float,
-                         trench, footprint, half_fn=None) -> "RampGeometry | None":
+                         trench, footprint, half_fn=None, covered=None) -> "RampGeometry | None":
     """§33 (6) B: THE RING IS THE OBJECT'S OWN TRENCH POLYGON (owner
     RULINGS 2026-09-15g; Fable / RULINGS 2026-09-15x), not an axis offset.
 
@@ -697,7 +698,14 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         # (``rim_standoff`` = ``max(t, ring_floor_m)``), so a further grid
         # step only ate the wall: the eroded floor ring stood a whole
         # 0.5 m inside the object's own inner face.
-        inside = _one_polygon(outer.buffer(-standoff, join_style="mitre"))
+        inside = outer.buffer(-standoff, join_style="mitre")
+        if covered and 0.0 < covered[1] < standoff:
+            # #2239 (``airport/cover_rim``): where the rim was cut back to a
+            # deck's sides the wall stands OUTSIDE the deck, so under it the
+            # band is the arrangement's least, never the wall's thickness
+            inside = unary_union([inside, outer.buffer(-covered[1], join_style="mitre")
+                                  .intersection(covered[0])])
+        inside = _one_polygon(inside)
         if inside is None:
             return None
         walled = _one_polygon(ramp.intersection(inside))

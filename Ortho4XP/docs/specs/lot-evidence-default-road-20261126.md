@@ -49,3 +49,8 @@ uncut (pad `building5` 2.46 m) and BIKF's pads were re-cut (45 new vertices).
 | `constraints/agp_plate` P3, `model.planar.ROAD_ROLES` | lot vertex / road roles | road (excluded as roads are) | follows L2 |
 | `roles._road_evidence`, `taxi_shoulder`, `pad_relief`, `pad_frontage_gs`, `groundside`, `bridge_span`, `road_ramp` | any groundside plate | same reading | unchanged |
 | user role editor (`airport/user_roles`) | user override | wins over both | unchanged |
+
+**Residual (lane llotroad replays).** BIKF: 9 apron vertices ≤ 0.19 m beside pads `building12/13/23`
+(≤ 0.25 m): stage 1 solves the same rows; the pads' stage-0 prefix solve reads the plate's hard rows at the
+road cap. Refuted there (no effect, deleted): the lot cap on stage-1 pairs of a default road; no profile axis
+for a default road.

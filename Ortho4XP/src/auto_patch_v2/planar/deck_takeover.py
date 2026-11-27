@@ -70,7 +70,7 @@ from .deck_bridge import (
     project_span,
 )
 from .deck_generated import generated_decks
-from .deck_pack_cover import _placed, _static_solid
+from .deck_pack_cover import _static_solid, held_plan
 
 __all__ = ["take_frames", "full_hidden", "hidden_ids", "without_hidden",
            "roads_under", "decide_crossings"]
@@ -197,13 +197,18 @@ def _plan(o, cache, law) -> "tuple | None":
     g = cache.geometry(o.resolved) if cache is not None and o.resolved else None
     if g is None or g.solid is None or not len(g.solid):
         return None
+    plan = held_plan(o, g, law, ("hull",), lambda: _local_hull(g))
+    return None if plan is None or plan.is_empty or plan.geom_type != "Polygon" \
+        else tuple(plan.exterior.coords[:-1])
+
+
+def _local_hull(g):
+    """:func:`_plan`'s hull in ``g``'s authored frame, or ``None``."""
     tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
     if not tris.shape[0]:
         return None
     hull = shapely.MultiPoint(g.vertices[np.unique(tris.reshape(-1))][:, [0, 2]]).convex_hull
-    plan = _placed(o, hull, law) if hull.geom_type == "Polygon" else None
-    return None if plan is None or plan.is_empty or plan.geom_type != "Polygon" \
-        else tuple(plan.exterior.coords[:-1])
+    return hull if hull.geom_type == "Polygon" else None
 
 
 def _trenches(objects, cache, airport, law) -> list:
@@ -557,27 +562,34 @@ def _body_top(o, cache, law, lo: float, hi: float):
     Read in the object's own frame, never against the survey: the pack's
     anchor level is what the object stage re-seats (KMCO ``puente2.obj``:
     980 m wide, its anchor's survey 5 m over the taxiway it carries)."""
-    from ..airport import frame_entry as _fe
-    from ..airport.object_cut import _face_normals_y
     g = cache.geometry(o.resolved) if cache is not None and o.resolved else None
     if g is None or g.solid is None or not len(g.solid):
         return None
+    ny = float(law.tables.structures.bridge.deck_plate_normal_y_min)
+    clear = float(law.tables.structures.bridge.clearance_minimum_m)
+    return held_plan(o, g, law, ("body", float(lo), float(hi), ny, clear),
+                     lambda: _local_body_top(g, lo, hi, ny, clear))
+
+
+def _local_body_top(g, lo: float, hi: float, ny: float, clear: float):
+    """:func:`_body_top`'s union in ``g``'s authored frame, or ``None``."""
+    from ..airport import frame_entry as _fe
+    from ..airport.object_cut import _face_normals_y
     tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
     if not tris.shape[0]:
         return None
     v = g.vertices
-    ny = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     ys = v[tris][:, :, 1]
     # a DECK over a road: a clearance over the object's own lowest solid --
     # never the road surface a tunnel-ramp object draws (KRDU NewC2_RP.obj)
-    floor = float(ys.min()) + float(law.tables.structures.bridge.clearance_minimum_m)
+    floor = float(ys.min()) + clear
     up = (_face_normals_y(v, tris) >= ny) & (ys.min(axis=1) >= max(lo, floor)) \
         & (ys.max(axis=1) <= hi)
     if not up.any():
         return None
     polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
              if p.is_valid and p.area > 1e-6]
-    return _placed(o, _fe.union(polys, "deck_takeover.body"), law) if polys else None
+    return _fe.union(polys, "deck_takeover.body") if polys else None
 
 
 def _bodies(g: DeckBridge, objects, cache, airport, law, skip: _t.AbstractSet[str],
@@ -693,17 +705,33 @@ def _solid_plan(o, cache, law):
     triangles), or ``None``: a placement whose solid stands at many sites
     (one object holding pieces at several bridges) reads as what it draws,
     never its hull."""
-    from ..airport import frame_entry as _fe
     read = getattr(cache, "geometry", None)
     g = read(o.resolved) if read is not None and o.resolved else None
     if g is None or g.solid is None or not len(g.solid):
         return None
+    return held_plan(o, g, law, ("solid",), lambda: _local_solid(g))
+
+
+def _local_solid(g):
+    """:func:`_solid_plan`'s union in ``g``'s authored frame, or ``None``."""
+    from ..airport import frame_entry as _fe
     tris = _static_solid(g, g.animated, getattr(g, "under_terrain", np.zeros(0, dtype=bool)))
     if not tris.shape[0]:
         return None
     polys = [p for p in shapely.polygons(g.vertices[tris][:, :, [0, 2]])
              if p.is_valid and p.area > 1e-6]
-    return _placed(o, _fe.union(polys, "deck_takeover.solid"), law) if polys else None
+    return _fe.union(polys, "deck_takeover.solid") if polys else None
+
+
+def _hull_reach(law) -> float:
+    """How far a placement's drawn solid (:func:`_solid_plan`) may stand
+    outside its plan (:func:`_plan`): both are its authored vertices placed
+    and snapped to the frame's quantum, each vertex moved at most
+    ``q / sqrt(2)``, so the solid lies within ``sqrt(2) q`` of the hull --
+    ``3 q`` covers that and the buffer's own chords (1e-6 m with no
+    quantum)."""
+    from ..airport import frame_entry as _fe
+    return max(3.0 * _fe.quantum(law), 1e-6)
 
 
 def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, footprint,
@@ -734,7 +762,12 @@ def _pieces_on(o, objects, hidden: _t.AbstractSet[str], cache, law, tol: float, 
             continue
         pq = _plan(q, cache, law)
         try:
-            if pq is None or Polygon(pq).buffer(0.0).intersection(body).area < a_min:
+            hull = Polygon(pq).buffer(0.0) if pq is not None else None
+            if hull is None or hull.intersection(body).area < a_min:
+                continue
+            # its drawn solid lies inside its hull (:func:`_hull_reach`):
+            # under min_area_m2 of that on our decks, so is the solid's
+            if hull.buffer(_hull_reach(law)).intersection(footprint).area < a_min:
                 continue
             sol = _solid_plan(q, cache, law)
             if sol is None or sol.is_empty:

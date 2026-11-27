@@ -105,9 +105,33 @@ def _placed(o, geom, law):
     return _fe.enter([geom], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
 
 
-#: the authored-frame cover per parsed geometry (#2206 step 2): ``{id(g):
-#: {(depth, floor, ny_min): union | None}}``, dropped with the geometry
+#: the authored-frame readings per parsed geometry (#2206): ``{id(g):
+#: {key: local | None, (key, xy, heading, quantum): placed}}``, dropped
+#: with the geometry
 _LOCAL: dict[int, dict] = {}
+
+
+def held_plan(o, g, law, key: tuple, local: _t.Callable[[], _t.Any]):
+    """``o``'s plan read off its parsed geometry ``g``: ``local()`` -- a
+    reading of the resource alone, in its AUTHORED frame, named by ``key``
+    -- placed at ``o`` (:func:`_placed`), or ``None`` when it reads
+    nothing.  Both are held per geometry (#2206: every placement of a
+    resource, every deck asking and every prefix run of the build read
+    the union once, and each placement places it once); the answers are
+    the ones computed, so a caller never mutates them."""
+    memo = _LOCAL.get(id(g))
+    if memo is None:
+        memo = _LOCAL[id(g)] = {}
+        weakref.finalize(g, _LOCAL.pop, id(g), None)
+    if key not in memo:
+        memo[key] = local()
+    got = memo[key]
+    if got is None:
+        return None
+    at = (key, tuple(o.xy), float(o.heading_deg), _fe.quantum(law))
+    if at not in memo:
+        memo[at] = _placed(o, got, law)
+    return memo[at]
 
 
 def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
@@ -118,18 +142,10 @@ def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
     an overpass, a roof -- never a draped face).
 
     The union is read in the AUTHORED frame, a reading of the resource
-    alone, so it is held per geometry (every placement of a resource, and
-    every prefix run of the build, reads it once) and placed per object."""
+    alone, so it is held per geometry (:func:`held_plan`)."""
     ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
-    memo = _LOCAL.get(id(g))
-    if memo is None:
-        memo = _LOCAL[id(g)] = {}
-        weakref.finalize(g, _LOCAL.pop, id(g), None)
-    key = (float(depth), None if floor is None else float(floor), ny_min)
-    if key not in memo:
-        memo[key] = _local_cover(g, depth, floor, ny_min)
-    local = memo[key]
-    return _placed(o, local, law) if local is not None else None
+    key = ("cover", float(depth), None if floor is None else float(floor), ny_min)
+    return held_plan(o, g, law, key, lambda: _local_cover(g, depth, floor, ny_min))
 
 
 def _local_cover(g, depth: float, floor: "float | None", ny_min: float):

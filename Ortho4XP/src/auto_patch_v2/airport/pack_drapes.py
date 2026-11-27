@@ -71,6 +71,11 @@ other photos on the tile then go with it — "hide them all" (RULINGS
 
 A definition that passes is hidden with ALL its polygons (the omission
 is per definition).
+
+A PHOTO LAID AS OBJECTS (issue #2250, ``pack_drape_objects``): an
+``OBJECT_DEF`` whose OBJ8 is wholly draped photo (``TEXTURE_DRAPED``, every
+``TRIS`` under ``ATTR_draped``, no ``ATTR_hard``) is read by the same
+witness and grid rule and hidden with every row placing it.
 """
 from __future__ import annotations
 
@@ -274,6 +279,10 @@ class _PhotoLayers(_t.NamedTuple):
     layers: list                          # ``pack_drape_grid.Layer`` rows
     ground: list[Box]                     # the pack's other draped art
     kin: list                             # (1)-(3) photos turned off north
+    #: #2250: every OBJECT_DEF path, and the rows placing each draped-photo
+    #: object layer (by its negative ``Layer.index``, ``pack_drape_objects``)
+    obj_defs: list = []
+    obj_uses: dict = {}
 
 
 def photo_layers(pack_root: str, source: str | _t.Sequence[str],
@@ -320,7 +329,10 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
                             layer_order(header)))
     if small:
         layers = _grid_sized(layers, small)
-    return _PhotoLayers(defs, uses, layers, ground, kin)
+    # #2250: the photos a pack lays as draped OBJ8 objects
+    from .pack_drape_objects import object_layers
+    obj_layers, obj_uses, obj_defs = object_layers(pack_root, lines, areas)
+    return _PhotoLayers(defs, uses, layers + obj_layers, ground, kin, obj_defs, obj_uses)
 
 
 def _grid_sized(layers: list, small: _t.Mapping[int, str]) -> list:
@@ -368,8 +380,11 @@ def draped_orthos(pack_root: str, source: str | _t.Sequence[str],
     hidden = hidden_stacks(pl.layers, areas, bounded, pl.ground) | {
         ly.index for ly in pl.layers if ly.path in set(shared)}
     hidden = pack_photos(pl.layers, pl.kin, hidden)
-    return tuple(MissingDef("polygon", i, pl.defs[i], len(pl.uses[i]))
-                 for i in sorted(hidden))
+    from .pack_drape_objects import def_index
+    return tuple(MissingDef("object", def_index(i), pl.obj_defs[def_index(i)],
+                            pl.obj_uses[i]) if i < 0 else
+                 MissingDef("polygon", i, pl.defs[i], len(pl.uses[i]))
+                 for i in sorted(hidden, key=lambda i: (i < 0, abs(i))))
 
 
 def recorded(entry: _t.Mapping[str, _t.Any] | None,

@@ -92,6 +92,10 @@ _SUBTILE = re.compile(r"(\+\d+k)+$")
 #: quarters, ``_BL`` ``_BR`` ``_UL`` ``_UR``; issue #2115)
 _QUADRANT = re.compile(r"(?<=\d)[_-][A-Za-z]{1,2}$")
 _NUMBER = re.compile(r"\d+")
+#: a grid CELL code ending a name: one letter and its number after a
+#: separator (``lgkr_a1`` ... ``lgkr_f1``, ``x-obj_groundpoly_b3``: rows
+#: lettered, columns numbered; issue #2250)
+_CELL = re.compile(r"(?<=[_\-\s])[A-Za-z]\d{1,3}$")
 
 
 class Layer(_t.NamedTuple):
@@ -137,8 +141,23 @@ def _family_keys(path: str, texture: str, layer: float | None = None
     return keys
 
 
+def _cell_keys(path: str, texture: str) -> set[str]:
+    """The LETTERED-CELL keys of one layer (issue #2250): its folder plus
+    each name's stem with its grid cell taken off (``lgkr_a1`` and
+    ``lgkr_f1`` are ``lgkr_@``: rows lettered, columns numbered, every
+    row too short to make a family of its own)."""
+    folder = os.path.dirname(path.replace("\\", "/")).lower()
+    return {f"{folder}|{tag}|{_CELL.sub('@', name.lower())}|cells"
+            for tag, name in (("pol", _stem(path)), ("img", _stem(texture)))
+            if name and _CELL.search(name)}
+
+
 def _families(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
-    """The layers joined by a shared key (union-find), MIN_TILES or more."""
+    """The layers joined by a shared key (union-find), MIN_TILES or more;
+    the layers left in a smaller group are joined by their lettered-cell
+    keys (:func:`_cell_keys`) among themselves -- a family of numbered
+    rows keeps its rows (issue #2250: two grids of one pack at two
+    resolutions share the cell key)."""
     parent = list(range(len(layers)))
 
     def find(i: int) -> int:
@@ -147,17 +166,25 @@ def _families(layers: _t.Sequence[Layer]) -> list[list[Layer]]:
             i = parent[i]
         return i
 
-    first: dict[str, int] = {}
-    for i, ly in enumerate(layers):
-        for k in _family_keys(ly.path, ly.texture, ly.layer):
-            if k in first:
-                parent[find(i)] = find(first[k])
-            else:
-                first[k] = i
-    groups: dict[int, list[Layer]] = {}
-    for i, ly in enumerate(layers):
-        groups.setdefault(find(i), []).append(ly)
-    return [g for g in groups.values() if len(g) >= MIN_TILES]
+    def join(keys: _t.Callable[[Layer], set[str]], among: _t.Iterable[int]) -> None:
+        first: dict[str, int] = {}
+        for i in among:
+            for k in keys(layers[i]):
+                if k in first:
+                    parent[find(i)] = find(first[k])
+                else:
+                    first[k] = i
+
+    def groups() -> list[list[int]]:
+        out: dict[int, list[int]] = {}
+        for i in range(len(layers)):
+            out.setdefault(find(i), []).append(i)
+        return list(out.values())
+
+    join(lambda ly: _family_keys(ly.path, ly.texture, ly.layer), range(len(layers)))
+    join(lambda ly: _cell_keys(ly.path, ly.texture),
+         [i for g in groups() if len(g) < MIN_TILES for i in g])
+    return [[layers[i] for i in g] for g in groups() if len(g) >= MIN_TILES]
 
 
 def _adjacent(a: Box, b: Box, tx: float, ty: float) -> bool:

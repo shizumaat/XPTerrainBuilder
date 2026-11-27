@@ -208,11 +208,16 @@ def weld_own_ground(record: _t.Any, m: _t.Any, cutter: _t.Any, counts: dict,
     in pieces up to 2.5 m apart.  Here the touching own-ground pieces form
     components (transitively); each component takes the zero of the piece
     it touches that the law DID seat (carried, unit-carried, deck, footed —
-    the one with the most triangles), else of its own largest piece.  Only
+    the one with the most triangles), else of its own piece the terrain
+    witness stood on our terrain (``terrain_base``: a building, #2250 round
+    2 -- LGKR ``tile_AP3_07``'s roof kept its authored y 30 m over its own
+    ground and its walls, seated on the hill, were welded up to it), else
+    of its own largest piece.  Only
     own-ground pieces move: a carried piece keeps its carrier's zero (a
     material file's pieces on two buildings stay on their buildings)."""
     from .open_frame_seat import TOUCH_M, at_zero
     from .placement_file import OWN_GROUND
+    from .terrain_base import TERRAIN_CARRIED
     bodies = record.bodies
     own = [i for i, b in enumerate(bodies)
            if str(b.anchor.reason).startswith(OWN_GROUND) and _zero(b) is not None]
@@ -250,7 +255,8 @@ def weld_own_ground(record: _t.Any, m: _t.Any, cutter: _t.Any, counts: dict,
     target: dict[int, float] = {}
     for mem in comp.values():
         anchors = sorted({j for i in mem for j in seated.get(i, ())})
-        pick = max(anchors or mem, key=lambda k: (len(tri[k]), -k))
+        terrain = [i for i in mem if TERRAIN_CARRIED in str(bodies[i].anchor.reason)]
+        pick = max(anchors or terrain or mem, key=lambda k: (len(tri[k]), -k))
         if len(mem) < 2 and not anchors:
             continue
         z = _zero(bodies[pick])

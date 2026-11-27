@@ -175,3 +175,16 @@ def test_far_apart_pieces_are_never_tested_face_to_face(monkeypatch):
     rec = _split(*[_body(k, 30.0 + (k % 2)) for k in range(n)])
     PT.weld_own_ground(rec, _M, cut, {})
     assert len(calls) == 0
+
+
+def test_the_piece_seated_on_our_terrain_wins_over_an_authored_y():
+    """#2250 round 2 (LGKR ``tile_AP3_07``): a town's roof kept its
+    authored y 30 m over its own ground; its walls, stood on the hill by
+    the terrain witness, were welded up to the roof (the larger piece).
+    The walls' seat wins; the roof comes down with them."""
+    from auto_patch_v2.airport.terrain_base import TERRAIN_CARRIED
+    roof = _quad(0.0, 300.0, -2.0, 2.0, 19.1)
+    cut = _Cutter([roof, _quad(100.0, 110.0, -1.0, -0.5, 19.1)])
+    rec = _split(_body(0, 58.0), _body(1, 28.0, reason=OWN_GROUND + ": " + TERRAIN_CARRIED))
+    out = PT.weld_own_ground(rec, _M, cut, {})
+    assert _zeros(out) == [28.0, 28.0]

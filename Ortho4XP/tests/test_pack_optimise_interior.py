@@ -160,3 +160,15 @@ def test_written_reapplied_and_undone(tmp_path, monkeypatch):
     assert rp.dsf.read_bytes() == DUMP.encode("utf-8")
     assert not any((rp.pack / f).exists() for f in made)
     assert (rp.pack / "o" / "bench.obj").read_text(encoding="utf-8") == BENCH
+
+
+def test_a_roof_whose_faces_cover_no_cell_is_empty():
+    """An instance whose roof faces rasterise to no cell (LGKR, owner
+    2026-11-27) reads as an empty roof, never an IndexError."""
+    import numpy as np
+    from auto_patch_v2.airport.pack_optimise import roof as _rf
+    sliver = np.zeros((1, 3, 3))            # degenerate: all corners equal
+    inst = _rf.Instance(0, "x.obj", sliver, np.zeros(0, dtype=np.int64),
+                        np.zeros(0))
+    r = _rf.read_roof([inst], 39.0, 19.0)
+    assert len(r.keys) == 0

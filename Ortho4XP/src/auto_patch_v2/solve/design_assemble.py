@@ -25,8 +25,8 @@ from ..model.planar import PlanarMap
 from .design_report import DesignReport
 from .feasibility import _carries_a_column, apron_hard_rows
 from .flex import _held_at_ref
-from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
-                   _plane_rows, _plane_targets, _reduce, _Reduction,
+from .assembly_memo import sheet_geometry
+from .rows import (_law_sides, _plane_rows, _plane_targets, _reduce, _Reduction,
                    _role_bodies, _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _zone_weights,
                    apply_level_belt)
@@ -154,9 +154,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                        v in drop_f
                        for ring in (f.ring, *f.holes)
                        for v in planar.ring_vertices(ring)))]
-    tris: list[tuple[int, int, int]] = []
-    for fid in sheet_faces:
-        tris.extend(_face_triangles(planar, fid))
+    # the triangles, the wall cut and the Laplacian read only the map and
+    # this sheet: once per staged solve (``solve/assembly_memo``, #2206)
+    tris, L, area = sheet_geometry(planar, sheet_faces, n)
     rep.triangles = len(tris)
     pav: set[int] = set()
     for fid in sheet_faces:
@@ -206,9 +206,6 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 if cur is None or rank[cls] < rank[cur]:
                     v_class[v] = cls
     rep.bend_rows_by_class = {c: 0 for c in BEND_CLASSES}
-    from .wall_cut import wall_cut_edges
-    L, area = _cotangent_laplacian(planar, tris, n, wall_cut_edges(planar, tris))
-    L = L.tocsr()
     for i in range(n):
         s, e = L.indptr[i], L.indptr[i + 1]
         if e <= s or area[i] <= 0.0:

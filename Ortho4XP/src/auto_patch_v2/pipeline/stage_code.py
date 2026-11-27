@@ -2986,7 +2986,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3225,7 +3225,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening pipeline.neck_release
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3410,7 +3410,8 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
     planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner planar.shape_parts planar.shapes
-    planar.strip_keepout solve solve.api solve.design solve.design_assemble
+    planar.strip_keepout solve solve.api solve.assembly_memo solve.design
+    solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.fill_order solve.flex solve.ground_band solve.linear solve.pin_yield solve.project

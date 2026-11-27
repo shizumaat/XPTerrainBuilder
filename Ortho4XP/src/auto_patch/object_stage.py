@@ -163,11 +163,11 @@ def _widened(mesh_sample, box, surface):
     return out
 
 
-def _sink_surface(mesh_sample, dump, bar_m: float, surface):
+def _sink_surface(mesh_sample, dump, pack_root: str, bar_m: float, surface):
     """#2293: the built mesh over the dump's sunk rows (``buried_sink.
     sinks_box``: a stock row stands in no plan's bounds)."""
     from auto_patch_v2.airport import buried_sink as _bs
-    return _widened(mesh_sample, _bs.sinks_box(dump, bar_m), surface)
+    return _widened(mesh_sample, _bs.sinks_box(dump, bar_m, pack_root), surface)
 
 
 def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
@@ -810,7 +810,8 @@ def _plan_half(plan_, law, mesh_sample, tile, patch_dir: str,
             agp_surface=_agp_surface(mesh_sample, dump, target_root, _surface),
             shell_surface=_shell_surface(mesh_sample, plan_, _surface),
             sink_surface=_sink_surface(
-                mesh_sample, dump, float(law.tables.structures.placement.sink_buried_m),
+                mesh_sample, dump, target_root,
+                float(law.tables.structures.placement.sink_buried_m),
                 _surface),
             # #2090 A6: every follower lifted to its published datum
             agp_groups=(None if _gd is None else _agp_published(_gd)),

@@ -465,7 +465,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport.buried_sink import sinks_box as _sinks_box
     _read_bounds = plan_.bounds()
     _sb = _sinks_box(dump, float(getattr(law.tables.structures.placement,
-                                         "sink_buried_m", 0.0) or 0.0))
+                                         "sink_buried_m", 0.0) or 0.0),
+                     plan_.pack_root)
     if _sb is not None:
         _read_bounds = (min(_read_bounds[0], _sb[0]), min(_read_bounds[1], _sb[1]),
                         max(_read_bounds[2], _sb[2]), max(_read_bounds[3], _sb[3]))

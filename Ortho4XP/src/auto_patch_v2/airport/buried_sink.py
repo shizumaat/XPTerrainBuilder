@@ -22,8 +22,11 @@ surface, never a pack, an airport or a coordinate:
 
 * the row is ``OBJECT_AGL`` with a column at or under ``-bar_m``
   (a shallower sink can bury nothing by more than the bar);
-* its resource resolves (pack first, then the library index) to an OBJ8
-  with STATIC solid geometry (``msl_feet.static_vertices``);
+* its resource is a STOCK one -- it resolves through the library index,
+  not inside the pack (a pack's own object is the split's to seat: "the
+  split seats a sink", #1214 R2; the census of the owner's built tiles
+  flipped a KMCI road bridge at -7 m and LFPG decks at -2 m until this) --
+  to an OBJ8 with STATIC solid geometry (``msl_feet.static_vertices``);
 * its FLOOR -- the drape at the row, plus the column, plus the higher of
   0 and its lowest static vertex (a skirt under ``y = 0`` is meant to be
   buried; geometry standing above ``y = 0`` is the author's own lift) --
@@ -143,25 +146,32 @@ def is_buried(row: _t.Any, v: np.ndarray, surface: Surface, bar_m: float,
     return True
 
 
-def _candidates(dump: _t.Any, bar_m: float,
+def _candidates(dump: _t.Any, bar_m: float, pack_root: "str | None",
                 skip: _t.AbstractSet[int] = frozenset()) -> list[int]:
-    """The rows a buried sink can be: ``OBJECT_AGL`` ``.obj`` rows sunk by
-    at least ``bar_m``, not in ``skip``."""
+    """The rows a buried sink can be: stock ``OBJECT_AGL`` ``.obj`` rows
+    sunk by at least ``bar_m``, not in ``skip``."""
     rows = list(getattr(dump, "placements", ()) or ())
     return [i for i, p in enumerate(rows)
             if i not in skip and p.kind == KIND_AGL
             and float(p.elevation or 0.0) <= -bar_m
-            and str(p.def_path).lower().endswith(".obj")]
+            and str(p.def_path).lower().endswith(".obj")
+            and not _in_pack(pack_root, str(p.def_path))]
 
 
-def sinks_box(dump: _t.Any, bar_m: float = 1.0
+def _in_pack(pack_root: "str | None", res: str) -> bool:
+    """Does ``res`` resolve inside the pack (``deck_riders_of_pack``'s
+    test)?  Such a row is the split's, never a stock sink."""
+    return bool(pack_root) and os.path.isfile(os.path.join(pack_root, res.lstrip("/")))
+
+
+def sinks_box(dump: _t.Any, bar_m: float = 1.0, pack_root: "str | None" = None
               ) -> "tuple[float, float, float, float] | None":
     """``(min_lon, min_lat, max_lon, max_lat)`` the candidates' outline and
     hill stations read (each row grown by ``BOX_PAD_M``), or ``None`` with
     none -- the box the placement stage widens its mesh reading to (a stock
     row is in no rebake plan's bounds)."""
     rows = list(getattr(dump, "placements", ()) or ())
-    pts = [(float(rows[i].lon), float(rows[i].lat)) for i in _candidates(dump, bar_m)]
+    pts = [(float(rows[i].lon), float(rows[i].lat)) for i in _candidates(dump, bar_m, pack_root)]
     if not pts or bar_m <= 0.0:
         return None
     lons, lats = zip(*pts, strict=True)
@@ -181,7 +191,7 @@ def buried_rows(dump: _t.Any, pack_root: str | None, surface: Surface, *,
     if bar_m <= 0.0:
         return frozenset()
     rows = list(getattr(dump, "placements", ()) or ())
-    cand = _candidates(dump, bar_m, skip)
+    cand = _candidates(dump, bar_m, pack_root, skip)
     if not cand:
         return frozenset()
     if index is None:

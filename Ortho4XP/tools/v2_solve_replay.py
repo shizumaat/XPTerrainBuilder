@@ -3650,7 +3650,10 @@ def _job_of(a) -> tuple[str, str]:
         return "replay", a.replay_cache
     src = a.replay or a.why_from or a.bank_from or a.rederive_from or a.reclassify
     stem = Path(src).stem.split("_")[0].split(".")[0] if src else ""
-    return "replay", stem
+    # #2307: the stage a replay starts from is what it re-runs — its own
+    # peak record (O4_Machine_Jobs falls back to the airport's, then the kind's)
+    stage = getattr(a, "resume", None)
+    return "replay", "%s@%s" % (stem, stage) if stem and stage else stem
 
 
 def _dispatch(a, ap) -> int:

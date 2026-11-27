@@ -1061,6 +1061,8 @@ class ParallelBuildRun:
         # the machine ledger's record of each running step (its child's
         # process tree grows into it): (tile, step) -> Reservation
         self._ledger_holds: dict = {}
+        # #2307: the steps whose lease top-up was refused (said once)
+        self._lease_refused: set = set()
         # #2083: each tile's recorded per-step peaks and the airports its
         # history plans, read at admission (step_memory.projected_gigabytes)
         self._recorded_peaks: dict = {}   # tile -> {step: gigabytes}
@@ -2767,8 +2769,32 @@ class ParallelBuildRun:
                 child.tree_gb = gigabytes
                 if step_key is not None and child.running_step == step_key:
                     child.step_peak_gb = max(child.step_peak_gb, gigabytes)
+            leases = list(self._ledger_holds.items())
             self._refresh_memory_budget_locked()
             self._dispatch_locked()
+        self._top_up_leases(leases)
+
+    def _top_up_leases(self, leases):
+        """#2307: a running step that has grown to its ledger lease asks
+        for more (``O4_Machine_Memory.Reservation.top_up``), outside the
+        run's lock (it reads the ledger).  A running step cannot wait: a
+        refused top-up is said once and the step goes on."""
+        if not leases or os.environ.get(O4_Machine_Slots.ENV_UNGATED):
+            return
+        headroom = O4_Machine_Slots.headroom_gigabytes()
+        for key, lease in leases:
+            try:
+                verdict = lease.top_up(headroom)
+            except Exception:
+                continue
+            if verdict is None or verdict.ok or key in self._lease_refused:
+                continue
+            self._lease_refused.add(key)
+            print("Tile %s's %s step has grown to its %.1f GB memory lease "
+                  "and the machine has no room for more now; it goes on (a "
+                  "running step is never stopped): %s."
+                  % (_short_latlon(key[0]), key[1], lease.gigabytes,
+                     verdict.text))
 
     def _report_released_stop(self, tile, attempt, held, last_step):
         """A cancelled child let go of its tile: report it stopped NOW

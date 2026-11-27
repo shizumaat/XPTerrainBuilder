@@ -19,6 +19,14 @@ module is the same machinery for a whole job — never a second one:
 * :func:`_estimate_gigabytes` — the job's MEASURED peak (``ru_maxrss`` of
   its last run, recorded at exit in :func:`_peaks_path`) times
   ``step_memory.RECORDED_PEAK_MARGIN``; with no record, :data:`DEFAULT_GB`.
+  A subject may carry what part of the work it runs (``KATL@planar``: a
+  replay from its planar stage, #2307): its own record first, then the
+  subject's, then the kind's largest.
+* LEASES THAT GROW (#2307): a job cannot wait once it runs, so it leases
+  its whole predicted peak; a sampler (:data:`SAMPLE_S`) tops the lease up
+  (``O4_Machine_Memory.Reservation.top_up``) when the job outgrows its
+  prediction, and says once when the machine has no room for more — the
+  job goes on, never stopped.
 * :func:`_admissible_workers` — how many workers of a pool the machine
   admits now: pools are sized by headroom, never by cores alone.
 
@@ -40,6 +48,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -70,6 +79,8 @@ DEFAULT_GB = {
 #: seconds between admission attempts, and between wait lines
 POLL_S = 5.0
 SAY_EVERY_S = 60.0
+#: seconds between two measurements of a running job's lease
+SAMPLE_S = 5.0
 
 ENV_PEAKS = "O4_JOB_PEAKS_PATH"
 
@@ -100,6 +111,8 @@ def _estimate_gigabytes(kind: str, subject: str = "") -> float:
     :data:`DEFAULT_GB`."""
     peaks = _read_peaks()
     peak = peaks.get(_key(kind, subject))
+    if (not isinstance(peak, (int, float)) or peak <= 0) and "@" in subject:
+        peak = peaks.get(_key(kind, subject.split("@")[0]))
     if not isinstance(peak, (int, float)) or peak <= 0:
         same = [v for k, v in peaks.items() if k.split(" ")[0] == kind
                 and isinstance(v, (int, float)) and v > 0]
@@ -129,6 +142,8 @@ def _record_peak(kind: str, subject: str, gigabytes: float) -> None:
     with contextlib.suppress(OSError, ValueError):
         peaks = _read_peaks()
         peaks[_key(kind, subject)] = round(gigabytes, 2)
+        if "@" in subject:                 # the subject's own last run too
+            peaks[_key(kind, subject.split("@")[0])] = round(gigabytes, 2)
         path = Path(_peaks_path())
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".job_peaks")
@@ -179,9 +194,11 @@ def admit(kind: str, subject: str = "", *, need_gb: "float | None" = None,
     if said is not None:
         _say(emit, "Machine gate: %s starts after %.0f s waiting."
              % (what, clock() - began))
+    stop = _sample_lease(held, what, emit)
     try:
         yield need
     finally:
+        stop.set()
         held.release()
         _record_peak(kind, subject, _peak_gigabytes())
 
@@ -194,6 +211,30 @@ def admit_process(kind: str, subject: str = "", **kw) -> float:
     need = gate.__enter__()
     atexit.register(gate.__exit__, None, None, None)
     return need
+
+
+def _sample_lease(held: "_MEM.Reservation", what: str, emit,
+                  every_s: float = SAMPLE_S) -> threading.Event:
+    """Top ``held`` up every ``every_s`` while the job runs (module doc);
+    the returned event stops the sampler.  A refused top-up is said once."""
+    stop = threading.Event()
+    if not getattr(held, "gigabytes", 0.0) or not hasattr(held, "top_up"):
+        return stop                        # nothing reserved (ungated)
+
+    def sample() -> None:
+        said = False
+        while not stop.wait(every_s):
+            with contextlib.suppress(Exception):
+                verdict = held.top_up(_SLOTS.headroom_gigabytes())
+                if verdict is not None and not verdict.ok and not said:
+                    said = True
+                    _say(emit, "Machine gate: %s has grown to its %.1f GB "
+                         "lease and the machine has no room for more — it "
+                         "goes on (a running job is never stopped): %s."
+                         % (what, held.gigabytes, verdict.text))
+    threading.Thread(target=sample, name="o4-job-lease",
+                     daemon=True).start()
+    return stop
 
 
 def _reserve(need: float, what: str) -> "_MEM.Reservation":

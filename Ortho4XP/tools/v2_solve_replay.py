@@ -1291,7 +1291,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                         below_grade=got["below_grade"], tunnel_objects=got["tunnel_objects"],
                         partition=getattr(airport, "partition", None),
                         authored_seats=got.get("authored_seats", ()),
-                        free_decks=got.get("free_decks"))
+                        free_decks=got.get("free_decks"),
+                        perimeters=got.get("perimeters", ()))
             _out = emit_dir / PLAN_FILENAME.format(icao=icao)
             _out.write_text(_p.to_json(), encoding="utf-8")
             print(f"    rebake plan -> {_out}")

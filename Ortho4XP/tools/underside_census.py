@@ -237,6 +237,59 @@ def _fmt(x: dict) -> str:
             f" levels {x['levels']} interiors {x['interiors']}")
 
 
+def perimeter_of(path: str, plan: "str | None" = None) -> dict:
+    """STEP 3 (spec §3 G4, ``tools/perimeter_judge``): one ``--solved-out``
+    pickle's graded perimeters judged in the patch and on the free raster;
+    ``plan``: a rebake plan whose ``perimeters`` are the build's own."""
+    from auto_patch_v2.law import Law
+    from perimeter_judge import judge_solved
+    with open(path, "rb") as fh:
+        solved = pickle.load(fh)
+    law = Law.for_airport(solved.get("law_icao") or solved["icao"])
+    records = (json.loads(Path(plan).read_text(encoding="utf-8")).get("perimeters") or []
+               if plan else None)
+    t = time.time()
+    res = judge_solved(solved, law, float(
+        law.tables.structures.building_pad.low_level_min_step_m), records)
+    res.update(icao=solved["icao"], path=path, seconds=round(time.time() - t, 1))
+    return res
+
+
+def perimeter_lines(res: dict, units: "list[str]" = ()) -> list[str]:
+    """The step-3 report of :func:`perimeter_of`: per graded unit (every one
+    with an over; ``units`` the ones always printed) its free stations over
+    0.5 m before and after the raster grade, its in-patch groundside over by
+    role, and the totals."""
+    out = [f"== {res['icao']} {res['path']}: {len(res['perimeters'])} graded perimeter(s) "
+           f"({res['seconds']} s); raster grade {res.get('grade')}"]
+    tot = {"free": 0, "before": 0, "after": 0, "ground": 0, "ground_over": 0, "uncut": 0}
+    for pr, ip, fb, fa in zip(res["perimeters"], res["in_patch"], res["free_before"],
+                              res["free_after"], strict=True):
+        tot["free"] += fa.get("free", 0)
+        tot["before"] += fb.get("over", 0)
+        tot["after"] += fa.get("over", 0)
+        tot["ground"] += ip["groundside"]
+        tot["ground_over"] += ip["groundside_over"]
+        tot["uncut"] += fa.get("uncut", 0)
+        if not (fa.get("over") or ip["groundside_over"] or fb.get("over")
+                or any(u in pr["unit"] or u in pr.get("res", "") for u in units)):
+            continue
+        roles = ", ".join(f"{r} {v[1]}/{v[0]} ({v[2]:+.2f})" for r, v in ip["by_role"].items())
+        out.append(f"  {pr['unit'][:24]:<24} {pr.get('res', '')[:22]:<22} {pr['why']:<13} "
+                   f"z0 {pr['z0']:.2f} st "
+                   f"{pr['stations']} far {pr['far']} | free {fa.get('free', 0)} over "
+                   f"{fb.get('over', 0)} -> {fa.get('over', 0)} boundary "
+                   f"{fa.get('boundary', 0)} patch {fa.get('patch', 0)}"
+                   + (f" interiors {fa.get('interior_cells')} postings: in patch "
+                      f"{fa.get('in_patch', 0)} cut {fa.get('cut', 0)} uncut {fa['uncut']}, "
+                      f"sub-posting cells {fa.get('subposting', 0)}" if "uncut" in fa else "")
+                   + f" | in patch {roles}")
+    out.append(f"  TOTAL free stations {tot['free']}: over 0.5 m {tot['before']} -> "
+               f"{tot['after']}; in-patch groundside {tot['ground']}: over "
+               f"{tot['ground_over']}; open-interior postings uncut {tot['uncut']}")
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("captures", nargs="*")
@@ -247,7 +300,22 @@ def main(argv=None) -> int:
     ap.add_argument("--unit", action="append", default=[],
                     help="print units whose resources contain this")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--perimeter", action="append", default=[], metavar="SOLVED.pkl",
+                    help="STEP 3: judge the graded perimeters of a v2_solve_replay "
+                         "--solved-out pickle (tools/perimeter_judge)")
+    ap.add_argument("--perimeter-plan", default=None, metavar="REBAKE.json",
+                    help="with --perimeter: the build's own perimeter records (the "
+                         "replay's --emit --rebake-plan o4_v2_rebake_<ICAO>.json)")
     a = ap.parse_args(argv)
+    if a.perimeter:
+        results = []
+        for path in a.perimeter:
+            res = perimeter_of(path, a.perimeter_plan)
+            print("\n".join(perimeter_lines(res, a.unit)), flush=True)
+            results.append(res)
+        if a.json:
+            Path(a.json).write_text(json.dumps(results, indent=1, default=str))
+        return 0
     from sunk_census import registered
     jobs = [("cap", p) for p in a.captures]
     if a.registered:

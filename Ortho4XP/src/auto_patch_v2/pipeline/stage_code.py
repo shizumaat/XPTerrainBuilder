@@ -3376,7 +3376,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
-    airport.underside_seat
+    airport.underside_seat airport.unit_perimeter
     pipeline.storey_publication
     pipeline.upper_pad_publication
     pipeline.frontage_publication airport.frontage_face classify.frontage_wall

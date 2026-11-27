@@ -45,7 +45,8 @@ from ..geom.parts import densified_parts, polygon_parts_with_area
 from ..geom.plane_groups import plane_groups
 from .floor_decks import floor_decks
 
-__all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage"]
+__all__ = ["add_object_floor_cells", "floor_mouths", "not_floors", "object_floor_stage",
+           "pit_group"]
 
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
@@ -282,6 +283,30 @@ def not_floors(records: _t.Sequence, floors: _t.Sequence) -> list:
     y, 173.30, outside the floor's footprint, 0.38 m under the floor)."""
     ids = {pid for f in floors for pid, _r, _z in f.seats}
     return [r for r in records if not (set(getattr(r, "objects", ()) or ()) & ids)]
+
+
+def pit_group(floors: _t.Sequence, objects: _t.Sequence) -> frozenset[str]:
+    """The placements of every PIT an object floor owns (owner 2026-11-27T18:03Z,
+    RULINGS 2026-11-27f): the floor object, its covers (the retaining walls),
+    and every placement of its authored frame (``seats``) whose below-grade
+    plan meets the floor's footprint -- what stands in the pit.  The floor
+    reads the group at its authored seat, so none of it is a channel's wall or
+    floor witness (§45 (13) (d), the built basins' rule): a flat channel datum
+    read off the group's deepest solid and widened by its walls would stand
+    the ground metres under the walls' outer feet.  A floor owning no ground
+    (a hidden shell, ``owns_ground``) leaves its cut to the map's own laws and
+    names no group."""
+    by_id = {str(getattr(o, "id", "")): o for o in objects or ()}
+    out: set[str] = set()
+    for f in floors:
+        if not owns_ground(f):
+            continue
+        out.update((f.object_id, *f.covers))
+        for pid, _r, _z in f.seats:
+            bg = getattr(by_id.get(pid), "below_grade", None)
+            if bg is not None and not bg.is_empty and bg.intersects(f.footprint):
+                out.add(pid)
+    return frozenset(out)
 
 
 def _between_walls(c, law):

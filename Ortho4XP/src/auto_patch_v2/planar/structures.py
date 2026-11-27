@@ -1405,22 +1405,27 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             steepen_note = (f"#2072 A: {stop_kind} {dead_end[0]} stops the run-out and no "
                             f"ramp up to the cap tops out before it -- level at the floor to "
                             f"{s_top:.1f} m, a wall on its edge")
+        crossed = clipped_by in {ref for _p, ref in crossing}
         if clipped_by and c is None and g.climbs and k_sk is None and not walled \
                 and deck is None and level_to is None and on_road \
-                and clipped_by in {ref for _p, ref in crossing} \
+                and (crossed or clipped_by in air_refs) \
                 and (road_end is None or road_end > s_top + gap):
             # l588 (LEMD tunnel -4927, #1028 Q32's other half): a ramp
-            # nothing frames that a ROAD CROSSING its approach clips short of
-            # its top -- no grade up to the cap tops out before it (the fit
-            # above) -- while its mapped road runs on past the clip at grade
-            # would end free under both roads: a wall across them (MEASURED:
-            # road -1510 clipped it at 72 m, top 595.6 under the roads'
-            # 601-602, the drawn service road stepped 5.30 m).  The mouth is
-            # not opened.  (A pavement or pad stop keeps #971's rim.)
+            # nothing frames that a ROAD CROSSING its approach or AIRSIDE
+            # PAVEMENT (#971: never cut) clips short of its top -- no grade
+            # up to the cap tops out before it (the fit above) -- while its
+            # mapped road runs on past the clip at grade would end free under
+            # that road: a wall across it.  The mouth is not opened.
+            # MEASURED: road -1510 clipped -4927 at 72 m, top 595.6 under the
+            # roads' 601-602, the drawn service road stepped 5.30 m; apron
+            # pav92 clipped -1501@0 at 72 m, top 596.4 under its own road
+            # -1503 at 602.0 running on 372 m, the drawn tertiary stepped
+            # 4.34 m (llemd2).  A groundside lot or a building pad beside the
+            # ramp keeps stopping it (RULINGS 2026-10-19o, ltrenchpad).
             stats.refused.append(
-                f"{tid}: the ramp cannot top out before the crossing road {clipped_by} stops "
-                f"it {s_top:.0f} m "
-                f"out, and its mapped road runs on past it -- no grade up to the "
+                f"{tid}: the ramp cannot top out before the "
+                f"{'crossing road' if crossed else 'airside pavement'} {clipped_by} stops it "
+                f"{s_top:.0f} m out, and its mapped road runs on past it -- no grade up to the "
                 f"cap {100.0 * cap_g:.0f} % reaches the ground short of the stop (#1028: a "
                 f"ramp never crosses a pavement edge or another road)")
             continue

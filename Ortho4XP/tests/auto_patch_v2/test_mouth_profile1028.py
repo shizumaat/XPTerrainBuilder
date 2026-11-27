@@ -236,3 +236,27 @@ def test_a_road_crossing_the_approach_short_of_the_top_refuses_the_mouth(law):
                for r in refused), refused
     far, refused = east(400.0)
     assert far, refused
+
+
+def test_a_pavement_stop_short_of_the_top_on_a_road_running_on_refuses_the_mouth(law):
+    """llemd2 (LEMD tunnel -1501@0 / apron pav92 / road -1503): pavement
+    across the approach stops the ramp where no grade up to the cap tops
+    out, while the mapped road runs on past it.  #971's rim at a stop is
+    for a road that ends there; a ramp ending free under its own road
+    running on is a wall across that road (MEASURED: top 596.4 under the
+    road's 602.0, a 4.34 m drawn step), so the mouth is refused; pavement
+    far enough out leaves the ramp whole."""
+    base = _cells(40.0)
+
+    def east(x):
+        apron = Cell(9, "apron", "pavX", _rect(x, -40, x + 60.0, 40), (), None, "D",
+                     "airside", "apron", {})
+        cl = Classification(base.cells + (apron,), (), {}, ())
+        _cl, tunnels, st = build_structures(_airport(law, _Dem()), cl, law)
+        return [t for t in tunnels if t.axis[0][0] > 0], st.refused
+    near, refused = east(110.0)
+    assert not near
+    assert any("tunnel:-101@1" in r and "cannot top out before the airside pavement pavX" in r
+               for r in refused), refused
+    far, refused = east(400.0)
+    assert far, refused

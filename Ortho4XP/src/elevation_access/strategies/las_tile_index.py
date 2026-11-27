@@ -6,6 +6,7 @@ Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.
 """
 
+import contextlib
 import datetime
 import json
 import math
@@ -38,6 +39,7 @@ from elevation_access.downloads import (
     download_zip_whole,
 )
 from elevation_access.failures import product_refused_unavailable
+from elevation_access import rate_limit as RATE_LIMIT
 from elevation_access.fetch_slots import (
     _held_provider_fetch_slot,
     provider_fetch_slots,
@@ -1014,17 +1016,37 @@ class LasTileIndexStrategy:
         code = definition.get("code")
         url = source["download_url"]
         label = progress_label or "%s %s" % (code, source["source_id"])
-        for _attempt in range(2):
+        # A RATE LIMIT IS WAITED OUT, never the rung's answer (#2295):
+        # a 429 pauses the provider for every connection and throttles it
+        # to one transfer at a time (``elevation_access.rate_limit``)
+        (restarts, limited, pushed_back) = (0, 0, None)
+        while restarts < 2:
+            if pushed_back is not None:
+                # waited with the connection let go (the finally below)
+                if not RATE_LIMIT.rate_limit_wait(code, pushed_back[1],
+                                                  limited, label):
+                    raise TransientFetchError(
+                        "%s: tile %s answered HTTP %d"
+                        % (code, source["source_id"], pushed_back[0]))
+                (limited, pushed_back) = (limited + 1, None)
+            if not RATE_LIMIT.wait_for_provider(code, label):
+                raise TransientFetchError(
+                    "%s tile download stopped with the build" % code)
             headers = {}
             resume_from = 0
             if os.path.isfile(scratch_path):
                 resume_from = os.path.getsize(scratch_path)
                 if resume_from:
                     headers["Range"] = "bytes=%d-" % resume_from
+            # the connection (a throttled provider's one) is held for the
+            # whole transfer and let go with the response
+            held = contextlib.ExitStack()
+            held.enter_context(RATE_LIMIT.throttled_connection(code))
             try:
                 response = requests.get(url, stream=True, timeout=(30, 120),
                                         headers=headers)
             except Exception as error:
+                held.close()
                 raise TransientFetchError(
                     "%s: tile %s download failed: %s"
                     % (code, source["source_id"], error)) from error
@@ -1034,6 +1056,11 @@ class LasTileIndexStrategy:
                     return False
                 if status == 416 and resume_from:
                     os.remove(scratch_path)          # stale scratch; retry
+                    restarts += 1
+                    continue
+                answered = getattr(response, "headers", None) or {}
+                if RATE_LIMIT.is_rate_limited(status, answered):
+                    pushed_back = (status, dict(answered))
                     continue
                 if discovery_status_is_transient(status):
                     raise TransientFetchError(
@@ -1092,6 +1119,7 @@ class LasTileIndexStrategy:
                     % (code, source["source_id"], error)) from error
             finally:
                 response.close()
+                held.close()
             validate_las_tile(scratch_path, definition)
             os.makedirs(os.path.dirname(final_path), exist_ok=True)
             os.replace(scratch_path, final_path)

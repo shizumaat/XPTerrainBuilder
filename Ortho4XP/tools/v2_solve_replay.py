@@ -462,7 +462,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
                      cifp_dir: str | None = None,
                      data_overlay: str | None = None, stage_cache: str = "off",
                      why_miss: bool = False, no_imagery: bool = False,
-            allow_degraded_dem: bool = False) -> dict:
+            allow_degraded_dem: bool = False, imagery_paths: str = "") -> dict:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -482,7 +482,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
     try:
         return capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
                        data_overlay, stage_cache, why_miss, no_imagery,
-                       allow_degraded_dem)
+                       allow_degraded_dem, imagery_paths)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -537,7 +537,7 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
             cifp_dir: str | None = None,
             data_overlay: str | None = None, stage_cache: str = "off",
             why_miss: bool = False, no_imagery: bool = False,
-            allow_degraded_dem: bool = False) -> dict:
+            allow_degraded_dem: bool = False, imagery_paths: str = "") -> dict:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -597,6 +597,14 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
         # #1359 the witness's OFF arm: no airport photos, every imagery vote
         # abstains (today's law at every question the imagery decides)
         inputs = _dc.replace(inputs, imagery_paths=(), imagery_scenery_dir="")
+    elif imagery_paths:
+        # THE APP'S PHOTOS: the airport orthophotos an app build passes as
+        # ``Inputs.imagery_paths`` (``O4_Imagery_Prefetch.cached_airport_
+        # imagery``), a JSON list — a classify read the imagery decides is
+        # reproduced only with the photos the failing build read
+        _paths = tuple(json.loads(Path(imagery_paths).read_text(encoding="utf-8")))
+        inputs = _dc.replace(inputs, imagery_paths=_paths)
+        print(f"[{icao}] CAPTURE ARM {len(_paths)} airport photo(s) from {imagery_paths}")
     # THE LANE-LOCAL DATA OVERLAY (issue #156), BEFORE any other input
     # override: the corpus dirs the overlay provides are read from it,
     # every other input stays on the shared corpus, and the frame is
@@ -3533,6 +3541,9 @@ def main() -> int:
     ap.add_argument("--no-imagery", action="store_true",
                     help="--capture: the #1359 witness's OFF arm — no airport photos "
                          "(every imagery vote abstains)")
+    ap.add_argument("--imagery-paths", default="", metavar="PATHS.json",
+                    help="--capture: the airport photos (a JSON list of paths) an "
+                         "app build passed, so an imagery-decided read reproduces")
     ap.add_argument("--witness", action="store_true",
                     help="#1359: the terrain witness on a --replay capture (dry read): every "
                          "Q1/Q4/Q5 vote, scored with --witness-labels (tools/v2_witness.py)")
@@ -3680,7 +3691,8 @@ def _dispatch(a, ap) -> int:
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
                          a.cifp_dir, a.data_overlay,
                          "write" if a.stage_cache else "off", a.why_miss,
-                         a.no_imagery, allow_degraded_dem=a.allow_degraded_dem)
+                         a.no_imagery, allow_degraded_dem=a.allow_degraded_dem,
+                         imagery_paths=a.imagery_paths)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)

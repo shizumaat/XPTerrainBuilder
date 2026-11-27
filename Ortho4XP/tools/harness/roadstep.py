@@ -26,6 +26,12 @@ for _p in (os.path.join(os.path.dirname(_TOOLS), "src"), _TOOLS,
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+import O4_Console_Encoding as _o4console  # noqa: E402, I001
+
+_o4console.configure_console_streams()
+
 import drawn_roads as DR  # noqa: E402
 from drawn_gate import parse_site  # noqa: E402
 from patch_faces import PatchFaces  # noqa: E402

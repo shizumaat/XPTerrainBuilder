@@ -689,6 +689,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.deck_edge_weld",
     "auto_patch_v2.geom.deck_end_edge",
     "auto_patch_v2.geom.deck_plan",
+    "auto_patch_v2.geom.memo_scope",
     "auto_patch_v2.planar.deck_apron",
     "auto_patch_v2.planar.deck_lone",
     "auto_patch_v2.planar.deck_ring_cut",

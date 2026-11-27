@@ -60,7 +60,8 @@ def test_a_second_assembly_in_a_scope_is_served_and_equal(problem, bank_law, mon
         design_assemble.assemble(pm, cs, bank_law, DesignReport())
         assert len(lap) == 3                                      # one slot: read again
     assert a == fresh and b == fresh
-    assert M._MEMO is None                                        # it died with the scope
+    # it died with the scope
+    assert M._SCOPE.memo is None
     assert _problem_of(d) == _problem_of(
         design_assemble.assemble(pm, cs, bank_law, DesignReport(), drop=some))
     assert len(lap) == 4                                          # no scope: read again

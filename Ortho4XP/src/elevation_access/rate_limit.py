@@ -24,6 +24,8 @@ import threading
 import O4_Http_Pushback as PUSHBACK
 import O4_UI_Utils as UI
 
+from elevation_access.fetch_retry import _provider_pause_key as _key
+
 __all__ = [
     "RATE_LIMIT_PROGRESS_S",
     "RATE_LIMIT_WAITS_S",
@@ -43,11 +45,6 @@ RATE_LIMIT_PROGRESS_S = 10.0
 
 _LOCK = threading.Lock()
 _THROTTLED = {}
-
-
-def _key(code) -> str:
-    """The ``O4_Http_Pushback`` host key of one provider (``fetch_retry``'s)."""
-    return "https://elevation-provider-%s/" % str(code).lower()
 
 
 def is_rate_limited(status, headers=None) -> bool:

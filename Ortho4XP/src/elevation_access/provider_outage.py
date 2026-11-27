@@ -41,9 +41,7 @@ __all__ = [
     "OUTAGE_S",
     "ProviderOutage",
     "asking_provider",
-    "current_outage",
     "is_outage",
-    "remember_outage",
 ]
 
 #: How long no build asks a provider that is down: 20 minutes (a TNM
@@ -80,16 +78,11 @@ def is_outage(error) -> bool:
     return 500 <= status <= 599 or bool(getattr(error, "timed_out", False))
 
 
-def remember_outage(code, error, now=None):
+def _remember_outage(code, error, now=None):
     """Record that provider ``code`` is down: no build asks it for
     :data:`OUTAGE_S`."""
     now = time.time() if now is None else now
     _STORE.put(code, {"reason": str(error)[:300]}, now)
-
-
-def current_outage(code, now=None):
-    """The outage record provider ``code`` is resting from, or ``None``."""
-    return _STORE.live(code, time.time() if now is None else now)
 
 
 def _note_once(code, record, now):
@@ -117,7 +110,7 @@ def asking_provider(code):
         yield
         return
     now = time.time()
-    record = current_outage(code, now)
+    record = _STORE.live(code, now)   # the outage it rests from, or None
     if record is not None:
         _note_once(code, record, now)
         raise ProviderOutage(code, record)
@@ -125,5 +118,5 @@ def asking_provider(code):
         yield
     except BaseException as error:
         if is_outage(error):
-            remember_outage(code, error)
+            _remember_outage(code, error)
         raise

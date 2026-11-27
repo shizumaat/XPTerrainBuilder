@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
 import O4_Airport_Elevation_Insets as INSETS
 import O4_File_Names as FNAMES
@@ -100,7 +101,8 @@ def test_a_second_builder_skips_a_provider_the_first_heard_down(
     builder_a = OUTAGE._STORE
     _second_build(monkeypatch)
     builder_b = OUTAGE._STORE
-    assert OUTAGE.current_outage("FAKETNM") is None   # B read before A asked
+    # B read before A asked
+    assert OUTAGE._STORE.live("FAKETNM", time.time()) is None
     # Builder A: a cell fetch hears 504 -- one request, one record.
     monkeypatch.setattr(OUTAGE, "_STORE", builder_a)
     with pytest.raises(ea_base.TransientFetchError) as raised:
@@ -126,8 +128,8 @@ def test_the_record_crosses_a_real_process(tnm):
     probe = (
         "import sys; sys.path.insert(0, %r)\n"
         "import O4_File_Names as F; F.Elevation_dir = %r\n"
-        "from elevation_access import provider_outage as O\n"
-        "print('DOWN' if O.current_outage('FAKETNM') else 'UP')\n"
+        "import time\nfrom elevation_access import provider_outage as O\n"
+        "print('DOWN' if O._STORE.live('FAKETNM', time.time()) else 'UP')\n"
         % (_SRC, FNAMES.Elevation_dir))
     answer = subprocess.run([sys.executable, "-c", probe], cwd=_SRC,
                             capture_output=True, text=True, timeout=120)
@@ -137,9 +139,9 @@ def test_the_record_crosses_a_real_process(tnm):
 def test_a_lapsed_record_asks_again(tnm):
     with pytest.raises(ea_base.TransientFetchError):
         INSETS.discover_inset(tnm.definition(), _BOX)
-    record = OUTAGE.current_outage("FAKETNM")
+    record = OUTAGE._STORE.live("FAKETNM", time.time())
     assert record is not None and "504" in record["reason"]
-    OUTAGE.remember_outage("FAKETNM", "status 504",
+    OUTAGE._remember_outage("FAKETNM", "status 504",
                            now=record["at"] - OUTAGE.OUTAGE_S - 1)
     tnm.status = 200
     assert INSETS.discover_inset(tnm.definition(), _BOX) is None
@@ -167,14 +169,14 @@ def test_another_provider_is_still_asked(tnm):
 @pytest.mark.parametrize("status", [429, 400, 403])
 def test_a_rate_limit_or_a_refusal_is_not_an_outage(tnm, status):
     tnm.status = status
-    with pytest.raises(Exception):
+    with pytest.raises((ea_base.TransientFetchError,
+                        ea_base.ProviderUnavailable)):
         INSETS.discover_inset(tnm.definition(), _BOX)
-    assert OUTAGE.current_outage("FAKETNM") is None
+    assert OUTAGE._STORE.live("FAKETNM", time.time()) is None
 
 
 def test_a_timeout_is_an_outage_a_dead_connection_is_not():
     import requests
-
     from elevation_access import discovery as ea_discovery
 
     for (reason, outage) in ((requests.ReadTimeout("read timed out"), True),

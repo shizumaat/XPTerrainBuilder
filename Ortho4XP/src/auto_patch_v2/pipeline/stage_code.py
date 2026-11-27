@@ -322,6 +322,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.shell_seat",
         "auto_patch_v2.airport.terrain_fill",
         "auto_patch_v2.airport.terrain_cut",
+        "auto_patch_v2.geom.memo_scope",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
@@ -751,6 +752,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.many_buffers",
+        "auto_patch_v2.geom.memo_scope",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
@@ -1162,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rock_witness",
         "auto_patch_v2.airport.shell_seat",
         "auto_patch_v2.airport.terrain_fill",
+        "auto_patch_v2.geom.memo_scope",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
@@ -1403,6 +1406,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rock_witness",
         "auto_patch_v2.airport.shell_seat",
         "auto_patch_v2.airport.terrain_fill",
+        "auto_patch_v2.geom.memo_scope",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.airport.tilt_float",
         "auto_patch_v2.airport.topology_cache",
@@ -1872,6 +1876,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.line_walk",
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.many_buffers",
+        "auto_patch_v2.geom.memo_scope",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
@@ -2599,7 +2604,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pack_art airport.pack_choice airport.pack_terrain
@@ -2751,7 +2757,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.pack
     airport.object_pack airport.pack_local
     airport.pack_art airport.pack_choice airport.pack_terrain
@@ -2871,7 +2878,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.below_grade_witness
     airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.object_cut airport.hanging_objects
     airport.adapted_riders
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
@@ -2986,7 +2994,9 @@ CODE_MODULES["solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo
+    geom.memo_scope
+    solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3088,7 +3098,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.below_grade_witness
     airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.object_cut airport.hanging_objects
     airport.adapted_riders
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
@@ -3225,7 +3236,9 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.mouth_behind planar.mouth_opening pipeline.neck_release
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
-    solve.assembly_memo solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.assembly_memo
+    geom.memo_scope
+    solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.fill_order solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.round_normal solve.rows solve.runway_first
@@ -3328,7 +3341,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.below_grade_witness
     airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pack_art airport.pack_choice airport.pack_terrain
@@ -3410,7 +3424,8 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
     planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner planar.shape_parts planar.shapes
-    planar.strip_keepout solve solve.api solve.assembly_memo solve.design
+    planar.strip_keepout solve solve.api solve.assembly_memo
+    geom.memo_scope solve.design
     solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
@@ -3512,7 +3527,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.deck_track_bend
-    airport.obj8_rest airport.obj8_memo airport.pack_health airport.pack_health.light_records
+    airport.obj8_rest airport.obj8_memo
+    geom.memo_scope airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pack_art airport.pack_choice airport.pack_terrain

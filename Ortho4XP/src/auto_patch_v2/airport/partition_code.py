@@ -211,6 +211,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.line_walk",
     "auto_patch_v2.geom.lowest_face",
+    "auto_patch_v2.geom.memo_scope",
     "auto_patch_v2.geom.pad_evidence",
     "auto_patch_v2.geom.parts",
     "auto_patch_v2.geom.place_matrix",

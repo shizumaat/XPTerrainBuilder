@@ -39,7 +39,7 @@ def test_a_scope_parses_each_file_version_once(tmp_path):
         _write(tmp_path / "a.obj", _OBJ + "\n")     # a new version
         os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
         assert M.parse(p) is not g
-    assert M._MEMO is None
+    assert M._SCOPE.memo is None
 
 
 def test_scoped_keeps_the_signature_and_opens_a_scope(tmp_path):
@@ -48,9 +48,9 @@ def test_scoped_keeps_the_signature_and_opens_a_scope(tmp_path):
 
     @M.scoped
     def f(a, *, b=2):
-        seen.append(M._MEMO is not None)
+        seen.append(M._SCOPE.memo is not None)
         return a + b
-    assert f(1) == 3 and seen == [True] and M._MEMO is None
+    assert f(1) == 3 and seen == [True] and M._SCOPE.memo is None
     assert list(inspect.signature(f).parameters) == ["a", "b"]
 
 

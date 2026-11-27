@@ -67,6 +67,7 @@ import math
 import typing as _t
 
 import numpy as np
+import shapely
 
 from ..geom.terrain_deck import CELL_M
 from .msl_feet import static_triangles
@@ -165,27 +166,34 @@ def _tops(tris: np.ndarray, x: np.ndarray, z: np.ndarray) -> np.ndarray:
     if not len(near):
         return out
     p0, e1, e2, den, lo, hi = p0[near], e1[near], e2[near], den[near], lo[near], hi[near]
-    step = max(1, _PAIRS // len(den))
-    for a in range(0, xs.shape[0], step):
-        px, pz = xs[a:a + step, None], zs[a:a + step, None]
-        k, j = np.nonzero((lo[:, 0] <= px) & (px <= hi[:, 0])
-                          & (lo[:, 2] <= pz) & (pz <= hi[:, 2]))
-        if not len(k):
-            continue
-        qx, qz = xs[a + k] - p0[j, 0], zs[a + k] - p0[j, 2]
-        u = (qx * e2[j, 2] - e2[j, 0] * qz) / den[j]
-        v = (e1[j, 0] * qz - qx * e1[j, 2]) / den[j]
+    # #2176: the (point, triangle) pairs whose box test passes, found by an
+    # index of the triangles' boxes (its candidates re-tested as the block
+    # test reads them) and put in the blocks' point-major order -- the same
+    # pairs, the same arithmetic, the same max order
+    at = np.flatnonzero(fin)
+    tree = shapely.STRtree(shapely.box(lo[:, 0], lo[:, 2], hi[:, 0], hi[:, 2]))
+    pk, j = tree.query(shapely.points(xs[at], zs[at]))
+    k = at[pk]
+    box = (lo[j, 0] <= xs[k]) & (xs[k] <= hi[j, 0]) & (lo[j, 2] <= zs[k]) & (zs[k] <= hi[j, 2])
+    k, j = k[box], j[box]
+    order = np.lexsort((j, k))
+    k, j = k[order], j[order]
+    top = np.full(xs.shape[0], -np.inf)
+    for a in range(0, len(k), _PAIRS):
+        kk, jj = k[a:a + _PAIRS], j[a:a + _PAIRS]
+        qx, qz = xs[kk] - p0[jj, 0], zs[kk] - p0[jj, 2]
+        u = (qx * e2[jj, 2] - e2[jj, 0] * qz) / den[jj]
+        v = (e1[jj, 0] * qz - qx * e1[jj, 2]) / den[jj]
         ins = (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1.0 + 1e-6)
         if ins.any():
-            y = p0[j, 1] + u * e1[j, 1] + v * e2[j, 1]
-            top = np.full(px.shape[0], -np.inf)
-            np.maximum.at(top, k[ins], y[ins])
-            hit = np.isfinite(top)
-            out[a:a + step][hit] = top[hit]
+            y = p0[jj, 1] + u * e1[jj, 1] + v * e2[jj, 1]
+            np.maximum.at(top, kk[ins], y[ins])
+    hit = np.isfinite(top)
+    out[hit] = top[hit]
     return out
 
 
-#: (point, triangle) pairs :func:`_tops` box-tests in one block
+#: (point, triangle) pairs :func:`_tops` weighs in one block
 _PAIRS = 1 << 21
 
 

@@ -593,6 +593,9 @@ class ResourceCache:
         #: §47 (8): the roof over a component's own floor plate, per
         #: ``(resource, component)`` — a read of the resource alone
         self.roof_memo: dict = {}
+        #: #2176: a resource's genuine solids' plan union in its own frame,
+        #: with its top and hard-deck count (``mouth_group._solids``)
+        self.solids_memo: dict = {}
         self.grade = GradeStats()
         self._geom: dict[str, ObjGeometry | None] = {}
         self._comps: dict[str, list[Component]] = {}

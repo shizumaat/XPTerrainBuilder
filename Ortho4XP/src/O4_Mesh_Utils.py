@@ -2891,11 +2891,15 @@ def build_mesh(tile):
     # audit the assembled ``.poly`` BEFORE Triangle4XP, so an unmeshable
     # input fails in seconds instead of after a 40-minute Triangle run and
     # a 2.3 M-triangle DSF X-Plane will not load.
+    # The binary inputs FIRST: the report beside is pure Python and takes
+    # turns with this conversion on the interpreter lock (measured +40-004:
+    # 0.2 s alone, 4.4 s beside it), so it starts with Triangle4XP, whose
+    # run leaves the lock free (#1264).
+    if binary_io:
+        mesh_cmd[-1] = TRI_BIN.binary_inputs(node_file, poly_file)
     preflight = _hairline_preflight_beside(poly_file, tile)
     if preflight is None and not hairline_preflight(poly_file, tile):
         return 0
-    if binary_io:
-        mesh_cmd[-1] = TRI_BIN.binary_inputs(node_file, poly_file)
 
     del tile.dem  # for machines with not much RAM, we do not need it anymore
     tile.dem = None

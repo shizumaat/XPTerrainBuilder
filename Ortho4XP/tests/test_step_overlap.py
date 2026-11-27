@@ -70,3 +70,15 @@ def test_a_report_preflight_starts_beside(monkeypatch):
     tile = object()
     assert MESH._hairline_preflight_beside("x.poly", tile) == "t"
     assert calls == [(MESH.hairline_preflight, ("x.poly", tile))]
+
+
+def test_a_waiting_task_starts_without_a_slot(monkeypatch):
+    def no_slot(*a, **k):
+        raise AssertionError("a task that waits takes no machine slot")
+    monkeypatch.setattr(OVERLAP.MACHINE_SLOTS, "try_take", no_slot)
+    ran_in = []
+    task = OVERLAP.beside(
+        lambda a: ran_in.append(threading.current_thread()) or a * 2,
+        21, what="test", needs_core=False)
+    assert task is not None and task.result() == 42
+    assert ran_in and ran_in[0] is not threading.current_thread()

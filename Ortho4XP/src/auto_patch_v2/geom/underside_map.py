@@ -65,7 +65,7 @@ __all__ = ["CELL_M", "MAX_CELLS", "SKIN_M", "SHEET_STEP_M", "BEHIND_M", "WALL_M"
            "SKIRT_M", "FLOOR_SUNKEN_MIN_M", "ROOFED_COVER_MIN", "FLAT_M",
            "KINDS", "Layers", "UndersideMap", "rasterise_layers",
            "compose", "ground_sheet", "interior_cells",
-           "relief", "underside"]
+           "relief", "supercover", "underside"]
 
 #: the plan grid (m); a grid that would exceed :data:`MAX_CELLS` coarsens
 CELL_M = 1.0
@@ -256,6 +256,59 @@ def rasterise_layers(p: np.ndarray, floor_ok: np.ndarray, foot_max: np.ndarray,
         a[~np.isfinite(a)] = np.nan
         arrs.append(a.reshape(nrow, ncol).astype(np.float32))
     return Layers(float(e0), float(n0), float(step), *arrs)
+
+
+def supercover(xy: np.ndarray, step: float, chunk: int = 2_000_000
+               ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """``(triangle, i, j0, j1)``: every LATTICE cell each plan triangle of
+    ``xy`` ``(n, 3, 2)`` (east, north) MEETS, as one run ``j0..j1`` per
+    lattice row ``i`` the triangle crosses -- cell ``(i, j)`` is
+    ``[j step, (j + 1) step] x [i step, (i + 1) step]`` in the frame, so the
+    same plan gives the same cells on every run (building-envelope spec §2
+    B1/B2).  SUPERCOVER, not centre sampling (:func:`rasterise_layers`
+    samples centres and misses a thin wall): per lattice ROW the triangle
+    crosses, the east extent of the triangle within that row's band (its
+    three edges clipped to the band), and every cell of the row that extent
+    meets -- exact for a convex shape, and as many rows as the triangle
+    spans, never its box's cells (a 100 m diagonal wall is 200 rows, not
+    40,000 cells).  A triangle with no plan area is the segment it
+    degenerates to (a wall seen from above); a point marks its cell."""
+    z = np.zeros(0, dtype=np.int64)
+    if not len(xy):
+        return z, z, z, z
+    x, y = xy[:, :, 0].astype(float), xy[:, :, 1].astype(float)
+    i0 = np.floor(y.min(1) / step).astype(np.int64)
+    nr = np.floor(y.max(1) / step).astype(np.int64) - i0 + 1
+    starts = np.r_[0, np.cumsum(nr)]
+    out: list[list[np.ndarray]] = [[], [], [], []]
+    k0, n = 0, len(xy)
+    while k0 < n:
+        k1 = max(int(np.searchsorted(starts, starts[k0] + chunk, side="right")) - 1, k0 + 1)
+        t = np.repeat(np.arange(k0, k1), nr[k0:k1])
+        row = i0[t] + np.arange(len(t)) - np.repeat(starts[k0:k1] - starts[k0], nr[k0:k1])
+        ylo, yhi = row * step, (row + 1) * step
+        xlo = np.full(len(t), np.inf)
+        xhi = np.full(len(t), -np.inf)
+        for e in range(3):
+            xa, ya = x[t, e], y[t, e]
+            xb, yb = x[t, (e + 1) % 3], y[t, (e + 1) % 3]
+            dy = yb - ya
+            flat = dy == 0.0
+            with np.errstate(divide="ignore", invalid="ignore"):
+                u1, u2 = (ylo - ya) / dy, (yhi - ya) / dy
+            ua = np.where(flat, 0.0, np.maximum(0.0, np.minimum(u1, u2)))
+            ub = np.where(flat, 1.0, np.minimum(1.0, np.maximum(u1, u2)))
+            ok = np.where(flat, (ya >= ylo) & (ya <= yhi), ua <= ub)
+            pa, pb = xa + ua * (xb - xa), xa + ub * (xb - xa)
+            xlo = np.where(ok, np.minimum(xlo, np.minimum(pa, pb)), xlo)
+            xhi = np.where(ok, np.maximum(xhi, np.maximum(pa, pb)), xhi)
+        live = np.isfinite(xlo)
+        t, row, xlo, xhi = t[live], row[live], xlo[live], xhi[live]
+        for o, a in zip(out, (t, row, np.floor(xlo / step).astype(np.int64),
+                              np.floor(xhi / step).astype(np.int64))):
+            o.append(a)
+        k0 = k1
+    return tuple(np.concatenate(o) for o in out)
 
 
 def compose(layers: _t.Sequence["Layers | None"]) -> "Layers | None":

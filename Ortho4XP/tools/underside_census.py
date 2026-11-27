@@ -21,6 +21,13 @@ nothing; one capture at a time.
     venv/bin/python tools/underside_census.py --registered [--icao ICAO ...]
     venv/bin/python tools/underside_census.py --pack ICAO [...]
     venv/bin/python tools/underside_census.py ... --unit firestation --unit pool_5
+    venv/bin/python tools/underside_census.py --buildings CAP.pkl [...] [--json OUT]
+
+``--buildings`` (building-envelope spec §10 stop 0; library
+``tools/envelope_census.py``): the separately seated buildings of
+``auto_patch_v2/airport/building_split`` per capture at both cell choices
+against today's walled clusters, bodies, groups and contacts, and every
+non-one-to-one cluster of a certified airport with its named reason.
 
 ``--registered`` reads the newest capture per ICAO in ``docs/frames.jsonl``
 (``tools/sunk_census.registered``); ``--unit`` prints every unit whose
@@ -290,6 +297,29 @@ def perimeter_lines(res: dict, units: "list[str]" = ()) -> list[str]:
     return out
 
 
+def _buildings(a, registered) -> int:
+    """``--buildings``: :mod:`envelope_census` over each capture."""
+    import envelope_census as _ec
+    paths = list(a.captures) + (list(registered(set(a.icao) if a.icao else None))
+                                if a.registered else [])
+    cert = set(filter(None, a.certified.split(",")))
+    results = []
+    for path in paths:
+        t = time.time()
+        try:
+            res = _ec.from_capture(path)
+        except Exception as e:  # noqa: BLE001 -- a stale capture is reported, never fatal
+            print(f"== {path}: UNREAD ({type(e).__name__}: {e})", flush=True)
+            continue
+        print(f"== {res['icao']} {path} ({time.time() - t:.0f} s)", flush=True)
+        print("\n".join(_ec.lines([res], cert)), flush=True)
+        results.append(res)
+        if a.json:
+            Path(a.json).write_text(json.dumps(results, indent=1, default=str))
+    print("\n".join(_ec.lines(results)))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("captures", nargs="*")
@@ -300,6 +330,10 @@ def main(argv=None) -> int:
     ap.add_argument("--unit", action="append", default=[],
                     help="print units whose resources contain this")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--buildings", action="store_true",
+                    help="the building split census (tools/envelope_census.py)")
+    ap.add_argument("--certified", default="KEGE,BIKF,OMDB,LGAV",
+                    help="with --buildings: ICAOs whose non-one-to-one clusters are listed")
     ap.add_argument("--perimeter", action="append", default=[], metavar="SOLVED.pkl",
                     help="STEP 3: judge the graded perimeters of a v2_solve_replay "
                          "--solved-out pickle (tools/perimeter_judge)")
@@ -317,6 +351,8 @@ def main(argv=None) -> int:
             Path(a.json).write_text(json.dumps(results, indent=1, default=str))
         return 0
     from sunk_census import registered
+    if a.buildings:
+        return _buildings(a, registered)
     jobs = [("cap", p) for p in a.captures]
     if a.registered:
         jobs += [("cap", p) for p in registered(set(a.icao) if a.icao else None)]

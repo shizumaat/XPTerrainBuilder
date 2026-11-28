@@ -13,20 +13,24 @@ The rule (owner decisions on #542, 2026-10-10):
 * a code that is not in the index is reported, and the rest are still
   selected;
 * an airport selects every tile its extent (boundary, runways, datum)
-  touches.
+  touches;
+* a tile key (``+39-095``) in the list is that tile, so
+  ``+39-095, +40-004 KCLT`` selects all three.
 
 A query is a LIST only when it could not be an ordinary search: it holds
 a comma or semicolon, or it holds two or more words of which at least one
 is an exact airport code.  Anything else -- one word, or a free-text name
 such as ``Charlotte Douglas`` -- returns ``None`` and the caller runs its
-single-airport search exactly as before.  Tile-key queries (``+48-006``)
-are the caller's to recognise first.
+single-airport search exactly as before.  A lone tile key (``+48-006``)
+and a typed point are the caller's to recognise first.
 """
 
 import math
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+from O4_Coordinate_Query import parse_tile_key
 
 __all__ = [
     "AirportBatch",
@@ -120,6 +124,13 @@ def resolve_codes(query: str,
     batch = AirportBatch()
     tiles = set()
     for code in codes:
+        tile = parse_tile_key(code)
+        if tile is not None:
+            # A tile key in the list is that tile (owner 2026-11-28):
+            # selected, never tagged with its own name.
+            batch.codes.append(code)
+            tiles.add(tile)
+            continue
         found = lookup(code)
         if found is None:
             batch.unknown.append(code)

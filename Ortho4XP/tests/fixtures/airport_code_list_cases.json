@@ -54,7 +54,20 @@
     {"query": "KZZZ, QQQQ",
      "batch": {"codes": [], "unknown": ["KZZZ", "QQQQ"], "tiles": [],
                "picks": []}},
-    {"query": " , ; ", "batch": null}
+    {"query": " , ; ", "batch": null},
+    {"query": "+39-095, +40-004, +43-080, +48+002, +49+002",
+     "batch": {"codes": ["+39-095", "+40-004", "+43-080", "+48+002", "+49+002"], "unknown": [],
+               "tiles": [[39, -95], [40, -4], [43, -80], [48, 2], [49, 2]], "picks": []}},
+    {"query": "+48+002 +49+002",
+     "batch": {"codes": ["+48+002", "+49+002"], "unknown": [],
+               "tiles": [[48, 2], [49, 2]], "picks": []}},
+    {"query": "+48+002, KCLT +48+002",
+     "batch": {"codes": ["+48+002", "KCLT"], "unknown": [],
+               "tiles": [[35, -81], [48, 2]], "picks": [{"tile": [35, -81], "codes": ["KCLT"]}]}},
+    {"query": "+48+002",
+     "batch": null},
+    {"query": "+48+002,",
+     "batch": {"codes": ["+48+002"], "unknown": [], "tiles": [[48, 2]], "picks": []}}
   ],
   "tags": [
     {"codes": ["SPJC"], "tag": " (SPJC)"},

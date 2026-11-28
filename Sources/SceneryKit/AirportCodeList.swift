@@ -65,13 +65,14 @@ public struct AirportBatch: Sendable, Equatable {
 /// drift without a twin going red. Commas, semicolons and whitespace all
 /// separate codes; case does not matter; a repeated code counts once; an
 /// unknown code is reported and the rest still selected; an airport
-/// selects every tile its extent touches.
+/// selects every tile its extent touches. A tile key (`+39-095`) in the
+/// list is that tile, so `+39-095, +40-004 KCLT` selects all three.
 ///
 /// A query is a LIST only when it could not be an ordinary search: it
 /// holds a comma or semicolon, or two or more words of which at least one
 /// is an exact airport code. Otherwise `resolve` returns nil and the
-/// caller runs its single-airport search exactly as before. Tile keys
-/// (`+48-006`) are the caller's to recognise first.
+/// caller runs its single-airport search exactly as before. A lone tile
+/// key (`+48-006`) and a typed point are the caller's to recognise first.
 public enum AirportCodeList {
     /// An extent wider than this (degrees) is a data error — an
     /// antimeridian wrap or a stray node — and the airport falls back to
@@ -120,7 +121,12 @@ public enum AirportCodeList {
         var batch = AirportBatch()
         var tiles = Set<AirportTile>()
         for code in codes {
-            if let found = lookup(code) {
+            if let tile = CoordinateQuery.tileKey(code) {
+                // A tile key in the list is that tile (owner 2026-11-28):
+                // selected, never tagged with its own name.
+                batch.codes.append(code)
+                tiles.insert(AirportTile(lat: tile.lat, lon: tile.lon))
+            } else if let found = lookup(code) {
                 batch.codes.append(code)
                 tiles.formUnion(found)
                 for tile in found where !(batch.picks[tile]?.contains(code) ?? false) {

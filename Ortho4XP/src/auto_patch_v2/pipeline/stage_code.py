@@ -4029,3 +4029,15 @@ for _stage, _mods_of in list(CODE_MODULES.items()):
                                              *_mods("airport.road_answer model.map_memo")}))
     if "auto_patch_v2.airport.unit_storey" in _have:
         CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods("model.map_memo")}))
+# lenvelope (2026-11-27, RULINGS 2026-11-27h, spec building-envelope §2): the
+# buildings found at load (airport/building_split on geom/plan_lattice and
+# underside_map's supercover) wherever the pack partition is read
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.airport.pack_partition" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(
+            "airport.building_split geom.plan_lattice geom.underside_map")}))
+for _stage, _mods_of in list(CODE_MODULES.items()):
+    if "auto_patch_v2.pipeline.underside_publication" in _mods_of \
+            or "auto_patch_v2.pipeline.build" in _mods_of:
+        CODE_MODULES[_stage] = tuple(sorted({*CODE_MODULES[_stage], *_mods(
+            "pipeline.building_publication")}))

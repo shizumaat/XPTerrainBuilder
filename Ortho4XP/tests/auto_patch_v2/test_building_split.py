@@ -47,7 +47,7 @@ def test_regions_link_eight_and_two_cell():
 def test_roofed_fill_takes_only_covered_holes():
     m = np.zeros((7, 7), bool)
     m[0, :] = m[-1, :] = m[:, 0] = m[:, -1] = True
-    i, a, b = pl.mask_runs(m, 10, 20)
+    i, a, b = pl._mask_runs(m, 10, 20)
     lab = np.zeros(len(i), np.int64)
     (_ri, ra, rb, _rl), _j, c = pl.roofed_fill(
         i, a, b, lab, 1, lambda _c, a0, b0, h, w: np.ones((h, w), bool), 0.9)

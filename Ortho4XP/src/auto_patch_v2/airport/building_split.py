@@ -45,8 +45,8 @@ import numpy as np
 from ..geom import plan_lattice as _pl
 from ..geom.underside_map import supercover
 
-__all__ = ["Params", "PieceTable", "Building", "Split", "split", "WALL", "INTERIOR",
-           "ATTACHED", "SHEET"]
+__all__ = ["Params", "PieceTable", "split", "of_partition", "WALL",
+           "INTERIOR", "ATTACHED", "SHEET"]
 
 WALL, INTERIOR, ATTACHED, SHEET = "wall", "interior", "attached", "sheet"
 #: the spec's 0.0 alternative: a 0.25 m cell with a two-cell link

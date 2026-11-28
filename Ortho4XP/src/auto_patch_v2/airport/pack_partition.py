@@ -63,6 +63,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, Unit
+from . import building_split as _bsplit
 from . import contact as _contact
 from . import deck_signature as _deck
 from . import extension_cache as _extcache
@@ -173,6 +174,11 @@ class PackPartition:
     #: #1726: the kept parts that ε-touch a terrain-adapted member of their
     #: own frame (``adapted_riders.touching_adapted``); filtered reading only
     adapted_frame_pids: frozenset[int] = frozenset()
+    #: THE SEPARATELY SEATED BUILDINGS (owner RULINGS 2026-11-27h; spec
+    #: ``building-envelope-20261127.md`` §2): ``building_split.Split`` of the
+    #: LOAD reading, found once and cached with it.  A REPORT until a
+    #: reader takes it (stop 1); ``None`` on a partition read before it
+    buildings: _t.Any = None
 
     def member_at(self, key: tuple[int, int]) -> Member:
         return self.units[key[0]].members[key[1]]
@@ -852,6 +858,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     units: list[Unit] = []
     member_object: dict[tuple[int, int], tuple[str, str]] = {}
     oid_of = {(key, path): oid for key, path, oid in member_ref}
+    at_of: dict[tuple, tuple[int, int]] = {}
     for i, (key, members) in enumerate(sorted(units_by_key.items())):
         if not members:
             continue
@@ -859,6 +866,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         ms = tuple(members[k] for k in names)
         for mi, nm in enumerate(names):
             member_object[(len(units), mi)] = (oid_of.get((key, nm), ms[mi].id), nm)
+            at_of[(key, nm)] = (len(units), mi)
         units.append(Unit(f"unit:{len(units)}", (key[0], key[1]), key[2], ms))
         counts["members"] += len(ms)
     units = _stamp_deck_shades(units, member_object, placed, member_ref, cache,
@@ -870,6 +878,13 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts["structures"] = part.structures
     counts["pairs_tested"] = part.pairs_tested
     counts["pairs_unproved"] = part.pairs_unproved
+    # THE BUILDINGS (RULINGS 2026-11-27h, spec §2): found once, on the
+    # load reading only (a screen never re-derives them)
+    buildings = _bsplit.of_partition(
+        part, units, [at_of[(key, path)] for key, path, _oid in member_ref],
+        anchor_of_member, law,
+        footless={mi for mi, (_k, path, _o) in enumerate(member_ref) if path in no_solid}
+    ) if sc.is_empty() else None
     geom = _LoadGeom(_contact.base_index(part), MemberGeometries(recipes, cache),
                      tuple(member_ref),
                      tuple(anchor_of_member), dict(anchor_ix),
@@ -879,7 +894,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                          part.contacts, part.abutments, member_object,
                          frozenset(),
                          {r: len(ks) for r, ks in anchors_by_resource.items()},
-                         deferred, geom)
+                         deferred, geom, buildings=buildings)
 
 
 def _refuse_groundless(counts: _t.Mapping[str, int], icao: str) -> None:

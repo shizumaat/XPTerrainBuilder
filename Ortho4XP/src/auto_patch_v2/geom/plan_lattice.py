@@ -8,7 +8,7 @@ of the step in the frame (``underside_map.supercover`` names them).  A set
 of cells is a list of RUNS ``(i, j0, j1)``: the cells ``j0..j1`` of row
 ``i``.  A whole airport's wall plan is a few hundred thousand runs where
 its cells are millions and its dense grid 10^8; every pass below is a sort
-and a search over runs.  A :class:`Lattice` turns ``(i, j)`` into one
+and a search over runs.  A :class:`_Lattice` turns ``(i, j)`` into one
 int64 CODE ``i * nj + j + shift`` ordered row-major, with ``link`` free
 columns on each side so no neighbour search wraps onto another row.
 
@@ -29,19 +29,18 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Lattice", "merge_runs", "run_regions", "roofed_fill", "overlaps",
-           "mask_runs"]
+__all__ = ["merge_runs", "run_regions", "roofed_fill", "overlaps"]
 
 
 @_dc.dataclass(frozen=True)
-class Lattice:
+class _Lattice:
     """The row-major code space of a set of columns (module doc)."""
 
     nj: int
     shift: int
 
     @classmethod
-    def over(cls, j_lo: int, j_hi: int, link: int = 1) -> "Lattice":
+    def over(cls, j_lo: int, j_hi: int, link: int = 1) -> "_Lattice":
         """The code space of columns ``j_lo..j_hi`` with ``link`` + 1 free
         columns on each side."""
         pad = int(link) + 1
@@ -93,7 +92,7 @@ def run_regions(i: np.ndarray, j0: np.ndarray, j1: np.ndarray, link: int = 1
     n = len(i)
     if not n:
         return np.zeros(0, dtype=np.int64), 0
-    lat = Lattice.over(int(j0.min()), int(j1.max()), link)
+    lat = _Lattice.over(int(j0.min()), int(j1.max()), link)
     rs, re = lat.code(i, j0), lat.code(i, j1)
     a_all, b_all = [], []
     for d in range(0, link + 1):
@@ -120,14 +119,14 @@ def overlaps(qi: np.ndarray, qj0: np.ndarray, qj1: np.ndarray,
     if not len(qi) or not len(ri):
         z = np.zeros(0, dtype=np.int64)
         return z, z, z
-    lat = Lattice.over(int(min(qj0.min(), rj0.min())), int(max(qj1.max(), rj1.max())), 0)
+    lat = _Lattice.over(int(min(qj0.min(), rj0.min())), int(max(qj1.max(), rj1.max())), 0)
     q, r = _pairs(lat.code(qi, qj0), lat.code(qi, qj1), lat.code(ri, rj0), lat.code(ri, rj1))
     n = np.minimum(qj1[q], rj1[r]) - np.maximum(qj0[q], rj0[r]) + 1
     keep = n > 0
     return q[keep], r[keep], n[keep]
 
 
-def mask_runs(m: np.ndarray, a0: int, b0: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _mask_runs(m: np.ndarray, a0: int, b0: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The runs ``(i, j0, j1)`` of the true cells of the dense mask ``m``
     whose cell ``[0, 0]`` is lattice cell ``(a0, b0)``."""
     p = np.pad(m.astype(np.int8), ((0, 0), (1, 1)))
@@ -193,7 +192,7 @@ def roofed_fill(i: np.ndarray, j0: np.ndarray, j1: np.ndarray, lab: np.ndarray, 
         roof = roof[roof > 0]
         counts["roofed"] += len(roof)
         if len(roof):
-            hi_, hj0, hj1 = mask_runs(np.isin(hl, roof), a0, b0)
+            hi_, hj0, hj1 = _mask_runs(np.isin(hl, roof), a0, b0)
             for o, v in zip(out, (hi_, hj0, hj1, np.full(len(hi_), c, dtype=np.int64))):
                 o.append(v)
     counts["unroofed"] = counts["holes"] - counts["roofed"]

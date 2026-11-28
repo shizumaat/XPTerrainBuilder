@@ -258,6 +258,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         except BaseException:
             _wpool.close()
             raise
+    from .building_publication import log_line as _blog
+    _say("  " + _blog(icao, getattr(_part, "buildings", None)), out)
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
     # terrain under an object's feet is GROUND, and the slope a pilot

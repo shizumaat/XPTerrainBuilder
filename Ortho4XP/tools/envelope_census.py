@@ -113,21 +113,13 @@ def _rings_apart(info_of: dict, pa: list, pb: list, ml: float, mo: float) -> flo
     return float(shapely.union_all(ga).distance(shapely.union_all(gb)))
 
 
-def _outline(c, ml: float, mo: float):
-    """Today's cluster outline in metres: the union of its rings (boxes
-    where it has none)."""
-    from auto_patch_v2.airport.contents import _poly
-    return _poly(c.rings or (), c.boxes or (), ml, mo)
-
-
-def _gap(cs, ml: float, mo: float) -> float:
-    """The widest gap (m) that joins the clusters ``cs`` into one: the
-    largest of each cluster's least ring distance to the others."""
+def _gap(cs, info_of: dict, ml: float, mo: float) -> float:
+    """The widest gap (m) that joins the clusters ``cs`` into one, as
+    today's chain reads their pieces (:func:`_shape`): the largest of each
+    cluster's least distance to the others."""
     import shapely
-    gs = [_outline(c, ml, mo) for c in cs]
-    gs = [g for g in gs if g is not None]
-    if len(gs) < 2:
-        return 0.0
+    gs = [shapely.union_all([_shape(info_of[q], ml, mo) for q in c.pids if q in info_of])
+          for c in cs]
     worst = 0.0
     for k, g in enumerate(gs):
         rest = shapely.union_all(gs[:k] + gs[k + 1:])
@@ -243,7 +235,7 @@ def mapping(airport, s, law, info, table=None) -> dict:
         regs = sorted({wreg[q] for c in cs for q in c.pids if q in wreg and s.of.get(q) == b})
         kinds = kinds_at.get(rr[regs[0]], set()) if regs else set()
         floors = [f for c in cs for f in (c.floors or ())]
-        gap = _gap(cs, ml, mo)
+        gap = _gap(cs, info_of, ml, mo)
         if len(units) > 1:
             why = "different anchors (today's clusters are per anchor)"
         elif len(regs) > 1:
@@ -378,7 +370,8 @@ def lines(results: list[dict], certified: _t.Collection[str] = ()) -> list[str]:
     out.append(f"{'buildings holding 2+':28}"
                + "".join(f"{len(x['merged']):>13}" for _i, x in cols))
     for i, x in cols:
-        why = collections.Counter(r["why"].split(":")[0] for r in x["merged"] + x["split"])
+        why = collections.Counter(r["why"].split(":")[0].split(" (pieces")[0]
+                                  for r in x["merged"] + x["split"])
         out.append(f"  {i}@{x['cell_m']} reasons: " + "; ".join(f"{w} {n}" for w, n in
                                                             sorted(why.items())))
         out.append(f"  {i}@{x['cell_m']} largest: " + "; ".join(

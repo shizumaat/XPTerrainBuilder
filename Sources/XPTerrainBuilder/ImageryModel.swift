@@ -445,14 +445,10 @@ final class ImageryModel: ObservableObject {
         startFadeTicker()
     }
 
-    /// Decodes NOW, on the calling (background) thread (#2055): a lazily
-    /// decoded JPEG is decoded by the first draw, on the main thread — the
-    /// launch's map fill spent ~1.5 s of main-thread time there.
+    /// Decodes NOW, on the calling (background) thread, into a plain bitmap
+    /// (#2055, #2310): never a lazily decoded JPEG the draw would decode on
+    /// the main thread.
     private nonisolated static func decode(data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [
-            kCGImageSourceShouldCache: true,
-            kCGImageSourceShouldCacheImmediately: true,
-        ] as CFDictionary)
+        BitmapDecode.image(data: data)
     }
 }

@@ -150,12 +150,10 @@ final class LivePreviewModel: ObservableObject {
         }
     }
 
-    /// The JPEG/PNG decoded now, off the main actor.
+    /// The JPEG/PNG decoded now, off the main actor, into a plain bitmap (#2310).
     nonisolated private static func decode(_ reply: O4LivePreviewMip) -> CGImage? {
-        guard case .image(let data) = reply,
-              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-        return CGImageSourceCreateImageAtIndex(source, 0, options)
+        guard case .image(let data) = reply else { return nil }
+        return BitmapDecode.image(data: data)
     }
 
     private func arrived(_ job: (square: O4LivePreviewSquare, px: Int), _ reply: O4LivePreviewMip,

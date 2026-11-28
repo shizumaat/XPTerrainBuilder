@@ -77,7 +77,13 @@ final class PatchTerrainRelief: ObservableObject {
                                                                buildDir: buildDir)
                     guard let self, !Task.isCancelled else { return }
                     if reply.pending { delay = 400_000_000; continue }
-                    self.show(reply)
+                    // Decoded off the main actor into a bitmap (#2310).
+                    let png = reply.png
+                    let picture = await Task.detached(priority: .utility) {
+                        png.flatMap(BitmapDecode.image(data:))
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    self.show(reply, image: picture)
                     return
                 } catch {
                     guard let self, !Task.isCancelled else { return }
@@ -88,15 +94,11 @@ final class PatchTerrainRelief: ObservableObject {
         }
     }
 
-    private func show(_ reply: O4TerrainRelief) {
+    private func show(_ reply: O4TerrainRelief, image picture: CGImage?) {
         error = nil
         legend = reply.legend
         box = reply.bbox
-        image = reply.png.flatMap { data in
-            CGImageSourceCreateWithData(data as CFData, nil).flatMap {
-                CGImageSourceCreateImageAtIndex($0, 0, nil)
-            }
-        }
+        image = picture
     }
 }
 

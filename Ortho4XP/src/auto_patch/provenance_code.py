@@ -293,6 +293,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Config_Names",
     "O4_Config_Utils",
     "O4_Console_Encoding",
+    "O4_Coordinate_Query",
     "O4_Coral_Atlas",
     "O4_Custom_Patch_Ground",
     "O4_Custom_Patch_Source",

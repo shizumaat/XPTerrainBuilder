@@ -2788,15 +2788,28 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     if resume not in ("classify", "planar"):
         raise SystemExit("--late-from needs --from classify or --from planar: the pieces "
                          "are cut by the base's levels BEFORE the map is built")
+    from auto_patch_v2.geom import item_memo as _items
     from auto_patch_v2.pipeline.late_stage import run_last_stages
     held: dict = {}
+    if late.get("warm"):
+        # ``--late-warm`` (#2206): the BASE derive first, in this process, as
+        # the build orders them -- so the late derive reads what the main
+        # pass left in the item memos (``geom/item_memo``), and its clock is
+        # the build's
+        from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free_w
+        _items.next_run()
+        _tw = time.perf_counter()
+        _rest(_gap_free_w(cl) or cl, stage_one=False)
+        print(f"[{icao}] --late-warm: the base derive {time.perf_counter() - _tw:.1f} s")
 
     def _derive(cl_cut):
+        _items.next_run()                 # a prefix run begins (``run_prefix``)
         held.update(_rest(cl_cut, stage_one=False))
         return held["pm"], held["cs"], None, None
     pm_l, sol, lrep = run_last_stages(
         cl, airport, law, _derive, late["base"],
         out=lambda m: print(f"[{icao}] {m}"), **late.get("solve_kw", {}))
+    print(f"[{icao}] LAST STAGES wall_s {lrep['wall_s']}")
     held.update(pm=pm_l, cs=lrep["cs"], cl=lrep["cl"], stage1=None,
                 stage=_dc.replace(held["stage"], pm=pm_l),
                 late={"sol": sol, "rep": lrep})
@@ -2813,7 +2826,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
-           late_from: Path | None = None, gap_free: bool = False,
+           late_from: Path | None = None, gap_free: bool = False, late_warm: bool = False,
            null_change: int | None = None, rule: dict | None = None,
            hand_role: dict | None = None, prefix_twice: str | None = None) -> int:
     import numpy as np
@@ -2833,7 +2846,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                           # car lots' stage carries them, #2114 round 2)
                           "cs": _base.get("cs")},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
-                              "method": method}}
+                              "method": method}, "warm": late_warm}
         _base_hold = _base.get("hold_report")
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
@@ -3494,6 +3507,10 @@ def main() -> int:
                          "SAME airport without its gap pieces (the base solve); every "
                          "vertex it carries is fixed at its level and only the gap "
                          "pieces and the ribbons along them are solved")
+    ap.add_argument("--late-warm", action="store_true",
+                    help="with --late-from: run the BASE derive (the gap-free map) first, "
+                         "in this process, as the build does, so the late derive reads the "
+                         "main pass's item memos and its clock is the build's (#2206)")
     ap.add_argument("--no-bridge", action="store_true",
                     help="RULINGS 2026-11-19s MEASUREMENT ARM (planar/deck_airside."
                          "no_bridge_arm): the full map withholds its generated decks "
@@ -3633,6 +3650,8 @@ def main() -> int:
         ap.error("--null-change [N >= 1] twins a full --replay PKL solve: not with "
                  "--late-from (the last stage alone), a dry read (--pad-read, "
                  "--rim-diagnostics, --stage1-dump) or any other mode")
+    if a.late_warm and not a.late_from:
+        ap.error("--late-warm warms the late derive of a --late-from run: give --late-from")
     # owner 2026-11-25: the job takes its memory on the machine ledger
     # before it loads anything (O4_Machine_Jobs; one line a minute while
     # it waits, released at exit however it exits).
@@ -3782,7 +3801,7 @@ def _replay_main(a, sites, wh, pl) -> int:
                       solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
-                      late_from=a.late_from, gap_free=a.gap_free,
+                      late_from=a.late_from, gap_free=a.gap_free, late_warm=a.late_warm,
                       null_change=a.null_change,
                       rule=dict(it.split("=", 1) for it in a.rule) or None,
                       hand_role=dict(it.split("=", 1) for it in a.hand_role) or None,

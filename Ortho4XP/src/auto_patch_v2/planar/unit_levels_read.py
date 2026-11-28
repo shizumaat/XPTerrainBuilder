@@ -20,10 +20,14 @@ the frame's lower floor -15.00 minted as ``building32/p2``."""
 from __future__ import annotations
 
 import dataclasses as _dc
+import pickle
 import typing as _t
 
 from shapely.ops import unary_union
 
+from ..airport.dem_memo import asked
+from ..geom.item_memo import ItemMemo
+from ..model.map_memo import Same
 from ..model.registries import UNIT_LEVELS
 
 __all__ = ["publish_levels", "read_levels"]
@@ -44,8 +48,38 @@ def read_levels(base_regions, air_polys, airport, law, shells=()) -> list:
                           and role_side(law, r.role) == "groundside"
                           and is_value_role(law, r.role)
                           and not is_structure_role(law, r.role)])
-    return unit_levels(airport, law, unary_union(list(air_polys)), ground=ground,
-                       shells=tuple(shells))
+    air = unary_union(list(air_polys))
+    shells = tuple(shells)
+    return list(asked(_LEVELS, _levels_key(airport, law, air, ground, shells),
+                      getattr(airport, "dem", None),
+                      lambda dem: tuple(unit_levels(_dc.replace(airport, dem=dem), law, air,
+                                                    ground=ground, shells=shells))))
+
+
+#: the records per content (#2206): the main pass and the late map read the
+#: same units against the same airside and groundside wherever no late cell
+#: changed them (``geom/item_memo``; the DEM through ``airport/dem_memo``)
+_LEVELS = ItemMemo("unit_levels_read.read_levels")
+
+#: the airport fields a run replaces (the DEM: asked through the memo, never
+#: keyed; the flat-site verdict: keyed on what ``law/inset_class.ground_class``
+#: reads of it; the live deck stacks: by value)
+_RUN_FIELDS = frozenset({"dem", "flat_site", "deck_stacks"})
+
+
+def _levels_key(airport, law, air, ground, shells) -> tuple:
+    """Everything :func:`~airport.unit_storey.unit_levels` reads besides the
+    DEM: the airside and groundside by their bytes, the shells by value, the
+    law by identity, the airport's loaded fields by identity (each run hands
+    on the same objects) and the run's own fields by what is read of them."""
+    fv = getattr(airport, "flat_site", None)
+    klass = None if fv is None else (fv.signals or {}).get("s2_source_class")
+    return (air.wkb if air is not None else None,
+            ground.wkb if ground is not None else None,
+            pickle.dumps(shells, protocol=5), Same(law),
+            fv is None, klass, pickle.dumps(getattr(airport, "deck_stacks", None), protocol=5),
+            tuple((f.name, Same(getattr(airport, f.name)))
+                  for f in _dc.fields(airport) if f.name not in _RUN_FIELDS))
 
 
 def _minted(reg, block: str, rise: float) -> "float | None":

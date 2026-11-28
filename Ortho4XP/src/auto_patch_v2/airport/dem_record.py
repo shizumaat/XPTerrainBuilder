@@ -134,6 +134,10 @@ class DemRecorder:
         """The real DEM."""
         return self._o4r_dem
 
+    def listening(self) -> bool:
+        """Whether the recording window is open."""
+        return bool(self._o4r_on)
+
     @property                                  # type: ignore[misc]
     def __class__(self) -> type:               # isinstance sees the DEM's class
         return type(self._o4r_dem)

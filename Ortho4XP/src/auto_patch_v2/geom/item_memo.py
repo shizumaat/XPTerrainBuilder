@@ -20,7 +20,9 @@ called once per ``run_prefix``), so the late map reads the main pass's and
 nothing outlives two runs.  A function memoised here reads nothing but its
 key: never the DEM (a cached build's DEM witness names every question a
 record asked, ``pipeline/front_cache``; a memo that skipped a DEM read
-would hide it), never a registry or a module flag.  Answers are shared:
+would hide it -- a function that does ask it goes through
+``airport/dem_memo``, which keeps its questions and asks them again on a
+hit), never a registry or a module flag.  Answers are shared:
 the caller treats them as read-only (immutable geometries, tuples)."""
 from __future__ import annotations
 
@@ -49,20 +51,32 @@ class ItemMemo:
 
     def get(self, key: _t.Hashable, compute: _t.Callable[[], _t.Any]) -> _t.Any:
         """The answer held for ``key``, else ``compute()``'s, held."""
+        got = self.peek(key)
+        if got is not None:
+            return got[0]
+        got = compute()
+        self.put(key, got)
+        return got
+
+    def peek(self, key: _t.Hashable) -> "tuple[_t.Any] | None":
+        """``(answer,)`` held for ``key`` (counted a hit), else ``None``
+        (counted a miss: the caller computes and :meth:`put` s it)."""
         got = self._now.get(key, _MISSING)
         if got is _MISSING:
             got = self._before.get(key, _MISSING)
             if got is not _MISSING:
                 self._now[key] = got
-        if got is not _MISSING:
-            self.reads["hit"] += 1
-            return got
-        self.reads["miss"] += 1
-        got = compute()
+        if got is _MISSING:
+            self.reads["miss"] += 1
+            return None
+        self.reads["hit"] += 1
+        return (got,)
+
+    def put(self, key: _t.Hashable, answer: _t.Any) -> None:
+        """Hold ``answer`` for ``key`` in the current run."""
         if len(self._now) >= self.cap:
             self._now.clear()
-        self._now[key] = got
-        return got
+        self._now[key] = answer
 
     def turn(self) -> None:
         """A new prefix run: the current answers become the previous."""

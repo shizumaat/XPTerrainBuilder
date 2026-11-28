@@ -973,36 +973,43 @@ def _seam_vertices(arr: Arrangement, vxy: list[XY]) -> frozenset[int]:
 
 
 def _t_vertices(pm: PlanarMap) -> int:
-    """Vertices lying on the interior of a non-incident edge."""
-    segs = [LineString([pm.vertices[e.a].xy, pm.vertices[e.b].xy])
-            for e in pm.edges.values()]
-    if not segs:
+    """Vertices lying on the interior of a non-incident edge.  One bulk
+    query and one vectorised distance (#2206: the per-vertex loop was 3 s
+    a derive at KATL); the pairs, the test and the count are the loop's."""
+    edges = list(pm.edges.values())
+    if not edges:
         return 0
+    xy = {v: p.xy for v, p in pm.vertices.items()}
+    segs = shapely.linestrings([[xy[e.a], xy[e.b]] for e in edges])
     tree = STRtree(segs)
     eov = pm.edges_of_vertex()
-    n = 0
-    for v in pm.vertices.values():
-        p = Point(v.xy)
-        for j in tree.query(p.buffer(1e-6), predicate="intersects"):
-            if int(j) not in eov[v.id] and segs[int(j)].distance(p) < 1e-6:
-                n += 1
-                break
-    return n
+    verts = list(pm.vertices.values())
+    pts = shapely.points([v.xy for v in verts])
+    # ``Point.buffer``'s own default (16 segments a quadrant), as the loop asked
+    ix, jx = tree.query(shapely.buffer(pts, 1e-6, quad_segs=16), predicate="intersects")
+    keep = [k for k, (i, j) in enumerate(zip(ix.tolist(), jx.tolist(), strict=True))
+            if j not in eov[verts[i].id]]
+    if not keep:
+        return 0
+    ix, jx = ix[keep], jx[keep]
+    near = shapely.distance(segs[jx], pts[ix]) < 1e-6
+    return int(np.unique(ix[near]).size)
 
 
 def _spacing(pm: PlanarMap) -> tuple[float, float]:
-    """``(nearest distinct-vertex distance, longest edge)``."""
-    pts = [Point(v.xy) for v in pm.vertices.values()]
+    """``(nearest distinct-vertex distance, longest edge)``: every pair of
+    one bulk query within the 2 m buffers' boxes, measured at once (#2206;
+    the same candidates, the same GEOS distances, so the same minimum)."""
+    pts = shapely.points([v.xy for v in pm.vertices.values()])
     if len(pts) < 2:
         return 0.0, 0.0
     tree = STRtree(pts)
-    best = float("inf")
-    for i, p in enumerate(pts):
-        for j in tree.query(p.buffer(2.0)):
-            if int(j) != i:
-                best = min(best, p.distance(pts[int(j)]))
-    longest = max(LineString([pm.vertices[e.a].xy, pm.vertices[e.b].xy]).length
-                  for e in pm.edges.values())
+    ix, jx = tree.query(shapely.buffer(pts, 2.0, quad_segs=16))
+    other = ix != jx
+    d = shapely.distance(pts[ix[other]], pts[jx[other]])
+    best = float(d.min()) if d.size else float("inf")
+    longest = float(shapely.length(shapely.linestrings(
+        [[pm.vertices[e.a].xy, pm.vertices[e.b].xy] for e in pm.edges.values()])).max())
     return (best if best < float("inf") else 0.0), longest
 
 

@@ -30,7 +30,9 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Point, Polygon
+import numpy as np
+import shapely
+from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
 from ..geom import exact
@@ -113,7 +115,10 @@ def station_caps(planar: PlanarMap, law: Law, airport=None,
     tree = STRtree(polys)
     own_index = {fid: k for k, fid in enumerate(fids)}
     keepout = _keepout(vw, airport) if airport is not None else None
-    out: list[Station] = []
+    # the stations in face order, then every probe at once (#2206: one bulk
+    # query and one vectorised intersection, the same pairs and pieces)
+    out: list[Station | None] = []
+    probes: list[tuple[int, float, float, float, float, int, int]] = []
     for f in vw.faces_of_role(roads):
         k_own = own_index.get(f.id)
         if k_own is None:
@@ -134,33 +139,45 @@ def station_caps(planar: PlanarMap, law: Law, airport=None,
             if keepout is not None and keepout.covers(pt):
                 out.append(Station(f.id, (px, py), None, ()))
                 continue
-            present = _cross_section(px, py, nx, ny, lc.probe_m, lc.gap_tol_m,
-                                     lc.min_member_m, tree, polys, roles, k_own)
-            cap = min(caps[own_index[fids[j]]] for j in present) if present else None
-            out.append(Station(f.id, (px, py), cap,
-                               tuple(sorted({roles[j] for j in present}))))
-    return out
+            probes.append((len(out), px, py, nx, ny, k_own, f.id))
+            out.append(None)
+    for (slot, px, py, _nx, _ny, _k, f_id), present in zip(probes, _cross_sections(
+            probes, lc.probe_m, lc.gap_tol_m, lc.min_member_m, tree, polys), strict=True):
+        cap = min(caps[own_index[fids[j]]] for j in present) if present else None
+        out[slot] = Station(f_id, (px, py), cap, tuple(sorted({roles[j] for j in present})))
+    return _t.cast(list, out)
 
 
-def _cross_section(px: float, py: float, nx: float, ny: float, probe: float,
-                   gap: float, min_member: float, tree: STRtree,
-                   polys: list[Polygon], roles: list[str], own: int
-                   ) -> list[int]:
-    """Indices (into ``polys``) of the run holding the station."""
-    cut = LineString([(px - nx * probe, py - ny * probe),
-                      (px + nx * probe, py + ny * probe)])
-    segs: list[tuple[float, float, int]] = []
-    for j in tree.query(cut):
-        j = int(j)
-        inter = cut.intersection(polys[j])
-        if inter.is_empty:
-            continue
-        parts = [inter] if inter.geom_type == "LineString" else \
-            [g for g in getattr(inter, "geoms", ()) if g.geom_type == "LineString"]
-        for g in parts:
-            ts = [((x - px) * nx + (y - py) * ny) for x, y in g.coords]
-            if ts:
-                segs.append((min(ts), max(ts), j))
+def _cross_sections(probes, probe: float, gap: float, min_member: float, tree: STRtree,
+                    polys: list[Polygon]) -> list[list[int]]:
+    """Per probe ``(slot, px, py, nx, ny, own, face)``: the indices (into
+    ``polys``) of the run holding the station -- each probe's cut asked of
+    every polygon whose box it meets, the pieces each cut leaves (its line
+    parts, one level down), their extent along the cut, the touching
+    pieces merged into runs (``gap``) and the run at the station kept, a
+    foreign piece shorter than ``min_member`` a graze."""
+    if not probes:
+        return []
+    cuts = shapely.linestrings([[(px - nx * probe, py - ny * probe),
+                                 (px + nx * probe, py + ny * probe)]
+                                for _s, px, py, nx, ny, _k, _f in probes])
+    ix, jx = tree.query(cuts)
+    inter = shapely.intersection(cuts[ix], np.asarray(polys, dtype=object)[jx])
+    parts, owner = shapely.get_parts(inter, return_index=True)
+    line = (shapely.get_type_id(parts) == 1) & ~shapely.is_empty(parts)
+    segs: list[list[tuple[float, float, int]]] = [[] for _ in probes]
+    for part, k in zip(parts[line].tolist(), owner[line].tolist(), strict=True):
+        i = int(ix[k])
+        _s, px, py, nx, ny, _o, _f = probes[i]
+        ts = [((x - px) * nx + (y - py) * ny) for x, y in part.coords]
+        if ts:
+            segs[i].append((min(ts), max(ts), int(jx[k])))
+    return [_run_at(sg, gap, min_member, probes[i][5]) for i, sg in enumerate(segs)]
+
+
+def _run_at(segs: list[tuple[float, float, int]], gap: float, min_member: float,
+            own: int) -> list[int]:
+    """The run of ``segs`` (one probe's pieces) holding the station."""
     if not segs:
         return []
     segs.sort()
